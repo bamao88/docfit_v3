@@ -6,6 +6,8 @@ from docfit.harness.audit import reject_golden_auto_update
 
 
 def test_status_merge_order() -> None:
+    assert list(Status) == [Status.PASS, Status.FAIL, Status.UNKNOWN]
+    assert merge_statuses([]) == Status.UNKNOWN
     assert merge_statuses([Status.PASS, Status.UNKNOWN]) == Status.UNKNOWN
     assert merge_statuses([Status.PASS, Status.FAIL, Status.UNKNOWN]) == Status.FAIL
     assert merge_statuses([Status.PASS, Status.PASS]) == Status.PASS

@@ -12,7 +12,7 @@ def build_placement_plan(
     template_artifact: dict[str, Any],
     content_artifact: dict[str, Any],
     *,
-    simulate_drop: str | None = None,
+    drop_content_id_for_test: str | None = None,
 ) -> StageResult:
     slots = template_artifact.get("data", {}).get("slots", [])
     slot_by_id = {slot["slot_id"]: slot for slot in slots}
@@ -21,7 +21,7 @@ def build_placement_plan(
     unresolved: list[dict[str, Any]] = []
     for item in content_artifact.get("data", {}).get("visible_content_ledger", []):
         content_id = item["content_id"]
-        if simulate_drop == content_id:
+        if drop_content_id_for_test == content_id:
             continue
         if default_slot not in slot_by_id:
             unresolved.append(

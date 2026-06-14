@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import shutil
@@ -8,6 +9,14 @@ from zipfile import ZipFile
 
 import yaml
 from docx import Document
+
+from docfit.harness.profiles import (
+    BOOTSTRAP_PASS_STUDENT_DOCX,
+    BOOTSTRAP_PROFILE,
+    BOOTSTRAP_SILENT_DROP_DOCX,
+    BOOTSTRAP_TEMPLATE_DOCX,
+    BOOTSTRAP_UNSUPPORTED_TEXTBOX_DOCX,
+)
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -139,12 +148,7 @@ def create_contracts(standard_dir: Path) -> None:
             **common,
             "contract_type": "template",
             "required_invariants": ["required slot exists", "required region exists"],
-            "required_capabilities": [
-                "template.docx_openable",
-                "template.required_regions",
-                "template.required_slots",
-                "template.styles_inventory",
-            ],
+            "required_capabilities": BOOTSTRAP_PROFILE.capabilities_for_stage("template"),
             "required_slots": ["slot_body_start"],
             "required_regions": ["body"],
             "verifier_refs": ["docfit.stages.template_parse.verify_template_artifact"],
@@ -153,35 +157,21 @@ def create_contracts(standard_dir: Path) -> None:
             **common,
             "contract_type": "student_content",
             "required_invariants": ["visible content ledger complete"],
-            "required_capabilities": [
-                "content.visible_paragraphs",
-                "content.visible_tables",
-                "content.reading_order",
-                "content.stable_ids",
-            ],
+            "required_capabilities": BOOTSTRAP_PROFILE.capabilities_for_stage("content"),
             "verifier_refs": ["docfit.stages.content_extract.verify_student_content_artifact"],
         },
         "placement_contract.json": {
             **common,
             "contract_type": "placement",
             "required_invariants": ["no silent drop", "slot compatibility"],
-            "required_capabilities": [
-                "placement.no_silent_drop",
-                "placement.slot_compatibility",
-                "placement.required_slots",
-            ],
+            "required_capabilities": BOOTSTRAP_PROFILE.capabilities_for_stage("placement"),
             "verifier_refs": ["docfit.stages.placement.verify_placement_plan"],
         },
         "render_contract.json": {
             **common,
             "contract_type": "render",
             "required_invariants": ["valid docx", "plan coverage", "signed golden exists"],
-            "required_capabilities": [
-                "render.valid_docx_package",
-                "render.plan_coverage",
-                "render.feature_snapshot",
-                "render.content_hash_coverage",
-            ],
+            "required_capabilities": BOOTSTRAP_PROFILE.capabilities_for_stage("render"),
             "verifier_refs": ["docfit.stages.render.verify_render_outputs"],
         },
     }
@@ -190,8 +180,8 @@ def create_contracts(standard_dir: Path) -> None:
     (standard_dir / "exceptions.yaml").write_text("exceptions: []\n", encoding="utf-8")
 
 
-def create_standard(template_path: Path, expected_hashes: list[str]) -> None:
-    standard_dir = ROOT / "standards/schools/demo-school/v1"
+def create_standard(output_root: Path, template_path: Path, expected_hashes: list[str]) -> None:
+    standard_dir = output_root / "standards/schools/demo-school/v1"
     create_contracts(standard_dir)
     golden_dir = standard_dir / "golden"
     write_json(
@@ -214,7 +204,7 @@ def create_standard(template_path: Path, expected_hashes: list[str]) -> None:
         "owner": "docfit-core",
         "approved_at": "2026-06-14T00:00:00+00:00",
         "source": {
-            "template_docx": "inputs/bootstrap-demo-school-template.docx",
+            "template_docx": str(BOOTSTRAP_TEMPLATE_DOCX),
             "template_docx_sha256": sha256_file(template_path),
         },
         "contracts": {
@@ -228,24 +218,8 @@ def create_standard(template_path: Path, expected_hashes: list[str]) -> None:
             "expected_docx": "golden/expected.docx",
         },
         "coverage_requirements": {
-            "profile": "bootstrap-core",
-            "required_capabilities": [
-                "template.docx_openable",
-                "template.required_regions",
-                "template.required_slots",
-                "template.styles_inventory",
-                "content.visible_paragraphs",
-                "content.visible_tables",
-                "content.reading_order",
-                "content.stable_ids",
-                "placement.no_silent_drop",
-                "placement.slot_compatibility",
-                "placement.required_slots",
-                "render.valid_docx_package",
-                "render.plan_coverage",
-                "render.feature_snapshot",
-                "render.content_hash_coverage",
-            ],
+            "profile": BOOTSTRAP_PROFILE.profile_id,
+            "required_capabilities": BOOTSTRAP_PROFILE.all_required_capabilities(),
         },
         "change_control": {
             "auto_update_allowed": False,
@@ -259,13 +233,13 @@ def create_standard(template_path: Path, expected_hashes: list[str]) -> None:
     )
 
 
-def create_expected_files(expected_hashes: list[str]) -> None:
+def create_expected_files(output_root: Path, expected_hashes: list[str]) -> None:
     write_json(
-        ROOT / "inputs/bootstrap-demo-feature-snapshot.json",
+        output_root / BOOTSTRAP_PROFILE.expected_feature_snapshot,
         {"required_content_hashes": expected_hashes},
     )
     write_json(
-        ROOT / "inputs/bootstrap-demo-placement-plan.json",
+        output_root / BOOTSTRAP_PROFILE.expected_placement_plan,
         {
             "expected_action_count": len(expected_hashes),
             "required_disposition": "place",
@@ -273,17 +247,47 @@ def create_expected_files(expected_hashes: list[str]) -> None:
     )
 
 
-def main() -> None:
-    template_path = ROOT / "inputs/bootstrap-demo-school-template.docx"
-    student_path = ROOT / "inputs/bootstrap-demo-student-pass.docx"
-    textbox_path = ROOT / "inputs/bootstrap-demo-student-unsupported-textbox.docx"
-    silent_drop_path = ROOT / "inputs/bootstrap-demo-student-silent-drop.docx"
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--root",
+        type=Path,
+        default=ROOT / "out/bootstrap-fixtures",
+        help="Output root. Defaults to ignored generated output.",
+    )
+    parser.add_argument(
+        "--write-reviewed-assets",
+        action="store_true",
+        help="Allow writing signed standards, goldens, and input assets in the repo root.",
+    )
+    return parser.parse_args(argv)
+
+
+def resolve_output_root(root: Path, *, write_reviewed_assets: bool) -> Path:
+    output_root = root if root.is_absolute() else ROOT / root
+    if output_root.resolve() == ROOT.resolve() and not write_reviewed_assets:
+        raise SystemExit(
+            "Refusing to rewrite reviewed repo assets without --write-reviewed-assets."
+        )
+    return output_root
+
+
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
+    output_root = resolve_output_root(
+        args.root,
+        write_reviewed_assets=args.write_reviewed_assets,
+    )
+    template_path = output_root / BOOTSTRAP_TEMPLATE_DOCX
+    student_path = output_root / BOOTSTRAP_PASS_STUDENT_DOCX
+    textbox_path = output_root / BOOTSTRAP_UNSUPPORTED_TEXTBOX_DOCX
+    silent_drop_path = output_root / BOOTSTRAP_SILENT_DROP_DOCX
     create_template(template_path)
     expected_hashes = create_demo_student(student_path)
     create_silent_drop_student(student_path, silent_drop_path)
     create_textbox_student(textbox_path)
-    create_standard(template_path, expected_hashes)
-    create_expected_files(expected_hashes)
+    create_standard(output_root, template_path, expected_hashes)
+    create_expected_files(output_root, expected_hashes)
 
 
 if __name__ == "__main__":

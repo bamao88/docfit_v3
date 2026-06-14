@@ -11,9 +11,10 @@ The first implementation target is the Bootstrap Profile from `SPEC.md`:
 - signed standards and anti-drift checks,
 - PM reports, issue clusters, and AI diagnosis packets.
 
-Input assets are centralized in `inputs/`; see `inputs/README.md` for which
-files are original inputs and which signed standards or future standard packages
-they correspond to.
+Raw input assets are centralized in `inputs/`; see `inputs/README.md` for
+original inputs, human review evidence, runnable standards, and real-school
+source evidence. Bootstrap expected artifacts live under
+`standards/eval_profiles/bootstrap-core/expected/`.
 
 Run the bootstrap checks with:
 

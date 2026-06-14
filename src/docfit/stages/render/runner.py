@@ -27,7 +27,7 @@ def render_docx(
     bundle: StandardBundle,
     out_dir: Path,
     *,
-    simulate_skip_action: str | None = None,
+    skip_action_id_for_test: str | None = None,
 ) -> StageResult:
     ensure_dir(out_dir)
     input_findings = verify_render_input_hashes(template_artifact, placement_plan)
@@ -47,13 +47,13 @@ def render_docx(
     actions_executed: list[dict[str, Any]] = []
     actions_failed: list[dict[str, Any]] = []
     for action in placement_plan.get("data", {}).get("actions", []):
-        if simulate_skip_action == action["action_id"]:
+        if skip_action_id_for_test == action["action_id"]:
             actions_failed.append(
                 {
                     "action_id": action["action_id"],
                     "content_ids": action.get("content_ids", []),
                     "status": "failed",
-                    "reason": "simulated renderer skip",
+                    "reason": "test-requested renderer skip",
                 }
             )
             continue

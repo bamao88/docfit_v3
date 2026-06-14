@@ -46,6 +46,10 @@ def test_convert_blocks_on_unknown(tmp_path) -> None:
     assert result.status == Status.UNKNOWN
     assert not final_copy.exists()
     assert result.blocked_at == "content"
+    summary = read_json(tmp_path / "bootstrap_unknown/summary.json")
+    assert set(summary["stage_statuses"].values()) <= {status.value for status in Status}
+    assert "placement" not in summary["stage_statuses"]
+    assert summary["stage_run_states"]["placement"] == "not_run"
 
 
 def test_fail_when_renderer_skips_action(tmp_path) -> None:
@@ -63,7 +67,7 @@ def test_fail_when_renderer_skips_action(tmp_path) -> None:
         tmp_path / "bootstrap_pass/artifacts/template_artifact.json",
         tmp_path / "bootstrap_pass/artifacts/placement_plan.json",
         tmp_path / "render_fail",
-        simulate_skip_action="a_002",
+        skip_action_id_for_test="a_002",
     )
 
     assert result.status == Status.FAIL

@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
-
 import typer
 
 from docfit.convert.orchestrator import (
@@ -16,6 +14,7 @@ from docfit.core.io import read_json, write_json
 from docfit.core.status import Status
 from docfit.harness.audit import reject_golden_auto_update
 from docfit.harness.coverage import evaluate_bootstrap_coverage
+from docfit.harness.profiles import BOOTSTRAP_PROFILE, get_eval_case, get_eval_profile
 from docfit.harness.reports import write_report_bundle
 from docfit.harness.standards import load_standard_bundle
 
@@ -46,13 +45,8 @@ def eval_template(
 def eval_content(
     student: Path = typer.Option(..., "--student", exists=True),
     out: Path = typer.Option(..., "--out"),
-    simulate_missing_content_id: Optional[str] = typer.Option(None, "--simulate-missing-content-id"),
 ) -> None:
-    result = run_content_eval(
-        student,
-        out,
-        simulate_missing_content_id=simulate_missing_content_id,
-    )
+    result = run_content_eval(student, out)
     _echo_status(result.status)
 
 
@@ -62,7 +56,6 @@ def eval_placement(
     template_artifact: Path = typer.Option(..., "--template-artifact", exists=True),
     content_artifact: Path = typer.Option(..., "--content-artifact", exists=True),
     out: Path = typer.Option(..., "--out"),
-    simulate_drop: Optional[str] = typer.Option(None, "--simulate-drop"),
 ) -> None:
     result = run_placement_eval(
         _root(),
@@ -70,7 +63,6 @@ def eval_placement(
         template_artifact,
         content_artifact,
         out,
-        simulate_drop=simulate_drop,
     )
     _echo_status(result.status)
 
@@ -81,7 +73,6 @@ def eval_render(
     template_artifact: Path = typer.Option(..., "--template-artifact", exists=True),
     placement_plan: Path = typer.Option(..., "--placement-plan", exists=True),
     out: Path = typer.Option(..., "--out"),
-    simulate_skip_action: Optional[str] = typer.Option(None, "--simulate-skip-action"),
 ) -> None:
     result = run_render_eval(
         _root(),
@@ -89,21 +80,23 @@ def eval_render(
         template_artifact,
         placement_plan,
         out,
-        simulate_skip_action=simulate_skip_action,
     )
     _echo_status(result.status)
 
 
 @eval_app.command("e2e")
 def eval_e2e(
-    school: Optional[str] = typer.Option(None, "--school"),
-    student: Optional[Path] = typer.Option(None, "--student", exists=True),
+    school: str | None = typer.Option(None, "--school"),
+    student: Path | None = typer.Option(None, "--student", exists=True),
     out: Path = typer.Option(Path("reports/bootstrap_pass"), "--out"),
-    case: Optional[str] = typer.Option(None, "--case"),
+    case: str | None = typer.Option(None, "--case"),
 ) -> None:
-    if case == "bootstrap_e2e_demo_001":
-        school = "demo-school"
-        student = Path("inputs/bootstrap-demo-student-pass.docx")
+    if case is not None:
+        eval_case = get_eval_case(case)
+        if eval_case is None:
+            raise typer.BadParameter(f"unknown eval case: {case}")
+        school = eval_case.school_id
+        student = eval_case.student_docx
     if school is None or student is None:
         raise typer.BadParameter("--school and --student are required unless --case is provided")
     result = run_e2e_eval(_root(), school, student, out)
@@ -112,10 +105,10 @@ def eval_e2e(
 
 @eval_app.command("coverage")
 def eval_coverage(
-    profile: str = typer.Option("bootstrap-core", "--profile"),
+    profile: str = typer.Option(BOOTSTRAP_PROFILE.profile_id, "--profile"),
     out: Path = typer.Option(Path("reports/coverage_bootstrap_core"), "--out"),
 ) -> None:
-    if profile != "bootstrap-core":
+    if get_eval_profile(profile) is None:
         report = {
             "profile": profile,
             "status": Status.UNKNOWN.value,

@@ -7,18 +7,20 @@ class Status(StrEnum):
     PASS = "PASS"
     FAIL = "FAIL"
     UNKNOWN = "UNKNOWN"
-    NOT_RUN = "NOT_RUN"
+
+
+class StageRunState(StrEnum):
+    PENDING = "not_run"
+    RAN = "ran"
 
 
 def merge_statuses(statuses: list[Status]) -> Status:
     if not statuses:
-        return Status.NOT_RUN
+        return Status.UNKNOWN
     if any(status == Status.FAIL for status in statuses):
         return Status.FAIL
     if any(status == Status.UNKNOWN for status in statuses):
         return Status.UNKNOWN
-    if any(status == Status.NOT_RUN for status in statuses):
-        return Status.NOT_RUN
     return Status.PASS
 
 

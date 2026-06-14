@@ -8,6 +8,7 @@ from docx import Document
 from docfit.convert.orchestrator import run_content_eval
 from docfit.core.io import write_json
 from docfit.core.status import Status
+from docfit.harness.profiles import BOOTSTRAP_PROFILE
 from docfit.harness.coverage import evaluate_bootstrap_coverage
 from docfit.harness.standards import load_standard_bundle
 from docfit.stages.content_extract.runner import extract_student_content
@@ -31,6 +32,19 @@ def test_unknown_when_standard_missing() -> None:
     assert bundle is None
     assert findings[0].status == Status.UNKNOWN
     assert findings[0].type == "missing_signed_standard"
+
+
+def test_school_standard_tree_contains_only_runnable_standards() -> None:
+    version_dirs = [
+        path
+        for school_dir in (ROOT / "standards/schools").iterdir()
+        if school_dir.is_dir()
+        for path in school_dir.iterdir()
+        if path.is_dir()
+    ]
+
+    assert version_dirs
+    assert all((path / "signed_standard.yaml").exists() for path in version_dirs)
 
 
 def test_unknown_when_signed_standard_capability_profile_drifts(tmp_path) -> None:
@@ -67,7 +81,7 @@ def test_fail_when_template_slot_missing(tmp_path) -> None:
 def test_fail_when_visible_content_missing_from_ledger() -> None:
     result = extract_student_content(
         ROOT / "inputs/bootstrap-demo-student-pass.docx",
-        simulate_missing_content_id="c_002",
+        omit_content_id_for_test="c_002",
     )
 
     assert result.status == Status.FAIL
@@ -99,8 +113,9 @@ def test_unknown_when_content_coverage_insufficient(tmp_path) -> None:
 def test_bootstrap_coverage_checks_fixture_content_not_just_paths(tmp_path) -> None:
     template = tmp_path / "inputs/bootstrap-demo-school-template.docx"
     student = tmp_path / "inputs/bootstrap-demo-student-pass.docx"
-    expected_snapshot = tmp_path / "inputs/bootstrap-demo-feature-snapshot.json"
-    expected_placement = tmp_path / "inputs/bootstrap-demo-placement-plan.json"
+    expected_paths = BOOTSTRAP_PROFILE.expected_paths(tmp_path)
+    expected_snapshot = expected_paths["feature_snapshot"]
+    expected_placement = expected_paths["placement_plan"]
     template.parent.mkdir(parents=True, exist_ok=True)
     student.parent.mkdir(parents=True, exist_ok=True)
 
@@ -133,7 +148,7 @@ def test_fail_when_content_unplaced() -> None:
     result = build_placement_plan(
         template.artifacts["template_artifact"],
         content.artifacts["student_content_artifact"],
-        simulate_drop="c_002",
+        drop_content_id_for_test="c_002",
     )
 
     assert result.status == Status.FAIL

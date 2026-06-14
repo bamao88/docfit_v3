@@ -76,7 +76,7 @@ def _table_payload(table: Table) -> list[list[str]]:
 def extract_student_content(
     student_docx: Path,
     *,
-    simulate_missing_content_id: str | None = None,
+    omit_content_id_for_test: str | None = None,
 ) -> StageResult:
     findings: list[Finding] = []
     if not is_valid_docx(student_docx):
@@ -121,7 +121,7 @@ def extract_student_content(
                 "semantic_candidates": semantic_candidates,
                 "payload": {"type": "text", "text": text},
             }
-            if simulate_missing_content_id != content_id:
+            if omit_content_id_for_test != content_id:
                 ledger.append(item)
             reading_order += 1
         elif isinstance(block, Table):
@@ -129,7 +129,7 @@ def extract_student_content(
             table_count += 1
             payload = _table_payload(block)
             content_id = f"c_{reading_order:03d}"
-            if simulate_missing_content_id != content_id:
+            if omit_content_id_for_test != content_id:
                 ledger.append(
                     {
                         "content_id": content_id,

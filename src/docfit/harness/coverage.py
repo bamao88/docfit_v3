@@ -9,37 +9,11 @@ from docfit.core.io import read_json
 from docfit.core.models import Finding, make_finding
 from docfit.core.status import Status
 from docfit.ooxml.package import is_valid_docx, read_document_xml
-
-
-BOOTSTRAP_REQUIRED = {
-    "template": [
-        "template.docx_openable",
-        "template.required_regions",
-        "template.required_slots",
-        "template.styles_inventory",
-    ],
-    "content": [
-        "content.visible_paragraphs",
-        "content.visible_tables",
-        "content.reading_order",
-        "content.stable_ids",
-    ],
-    "placement": [
-        "placement.no_silent_drop",
-        "placement.slot_compatibility",
-        "placement.required_slots",
-    ],
-    "render": [
-        "render.valid_docx_package",
-        "render.plan_coverage",
-        "render.feature_snapshot",
-        "render.content_hash_coverage",
-    ],
-}
+from docfit.harness.profiles import BOOTSTRAP_PROFILE, BOOTSTRAP_TEMPLATE_DOCX
 
 
 def bootstrap_required_capabilities() -> list[str]:
-    return [capability for items in BOOTSTRAP_REQUIRED.values() for capability in items]
+    return BOOTSTRAP_PROFILE.all_required_capabilities()
 
 
 def validate_standard_coverage_requirements(
@@ -49,7 +23,7 @@ def validate_standard_coverage_requirements(
     stage: str = "standards",
     start_index: int = 1,
 ) -> list[Finding]:
-    if profile != "bootstrap-core":
+    if profile != BOOTSTRAP_PROFILE.profile_id:
         return [
             make_finding(
                 start_index,
@@ -57,7 +31,7 @@ def validate_standard_coverage_requirements(
                 Status.UNKNOWN,
                 "unknown_coverage_profile",
                 "Signed standard references an unknown coverage profile",
-                "bootstrap-core",
+                BOOTSTRAP_PROFILE.profile_id,
                 profile or "missing",
                 root_cause_bucket="coverage_gap",
             )
@@ -150,10 +124,11 @@ def _has_required_content_hashes(path: Path) -> bool:
 
 
 def evaluate_bootstrap_coverage(root: Path) -> tuple[dict[str, Any], list[Finding]]:
-    template_docx = root / "inputs/bootstrap-demo-school-template.docx"
+    template_docx = root / BOOTSTRAP_TEMPLATE_DOCX
     student_docx = root / "inputs/bootstrap-demo-student-pass.docx"
-    expected_placement = root / "inputs/bootstrap-demo-placement-plan.json"
-    expected_snapshot = root / "inputs/bootstrap-demo-feature-snapshot.json"
+    expected_paths = BOOTSTRAP_PROFILE.expected_paths(root)
+    expected_placement = expected_paths["placement_plan"]
+    expected_snapshot = expected_paths["feature_snapshot"]
     template_doc = _safe_document(template_docx)
     student_doc = _safe_document(student_docx)
     has_visible_content = bool(
@@ -188,7 +163,7 @@ def evaluate_bootstrap_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
         for capability, is_covered in capability_checks.items()
         if not is_covered
     ]
-    required_flat = [item for items in BOOTSTRAP_REQUIRED.values() for item in items]
+    required_flat = BOOTSTRAP_PROFILE.all_required_capabilities()
     covered = sorted(
         capability
         for capability in required_flat
@@ -196,7 +171,7 @@ def evaluate_bootstrap_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
     )
     status = Status.UNKNOWN if missing else Status.PASS
     report = {
-        "profile": "bootstrap-core",
+        "profile": BOOTSTRAP_PROFILE.profile_id,
         "status": status.value,
         "required": len(required_flat),
         "covered": len(covered),
@@ -210,7 +185,7 @@ def evaluate_bootstrap_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
                 "coverage",
                 Status.UNKNOWN,
                 "coverage_insufficient",
-                "bootstrap-core input asset coverage is incomplete",
+                "bootstrap-core input and expected artifact coverage is incomplete",
                 "all required bootstrap capabilities have input assets",
                 ", ".join(missing),
                 root_cause_bucket="coverage_gap",

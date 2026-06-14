@@ -22,6 +22,7 @@ def write_report_bundle(
     artifacts: dict[str, str] | None = None,
     coverage: dict[str, Any] | None = None,
     stage_statuses: dict[str, str] | None = None,
+    stage_run_states: dict[str, str] | None = None,
     blocked_at: str | None = None,
     user_message: str | None = None,
 ) -> dict[str, Any]:
@@ -48,6 +49,7 @@ def write_report_bundle(
         "stage": stage,
         "status": status.value,
         "stage_statuses": stage_statuses or {stage: status.value},
+        "stage_run_states": stage_run_states or {stage: "ran"},
         "blocked_at": blocked_at,
         "blocking_findings": len(blocking_findings),
         "unknown_findings": len(unknown_findings),

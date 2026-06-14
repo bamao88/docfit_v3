@@ -13,9 +13,8 @@ satisfies signed contracts.
 - `docs/agents/**` for agent-only runbooks that are too long for this file.
 - Relevant standards under `standards/schools/**` and tests under `tests/**`.
 
-`SPEC.md` and `DOCFIT_EVAL_HARNESS_FIRST_SPEC_CN.md` are currently duplicates.
-Treat `SPEC.md` as the working canonical path unless the task explicitly says
-to update both.
+`SPEC.md` is the canonical long product spec.
+`DOCFIT_EVAL_HARNESS_FIRST_SPEC_CN.md` is a short compatibility pointer only.
 
 ## Project Map
 
@@ -24,10 +23,11 @@ to update both.
 - `src/docfit/stages/`: template parse, content extract, placement, and render.
 - `src/docfit/harness/`: status, standards, coverage, reports, issue clusters,
   and audit helpers.
-- `standards/schools/**`: signed standards, contracts, goldens, exceptions, and
-  school package notes.
-- `inputs/**`: original DOCX/DOC inputs, student examples, human review
-  evidence, and bootstrap expected fixture inputs.
+- `standards/schools/**`: runnable signed standards, contracts, goldens, and
+  exceptions only.
+- `standards/eval_profiles/**`: eval profile expected artifacts.
+- `inputs/**`: original DOCX/DOC inputs, student examples, and human review
+  evidence.
 - `reports/**` and `out/**`: generated evidence/output unless a task explicitly
   asks to preserve them.
 

@@ -37,14 +37,12 @@ dropped or treated as success.
 
 ## Bootstrap FAIL
 
-Generate the PASS artifacts first, then simulate a placement drop:
+Failure injection is private test infrastructure, not a public CLI option. Use
+the focused pytest proof when you need to verify that the renderer catches a
+skipped placement action:
 
 ```bash
-uv run docfit eval placement --school demo-school \
-  --template-artifact /tmp/docfit_bootstrap_pass/artifacts/template_artifact.json \
-  --content-artifact /tmp/docfit_bootstrap_pass/artifacts/student_content_artifact.json \
-  --simulate-drop c_002 \
-  --out /tmp/docfit_bootstrap_fail
+uv run pytest tests/e2e/test_bootstrap_cli.py::test_fail_when_renderer_skips_action -q
 ```
 
 Expected status is `FAIL`.

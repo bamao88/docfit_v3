@@ -296,6 +296,12 @@ docfit/
       prompts.py
 
   standards/
+    eval_profiles/
+      bootstrap-core/
+        README.md
+        expected/
+          placement_plan.json
+          feature_snapshot.json
     schools/
       <school_id>/
         <template_version>/
@@ -314,8 +320,6 @@ docfit/
     bootstrap-demo-student-pass.docx
     bootstrap-demo-student-unsupported-textbox.docx
     bootstrap-demo-student-silent-drop.docx
-    bootstrap-demo-placement-plan.json
-    bootstrap-demo-feature-snapshot.json
     real-student-001-source.docx
     school-pku-graduate-template.docx
 
@@ -341,7 +345,7 @@ docfit/
 
 ### 5.2 禁止的组织方式
 
-禁止把标准和 expected 混在普通代码里。
+禁止把标准和 expected 混在普通代码或原始输入目录里。
 
 禁止让 stage runner 内部硬编码学校规则。
 
@@ -1243,8 +1247,13 @@ PM Report 必须回答：
   "stage_statuses": {
     "template": "PASS",
     "content": "PASS",
-    "placement": "FAIL",
-    "render": "NOT_RUN"
+    "placement": "FAIL"
+  },
+  "stage_run_states": {
+    "template": "ran",
+    "content": "ran",
+    "placement": "ran",
+    "render": "not_run"
   },
   "blocking_findings": 1,
   "unknown_findings": 0,
@@ -1624,8 +1633,14 @@ inputs/
   bootstrap-demo-student-pass.docx
   bootstrap-demo-student-unsupported-textbox.docx
   bootstrap-demo-student-silent-drop.docx
-  bootstrap-demo-placement-plan.json
-  bootstrap-demo-feature-snapshot.json
+```
+
+Bootstrap expected 中间产物不属于原始输入，必须放在 eval profile surface：
+
+```text
+standards/eval_profiles/bootstrap-core/expected/
+  placement_plan.json
+  feature_snapshot.json
 ```
 
 ### 19.5 Bootstrap CLI 验收
@@ -1660,15 +1675,11 @@ status = UNKNOWN
 finding.type = unsupported_visible_object
 ```
 
-以下命令必须输出 FAIL：
+以下 private pytest proof 必须输出 FAIL，证明 verifier 能抓到跳过
+placement action 的错误。Failure injection 禁止作为公开 CLI 选项暴露：
 
 ```bash
-docfit eval placement \
-  --school demo-school \
-  --template-artifact reports/bootstrap_pass/artifacts/template_artifact.json \
-  --content-artifact reports/bootstrap_pass/artifacts/student_content_artifact.json \
-  --simulate-drop c_002 \
-  --out reports/bootstrap_fail
+pytest tests/e2e/test_bootstrap_cli.py::test_fail_when_renderer_skips_action
 ```
 
 期望：
@@ -1727,7 +1738,8 @@ MVP 必须满足：
 
 实现：
 
-- `Status = PASS | FAIL | UNKNOWN | NOT_RUN`
+- `Status = PASS | FAIL | UNKNOWN`
+- 内部 stage lifecycle state 与 gate status 分离，例如 `ran` / `not_run`
 - `Finding`
 - `EvalRun`
 - `summary.json`

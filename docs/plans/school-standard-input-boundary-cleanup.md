@@ -2,7 +2,80 @@
 
 Date: 2026-06-14
 Owner: Product + Engineering
-Status: Proposed
+Status: Implemented
+Last reviewed: 2026-06-14
+
+## Implementation Closeout
+
+Implemented on 2026-06-14.
+
+Current implementation contract:
+
+- Raw DOCX/DOC inputs and human review evidence live in `inputs/**`.
+- Bootstrap expected intermediate artifacts live in
+  `standards/eval_profiles/bootstrap-core/expected/`.
+- Runnable school standards under `standards/schools/**` must contain
+  `signed_standard.yaml`; the real-school evidence packages are cataloged in
+  `inputs/README.md` and no longer have placeholder standard directories.
+- Bootstrap profile id, required capabilities, case id, and expected artifact
+  paths are centralized in `src/docfit/harness/profiles.py`.
+- Public `Status` is only `PASS`, `FAIL`, or `UNKNOWN`; internal e2e lifecycle
+  state is reported separately as `stage_run_states`.
+- Public CLI failure-injection switches were removed. Failure injection remains
+  private test infrastructure through `_for_test` parameters.
+- `scripts/create_bootstrap_fixtures.py` writes to ignored generated output by
+  default and refuses repo-root reviewed-asset writes unless
+  `--write-reviewed-assets` is explicit.
+- `DOCFIT_EVAL_HARNESS_FIRST_SPEC_CN.md` is now a short compatibility pointer;
+  `SPEC.md` is the only canonical long product spec.
+
+Verification evidence:
+
+- `uv run pytest -q` -> `20 passed`.
+- `uv run python -m compileall src scripts tests -q` -> pass.
+- `git diff --check` -> pass.
+- `uv run docfit eval standards --school demo-school --out /tmp/docfit_standards`
+  -> `PASS`.
+- `uv run docfit eval coverage --profile bootstrap-core --out /tmp/docfit_coverage`
+  -> `PASS`.
+- `uv run docfit eval e2e --school demo-school --student inputs/bootstrap-demo-student-pass.docx --out /tmp/docfit_bootstrap_pass`
+  -> `PASS`.
+- `uv run docfit eval e2e --case bootstrap_e2e_demo_001 --out /tmp/docfit_bootstrap_case`
+  -> `PASS`.
+- `uv run docfit eval content --student inputs/bootstrap-demo-student-unsupported-textbox.docx --out /tmp/docfit_bootstrap_unknown`
+  -> `UNKNOWN`.
+- `uv run docfit eval standards --school hunannongye --out /tmp/docfit_hunannongye_standards`
+  -> `UNKNOWN`.
+- `uv run docfit eval content --student inputs/real-student-001-source.docx --out /tmp/docfit_real_student_001_content`
+  -> `UNKNOWN`.
+- Focused stale-path searches over `src tests scripts docs/agents README.md
+  AGENTS.md inputs standards SPEC.md DOCFIT_EVAL_HARNESS_FIRST_SPEC_CN.md`
+  found no old expected-input paths, no real-school placeholder standard paths,
+  no public simulation switches, no uppercase not-run gate value, and no
+  `docfit.contracts` references.
+
+Documentation alignment:
+
+- Updated `README.md`, `AGENTS.md`, `SPEC.md`, `inputs/README.md`, and
+  `docs/agents/bootstrap-eval-runbook.md`.
+- Added `standards/eval_profiles/bootstrap-core/README.md`.
+- Checked for default `$intuitive-doc` human surface. This repo currently has
+  no `ARCHITECTURE.md`, `STATUS.md`, or `docs/human/**`; current truth is
+  covered by README/SPEC/input catalog/agent runbook for this cleanup.
+
+Scope changes: none.
+
+Parked follow-ups:
+
+- Promote the first real-school signed standard, likely `hunannongye`, in a
+  separate product slice.
+- Advanced real-school conversion support remains out of scope until a signed
+  real-school standard exists.
+- Ignored local residue under `reports/**`, `out/**`, `.pytest_cache`,
+  `.venv`, and `__pycache__` remains local cleanup only.
+
+Historical discovery and candidate sections below preserve the original planning
+evidence. Treat this closeout block as the current implementation state.
 
 ## Purpose
 
@@ -489,7 +562,8 @@ Non-goals for this plan:
 
 ## Preflight Contract
 
-Preflight status: DRAFT
+Preflight status: APPROVED_AND_IMPLEMENTED on 2026-06-14 by the user command
+`/goal execute docs/plans/school-standard-input-boundary-cleanup.md with intuitive-flow`.
 
 Task source: plan path + docs grilling decisions.
 
