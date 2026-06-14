@@ -1,0 +1,30 @@
+{
+  "contract_type": "template",
+  "contract_version": "1.0",
+  "coverage_requirements": {
+    "profile": "bootstrap-core"
+  },
+  "owner": "docfit-core",
+  "required_capabilities": [
+    "template.docx_openable",
+    "template.required_regions",
+    "template.required_slots",
+    "template.styles_inventory"
+  ],
+  "required_invariants": [
+    "required slot exists",
+    "required region exists"
+  ],
+  "required_regions": [
+    "body"
+  ],
+  "required_slots": [
+    "slot_body_start"
+  ],
+  "unsupported_policy": {
+    "blocking_unknown": true
+  },
+  "verifier_refs": [
+    "docfit.stages.template_parse.verify_template_artifact"
+  ]
+}

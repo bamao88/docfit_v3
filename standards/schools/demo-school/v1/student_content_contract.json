@@ -1,0 +1,23 @@
+{
+  "contract_type": "student_content",
+  "contract_version": "1.0",
+  "coverage_requirements": {
+    "profile": "bootstrap-core"
+  },
+  "owner": "docfit-core",
+  "required_capabilities": [
+    "content.visible_paragraphs",
+    "content.visible_tables",
+    "content.reading_order",
+    "content.stable_ids"
+  ],
+  "required_invariants": [
+    "visible content ledger complete"
+  ],
+  "unsupported_policy": {
+    "blocking_unknown": true
+  },
+  "verifier_refs": [
+    "docfit.stages.content_extract.verify_student_content_artifact"
+  ]
+}

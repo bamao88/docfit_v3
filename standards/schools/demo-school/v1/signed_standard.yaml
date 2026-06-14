@@ -1,0 +1,28 @@
+standard_id: demo-school-v1
+school_id: demo-school
+template_version: v1
+status: signed
+owner: docfit-core
+approved_at: '2026-06-14T00:00:00+00:00'
+source:
+  template_docx: fixtures/bootstrap/schools/demo-school/template.docx
+  template_docx_sha256: sha256:8a668e5acc991d6ae9c740ac0dd1fc96644ceb339e881177e484aeddecf19859
+contracts:
+  template_contract: template_contract.json
+  student_content_contract: student_content_contract.json
+  placement_contract: placement_contract.json
+  render_contract: render_contract.json
+goldens:
+  feature_snapshot: golden/feature_snapshot.json
+  expected_docx: golden/expected.docx
+coverage_requirements:
+  profile: bootstrap-core
+  required_capabilities:
+  - template.required_slots
+  - content.visible_text_blocks
+  - placement.no_silent_drop
+  - render.plan_coverage
+change_control:
+  auto_update_allowed: false
+  requires_review: true
+  change_reason: initial bootstrap standard

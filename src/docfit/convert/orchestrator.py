@@ -1,0 +1,251 @@
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+from typing import Any
+
+from docfit.core.io import read_json
+from docfit.core.models import Finding, StageResult
+from docfit.core.status import Status, merge_statuses
+from docfit.harness.reports import write_report_bundle
+from docfit.harness.standards import load_standard_bundle
+from docfit.stages.content_extract.runner import extract_student_content, write_content_outputs
+from docfit.stages.placement.runner import build_placement_plan, write_placement_outputs
+from docfit.stages.render.runner import render_docx, write_render_outputs
+from docfit.stages.template_parse.runner import parse_template, write_template_outputs
+
+
+def _artifact_refs(out_dir: Path, result: StageResult) -> dict[str, str]:
+    refs = {key: str(path) for key, path in result.artifact_paths.items()}
+    for key in result.artifacts:
+        refs.setdefault(key, f"artifacts/{key}.json")
+    if "final_docx" in result.artifact_paths:
+        refs["final_docx"] = str(result.artifact_paths["final_docx"])
+    return refs
+
+
+def _write_stage_report(out_dir: Path, result: StageResult) -> dict[str, Any]:
+    return write_report_bundle(
+        out_dir,
+        stage=result.stage,
+        status=result.status,
+        findings=result.finding_dicts(),
+        artifacts=_artifact_refs(out_dir, result),
+        coverage=result.coverage,
+        blocked_at=result.blocked_at,
+        user_message=result.user_message,
+    )
+
+
+def run_template_eval(root: Path, school_id: str, template_docx: Path, out_dir: Path) -> StageResult:
+    bundle, standard_findings = load_standard_bundle(root, school_id, finding_stage="template")
+    if bundle is None:
+        result = StageResult("template", Status.UNKNOWN, findings=standard_findings)
+    else:
+        result = parse_template(template_docx, bundle)
+        result.findings = standard_findings + result.findings
+        if standard_findings and result.status == Status.PASS:
+            result.status = Status.UNKNOWN
+    write_template_outputs(out_dir, result)
+    _write_stage_report(out_dir, result)
+    return result
+
+
+def run_content_eval(
+    student_docx: Path,
+    out_dir: Path,
+    *,
+    simulate_missing_content_id: str | None = None,
+) -> StageResult:
+    result = extract_student_content(
+        student_docx,
+        simulate_missing_content_id=simulate_missing_content_id,
+    )
+    write_content_outputs(out_dir, result)
+    _write_stage_report(out_dir, result)
+    return result
+
+
+def run_placement_eval(
+    root: Path,
+    school_id: str,
+    template_artifact_path: Path,
+    content_artifact_path: Path,
+    out_dir: Path,
+    *,
+    simulate_drop: str | None = None,
+) -> StageResult:
+    _, standard_findings = load_standard_bundle(root, school_id, finding_stage="placement")
+    template_artifact = read_json(template_artifact_path)
+    content_artifact = read_json(content_artifact_path)
+    result = build_placement_plan(
+        template_artifact,
+        content_artifact,
+        simulate_drop=simulate_drop,
+    )
+    result.findings = standard_findings + result.findings
+    if standard_findings and result.status == Status.PASS:
+        result.status = Status.UNKNOWN
+    write_placement_outputs(out_dir, result)
+    _write_stage_report(out_dir, result)
+    return result
+
+
+def run_render_eval(
+    root: Path,
+    school_id: str,
+    template_artifact_path: Path,
+    placement_plan_path: Path,
+    out_dir: Path,
+    *,
+    simulate_skip_action: str | None = None,
+) -> StageResult:
+    bundle, standard_findings = load_standard_bundle(root, school_id, finding_stage="render")
+    if bundle is None:
+        result = StageResult("render", Status.UNKNOWN, findings=standard_findings)
+    else:
+        template_artifact = read_json(template_artifact_path)
+        placement_plan = read_json(placement_plan_path)
+        result = render_docx(
+            template_artifact,
+            placement_plan,
+            bundle,
+            out_dir,
+            simulate_skip_action=simulate_skip_action,
+        )
+        result.findings = standard_findings + result.findings
+        if standard_findings and result.status == Status.PASS:
+            result.status = Status.UNKNOWN
+    write_render_outputs(out_dir, result)
+    _write_stage_report(out_dir, result)
+    return result
+
+
+def run_e2e_eval(
+    root: Path,
+    school_id: str,
+    student_docx: Path,
+    out_dir: Path,
+    *,
+    final_copy: Path | None = None,
+) -> StageResult:
+    bundle, standard_findings = load_standard_bundle(root, school_id, finding_stage="e2e")
+    stage_statuses = {
+        "template": Status.NOT_RUN.value,
+        "content": Status.NOT_RUN.value,
+        "placement": Status.NOT_RUN.value,
+        "render": Status.NOT_RUN.value,
+    }
+    all_findings: list[Finding] = list(standard_findings)
+    artifacts: dict[str, Any] = {}
+    artifact_paths: dict[str, Path] = {}
+    coverage: dict[str, Any] = {}
+
+    if bundle is None:
+        final_status = Status.UNKNOWN
+        result = StageResult("e2e", final_status, findings=all_findings, blocked_at="standards")
+        write_report_bundle(
+            out_dir,
+            stage="e2e",
+            status=final_status,
+            findings=result.finding_dicts(),
+            artifacts={},
+            coverage={},
+            stage_statuses=stage_statuses,
+            blocked_at="standards",
+        )
+        return result
+
+    template_result = parse_template(bundle.template_docx, bundle)
+    template_result.findings = standard_findings + template_result.findings
+    write_template_outputs(out_dir, template_result)
+    stage_statuses["template"] = template_result.status.value
+    all_findings = template_result.findings
+    artifacts.update(template_result.artifacts)
+    artifact_paths.update(template_result.artifact_paths)
+    coverage.update(template_result.coverage)
+    if template_result.status != Status.PASS:
+        return _finish_e2e(out_dir, stage_statuses, all_findings, artifacts, artifact_paths, coverage, "template")
+
+    content_result = extract_student_content(student_docx)
+    write_content_outputs(out_dir, content_result)
+    stage_statuses["content"] = content_result.status.value
+    all_findings.extend(content_result.findings)
+    artifacts.update(content_result.artifacts)
+    artifact_paths.update(content_result.artifact_paths)
+    coverage.update(content_result.coverage)
+    if content_result.status != Status.PASS:
+        return _finish_e2e(out_dir, stage_statuses, all_findings, artifacts, artifact_paths, coverage, "content")
+
+    placement_result = build_placement_plan(
+        template_result.artifacts["template_artifact"],
+        content_result.artifacts["student_content_artifact"],
+    )
+    write_placement_outputs(out_dir, placement_result)
+    stage_statuses["placement"] = placement_result.status.value
+    all_findings.extend(placement_result.findings)
+    artifacts.update(placement_result.artifacts)
+    artifact_paths.update(placement_result.artifact_paths)
+    coverage.update(placement_result.coverage)
+    if placement_result.status != Status.PASS:
+        return _finish_e2e(out_dir, stage_statuses, all_findings, artifacts, artifact_paths, coverage, "placement")
+
+    render_result = render_docx(
+        template_result.artifacts["template_artifact"],
+        placement_result.artifacts["placement_plan"],
+        bundle,
+        out_dir,
+    )
+    write_render_outputs(out_dir, render_result)
+    stage_statuses["render"] = render_result.status.value
+    all_findings.extend(render_result.findings)
+    artifacts.update(render_result.artifacts)
+    artifact_paths.update(render_result.artifact_paths)
+    coverage.update(render_result.coverage)
+    if final_copy and render_result.status == Status.PASS:
+        final_copy.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(render_result.artifact_paths["final_docx"], final_copy)
+    blocked_at = None if render_result.status == Status.PASS else "render"
+    return _finish_e2e(out_dir, stage_statuses, all_findings, artifacts, artifact_paths, coverage, blocked_at)
+
+
+def _finish_e2e(
+    out_dir: Path,
+    stage_statuses: dict[str, str],
+    findings: list[Finding],
+    artifacts: dict[str, Any],
+    artifact_paths: dict[str, Path],
+    coverage: dict[str, Any],
+    blocked_at: str | None,
+) -> StageResult:
+    completed_statuses = [
+        Status(status)
+        for status in stage_statuses.values()
+        if status != Status.NOT_RUN.value
+    ]
+    final_status = merge_statuses(completed_statuses)
+    if findings and final_status == Status.PASS:
+        final_status = merge_statuses([Status(finding.status) for finding in findings])
+    result = StageResult(
+        "e2e",
+        final_status,
+        findings=findings,
+        artifacts=artifacts,
+        artifact_paths=artifact_paths,
+        coverage=coverage,
+        blocked_at=blocked_at,
+    )
+    artifact_refs = {key: f"artifacts/{key}.json" for key in artifacts}
+    if "final_docx" in artifact_paths:
+        artifact_refs["final_docx"] = str(artifact_paths["final_docx"])
+    write_report_bundle(
+        out_dir,
+        stage="e2e",
+        status=final_status,
+        findings=result.finding_dicts(),
+        artifacts=artifact_refs,
+        coverage=coverage,
+        stage_statuses=stage_statuses,
+        blocked_at=blocked_at,
+    )
+    return result

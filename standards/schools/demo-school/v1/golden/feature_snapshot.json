@@ -1,0 +1,15 @@
+{
+  "artifact_type": "feature_snapshot_golden",
+  "artifact_version": "1.0",
+  "change_control": {
+    "auto_update_allowed": false,
+    "requires_review": true
+  },
+  "required_content_hashes": [
+    "sha256:4967392e984184d343aa7f07af423fbd17562cc0b2dccfe55404d5e8cfb2ba6b",
+    "sha256:d8b89224898ec03bd96acd7deeb568292513a6092e566b1c6f8b3e9a8bf8e6e0",
+    "sha256:8696622f344183c4f73993a175acb8daa6418a5cc29099e5d2d762cba2d6f7f2",
+    "sha256:a0b939e8abfa4191243340c372b195f9dfd2a226b3aa978f72fefdc04c2eb756",
+    "sha256:895e53062cd186c284af39cb79fb77c77ffba3d823bc4edaf52aede10ee8085a"
+  ]
+}

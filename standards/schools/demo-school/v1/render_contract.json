@@ -1,0 +1,25 @@
+{
+  "contract_type": "render",
+  "contract_version": "1.0",
+  "coverage_requirements": {
+    "profile": "bootstrap-core"
+  },
+  "owner": "docfit-core",
+  "required_capabilities": [
+    "render.valid_docx_package",
+    "render.plan_coverage",
+    "render.feature_snapshot",
+    "render.content_hash_coverage"
+  ],
+  "required_invariants": [
+    "valid docx",
+    "plan coverage",
+    "signed golden exists"
+  ],
+  "unsupported_policy": {
+    "blocking_unknown": true
+  },
+  "verifier_refs": [
+    "docfit.stages.render.verify_render_outputs"
+  ]
+}

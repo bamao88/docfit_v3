@@ -1,0 +1,23 @@
+{
+  "contract_type": "placement",
+  "contract_version": "1.0",
+  "coverage_requirements": {
+    "profile": "bootstrap-core"
+  },
+  "owner": "docfit-core",
+  "required_capabilities": [
+    "placement.no_silent_drop",
+    "placement.slot_compatibility",
+    "placement.required_slots"
+  ],
+  "required_invariants": [
+    "no silent drop",
+    "slot compatibility"
+  ],
+  "unsupported_policy": {
+    "blocking_unknown": true
+  },
+  "verifier_refs": [
+    "docfit.stages.placement.verify_placement_plan"
+  ]
+}

@@ -1,0 +1,132 @@
+# 关②人工内容识别标准说明：001.docx
+
+## 标题
+
+- 中文标题：植物促生菌PGP6生长素合成基因的鉴定与功能验证
+- 英文标题：Identification and Functional Characterization of Indole-3-Acetic Acid Biosynthesis-Related Genes in the Plant Growth-Promoting Rhizobacterium PGP6
+
+## 应忽略的 donor-school 或模板自带前置页
+
+```text
+- 南京农业大学空白/未填写封面表格：忽略，不进入学生内容 IR。
+- 南京农业大学原创性声明：忽略，不进入学生内容 IR。
+- 南京农业大学使用授权声明：忽略，不进入学生内容 IR。
+- 原稿旧目录：忽略，目标成品目录后续由目标学校流程生成。
+```
+
+## 中文摘要
+
+存在中文摘要。标题为“摘要”。正文应由下面两段组成，顺序不变：
+
+1. 植物根际促生菌（Plant growth-promoting rhizobacteria, PGPR）是一类能够定殖于植物根际，并通过促进养分吸收、合成植物激素、增强植物抗逆性及抑制病原菌等方式促进植物生长的有益微生物。与传统化肥和农药相比，PGPR具有环境友好、生态适应性强等特点，在绿色农业生产和污染土壤植物修复中具有重要应用潜力。其中，PGPR合成吲哚-3-乙酸（Indole-3-acetic acid, IAA）是其发挥促生作用的重要机制之一，但不同菌株中IAA合成相关基因及其功能贡献仍存在差异，需通过遗传学手段进一步验证。
+2. 植物根际促生菌PGP6（Pantoea sp.）来源于南京栖霞山重金属污染农田根际土壤，具有合成IAA及促进植物生长的潜力。为解析PGP6中IAA合成相关基因的功能，本研究以trpA、trpB、patB及iaaH等候选基因为对象，首先采用Salkowski比色法测定PGP6的IAA合成能力，并通过抗生素最小抑菌浓度实验确定遗传操作筛选条件；随后基于全基因组注释结果定位IAA合成相关候选基因，设计并构建含上下游同源臂和卡那霉素抗性标记的线性打靶片段；进一步利用pKD46介导的λ-Red同源重组体系构建目标基因缺失突变株，并通过PCR和测序进行验证；最后比较野生型菌株与各突变株的IAA产量差异。结果表明，PGP6在含0.5 mg/mL色氨酸的YN培养基中可稳定产生IAA，野生型菌株IAA产量为80.81±2.95 mg/L；PGP6 ΔtrpA::kan、PGP6 ΔtrpB::kan、PGP6 Δ(trpA-trpB)::kan、PGP6 ΔpatB::kan和PGP6 ΔiaaH::kan突变株的IAA产量均低于野生型，其中ΔpatB::kan突变株平均降幅最大。上述结果说明trpA、 trpB、 patB及iaaH等基因均可能参与PGP6的IAA合成或其前体代谢过程，但单一基因缺失未完全阻断IAA产生，提示PGP6中IAA合成可能存在多基因协同或替代代谢途径。本研究为阐明PGP6的IAA合成遗传基础及促生机制提供了实验依据，也为后续植物促生菌剂开发与植物-微生物互作研究奠定基础。
+
+## 中文关键词
+
+按原顺序：
+
+1. 植物根际促生菌
+2. PGP6
+3. 吲哚-3-乙酸
+4. λ-Red同源重组
+5. 基因敲除
+
+## 英文摘要
+
+存在英文摘要。标题为 `ABSTRACT`。正文应由下面三段组成，顺序不变：
+
+1. Plant growth-promoting rhizobacteria (PGPR) are beneficial microorganisms that colonize the rhizosphere and promote plant growth by enhancing nutrient uptake, producing phytohormones, improving stress tolerance, and suppressing phytopathogens. Among these mechanisms, bacterial production of indole-3-acetic acid (IAA) is considered an important factor contributing to plant growth promotion. However, the genetic basis of IAA biosynthesis varies among bacterial strains and requires further functional verification.
+2. In this study, the plant growth-promoting rhizobacterium PGP6 (Pantoea sp.), isolated from heavy metal-contaminated rhizosphere soil in Qixia Mountain, Nanjing, was used to investigate IAA biosynthesis-related genes. Four candidate genes, trpA, trpB, patB, and iaaH, were selected based on whole-genome annotation. The IAA-producing ability of PGP6 was first determined using the Salkowski colorimetric assay, and antibiotic minimum inhibitory concentration assays were performed to establish suitable selection conditions for genetic manipulation. Linear targeting fragments containing upstream and downstream homologous arms and a kanamycin resistance cassette were then constructed. Subsequently, trpA, trpB, trpA-trpB, patB, and iaaH deletion mutants were generated using the pKD46-mediated λ-Red homologous recombination system and verified by PCR and sequencing. Finally, IAA production in the wild-type strain and the mutants was quantitatively compared.
+3. The results showed that PGP6 stably produced IAA in YN medium supplemented with 0.5 mg/mL tryptophan, with the wild-type strain producing 80.81 ± 2.95 mg/L IAA. The IAA yields of PGP6 ΔtrpA::kan, ΔtrpB::kan, Δ(trpA-trpB)::kan, ΔpatB::kan, and ΔiaaH::kan were all lower than that of the wild type, with ΔpatB::kan showing the greatest average reduction. These findings suggest that trpA, trpB, patB, and iaaH may participate in IAA biosynthesis or precursor metabolism in PGP6. Nevertheless, single-gene deletion did not completely abolish IAA production, indicating that multiple genes or alternative pathways may contribute to IAA biosynthesis in this strain. This study provides experimental evidence for understanding the genetic basis of IAA production in PGP6 and lays a foundation for further studies on plant-microbe interactions and PGPR-based biofertilizer development.
+
+## 英文关键词
+
+按原顺序：
+
+1. Plant growth-promoting rhizobacteria
+2. PGP6
+3. Indole-3-acetic acid
+4. λ-Red-mediated homologous recombination
+5. Gene knockout
+
+## 正文标题结构（不是原稿目录）
+
+```text
+level 1: 文献综述
+  level 2: PGPR促进植物生长的主要机制
+    level 3: PGPR促进植物生长的直接作用
+    level 3: 本研究的目的和意义
+    level 3: 技术路线
+  level 2: 打靶片段的设计与构建
+    level 3: 实验材料
+    level 3: 打靶片段引物设计
+    level 3: 打靶片段的扩增、检测及回收
+    level 3: 生长素标准曲线的制定
+    level 3: 菌株PGP6的抗生素最小抑菌浓度实验
+```
+
+## 正文段落顺序
+
+```text
+1. level 1: 文献综述
+2. paragraph: 植物根际促生菌（Plant growth-promoting rhizobacteria, PGPR）是一类定殖于植物根际能够促进植物生长的有益微生物。早在1904年，Hiltner就提出了“根际”概念，将根际土壤中的微生物称为根际微生物，并指出其中2%~5%为有益微生物。这些有益菌能够促进植物生长、发育并提高其逆境抗性，被Kloepper等人在20世纪70年代定义为PGPR[1]。与传统化肥和农药相比，PGPR具有环境友好、提高养分利用率、增强植物抗逆性和抑制病害等优势，因此近年来成为研究热点。常见的PGPR包括假单胞菌属(Pseudomonas)、芽孢杆菌属(Bacillus)、肠杆菌属(Enterobacter)、伯克霍尔德菌属(Burkholderia)、农杆菌属(Agrobacterium)、泛菌属(Pantoea)、无色杆菌属(Achromobacter)、黄杆菌属(Flavobacterium)和沙雷菌属(Serratia)等。
+3. level 2: PGPR促进植物生长的主要机制
+4. paragraph: PGPR对植物的促生作用机制复杂多样，总体可分为直接作用和间接作用两大类。直接作用是指PGPR直接促进植物营养获取或调节植物激素水平，例如固氮、溶磷、解钾以及合成植物激素（如生长素Indole-3-acetic Acid, IAA等）和挥发性物质等。间接作用则是PGPR通过拮抗植物病原菌、诱导植物抗性或缓解非生物胁迫（干旱、盐碱、重金属等）来间接促进植物生长[19][20][21][22][23]。
+5. level 3: PGPR促进植物生长的直接作用
+6. paragraph: 植物根际促生细菌（PGPR）通过一系列直接机制促进植物生长发育[2]，核心体现在为植物提供必需营养元素和合成促进植物生长的活性物质两大方面。
+7. level 3: 本研究的目的和意义
+8. paragraph: PGP6是一株来源于重金属污染农田根际土壤的植物根际促生菌，前期研究表明其具有较强的IAA合成能力及植物促生潜力。然而，PGP6中参与IAA生物合成的关键基因及其功能贡献尚未得到系统验证，限制了对其促生机制的深入解析。基于此，本研究以PGP6为研究对象，围绕其IAA合成相关候选基因开展功能验证，旨在从遗传学层面明确trpA、trpB、patB及iaaH 等基因在PGP6合成IAA过程中的作用。
+9. level 3: 技术路线
+10. image 1: 本论文研究的技术路线；Experimental flowchart of the thesis
+11. level 2: 打靶片段的设计与构建
+12. paragraph: 为从遗传学层面验证PGP6中IAA合成相关候选基因的功能，本研究基于λ-Red同源重组技术（λ-Red homologous recombination）构建目标基因缺失突变株。该技术以外源线性DNA片段为重组底物，在同源臂介导下与宿主染色体发生同源重组，从而实现目标基因的定向替换。因此，高质量线性打靶片段的设计与构建是保证同源重组效率与准确性的关键前提。在前期全基因组注释及候选基因筛选的基础上，本章以trpA、trpB、patB及iaaH四个基因为研究对象，利用SnapGene软件设计扩增引物，通过聚合酶链式反应（Polymerase Chain Reaction, PCR）分别扩增目标基因上下游约0.8–1.2 kb的同源臂片段，并以pJOE8999质粒为模板扩增卡那霉素抗性基因（Kanamycin resistance marker, KmR）。随后采用重叠延伸PCR技术，将上游同源臂、抗性片段及下游同源臂拼接构建完整的线性打靶片段，为后续电转化及同源重组提供分子基础。
+13. level 3: 实验材料
+14. paragraph: （1）E.Z.N.A.®Gel Extraction Kit（OMEGA胶回收试剂盒），pJOE8999质粒。
+15. level 3: 打靶片段引物设计
+16. paragraph: 根据PGP6全基因组注释结果，获取目标基因trpA、trpB、patB及iaaH的核苷酸序列，并选取其上下游约0.8-1.2 kb的序列作为同源臂区域。利用SnapGene软件对目标基因的上下游同源臂区域进行分析，在此基础上设计用于扩增同源臂片段的引物。在引物设计过程中，综合考虑引物长度（通常为18-25 bp）、退火温度（Tm值控制在55-65℃且上下游引物Tm值相近）及GC含量（40%–60%）等关键参数，以保证扩增反应的特异性与稳定性。同时，通过在引物端引入适当的重叠序列，为后续重叠延伸PCR拼接提供条件。设计完成后，将引物序列提交南京擎科生物科技有限公司进行合成。
+17. level 3: 打靶片段的扩增、检测及回收
+18. paragraph: 以PGP6基因组DNA为模板，通过聚合酶链式反应（Polymerase Chain Reaction, PCR）分别扩增目标基因trpA、trpB、patB及iaaH的上游和下游同源臂片段，同时以pJOE8999质粒为模板扩增卡那霉素抗性基因（Kanamycin resistance marker, KmR）片段，对各片段进行1%琼脂糖凝胶电泳检测及DNA纯化。在获得各目标片段后，采用重叠延伸PCR技术将上游同源臂、抗性标记片段及下游同源臂拼接，构建完整的线性打靶片段。扩增产物经琼脂糖凝胶电泳分离，通过凝胶成像系统观察条带大小及特异性，选取与预期长度一致且条带清晰的目标片段。随后切取对应条带，使用E.Z.N.A.®Gel Extraction Kit（OMEGA）胶回收试剂盒按照说明书进行DNA纯化，获得纯化的线性打靶片用于后续电转化实验。
+19. table 1: PCR反应体系；PCR Reaction System；6 行 x 2 列：第1行 组分 | 体积；第2行 2×Phanta Max Master Mix | 25μL；第3行 Primer_F | 1μL；第4行 Primer_R | 1μL；第5行 Template DNA | 2μL；第6行 ddH2O | up to 50μL。
+20. level 3: 生长素标准曲线的制定
+21. paragraph: 为定量评价PGP6合成IAA的能力，本研究以不同浓度IAA标准液建立Sackowki's比色检测体系。标准液在530 nm处的吸光值随IAA浓度增加而升高，线性回归方程为y=0.01505x+0.1027，R²=0.9662（图3-1），说明在检测浓度范围内A530与IAA浓度具有较好的线性关系，可用于发酵液中IAA含量的换算。为后续评价候选基因缺失对IAA合成的影响提供了野生型对照基础。
+22. image 2: IAA标准曲线；Standard curve for IAA quantification
+23. level 3: 菌株PGP6的抗生素最小抑菌浓度实验
+24. paragraph: 为确定PGP6遗传操作中的抗性筛选条件，本研究比较了PGP6对氨苄青霉素、卡那霉素、壮观霉素、氯霉素、庆大霉素、四环素和链霉素的敏感性。结果显示，不同抗生素对PGP6的抑制作用存在明显差异（表1-1）。其中，卡那霉素和四环素在较低浓度下即可抑制PGP6野生型的可见生长，适合作为后续重组片段和pKD46辅助质粒的筛选压力；壮观霉素在50 μg/mL条件下不抑制PGP6生长，可用于不影响PGP6背景生长的联合培养条件。
+25. table 2: PGP6对不同抗生素的敏感性结果；Antibiotic susceptibility of PGP6；8 行 x 3 列：第1行 抗生素 | 实验观察结果 | 后续遗传操作中的判定；第2行 氨苄青霉素（Amp） | 10-100 μg/mL后期仍可见缓慢生长；200 μg/mL未见可见生长 | 未作为本研究主要遗传筛选抗生素；第3行 卡那霉素（Km） | 0-200 μg/mL未见可见生长 | 后续以50 μg/mL作为KmR重组子的筛选压力；第4行 壮观霉素（Spc） | 30-50 μg/mL可生长，PGP6对该抗生素具有一定耐受性 | 50 μg/mL不抑制PGP6背景生长，可与其他抗性条件联合使用；第5行 氯霉素（Cm） | 30-100 μg/mL可见生长 | 未作为本研究主要遗传筛选抗生素；第6行 庆大霉素（Gm） | 20-80 μg/mL未见可见生长 | 抑菌作用明确，本研究未作为主要筛选标记；第7行 四环素（Tet） | 10-50 μg/mL未见可见生长 | 后续以50 μg/mL用于pKD46辅助质粒筛选；第8行 链霉素（Str） | 低温低浓度条件下仍可见或延迟生长，抑菌稳定性弱于Km和Tet | 未作为本研究主要遗传筛选抗生素。
+26. paragraph: 本研究以植物根际促生菌PGP6为对象，围绕其IAA合成相关候选基因开展定位、敲除和功能验证。通过Salkowski比色法建立IAA标准曲线，获得线性回归方程y=0.01505x+0.1027，R²=0.9662；在后续的实验中，野生型PGP6在含0.5 mg/mL色氨酸的YN培养基中培养72 h后，IAA产量为80.81±2.95 mg/L，表明该菌株具有稳定合成IAA的能力。
+27. paragraph: 抗生素MIC实验结果表明，PGP6对不同抗生素的敏感性存在差异。其中卡那霉素和四环素对PGP6野生型具有明确抑制作用，因此本研究采用Km 50 μg/mL筛选卡那霉素抗性替换重组子，采用Tet 50 μg/mL筛选或维持pKD46辅助质粒，为后续λ-Red同源重组实验建立了可靠的抗性筛选条件。
+28. paragraph: 功能验证结果表明，与野生型PGP6相比，所有缺失突变株的平均IAA产量均有所降低，其中ΔtrpA::kan、ΔtrpB::kan、Δ(trpA-trpB)::kan和ΔiaaH::kan的IAA产量降幅约为8%–9%，ΔpatB::kan的平均降幅最大，达到19.29%。该结果说明trpA、trpB、patB和iaaH均可能参与PGP6的IAA合成或其前体代谢过程，但任一候选基因缺失均未完全阻断IAA产生，提示PGP6的IAA合成可能存在多基因协同调控或替代代谢途径。
+```
+
+## 图片
+
+应识别为正文图片 2 个；位置按上面“正文流正确答案模板”的编号定位：
+
+1. 正文流第 10 项；位于第 9 项之后、第 11 项开始之前。中文题名：本论文研究的技术路线。英文题名：Experimental flowchart of the thesis。
+2. 正文流第 22 项；位于第 21 项之后、第 23 项开始之前。中文题名：IAA标准曲线。英文题名：Standard curve for IAA quantification。
+
+## 表格
+
+原始 DOCX 中有 3 个表格，其中第 1 个是未填写的南京农业大学封面表格，应忽略。
+应作为论文内容识别的表格为 2 个：
+
+1. PCR 反应体系表，正文流第 19 项；位于第 18 项之后、第 20 项开始之前。表格为 6 行 2 列，表头为“组分 / 体积”。中文表名：PCR反应体系。英文表名：PCR Reaction System。
+2. PGP6 对不同抗生素的敏感性结果表，正文流第 25 项；位于第 24 项之后、第 26 项开始之前。表格为 8 行 3 列，表头为“抗生素 / 实验观察结果 / 后续遗传操作中的判定”。中文表名：PGP6对不同抗生素的敏感性结果。英文表名：Antibiotic susceptibility of PGP6。
+
+## 参考文献
+
+存在参考文献区，条目按原顺序为：
+
+1. Kloepper J W, Schroth M N. Plant growth-promoting rhizobacteria on radishes[A]//Proceedings of the 4th International Conference on Plant Pathogenic Bacteria[C]. Angers: INRA, 1978: 879-882.
+2. Lugtenberg B, Kamilova F. Plant-growth-promoting rhizobacteria[J]. Annual Review of Microbiology, 2009, 63: 541-556. DOI:10.1146/annurev.micro.62.081307.162918.
+
+## 附录
+
+原稿存在“附录”标题，但未见附录正文内容。按人工批注，只有空标题时不作为学生内容识别；目标学校如果需要附录页，由目标模板流程处理。
+
+## 致谢
+
+存在致谢标题和 1 段正文：
+
+1. 提笔致谢，四年的本科生涯也即将结束，心中满是感慨与谢意。这段旅程，每一步探索少不了老师的教诲、同窗的扶持以及家人和朋友的默默支持。
+
