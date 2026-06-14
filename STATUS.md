@@ -12,6 +12,8 @@ Current state:
 - Wave 0 harness infrastructure is partially implemented.
 - `real-core-v0` registry exists for three template cases, three content cases,
   and nine e2e school/student cases.
+- User/product acceptance requirements for the blocking real baselines and Word
+  evidence are documented in `docs/human/real-core-v0-acceptance.md`.
 - `docfit eval coverage --profile real-core-v0` returns structured `UNKNOWN`,
   as intended, until signed baselines and Word image evidence exist.
 - Baseline review packet drafts were generated at
@@ -27,9 +29,9 @@ Current state:
 
 Next action:
 
-- Review and lock the generated baseline drafts, then continue with
-  stage-specific artifact normalizers/comparator adapters and Word image
-  evidence production/export automation.
+- Use `docs/human/real-core-v0-acceptance.md` to review and lock the generated
+  baseline drafts, then continue with stage-specific artifact normalizers,
+  comparator adapters, and Word image evidence production/export automation.
 
 Known blockers:
 
