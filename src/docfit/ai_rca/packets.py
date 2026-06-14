@@ -11,8 +11,12 @@ def build_diagnosis_packet(
     return {
         "packet_id": f"diag_{run_id}",
         "run_id": run_id,
-        "status": status,
+        "harness_status": status,
+        "advisory_only": True,
+        "status_authority": "deterministic_harness_only",
+        "summary_status_mutation_allowed": False,
         "clusters": clusters,
+        "input_scope": "findings_and_issue_clusters_only",
         "allowed_ai_tasks": [
             "summarize_root_cause",
             "suggest_generic_fix",
@@ -20,8 +24,12 @@ def build_diagnosis_packet(
         ],
         "forbidden_ai_tasks": [
             "judge_pass_fail",
+            "mutate_summary_status",
+            "override_fail_or_unknown",
             "update_expected",
             "create_school_patch",
+            "declare_school_exception_without_signed_evidence",
+            "use_visual_impression_as_gate",
         ],
     }
 

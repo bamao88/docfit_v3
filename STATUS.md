@@ -22,6 +22,8 @@ Current state:
   dimensions, and returns a merged `PASS` / `FAIL` / `UNKNOWN` result.
 - Word image evidence manifests can be built and verified; coverage validates
   them when present and remains `UNKNOWN` while they are missing.
+- AI RCA diagnosis packets are explicitly advisory-only and cannot mutate
+  deterministic harness status.
 
 Next action:
 

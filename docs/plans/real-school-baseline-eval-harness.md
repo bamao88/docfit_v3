@@ -1411,3 +1411,23 @@ Current scope note:
 - This implements the deterministic evidence-package boundary only. Actual
   local Microsoft Word automation/export remains required before the nine
   render cases can satisfy the `real-core-v0` Word image evidence gate.
+
+### 2026-06-14 AI RCA Boundary Slice
+
+Implemented:
+
+- Diagnosis packets now explicitly declare `advisory_only: true`,
+  `status_authority: deterministic_harness_only`, and
+  `summary_status_mutation_allowed: false`.
+- AI packet input scope is limited to deterministic findings and issue
+  clusters.
+- Forbidden AI tasks now include summary-status mutation, overriding `FAIL` or
+  `UNKNOWN`, declaring school exceptions without signed evidence, and using
+  visual impression as a gate.
+
+Verification for this slice:
+
+```bash
+uv run pytest tests/unit/test_status_and_audit.py tests/e2e/test_bootstrap_cli.py::test_bootstrap_e2e_pass -q
+git diff --check
+```
