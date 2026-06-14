@@ -42,6 +42,9 @@ to update both.
   `FAIL`/`UNKNOWN` into success.
 - Prefer generic capability fixes. School-specific behavior needs signed
   evidence, registry/config, and tests.
+- Do not optimize architecture recommendations or refactors for backward
+  compatibility unless a task explicitly asks for it. Prefer a clean current
+  prototype contract over preserving migrated legacy surfaces.
 
 ## Commands
 
