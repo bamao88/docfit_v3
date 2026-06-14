@@ -13,8 +13,8 @@ from docfit.convert.orchestrator import (
 from docfit.core.io import read_json, write_json
 from docfit.core.status import Status
 from docfit.harness.audit import reject_golden_auto_update
-from docfit.harness.coverage import evaluate_bootstrap_coverage
-from docfit.harness.profiles import BOOTSTRAP_PROFILE, get_eval_case, get_eval_profile
+from docfit.harness.coverage import evaluate_profile_coverage
+from docfit.harness.profiles import BOOTSTRAP_PROFILE, get_eval_case
 from docfit.harness.reports import write_report_bundle
 from docfit.harness.standards import load_standard_bundle
 
@@ -108,20 +108,9 @@ def eval_coverage(
     profile: str = typer.Option(BOOTSTRAP_PROFILE.profile_id, "--profile"),
     out: Path = typer.Option(Path("reports/coverage_bootstrap_core"), "--out"),
 ) -> None:
-    if get_eval_profile(profile) is None:
-        report = {
-            "profile": profile,
-            "status": Status.UNKNOWN.value,
-            "required": 0,
-            "covered": 0,
-            "missing": [f"unknown profile {profile}"],
-        }
-        findings = []
-        status = Status.UNKNOWN
-    else:
-        report, finding_models = evaluate_bootstrap_coverage(_root())
-        findings = [finding.to_dict() for finding in finding_models]
-        status = Status(report["status"])
+    report, finding_models = evaluate_profile_coverage(_root(), profile)
+    findings = [finding.to_dict() for finding in finding_models]
+    status = Status(report["status"])
     write_json(out / "coverage_report.json", report)
     write_report_bundle(
         out,

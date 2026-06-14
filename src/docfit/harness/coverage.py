@@ -9,7 +9,16 @@ from docfit.core.io import read_json
 from docfit.core.models import Finding, make_finding
 from docfit.core.status import Status
 from docfit.ooxml.package import is_valid_docx, read_document_xml
-from docfit.harness.profiles import BOOTSTRAP_PROFILE, BOOTSTRAP_TEMPLATE_DOCX
+from docfit.harness.baselines import load_baseline_file
+from docfit.harness.profiles import (
+    BOOTSTRAP_PROFILE,
+    BOOTSTRAP_TEMPLATE_DOCX,
+    REAL_CORE_PROFILE,
+    REAL_CORE_SCHOOLS,
+    REAL_CORE_STUDENTS,
+    get_eval_cases_for_profile,
+    get_eval_profile,
+)
 
 
 def bootstrap_required_capabilities() -> list[str]:
@@ -23,7 +32,8 @@ def validate_standard_coverage_requirements(
     stage: str = "standards",
     start_index: int = 1,
 ) -> list[Finding]:
-    if profile != BOOTSTRAP_PROFILE.profile_id:
+    profile_def = get_eval_profile(profile or "")
+    if profile_def is None:
         return [
             make_finding(
                 start_index,
@@ -31,13 +41,15 @@ def validate_standard_coverage_requirements(
                 Status.UNKNOWN,
                 "unknown_coverage_profile",
                 "Signed standard references an unknown coverage profile",
-                BOOTSTRAP_PROFILE.profile_id,
+                ", ".join(
+                    sorted([BOOTSTRAP_PROFILE.profile_id, REAL_CORE_PROFILE.profile_id])
+                ),
                 profile or "missing",
                 root_cause_bucket="coverage_gap",
             )
         ]
 
-    expected = set(bootstrap_required_capabilities())
+    expected = set(profile_def.all_required_capabilities())
     actual = set(required_capabilities)
     missing = sorted(expected - actual)
     unknown = sorted(actual - expected)
@@ -55,7 +67,7 @@ def validate_standard_coverage_requirements(
             stage,
             Status.UNKNOWN,
             "coverage_requirements_drift",
-            "Signed standard coverage requirements do not match the bootstrap-core capability profile",
+            "Signed standard coverage requirements do not match the declared capability profile",
             ", ".join(sorted(expected)),
             "; ".join(details),
             root_cause_bucket="coverage_gap",
@@ -192,3 +204,194 @@ def evaluate_bootstrap_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
             )
         )
     return report, findings
+
+
+def evaluate_profile_coverage(
+    root: Path,
+    profile_id: str,
+) -> tuple[dict[str, Any], list[Finding]]:
+    if profile_id == BOOTSTRAP_PROFILE.profile_id:
+        return evaluate_bootstrap_coverage(root)
+    if profile_id == REAL_CORE_PROFILE.profile_id:
+        return evaluate_real_core_coverage(root)
+    return (
+        {
+            "profile": profile_id,
+            "status": Status.UNKNOWN.value,
+            "required": 0,
+            "covered": 0,
+            "missing": [f"unknown profile {profile_id}"],
+        },
+        [
+            make_finding(
+                1,
+                "coverage",
+                Status.UNKNOWN,
+                "unknown_coverage_profile",
+                "Coverage profile is not registered",
+                ", ".join(
+                    sorted([BOOTSTRAP_PROFILE.profile_id, REAL_CORE_PROFILE.profile_id])
+                ),
+                profile_id,
+                root_cause_bucket="coverage_gap",
+            )
+        ],
+    )
+
+
+def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Finding]]:
+    findings: list[Finding] = []
+    next_index = 1
+    cases = get_eval_cases_for_profile(REAL_CORE_PROFILE.profile_id)
+    case_counts = {
+        "template": sum(1 for case in cases if case.stage == "template"),
+        "content": sum(1 for case in cases if case.stage == "content"),
+        "e2e": sum(1 for case in cases if case.stage == "e2e"),
+    }
+
+    case_registry_path = root / "standards/eval_profiles/real-core-v0/cases.yaml"
+    if not case_registry_path.exists():
+        findings.append(
+            make_finding(
+                next_index,
+                "coverage",
+                Status.UNKNOWN,
+                "missing_profile_case_registry",
+                "real-core-v0 requires a checked-in case registry",
+                str(case_registry_path),
+                "missing",
+                root_cause_bucket="coverage_gap",
+            )
+        )
+        next_index += 1
+
+    required_source_files = _real_core_source_files()
+    missing_source_files = [
+        str(path)
+        for path in required_source_files
+        if not (root / path).exists()
+    ]
+    if missing_source_files:
+        findings.append(
+            make_finding(
+                next_index,
+                "coverage",
+                Status.UNKNOWN,
+                "missing_real_core_source_evidence",
+                "real-core-v0 requires the fixed source evidence set",
+                "all fixed templates, students, and review evidence exist",
+                ", ".join(missing_source_files),
+                affected_ids=missing_source_files,
+                root_cause_bucket="source_evidence_missing",
+            )
+        )
+        next_index += 1
+
+    for school in REAL_CORE_SCHOOLS:
+        school_id = str(school["school_id"])
+        standard_path = (
+            root / "standards/schools" / school_id / "v1/signed_standard.yaml"
+        )
+        if not standard_path.exists():
+            findings.append(
+                make_finding(
+                    next_index,
+                    "coverage",
+                    Status.UNKNOWN,
+                    "missing_signed_standard",
+                    f"Signed standard is missing for {school_id}/v1",
+                    "reviewed signed_standard.yaml exists",
+                    str(standard_path),
+                    affected_ids=[school_id],
+                    root_cause_bucket="standard_missing",
+                )
+            )
+            next_index += 1
+        template_contract = (
+            root / "standards/schools" / school_id / "v1/template_unit_contract.yaml"
+        )
+        _, baseline_findings = load_baseline_file(
+            template_contract,
+            stage="coverage",
+            start_index=next_index,
+        )
+        findings.extend(baseline_findings)
+        next_index += len(baseline_findings)
+
+    expected_root = root / REAL_CORE_PROFILE.expected_dir
+    for student in REAL_CORE_STUDENTS:
+        student_id = str(student["student_id"])
+        _, baseline_findings = load_baseline_file(
+            expected_root / "student_content_trees" / f"{student_id}.yaml",
+            stage="coverage",
+            start_index=next_index,
+        )
+        findings.extend(baseline_findings)
+        next_index += len(baseline_findings)
+
+    for case in [case for case in cases if case.stage == "e2e"]:
+        _, plan_findings = load_baseline_file(
+            expected_root / "render_plans" / f"{case.case_id}.yaml",
+            stage="coverage",
+            start_index=next_index,
+        )
+        findings.extend(plan_findings)
+        next_index += len(plan_findings)
+
+        _, snapshot_findings = load_baseline_file(
+            expected_root / "render_feature_snapshots" / f"{case.case_id}.json",
+            stage="coverage",
+            start_index=next_index,
+        )
+        findings.extend(snapshot_findings)
+        next_index += len(snapshot_findings)
+
+        evidence_path = (
+            root
+            / "reports/real-core-v0"
+            / case.case_id
+            / "evidence/word_image_evidence.json"
+        )
+        if not evidence_path.exists():
+            findings.append(
+                make_finding(
+                    next_index,
+                    "coverage",
+                    Status.UNKNOWN,
+                    "missing_word_image_evidence",
+                    "real-core-v0 render cases require Word image evidence packages",
+                    str(evidence_path),
+                    "missing",
+                    affected_ids=[case.case_id],
+                    root_cause_bucket="oracle_gap",
+                )
+            )
+            next_index += 1
+
+    required_flat = REAL_CORE_PROFILE.all_required_capabilities()
+    status = Status.UNKNOWN if findings else Status.PASS
+    report = {
+        "profile": REAL_CORE_PROFILE.profile_id,
+        "status": status.value,
+        "required": len(required_flat),
+        "covered": 0 if findings else len(required_flat),
+        "missing": sorted({finding.type for finding in findings}),
+        "case_counts": case_counts,
+        "source_files": {
+            "required": [str(path) for path in required_source_files],
+            "missing": missing_source_files,
+        },
+        "baseline_status": "pending_review" if findings else "signed",
+    }
+    return report, findings
+
+
+def _real_core_source_files() -> list[Path]:
+    paths = [Path("inputs/shared-template-recognition-alignment-review.txt")]
+    for school in REAL_CORE_SCHOOLS:
+        paths.append(school["template_docx"])
+        paths.append(school["review_source"])
+    for student in REAL_CORE_STUDENTS:
+        paths.append(student["student_docx"])
+        paths.append(student["review_source"])
+    return paths

@@ -1,0 +1,78 @@
+profile_id: real-core-v0
+status: pending_baseline_review
+source_evidence:
+  shared_alignment_review: inputs/shared-template-recognition-alignment-review.txt
+schools:
+  - school_id: hunannongye
+    template_docx: inputs/school-hunannongye-requirement.docx
+    review_source: inputs/school-hunannongye-template-review.txt
+  - school_id: nannong-undergraduate
+    template_docx: inputs/school-nannong-undergraduate-template.docx
+    review_source: inputs/school-nannong-undergraduate-template-review.txt
+  - school_id: pku-graduate
+    template_docx: inputs/school-pku-graduate-template.docx
+    review_source: inputs/school-pku-graduate-template-review.txt
+students:
+  - student_id: real-student-001
+    source_docx: inputs/real-student-001-source.docx
+    review_source: inputs/real-student-001-content-review.md
+  - student_id: real-student-002
+    source_docx: inputs/real-student-002-source.docx
+    review_source: inputs/real-student-002-content-review.md
+  - student_id: real-student-003
+    source_docx: inputs/real-student-003-source.docx
+    review_source: inputs/real-student-003-content-review.md
+cases:
+  template:
+    - case_id: real_core_v0_template_hunannongye
+      school_id: hunannongye
+    - case_id: real_core_v0_template_nannong-undergraduate
+      school_id: nannong-undergraduate
+    - case_id: real_core_v0_template_pku-graduate
+      school_id: pku-graduate
+  content:
+    - case_id: real_core_v0_content_real-student-001
+      student_id: real-student-001
+    - case_id: real_core_v0_content_real-student-002
+      student_id: real-student-002
+    - case_id: real_core_v0_content_real-student-003
+      student_id: real-student-003
+  e2e:
+    - case_id: real_core_v0_hunannongye_real-student-001
+      school_id: hunannongye
+      student_id: real-student-001
+    - case_id: real_core_v0_hunannongye_real-student-002
+      school_id: hunannongye
+      student_id: real-student-002
+    - case_id: real_core_v0_hunannongye_real-student-003
+      school_id: hunannongye
+      student_id: real-student-003
+    - case_id: real_core_v0_nannong-undergraduate_real-student-001
+      school_id: nannong-undergraduate
+      student_id: real-student-001
+    - case_id: real_core_v0_nannong-undergraduate_real-student-002
+      school_id: nannong-undergraduate
+      student_id: real-student-002
+    - case_id: real_core_v0_nannong-undergraduate_real-student-003
+      school_id: nannong-undergraduate
+      student_id: real-student-003
+    - case_id: real_core_v0_pku-graduate_real-student-001
+      school_id: pku-graduate
+      student_id: real-student-001
+    - case_id: real_core_v0_pku-graduate_real-student-002
+      school_id: pku-graduate
+      student_id: real-student-002
+    - case_id: real_core_v0_pku-graduate_real-student-003
+      school_id: pku-graduate
+      student_id: real-student-003
+expected_artifacts:
+  template_unit_contracts: standards/schools/<school_id>/v1/template_unit_contract.yaml
+  student_content_trees: standards/eval_profiles/real-core-v0/expected/student_content_trees/<student_id>.yaml
+  render_plans: standards/eval_profiles/real-core-v0/expected/render_plans/<case_id>.yaml
+  render_feature_snapshots: standards/eval_profiles/real-core-v0/expected/render_feature_snapshots/<case_id>.json
+  word_image_evidence: reports/real-core-v0/<case_id>/evidence/word_image_evidence.json
+rules:
+  auto_update_allowed: false
+  runtime_human_review_allowed: false
+  ai_may_set_final_status: false
+  unsigned_baselines_status: UNKNOWN

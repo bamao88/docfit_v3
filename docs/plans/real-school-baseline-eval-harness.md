@@ -2,7 +2,8 @@
 
 Date: 2026-06-14
 Owner: Product + Engineering
-Status: Draft, entropy-reduced and preflighted for execution
+Status: Partially implemented; Wave 0 harness infrastructure shipped, signed
+baselines and Word evidence still blocking full `real-core-v0`
 Last reviewed: 2026-06-14
 
 ## Purpose
@@ -1173,7 +1174,7 @@ Why the loop stops:
 
 ## Preflight Contract
 
-Status: `DRAFT`
+Status: `PARTIALLY_IMPLEMENTED`
 
 Canonical source:
 
@@ -1272,7 +1273,59 @@ ids are produced by that registry.
 
 This plan has passed preflight as a `DRAFT` execution contract.
 
-Implementation should start with schema, signing, and registry infrastructure,
-then produce the baseline review packet. Full `real-core-v0` completion remains
+Implementation has started with schema, signing, registry infrastructure, and a
+baseline review-packet generator. Full `real-core-v0` completion remains
 blocked until the drafted baselines are reviewed and locked, and until local
 Word visual evidence can be generated for the nine render cases.
+
+## Implementation Progress
+
+### 2026-06-14 Wave 0 Infrastructure Slice
+
+Implemented:
+
+- `real-core-v0` profile registry with three template cases, three content
+  cases, and nine school/student e2e cases.
+- Baseline validation rules for review metadata, source hash binding,
+  `auto_update_allowed: false`, required comparator modes, and numeric
+  tolerance declarations.
+- `docfit eval coverage --profile real-core-v0` coverage gate that returns
+  structured `UNKNOWN` while signed school standards, expected baselines, or
+  Word image evidence packages are missing.
+- `standards/eval_profiles/real-core-v0/cases.yaml` as the fixed matrix
+  registry, without unsigned expected artifacts.
+- `scripts/create_real_core_baseline_review_packet.py` to generate draft
+  template, student-content, and aligned-render-plan review packets under
+  ignored output by default.
+- Generated local review packet at
+  `out/real-core-v0-baseline-review/manifest.json` with 15 draft baseline
+  files for review.
+
+Verification for this slice:
+
+```bash
+uv run python -m compileall src scripts tests -q
+uv run pytest -q
+git diff --check
+uv run docfit eval coverage --profile bootstrap-core --out /tmp/docfit_bootstrap_coverage
+uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage
+uv run docfit eval standards --school demo-school --out /tmp/docfit_demo_standards
+uv run docfit eval e2e --case bootstrap_e2e_demo_001 --out /tmp/docfit_bootstrap_case
+uv run python scripts/create_real_core_baseline_review_packet.py
+```
+
+Current gate result:
+
+- `real-core-v0` source files are present.
+- Coverage status is intentionally `UNKNOWN`.
+- Blocking categories are `missing_signed_standard`,
+  `missing_profile_baseline`, and `missing_word_image_evidence`.
+
+Remaining required work:
+
+- User/product review and lock of three template baselines, three student
+  content baselines, and nine aligned render plans.
+- Stage-level comparators that compare actual template/content/placement/render
+  artifacts against those signed baselines.
+- Word image evidence export and deterministic visual blind-spot checks for the
+  nine render cases.
