@@ -8,20 +8,7 @@ import yaml
 
 from docfit.core.models import Finding, make_finding
 from docfit.core.status import Status
-
-
-ALLOWED_COMPARATOR_MODES = {
-    "exact",
-    "normalized_text",
-    "ordered_sequence",
-    "set",
-    "set_equality",
-    "subset",
-    "numeric_tolerance",
-    "style_profile",
-    "relationship",
-    "oracle_required",
-}
+from docfit.harness.comparators import ALLOWED_COMPARATOR_MODES, NUMERIC_TOLERANCE_FIELDS
 
 REQUIRED_REVIEW_METADATA_FIELDS = {
     "reviewed_by",
@@ -30,8 +17,6 @@ REQUIRED_REVIEW_METADATA_FIELDS = {
     "change_reason",
     "auto_update_allowed",
 }
-
-NUMERIC_TOLERANCE_FIELDS = {"tolerance", "tolerance_abs", "tolerance_percent"}
 
 
 def load_baseline_file(

@@ -16,11 +16,13 @@ Current state:
   as intended, until signed baselines and Word image evidence exist.
 - Baseline review packet drafts were generated at
   `out/real-core-v0-baseline-review/`.
+- A generic dimension comparator foundation exists for the signed comparator
+  modes named by the real-school plan.
 
 Next action:
 
 - Review and lock the generated baseline drafts, then continue with
-  stage-level comparators and Word image evidence production.
+  stage-level comparator wiring and Word image evidence production.
 
 Known blockers:
 

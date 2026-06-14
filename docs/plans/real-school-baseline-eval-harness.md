@@ -1329,3 +1329,30 @@ Remaining required work:
   artifacts against those signed baselines.
 - Word image evidence export and deterministic visual blind-spot checks for the
   nine render cases.
+
+### 2026-06-14 Wave 2 Comparator Foundation Slice
+
+Implemented:
+
+- Generic dimension comparator engine for `exact`, `normalized_text`,
+  `ordered_sequence`, `set_equality`, `subset`, `numeric_tolerance`,
+  `style_profile`, `relationship`, and `oracle_required`.
+- Baseline validation now reuses the same comparator vocabulary as runtime
+  comparison.
+- Unit tests for ordered sequence failure, rendered hash subset coverage,
+  unreadable dimensions returning `UNKNOWN`, numeric tolerance pass/fail, and
+  oracle-required `UNKNOWN`.
+
+Verification for this slice:
+
+```bash
+uv run pytest tests/unit/test_dimension_comparators.py tests/contract/test_real_core_baseline_harness.py -q
+git diff --check
+```
+
+Current scope note:
+
+- These comparators operate on normalized feature dictionaries and tiny fixtures
+  first. Wiring them into Stage 1 through Stage 4 real-school artifact
+  comparisons remains open until signed baselines exist or fixture-backed stage
+  contracts are added.
