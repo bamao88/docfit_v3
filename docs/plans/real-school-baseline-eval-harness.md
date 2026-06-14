@@ -1356,3 +1356,31 @@ Current scope note:
   first. Wiring them into Stage 1 through Stage 4 real-school artifact
   comparisons remains open until signed baselines exist or fixture-backed stage
   contracts are added.
+
+### 2026-06-14 Baseline Comparison Wiring Slice
+
+Implemented:
+
+- `compare_baseline_to_artifact` helper that validates signed baseline metadata
+  and executable dimensions before comparing expected normalized artifacts to
+  actual artifacts.
+- Unified `BaselineComparisonResult` status merging for stage runners and
+  future real-school comparators.
+- Numeric percentage tolerance now derives tolerance from the expected artifact
+  value under comparison.
+- Fixture-backed tests for baseline comparison `PASS`, `FAIL`, and `UNKNOWN`
+  behavior.
+
+Verification for this slice:
+
+```bash
+uv run pytest tests/unit/test_baseline_comparison.py tests/unit/test_dimension_comparators.py tests/contract/test_real_core_baseline_harness.py -q
+git diff --check
+```
+
+Current scope note:
+
+- This provides the reusable baseline-to-artifact comparison entrypoint.
+  Stage-specific adapters still need to normalize template/content/placement
+  and render artifacts into the expected dictionaries declared by signed
+  baselines.

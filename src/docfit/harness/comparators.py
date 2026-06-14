@@ -182,7 +182,7 @@ def _compare_numeric_tolerance(
     stage: str,
     dimension_id: str,
 ) -> Finding | None:
-    tolerance = _numeric_tolerance(dimension)
+    tolerance = _numeric_tolerance(dimension, expected_value)
     if tolerance is None:
         return _unknown(
             index,
@@ -303,16 +303,15 @@ def _resolve_value(
     return current
 
 
-def _numeric_tolerance(dimension: dict[str, Any]) -> float | None:
+def _numeric_tolerance(dimension: dict[str, Any], expected_value: Any) -> float | None:
     if "tolerance" in dimension:
         return float(dimension["tolerance"])
     if "tolerance_abs" in dimension:
         return float(dimension["tolerance_abs"])
     if "tolerance_percent" in dimension:
-        expected = dimension.get("expected")
-        if expected in (None, 0):
+        if expected_value in (None, 0):
             return None
-        return abs(float(expected)) * float(dimension["tolerance_percent"]) / 100.0
+        return abs(float(expected_value)) * float(dimension["tolerance_percent"]) / 100.0
     return None
 
 

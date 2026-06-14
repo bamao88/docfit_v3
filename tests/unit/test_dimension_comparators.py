@@ -78,6 +78,31 @@ def test_numeric_tolerance_distinguishes_fail_and_pass() -> None:
     assert findings[0].type == "numeric_tolerance_mismatch"
 
 
+def test_numeric_percent_tolerance_uses_expected_value() -> None:
+    dimensions = [
+        {
+            "dimension_id": "template.margin_top",
+            "comparator_mode": "numeric_tolerance",
+            "expected_path": "margin",
+            "actual_path": "margin",
+            "tolerance_percent": 5,
+        }
+    ]
+
+    assert (
+        compare_dimensions({"margin": 20}, {"margin": 20.9}, dimensions, stage="template")
+        == []
+    )
+    findings = compare_dimensions(
+        {"margin": 20},
+        {"margin": 21.2},
+        dimensions,
+        stage="template",
+    )
+
+    assert findings[0].status == Status.FAIL
+
+
 def test_oracle_required_unknown_remains_blocking() -> None:
     findings = compare_dimensions(
         {"same_page": True},

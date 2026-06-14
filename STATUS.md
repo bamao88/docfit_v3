@@ -18,11 +18,14 @@ Current state:
   `out/real-core-v0-baseline-review/`.
 - A generic dimension comparator foundation exists for the signed comparator
   modes named by the real-school plan.
+- Baseline-to-artifact comparison now validates signed metadata, compares
+  dimensions, and returns a merged `PASS` / `FAIL` / `UNKNOWN` result.
 
 Next action:
 
 - Review and lock the generated baseline drafts, then continue with
-  stage-level comparator wiring and Word image evidence production.
+  stage-specific artifact normalizers/comparator adapters and Word image
+  evidence production.
 
 Known blockers:
 

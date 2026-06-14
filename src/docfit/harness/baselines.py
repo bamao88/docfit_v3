@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 from pathlib import Path
 from typing import Any, Iterable
@@ -7,8 +8,12 @@ from typing import Any, Iterable
 import yaml
 
 from docfit.core.models import Finding, make_finding
-from docfit.core.status import Status
-from docfit.harness.comparators import ALLOWED_COMPARATOR_MODES, NUMERIC_TOLERANCE_FIELDS
+from docfit.core.status import Status, merge_statuses
+from docfit.harness.comparators import (
+    ALLOWED_COMPARATOR_MODES,
+    NUMERIC_TOLERANCE_FIELDS,
+    compare_dimensions,
+)
 
 REQUIRED_REVIEW_METADATA_FIELDS = {
     "reviewed_by",
@@ -17,6 +22,13 @@ REQUIRED_REVIEW_METADATA_FIELDS = {
     "change_reason",
     "auto_update_allowed",
 }
+
+
+@dataclass(frozen=True)
+class BaselineComparisonResult:
+    stage: str
+    status: Status
+    findings: list[Finding]
 
 
 def load_baseline_file(
@@ -236,6 +248,56 @@ def validate_baseline_document(
             next_index += 1
 
     return findings
+
+
+def compare_baseline_to_artifact(
+    baseline: dict[str, Any],
+    actual_artifact: dict[str, Any],
+    *,
+    stage: str,
+    start_index: int = 1,
+    baseline_ref: str | None = None,
+    expected_key: str = "expected",
+) -> BaselineComparisonResult:
+    findings = validate_baseline_document(
+        baseline,
+        stage=stage,
+        start_index=start_index,
+        baseline_ref=baseline_ref,
+    )
+    next_index = start_index + len(findings)
+    if not findings:
+        expected_artifact = baseline.get(expected_key)
+        if not isinstance(expected_artifact, dict):
+            findings.append(
+                make_finding(
+                    next_index,
+                    stage,
+                    Status.UNKNOWN,
+                    "missing_expected_artifact",
+                    "Baseline comparison requires expected artifact data",
+                    f"{expected_key}: <mapping>",
+                    repr(expected_artifact),
+                    evidence_refs=_refs(baseline_ref),
+                    root_cause_bucket="baseline_schema_gap",
+                )
+            )
+        else:
+            findings.extend(
+                compare_dimensions(
+                    expected_artifact,
+                    actual_artifact,
+                    _iter_dimensions(baseline),
+                    stage=stage,
+                    start_index=next_index,
+                )
+            )
+    status = (
+        merge_statuses([finding.status for finding in findings])
+        if findings
+        else Status.PASS
+    )
+    return BaselineComparisonResult(stage=stage, status=status, findings=findings)
 
 
 def _iter_dimensions(baseline: dict[str, Any]) -> Iterable[dict[str, Any]]:
