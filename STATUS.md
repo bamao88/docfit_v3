@@ -20,12 +20,14 @@ Current state:
   modes named by the real-school plan.
 - Baseline-to-artifact comparison now validates signed metadata, compares
   dimensions, and returns a merged `PASS` / `FAIL` / `UNKNOWN` result.
+- Word image evidence manifests can be built and verified; coverage validates
+  them when present and remains `UNKNOWN` while they are missing.
 
 Next action:
 
 - Review and lock the generated baseline drafts, then continue with
   stage-specific artifact normalizers/comparator adapters and Word image
-  evidence production.
+  evidence production/export automation.
 
 Known blockers:
 

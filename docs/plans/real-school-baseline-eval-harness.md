@@ -1384,3 +1384,30 @@ Current scope note:
   Stage-specific adapters still need to normalize template/content/placement
   and render artifacts into the expected dictionaries declared by signed
   baselines.
+
+### 2026-06-14 Word Image Evidence Boundary Slice
+
+Implemented:
+
+- Word image evidence manifest builder that records final DOCX hash, Word app
+  identity, platform, export method, page count, exported image count, image
+  paths, image hashes, export status, and open/repair warnings.
+- Word image evidence verifier for required fields, unavailable export
+  `UNKNOWN`, page/image count mismatch `FAIL`, image hash mismatch `FAIL`, final
+  DOCX hash mismatch `FAIL`, and Word repair warnings `UNKNOWN`.
+- `real-core-v0` coverage now verifies `word_image_evidence.json` when a case
+  evidence package exists, while preserving `missing_word_image_evidence` as
+  the blocking result when it does not exist.
+
+Verification for this slice:
+
+```bash
+uv run pytest tests/unit/test_word_evidence.py tests/contract/test_real_core_baseline_harness.py -q
+git diff --check
+```
+
+Current scope note:
+
+- This implements the deterministic evidence-package boundary only. Actual
+  local Microsoft Word automation/export remains required before the nine
+  render cases can satisfy the `real-core-v0` Word image evidence gate.

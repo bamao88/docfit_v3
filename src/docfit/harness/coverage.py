@@ -19,6 +19,7 @@ from docfit.harness.profiles import (
     get_eval_cases_for_profile,
     get_eval_profile,
 )
+from docfit.harness.word_evidence import verify_word_image_evidence
 
 
 def bootstrap_required_capabilities() -> list[str]:
@@ -367,6 +368,35 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
                 )
             )
             next_index += 1
+        else:
+            try:
+                evidence_manifest = read_json(evidence_path)
+            except Exception as exc:  # pragma: no cover - defensive branch
+                findings.append(
+                    make_finding(
+                        next_index,
+                        "coverage",
+                        Status.UNKNOWN,
+                        "invalid_word_image_evidence",
+                        "Word image evidence manifest must be valid JSON",
+                        "valid JSON manifest",
+                        repr(exc),
+                        affected_ids=[case.case_id],
+                        root_cause_bucket="oracle_gap",
+                    )
+                )
+                next_index += 1
+            else:
+                evidence_findings = verify_word_image_evidence(
+                    evidence_manifest,
+                    stage="coverage",
+                    start_index=next_index,
+                )
+                for finding in evidence_findings:
+                    if case.case_id not in finding.affected_ids:
+                        finding.affected_ids.append(case.case_id)
+                findings.extend(evidence_findings)
+                next_index += len(evidence_findings)
 
     required_flat = REAL_CORE_PROFILE.all_required_capabilities()
     status = Status.UNKNOWN if findings else Status.PASS
