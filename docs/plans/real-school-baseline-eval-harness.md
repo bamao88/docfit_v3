@@ -2,7 +2,7 @@
 
 Date: 2026-06-14
 Owner: Product + Engineering
-Status: Draft, entropy-reduced for review
+Status: Draft, entropy-reduced and preflighted for execution
 Last reviewed: 2026-06-14
 
 ## Purpose
@@ -1171,12 +1171,108 @@ Why the loop stops:
   completeness, fixed-page visual integrity, and bound-object co-location after
   Word pagination.
 
+## Preflight Contract
+
+Status: `DRAFT`
+
+Canonical source:
+
+- `docs/plans/real-school-baseline-eval-harness.md`
+
+Recommended execution route:
+
+```bash
+/goal execute docs/plans/real-school-baseline-eval-harness.md with intuitive-flow
+```
+
+Execution scope:
+
+- Implement the real-school baseline eval harness for `real-core-v0`.
+- Cover three fixed school templates, three fixed student documents, and nine
+  template/student render combinations.
+- Add Stage 1 through Stage 4 structured comparison, reports, issue clusters,
+  and AI RCA packets.
+- Treat Word visual evidence as a narrow supplemental gate for signed visual
+  blind spots.
+- Keep final gate status deterministic: only `PASS`, `FAIL`, and `UNKNOWN`.
+- Prevent AI or runtime human review from deciding whether a run passes.
+
+AI coding can complete:
+
+- Baseline schemas, signing rules, source hashes, and anti-auto-update
+  protections.
+- `real-core-v0` profile and case registry.
+- Machine-readable drafts for template contracts, student content trees, and
+  aligned render plans.
+- Dimensional comparators for ordering, styles, fill state, visible content
+  ledger, placement, render manifests, and feature snapshots.
+- Word evidence manifests that include Word version, export status, page image
+  hashes, page counts, and open/repair warnings.
+- `UNKNOWN` handling for missing evidence, export failures, unreadable
+  dimensions, and unsigned required visual blind spots.
+- AI RCA packets as advisory diagnosis only.
+- Focused tests, CLI eval checks, and generated reports.
+
+Product or user handoff is required for:
+
+- Reviewing and locking the three drafted template baselines.
+- Reviewing and locking the three drafted student content baselines.
+- Reviewing and locking the nine drafted aligned render plan baselines.
+- Resolving true domain ambiguity, including conflicting school rules or
+  inconsistent human review evidence.
+- Deciding whether a behavior is a generic capability gap or a signed
+  school-specific exception.
+- Approving any new visual blind-spot dimension beyond the initial signed
+  scope.
+
+Non-goals:
+
+- Do not expand the fixed input set.
+- Do not auto-update goldens, signed standards, or expected snapshots.
+- Do not turn Word visual evidence into a broad manual quality review.
+- Do not let Codex vision decide final `PASS` or `FAIL`.
+- Do not require runtime human inspection during normal eval runs.
+- Do not add hidden school-specific branches to core logic.
+- Do not claim `real-core-v0` success with fewer than nine signed render cases.
+
+Acceptance states:
+
+- `SUCCESS`: `real-core-v0` has three template cases, three content cases, and
+  nine render cases; all baselines have review metadata, source hashes, and
+  `auto_update_allowed: false`; schema validation and standards audit pass;
+  comparators produce deterministic `PASS`, `FAIL`, or blocking `UNKNOWN`;
+  Word image evidence is generated for all nine render cases; visual checks
+  stay within the signed blind-spot scope; AI RCA cannot mutate summary status;
+  focused tests and relevant eval commands pass.
+- `INTERMEDIATE_ONLY`: AI has generated the baseline review packet, but the
+  baselines have not yet been reviewed and locked by the user/product owner.
+  This cannot be described as a completed `real-core-v0`.
+- `BLOCKED_NEEDS_DECISION`: baseline review is conflicting, a school-specific
+  exception is needed, a new visual blind-spot dimension is requested, or the
+  fixed evidence set changes.
+- `BLOCKED_NEEDS_LOCAL_VALIDATION`: local Microsoft Word is unavailable, macOS
+  automation/export permissions are unavailable, or required page-image export
+  cannot be produced.
+
+Required verification:
+
+```bash
+uv run python -m compileall src scripts tests -q
+uv run pytest -q
+git diff --check
+uv run docfit eval coverage --profile bootstrap-core --out /tmp/docfit_bootstrap_coverage
+uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage
+```
+
+The implementation must also run the relevant e2e/eval command for each of the
+nine `real-core-v0` render cases once the case registry exists. The exact case
+ids are produced by that registry.
+
 ## Stop Condition
 
-This plan is ready for preflight when:
+This plan has passed preflight as a `DRAFT` execution contract.
 
-- The implementation route chooses whether to start with schema/signing
-  infrastructure or manual baseline authoring.
-
-This plan is ready for implementation only after those decisions are reconciled
-into a scoped preflight or execution contract.
+Implementation should start with schema, signing, and registry infrastructure,
+then produce the baseline review packet. Full `real-core-v0` completion remains
+blocked until the drafted baselines are reviewed and locked, and until local
+Word visual evidence can be generated for the nine render cases.
