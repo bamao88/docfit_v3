@@ -1,7 +1,7 @@
 # Bootstrap Eval Runbook
 
 Use this when changes touch contracts, verifiers, stage runners, standards,
-fixtures, report generation, or CLI eval behavior.
+input assets, report generation, or CLI eval behavior.
 
 ## Fast Loop
 
@@ -18,7 +18,7 @@ eval command before handing off.
 uv run docfit eval standards --school demo-school --out /tmp/docfit_standards
 uv run docfit eval coverage --profile bootstrap-core --out /tmp/docfit_coverage
 uv run docfit eval e2e --school demo-school \
-  --student fixtures/bootstrap/students/demo-thesis.docx \
+  --student inputs/bootstrap-demo-student-pass.docx \
   --out /tmp/docfit_bootstrap_pass
 ```
 
@@ -28,7 +28,7 @@ Expected status is `PASS`.
 
 ```bash
 uv run docfit eval content \
-  --student fixtures/bootstrap/students/with-unsupported-textbox.docx \
+  --student inputs/bootstrap-demo-student-unsupported-textbox.docx \
   --out /tmp/docfit_bootstrap_unknown
 ```
 

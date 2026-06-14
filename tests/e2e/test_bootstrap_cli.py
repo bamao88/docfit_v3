@@ -23,7 +23,7 @@ def test_bootstrap_e2e_pass(tmp_path) -> None:
     result = run_e2e_eval(
         ROOT,
         "demo-school",
-        ROOT / "fixtures/bootstrap/students/demo-thesis.docx",
+        ROOT / "inputs/bootstrap-demo-student-pass.docx",
         tmp_path / "bootstrap_pass",
     )
 
@@ -38,7 +38,7 @@ def test_convert_blocks_on_unknown(tmp_path) -> None:
     result = run_e2e_eval(
         ROOT,
         "demo-school",
-        ROOT / "fixtures/bootstrap/students/with-unsupported-textbox.docx",
+        ROOT / "inputs/bootstrap-demo-student-unsupported-textbox.docx",
         tmp_path / "bootstrap_unknown",
         final_copy=final_copy,
     )
@@ -52,7 +52,7 @@ def test_fail_when_renderer_skips_action(tmp_path) -> None:
     pass_result = run_e2e_eval(
         ROOT,
         "demo-school",
-        ROOT / "fixtures/bootstrap/students/demo-thesis.docx",
+        ROOT / "inputs/bootstrap-demo-student-pass.docx",
         tmp_path / "bootstrap_pass",
     )
     assert pass_result.status == Status.PASS
@@ -74,7 +74,7 @@ def test_fail_when_renderer_writes_wrong_content(tmp_path) -> None:
     pass_result = run_e2e_eval(
         ROOT,
         "demo-school",
-        ROOT / "fixtures/bootstrap/students/demo-thesis.docx",
+        ROOT / "inputs/bootstrap-demo-student-pass.docx",
         tmp_path / "bootstrap_pass",
     )
     assert pass_result.status == Status.PASS
@@ -103,7 +103,7 @@ def test_fail_when_render_artifact_hash_chain_mismatches(tmp_path) -> None:
     pass_result = run_e2e_eval(
         ROOT,
         "demo-school",
-        ROOT / "fixtures/bootstrap/students/demo-thesis.docx",
+        ROOT / "inputs/bootstrap-demo-student-pass.docx",
         tmp_path / "bootstrap_pass",
     )
     assert pass_result.status == Status.PASS

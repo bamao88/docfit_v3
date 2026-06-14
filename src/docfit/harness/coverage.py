@@ -150,10 +150,10 @@ def _has_required_content_hashes(path: Path) -> bool:
 
 
 def evaluate_bootstrap_coverage(root: Path) -> tuple[dict[str, Any], list[Finding]]:
-    template_docx = root / "fixtures/bootstrap/schools/demo-school/template.docx"
-    student_docx = root / "fixtures/bootstrap/students/demo-thesis.docx"
-    expected_placement = root / "fixtures/bootstrap/expected/placement_plan.json"
-    expected_snapshot = root / "fixtures/bootstrap/expected/feature_snapshot.json"
+    template_docx = root / "inputs/bootstrap-demo-school-template.docx"
+    student_docx = root / "inputs/bootstrap-demo-student-pass.docx"
+    expected_placement = root / "inputs/bootstrap-demo-placement-plan.json"
+    expected_snapshot = root / "inputs/bootstrap-demo-feature-snapshot.json"
     template_doc = _safe_document(template_docx)
     student_doc = _safe_document(student_docx)
     has_visible_content = bool(
@@ -210,8 +210,8 @@ def evaluate_bootstrap_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
                 "coverage",
                 Status.UNKNOWN,
                 "coverage_insufficient",
-                "bootstrap-core fixture coverage is incomplete",
-                "all required bootstrap capabilities have fixtures",
+                "bootstrap-core input asset coverage is incomplete",
+                "all required bootstrap capabilities have input assets",
                 ", ".join(missing),
                 root_cause_bucket="coverage_gap",
             )

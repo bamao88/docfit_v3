@@ -308,16 +308,16 @@ docfit/
             feature_snapshot.json
             expected.docx
 
-  fixtures/
-    bootstrap/
-      schools/demo-school/template.docx
-      students/demo-thesis.docx
-      expected/
-    template/
-    content/
-    placement/
-    render/
-    e2e/
+  inputs/
+    README.md
+    bootstrap-demo-school-template.docx
+    bootstrap-demo-student-pass.docx
+    bootstrap-demo-student-unsupported-textbox.docx
+    bootstrap-demo-student-silent-drop.docx
+    bootstrap-demo-placement-plan.json
+    bootstrap-demo-feature-snapshot.json
+    real-student-001-source.docx
+    school-pku-graduate-template.docx
 
   reports/
     .gitkeep
@@ -335,7 +335,7 @@ docfit/
 
 - `standards/`
 - `contracts/`
-- `fixtures/`
+- `inputs/`
 - `reports/`
 - `src/docfit/harness/`
 
@@ -385,8 +385,8 @@ case_id: bootstrap_e2e_demo_001
 stage: e2e
 school_id: demo-school
 inputs:
-  template_docx: fixtures/bootstrap/schools/demo-school/template.docx
-  student_docx: fixtures/bootstrap/students/demo-thesis.docx
+  template_docx: inputs/bootstrap-demo-school-template.docx
+  student_docx: inputs/bootstrap-demo-student-pass.docx
 standards:
   signed_standard: standards/schools/demo-school/v1/signed_standard.yaml
   template_contract: standards/schools/demo-school/v1/template_contract.json
@@ -483,7 +483,7 @@ status: signed
 owner: product-owner
 approved_at: "2026-06-14T10:00:00+09:00"
 source:
-  template_docx: fixtures/bootstrap/schools/demo-school/template.docx
+  template_docx: inputs/bootstrap-demo-school-template.docx
   template_docx_sha256: "sha256:..."
 contracts:
   template_contract: template_contract.json
@@ -699,7 +699,7 @@ Template Contract 必须验证：
 ```bash
 docfit eval template \
   --school demo-school \
-  --template fixtures/bootstrap/schools/demo-school/template.docx \
+  --template inputs/bootstrap-demo-school-template.docx \
   --out reports/run_template_001
 ```
 
@@ -855,7 +855,7 @@ Stage 2 不允许丢弃任何可见内容。
 
 ```bash
 docfit eval content \
-  --student fixtures/bootstrap/students/demo-thesis.docx \
+  --student inputs/bootstrap-demo-student-pass.docx \
   --out reports/run_content_001
 ```
 
@@ -1176,7 +1176,7 @@ template parse
 ```bash
 docfit convert \
   --school demo-school \
-  --student fixtures/bootstrap/students/demo-thesis.docx \
+  --student inputs/bootstrap-demo-student-pass.docx \
   --out out/final.docx \
   --report reports/run_convert_001
 ```
@@ -1616,17 +1616,16 @@ Bootstrap 成功不是“转换很漂亮”，而是：
 7. silent drop 被检测为 FAIL；
 8. AI diagnosis packet 能生成，但不影响 gate。
 
-### 19.4 Bootstrap 必须包含的 fixture
+### 19.4 Bootstrap 必须包含的输入 fixture
 
 ```text
-fixtures/bootstrap/
-  schools/demo-school/template.docx
-  students/demo-thesis.docx
-  students/with-unsupported-textbox.docx
-  students/with-silent-drop-trigger.docx
-  expected/
-    placement_plan.json
-    feature_snapshot.json
+inputs/
+  bootstrap-demo-school-template.docx
+  bootstrap-demo-student-pass.docx
+  bootstrap-demo-student-unsupported-textbox.docx
+  bootstrap-demo-student-silent-drop.docx
+  bootstrap-demo-placement-plan.json
+  bootstrap-demo-feature-snapshot.json
 ```
 
 ### 19.5 Bootstrap CLI 验收
@@ -1636,7 +1635,7 @@ fixtures/bootstrap/
 ```bash
 docfit eval e2e \
   --school demo-school \
-  --student fixtures/bootstrap/students/demo-thesis.docx \
+  --student inputs/bootstrap-demo-student-pass.docx \
   --out reports/bootstrap_pass
 ```
 
@@ -1650,7 +1649,7 @@ status = PASS
 
 ```bash
 docfit eval content \
-  --student fixtures/bootstrap/students/with-unsupported-textbox.docx \
+  --student inputs/bootstrap-demo-student-unsupported-textbox.docx \
   --out reports/bootstrap_unknown
 ```
 

@@ -25,8 +25,9 @@ to update both.
 - `src/docfit/harness/`: status, standards, coverage, reports, issue clusters,
   and audit helpers.
 - `standards/schools/**`: signed standards, contracts, goldens, exceptions, and
-  source reviews.
-- `fixtures/**`: bootstrap and real student DOCX fixtures.
+  school package notes.
+- `inputs/**`: original DOCX/DOC inputs, student examples, human review
+  evidence, and bootstrap expected fixture inputs.
 - `reports/**` and `out/**`: generated evidence/output unless a task explicitly
   asks to preserve them.
 
@@ -54,10 +55,10 @@ Baseline verification:
 
 ```bash
 uv run pytest
-uv run docfit eval e2e --school demo-school --student fixtures/bootstrap/students/demo-thesis.docx --out reports/bootstrap_pass
+uv run docfit eval e2e --school demo-school --student inputs/bootstrap-demo-student-pass.docx --out reports/bootstrap_pass
 ```
 
-When changing contracts, verifiers, stages, standards, fixtures, or CLI eval
+When changing contracts, verifiers, stages, standards, input assets, or CLI eval
 behavior, run focused tests plus the relevant `docfit eval ...` command. Use
 `docs/agents/bootstrap-eval-runbook.md` for the longer bootstrap matrix.
 

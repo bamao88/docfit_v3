@@ -6,8 +6,8 @@ The converted `.docx` is the future Stage 1 primary input. The original `.doc` i
 
 It is not yet a runnable signed standard for `docfit eval e2e`; the Bootstrap implementation only signs `demo-school`.
 
-Sources:
+Inputs:
 
-- `upstream/word/requirement.docx`
-- `upstream/legacy/requirement.doc`
-- `source_reviews/school-template-hierarchical-review-hunannongye-v2-2026-06-09.txt`
+- `inputs/school-hunannongye-requirement.docx`
+- `inputs/school-hunannongye-requirement-legacy.doc`
+- `inputs/school-hunannongye-template-review.txt`

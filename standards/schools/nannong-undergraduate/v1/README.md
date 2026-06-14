@@ -4,7 +4,7 @@ This directory stores the real template source and human review evidence for a f
 
 It is not yet a runnable signed standard for `docfit eval e2e`; the Bootstrap implementation only signs `demo-school`.
 
-Sources:
+Inputs:
 
-- `upstream/word/nannong_template.docx`
-- `source_reviews/school-template-hierarchical-review-nannong-undergraduate-v2-2026-06-09.txt`
+- `inputs/school-nannong-undergraduate-template.docx`
+- `inputs/school-nannong-undergraduate-template-review.txt`

@@ -66,7 +66,7 @@ def test_fail_when_template_slot_missing(tmp_path) -> None:
 
 def test_fail_when_visible_content_missing_from_ledger() -> None:
     result = extract_student_content(
-        ROOT / "fixtures/bootstrap/students/demo-thesis.docx",
+        ROOT / "inputs/bootstrap-demo-student-pass.docx",
         simulate_missing_content_id="c_002",
     )
 
@@ -76,7 +76,7 @@ def test_fail_when_visible_content_missing_from_ledger() -> None:
 
 def test_unknown_when_unsupported_visible_object() -> None:
     result = extract_student_content(
-        ROOT / "fixtures/bootstrap/students/with-unsupported-textbox.docx"
+        ROOT / "inputs/bootstrap-demo-student-unsupported-textbox.docx"
     )
 
     assert result.status == Status.UNKNOWN
@@ -97,12 +97,12 @@ def test_unknown_when_content_coverage_insufficient(tmp_path) -> None:
 
 
 def test_bootstrap_coverage_checks_fixture_content_not_just_paths(tmp_path) -> None:
-    template = tmp_path / "fixtures/bootstrap/schools/demo-school/template.docx"
-    student = tmp_path / "fixtures/bootstrap/students/demo-thesis.docx"
-    expected = tmp_path / "fixtures/bootstrap/expected"
-    template.parent.mkdir(parents=True)
-    student.parent.mkdir(parents=True)
-    expected.mkdir(parents=True)
+    template = tmp_path / "inputs/bootstrap-demo-school-template.docx"
+    student = tmp_path / "inputs/bootstrap-demo-student-pass.docx"
+    expected_snapshot = tmp_path / "inputs/bootstrap-demo-feature-snapshot.json"
+    expected_placement = tmp_path / "inputs/bootstrap-demo-placement-plan.json"
+    template.parent.mkdir(parents=True, exist_ok=True)
+    student.parent.mkdir(parents=True, exist_ok=True)
 
     template_doc = Document()
     template_doc.add_paragraph("[[DOCFIT_SLOT:body]]")
@@ -112,9 +112,9 @@ def test_bootstrap_coverage_checks_fixture_content_not_just_paths(tmp_path) -> N
     student_doc.add_paragraph("This student document has no table.")
     student_doc.save(student)
 
-    write_json(expected / "placement_plan.json", {"data": {"actions": []}})
+    write_json(expected_placement, {"data": {"actions": []}})
     write_json(
-        expected / "feature_snapshot.json",
+        expected_snapshot,
         {"required_content_hashes": ["sha256:demo"]},
     )
 
@@ -128,7 +128,7 @@ def test_bootstrap_coverage_checks_fixture_content_not_just_paths(tmp_path) -> N
 def test_fail_when_content_unplaced() -> None:
     bundle = _bundle()
     template = parse_template(bundle.template_docx, bundle)
-    content = extract_student_content(ROOT / "fixtures/bootstrap/students/demo-thesis.docx")
+    content = extract_student_content(ROOT / "inputs/bootstrap-demo-student-pass.docx")
 
     result = build_placement_plan(
         template.artifacts["template_artifact"],

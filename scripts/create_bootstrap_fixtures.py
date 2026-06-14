@@ -214,7 +214,7 @@ def create_standard(template_path: Path, expected_hashes: list[str]) -> None:
         "owner": "docfit-core",
         "approved_at": "2026-06-14T00:00:00+00:00",
         "source": {
-            "template_docx": "fixtures/bootstrap/schools/demo-school/template.docx",
+            "template_docx": "inputs/bootstrap-demo-school-template.docx",
             "template_docx_sha256": sha256_file(template_path),
         },
         "contracts": {
@@ -230,16 +230,27 @@ def create_standard(template_path: Path, expected_hashes: list[str]) -> None:
         "coverage_requirements": {
             "profile": "bootstrap-core",
             "required_capabilities": [
+                "template.docx_openable",
+                "template.required_regions",
                 "template.required_slots",
-                "content.visible_text_blocks",
+                "template.styles_inventory",
+                "content.visible_paragraphs",
+                "content.visible_tables",
+                "content.reading_order",
+                "content.stable_ids",
                 "placement.no_silent_drop",
+                "placement.slot_compatibility",
+                "placement.required_slots",
+                "render.valid_docx_package",
                 "render.plan_coverage",
+                "render.feature_snapshot",
+                "render.content_hash_coverage",
             ],
         },
         "change_control": {
             "auto_update_allowed": False,
             "requires_review": True,
-            "change_reason": "initial bootstrap standard",
+            "change_reason": "initial bootstrap standard with explicit capability profile",
         },
     }
     (standard_dir / "signed_standard.yaml").write_text(
@@ -249,13 +260,12 @@ def create_standard(template_path: Path, expected_hashes: list[str]) -> None:
 
 
 def create_expected_files(expected_hashes: list[str]) -> None:
-    expected_dir = ROOT / "fixtures/bootstrap/expected"
     write_json(
-        expected_dir / "feature_snapshot.json",
+        ROOT / "inputs/bootstrap-demo-feature-snapshot.json",
         {"required_content_hashes": expected_hashes},
     )
     write_json(
-        expected_dir / "placement_plan.json",
+        ROOT / "inputs/bootstrap-demo-placement-plan.json",
         {
             "expected_action_count": len(expected_hashes),
             "required_disposition": "place",
@@ -264,10 +274,10 @@ def create_expected_files(expected_hashes: list[str]) -> None:
 
 
 def main() -> None:
-    template_path = ROOT / "fixtures/bootstrap/schools/demo-school/template.docx"
-    student_path = ROOT / "fixtures/bootstrap/students/demo-thesis.docx"
-    textbox_path = ROOT / "fixtures/bootstrap/students/with-unsupported-textbox.docx"
-    silent_drop_path = ROOT / "fixtures/bootstrap/students/with-silent-drop-trigger.docx"
+    template_path = ROOT / "inputs/bootstrap-demo-school-template.docx"
+    student_path = ROOT / "inputs/bootstrap-demo-student-pass.docx"
+    textbox_path = ROOT / "inputs/bootstrap-demo-student-unsupported-textbox.docx"
+    silent_drop_path = ROOT / "inputs/bootstrap-demo-student-silent-drop.docx"
     create_template(template_path)
     expected_hashes = create_demo_student(student_path)
     create_silent_drop_student(student_path, silent_drop_path)

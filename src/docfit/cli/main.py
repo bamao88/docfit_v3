@@ -103,7 +103,7 @@ def eval_e2e(
 ) -> None:
     if case == "bootstrap_e2e_demo_001":
         school = "demo-school"
-        student = Path("fixtures/bootstrap/students/demo-thesis.docx")
+        student = Path("inputs/bootstrap-demo-student-pass.docx")
     if school is None or student is None:
         raise typer.BadParameter("--school and --student are required unless --case is provided")
     result = run_e2e_eval(_root(), school, student, out)
