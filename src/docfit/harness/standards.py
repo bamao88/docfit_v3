@@ -9,6 +9,7 @@ import yaml
 from docfit.core.io import sha256_file
 from docfit.core.models import Finding, make_finding
 from docfit.core.status import Status
+from docfit.harness.coverage import validate_standard_coverage_requirements
 
 
 REQUIRED_CONTRACT_FIELDS = {
@@ -80,6 +81,15 @@ def load_standard_bundle(
     contracts: dict[str, dict[str, Any]] = {}
     contract_paths: dict[str, Path] = {}
     next_finding = 1
+    coverage_requirements = signed_standard.get("coverage_requirements", {})
+    coverage_findings = validate_standard_coverage_requirements(
+        coverage_requirements.get("profile"),
+        coverage_requirements.get("required_capabilities", []),
+        stage=finding_stage,
+        start_index=next_finding,
+    )
+    findings.extend(coverage_findings)
+    next_finding += len(coverage_findings)
     for key, rel_path in signed_standard.get("contracts", {}).items():
         contract_path = school_dir / rel_path
         contract_paths[key] = contract_path

@@ -6,7 +6,15 @@ from typing import Any
 
 from docx import Document
 
-from docfit.core.io import ensure_dir, now_iso, read_json, sha256_file, sha256_text, write_json
+from docfit.core.io import (
+    ensure_dir,
+    now_iso,
+    read_json,
+    sha256_file,
+    sha256_json,
+    sha256_text,
+    write_json,
+)
 from docfit.core.models import Finding, StageResult, make_finding
 from docfit.core.status import Status, merge_statuses
 from docfit.harness.standards import StandardBundle
@@ -22,6 +30,14 @@ def render_docx(
     simulate_skip_action: str | None = None,
 ) -> StageResult:
     ensure_dir(out_dir)
+    input_findings = verify_render_input_hashes(template_artifact, placement_plan)
+    if input_findings:
+        return StageResult(
+            "render",
+            merge_statuses([finding.status for finding in input_findings]),
+            findings=input_findings,
+        )
+
     final_docx = out_dir / "final.docx"
     source_template = Path(template_artifact["provenance"]["template_docx"])
     shutil.copyfile(source_template, final_docx)
@@ -87,8 +103,8 @@ def render_docx(
         "created_at": now_iso(),
         "output_docx": str(final_docx),
         "input_hashes": {
-            "template_artifact": template_artifact.get("input_hashes", {}).get("template_docx"),
-            "placement_plan": placement_plan.get("input_hashes", {}).get("student_content_artifact"),
+            "template_artifact": sha256_json(template_artifact),
+            "placement_plan": sha256_json(placement_plan),
         },
         "actions_executed": actions_executed,
         "actions_failed": actions_failed,
@@ -123,9 +139,47 @@ def render_docx(
             "render.valid_docx_package": oracle_report["valid_docx_package"],
             "render.plan_coverage": not actions_failed,
             "render.feature_snapshot": True,
-            "render.content_hash_coverage": bool(feature_snapshot["content_hashes"]),
+            "render.content_hash_coverage": set(
+                feature_snapshot["expected_content_hashes"]
+            ).issubset(set(feature_snapshot["content_hashes"])),
         },
     )
+
+
+def verify_render_input_hashes(
+    template_artifact: dict[str, Any],
+    placement_plan: dict[str, Any],
+) -> list[Finding]:
+    expected_template_hash = placement_plan.get("input_hashes", {}).get("template_artifact")
+    if not expected_template_hash:
+        return [
+            make_finding(
+                1,
+                "render",
+                Status.UNKNOWN,
+                "missing_input_artifact_hash",
+                "Placement plan must bind the template artifact hash consumed by render",
+                "input_hashes.template_artifact is present",
+                "missing",
+                root_cause_bucket="artifact_hash_gap",
+            )
+        ]
+
+    actual_template_hash = sha256_json(template_artifact)
+    if actual_template_hash != expected_template_hash:
+        return [
+            make_finding(
+                1,
+                "render",
+                Status.FAIL,
+                "artifact_hash_mismatch",
+                "Render received a template artifact that does not match the placement plan provenance",
+                expected_template_hash,
+                actual_template_hash,
+                root_cause_bucket="artifact_hash_mismatch",
+            )
+        ]
+    return []
 
 
 def _remove_slot_markers(doc: Document) -> None:
@@ -140,9 +194,13 @@ def build_feature_snapshot(
     render_manifest: dict[str, Any],
 ) -> dict[str, Any]:
     doc = Document(final_docx)
-    paragraphs = [paragraph.text for paragraph in doc.paragraphs if paragraph.text.strip()]
+    paragraphs = [
+        paragraph.text.strip()
+        for paragraph in doc.paragraphs
+        if paragraph.text.strip()
+    ]
     tables = [
-        [[cell.text for cell in row.cells] for row in table.rows]
+        [[cell.text.strip() for cell in row.cells] for row in table.rows]
         for table in doc.tables
     ]
     expected_hashes = [
@@ -151,6 +209,8 @@ def build_feature_snapshot(
         for content_hash in action.get("content_hashes", [])
         if content_hash
     ]
+    rendered_hashes = [sha256_text(text) for text in paragraphs]
+    rendered_hashes.extend(sha256_json(table) for table in tables)
     actual_text = "\n".join(paragraphs) + "\n" + repr(tables)
     return {
         "artifact_type": "feature_snapshot",
@@ -163,9 +223,13 @@ def build_feature_snapshot(
             for paragraph in doc.paragraphs
             if paragraph.style is not None and paragraph.style.name.startswith("Heading")
         ],
-        "content_hashes": expected_hashes,
+        "content_hashes": rendered_hashes,
+        "expected_content_hashes": expected_hashes,
         "rendered_text_hash": sha256_text(actual_text),
-        "actions_executed": [item["action_id"] for item in render_manifest.get("actions_executed", [])],
+        "actions_executed": [
+            item["action_id"]
+            for item in render_manifest.get("actions_executed", [])
+        ],
     }
 
 

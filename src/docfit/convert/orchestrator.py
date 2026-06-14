@@ -7,6 +7,7 @@ from typing import Any
 from docfit.core.io import read_json
 from docfit.core.models import Finding, StageResult
 from docfit.core.status import Status, merge_statuses
+from docfit.harness.coverage import BOOTSTRAP_REQUIRED, coverage_gate_findings
 from docfit.harness.reports import write_report_bundle
 from docfit.harness.standards import load_standard_bundle
 from docfit.stages.content_extract.runner import extract_student_content, write_content_outputs
@@ -37,6 +38,27 @@ def _write_stage_report(out_dir: Path, result: StageResult) -> dict[str, Any]:
     )
 
 
+def _required_capabilities(bundle: Any, contract_key: str, fallback: list[str]) -> list[str]:
+    if bundle is None:
+        return fallback
+    contract = bundle.contracts.get(contract_key, {})
+    return list(contract.get("required_capabilities") or fallback)
+
+
+def _apply_coverage_gate(result: StageResult, required_capabilities: list[str]) -> StageResult:
+    findings = coverage_gate_findings(
+        result.stage,
+        result.coverage,
+        required_capabilities,
+        start_index=len(result.findings) + 1,
+    )
+    if not findings:
+        return result
+    result.findings.extend(findings)
+    result.status = merge_statuses([result.status] + [finding.status for finding in findings])
+    return result
+
+
 def run_template_eval(root: Path, school_id: str, template_docx: Path, out_dir: Path) -> StageResult:
     bundle, standard_findings = load_standard_bundle(root, school_id, finding_stage="template")
     if bundle is None:
@@ -46,6 +68,10 @@ def run_template_eval(root: Path, school_id: str, template_docx: Path, out_dir: 
         result.findings = standard_findings + result.findings
         if standard_findings and result.status == Status.PASS:
             result.status = Status.UNKNOWN
+        _apply_coverage_gate(
+            result,
+            _required_capabilities(bundle, "template_contract", BOOTSTRAP_REQUIRED["template"]),
+        )
     write_template_outputs(out_dir, result)
     _write_stage_report(out_dir, result)
     return result
@@ -61,6 +87,7 @@ def run_content_eval(
         student_docx,
         simulate_missing_content_id=simulate_missing_content_id,
     )
+    _apply_coverage_gate(result, BOOTSTRAP_REQUIRED["content"])
     write_content_outputs(out_dir, result)
     _write_stage_report(out_dir, result)
     return result
@@ -75,7 +102,7 @@ def run_placement_eval(
     *,
     simulate_drop: str | None = None,
 ) -> StageResult:
-    _, standard_findings = load_standard_bundle(root, school_id, finding_stage="placement")
+    bundle, standard_findings = load_standard_bundle(root, school_id, finding_stage="placement")
     template_artifact = read_json(template_artifact_path)
     content_artifact = read_json(content_artifact_path)
     result = build_placement_plan(
@@ -86,6 +113,10 @@ def run_placement_eval(
     result.findings = standard_findings + result.findings
     if standard_findings and result.status == Status.PASS:
         result.status = Status.UNKNOWN
+    _apply_coverage_gate(
+        result,
+        _required_capabilities(bundle, "placement_contract", BOOTSTRAP_REQUIRED["placement"]),
+    )
     write_placement_outputs(out_dir, result)
     _write_stage_report(out_dir, result)
     return result
@@ -116,6 +147,10 @@ def run_render_eval(
         result.findings = standard_findings + result.findings
         if standard_findings and result.status == Status.PASS:
             result.status = Status.UNKNOWN
+        _apply_coverage_gate(
+            result,
+            _required_capabilities(bundle, "render_contract", BOOTSTRAP_REQUIRED["render"]),
+        )
     write_render_outputs(out_dir, result)
     _write_stage_report(out_dir, result)
     return result
@@ -159,6 +194,10 @@ def run_e2e_eval(
     template_result = parse_template(bundle.template_docx, bundle)
     template_result.findings = standard_findings + template_result.findings
     write_template_outputs(out_dir, template_result)
+    _apply_coverage_gate(
+        template_result,
+        _required_capabilities(bundle, "template_contract", BOOTSTRAP_REQUIRED["template"]),
+    )
     stage_statuses["template"] = template_result.status.value
     all_findings = template_result.findings
     artifacts.update(template_result.artifacts)
@@ -168,6 +207,10 @@ def run_e2e_eval(
         return _finish_e2e(out_dir, stage_statuses, all_findings, artifacts, artifact_paths, coverage, "template")
 
     content_result = extract_student_content(student_docx)
+    _apply_coverage_gate(
+        content_result,
+        _required_capabilities(bundle, "student_content_contract", BOOTSTRAP_REQUIRED["content"]),
+    )
     write_content_outputs(out_dir, content_result)
     stage_statuses["content"] = content_result.status.value
     all_findings.extend(content_result.findings)
@@ -180,6 +223,10 @@ def run_e2e_eval(
     placement_result = build_placement_plan(
         template_result.artifacts["template_artifact"],
         content_result.artifacts["student_content_artifact"],
+    )
+    _apply_coverage_gate(
+        placement_result,
+        _required_capabilities(bundle, "placement_contract", BOOTSTRAP_REQUIRED["placement"]),
     )
     write_placement_outputs(out_dir, placement_result)
     stage_statuses["placement"] = placement_result.status.value
@@ -195,6 +242,10 @@ def run_e2e_eval(
         placement_result.artifacts["placement_plan"],
         bundle,
         out_dir,
+    )
+    _apply_coverage_gate(
+        render_result,
+        _required_capabilities(bundle, "render_contract", BOOTSTRAP_REQUIRED["render"]),
     )
     write_render_outputs(out_dir, render_result)
     stage_statuses["render"] = render_result.status.value
