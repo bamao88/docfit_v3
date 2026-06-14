@@ -1,0 +1,8 @@
+{
+  "include": ["src", "tests"],
+  "exclude": ["**/__pycache__", ".venv", ".pytest_cache", "out", "reports"],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic"
+}
