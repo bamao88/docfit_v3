@@ -45,6 +45,10 @@ def sha256_file(path: Path) -> str:
     return "sha256:" + digest.hexdigest()
 
 
+def sha256_bytes(payload: bytes) -> str:
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
 def sha256_text(text: str) -> str:
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 

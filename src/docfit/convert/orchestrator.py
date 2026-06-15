@@ -9,6 +9,11 @@ from docfit.core.models import Finding, StageResult
 from docfit.core.status import StageRunState, Status, merge_statuses
 from docfit.harness.coverage import coverage_gate_findings
 from docfit.harness.profiles import BOOTSTRAP_PROFILE
+from docfit.harness.real_core import (
+    case_id_for,
+    is_real_core_bundle,
+    student_id_for_docx,
+)
 from docfit.harness.reports import write_report_bundle
 from docfit.harness.standards import load_standard_bundle
 from docfit.stages.content_extract.runner import extract_student_content, write_content_outputs
@@ -110,10 +115,22 @@ def run_placement_eval(
     bundle, standard_findings = load_standard_bundle(root, school_id, finding_stage="placement")
     template_artifact = read_json(template_artifact_path)
     content_artifact = read_json(content_artifact_path)
+    profile_id = (
+        bundle.signed_standard.get("coverage_requirements", {}).get("profile")
+        if bundle is not None
+        else None
+    )
+    student_id = content_artifact.get("student_id")
+    case_id = case_id_for(school_id, student_id)
     result = build_placement_plan(
         template_artifact,
         content_artifact,
         drop_content_id_for_test=drop_content_id_for_test,
+        root=root,
+        profile_id=profile_id,
+        case_id=case_id,
+        school_id=school_id,
+        student_id=student_id,
     )
     result.findings = standard_findings + result.findings
     if standard_findings and result.status == Status.PASS:
@@ -206,6 +223,15 @@ def run_e2e_eval(
         )
         return result
 
+    real_core_run = is_real_core_bundle(bundle)
+    profile_id = (
+        bundle.signed_standard.get("coverage_requirements", {}).get("profile")
+        if real_core_run
+        else BOOTSTRAP_PROFILE.profile_id
+    )
+    student_id = student_id_for_docx(root, student_docx) if real_core_run else None
+    case_id = case_id_for(school_id, student_id) if real_core_run else None
+
     template_result = parse_template(bundle.template_docx, bundle)
     template_result.findings = standard_findings + template_result.findings
     write_template_outputs(out_dir, template_result)
@@ -235,7 +261,12 @@ def run_e2e_eval(
             "template",
         )
 
-    content_result = extract_student_content(student_docx)
+    content_result = extract_student_content(
+        student_docx,
+        root=root,
+        profile_id=profile_id,
+        student_id=student_id,
+    )
     _apply_coverage_gate(
         content_result,
         _required_capabilities(
@@ -266,6 +297,11 @@ def run_e2e_eval(
     placement_result = build_placement_plan(
         template_result.artifacts["template_artifact"],
         content_result.artifacts["student_content_artifact"],
+        root=root,
+        profile_id=profile_id,
+        case_id=case_id,
+        school_id=school_id,
+        student_id=student_id,
     )
     _apply_coverage_gate(
         placement_result,

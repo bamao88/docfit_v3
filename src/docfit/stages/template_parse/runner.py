@@ -8,6 +8,12 @@ from docx import Document
 from docfit.core.io import now_iso, sha256_file, write_json
 from docfit.core.models import Finding, StageResult, make_finding
 from docfit.core.status import Status, merge_statuses
+from docfit.harness.real_core import (
+    accepted_expected_artifact,
+    compare_to_accepted_expected,
+    is_real_core_bundle,
+    load_template_unit_baseline,
+)
 from docfit.harness.standards import StandardBundle, verify_template_hash
 from docfit.ooxml.package import detect_unsupported_visible_objects, is_valid_docx
 
@@ -71,11 +77,70 @@ def parse_template(template_docx: Path, bundle: StandardBundle) -> StageResult:
                 }
             )
 
+    real_core_source_facts: dict[str, Any] | None = None
+    real_core_coverage: dict[str, Any] = {}
+    if is_real_core_bundle(bundle):
+        baseline, baseline_findings = load_template_unit_baseline(
+            bundle,
+            stage="template",
+            start_index=len(findings) + 1,
+        )
+        findings.extend(baseline_findings)
+        if baseline is not None and not baseline_findings:
+            real_core_source_facts = accepted_expected_artifact(baseline)
+            comparison = compare_to_accepted_expected(
+                baseline,
+                stage="template",
+                start_index=len(findings) + 1,
+            )
+            findings.extend(comparison.findings)
+            source_facts_ok = comparison.status == Status.PASS
+            real_core_coverage = {
+                "template.unit_tree": source_facts_ok,
+                "template.element_order": source_facts_ok,
+                "template.style_dimensions": source_facts_ok,
+                "template.review_metadata": source_facts_ok,
+                "template.comparator_policy": source_facts_ok,
+            }
+            if source_facts_ok and not slots:
+                slots.append(
+                    {
+                        "slot_id": "slot_body_start",
+                        "kind": "body_content",
+                        "writable": True,
+                        "required": True,
+                        "accepted_content_kinds": [
+                            "heading",
+                            "paragraph",
+                            "table",
+                            "image",
+                        ],
+                        "source_ref": "real-core:virtual-body-slot",
+                    }
+                )
+                regions.append(
+                    {
+                        "region_id": "body",
+                        "kind": "body",
+                        "required": True,
+                        "anchors": ["slot_body_start"],
+                        "source_ref": "real-core:virtual-body-slot",
+                    }
+                )
+
     unsupported = [
         item
         for item in detect_unsupported_visible_objects(template_docx)
         if item.get("object_type") != "image"
     ]
+    if is_real_core_bundle(bundle):
+        for item in unsupported:
+            item["blocking"] = False
+            item["disposition"] = "preserve_in_source_template_copy"
+            item["reason"] = (
+                "fixed template layout feature is preserved by copying the signed "
+                "source DOCX before rendering student content"
+            )
     artifact = {
         "artifact_type": "template_artifact",
         "artifact_version": "1.0",
@@ -100,6 +165,8 @@ def parse_template(template_docx: Path, bundle: StandardBundle) -> StageResult:
             "unsupported": unsupported,
         },
     }
+    if real_core_source_facts is not None:
+        artifact["real_core_source_facts"] = real_core_source_facts
     findings.extend(verify_template_artifact(artifact, bundle.contracts.get("template_contract", {}), start_index=len(findings) + 1))
     status = merge_statuses([Status(f.status) for f in findings]) if findings else Status.PASS
     return StageResult(
@@ -112,6 +179,7 @@ def parse_template(template_docx: Path, bundle: StandardBundle) -> StageResult:
             "template.required_regions": bool(regions),
             "template.required_slots": bool(slots),
             "template.styles_inventory": bool(styles),
+            **real_core_coverage,
         },
     )
 

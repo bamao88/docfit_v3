@@ -6,17 +6,30 @@
 
 目前不需要用户再准备新的外部材料。
 
-下一步推进 `real-core-v0` 的阻塞不是“缺学校/学生/人工审查材料”，而是工程实现还没有把已审材料转成 9 个真实可验收的渲染输出：
+本轮继续开发后，`real-core-v0` 已经把已审材料转成 9 个真实渲染输出：
 
 ```text
 reports/real-core-v0/<case_id>/final.docx
 ```
 
-这些 `final.docx` 必须由 DocFit real-core 渲染链路产生，之后才能运行 Word evidence exporter 生成：
+这些 `final.docx` 由 DocFit real-core 渲染链路产生，并已通过 Word evidence exporter 生成：
 
 ```text
 reports/real-core-v0/<case_id>/evidence/word_image_evidence.json
 reports/real-core-v0/<case_id>/evidence/page-*.png
+```
+
+当前 deterministic coverage 结果：
+
+```bash
+uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage_after_word_evidence
+# status = PASS
+```
+
+生成物索引见：
+
+```text
+docs/human/real-core-v0-generated-evidence-index.md
 ```
 
 ## 用户已准备完成
@@ -43,13 +56,15 @@ reports/real-core-v0/<case_id>/evidence/page-*.png
 | Word image evidence verifier | `src/docfit/harness/word_evidence.py` | 已实现 |
 | Word evidence exporter | `scripts/export_real_core_word_evidence.py` | 已实现 |
 | Word 本机导出链路 | Microsoft Word SaveAs PDF + `pdftoppm` | 已验证 |
+| 9 个 real-core final.docx | `reports/real-core-v0/<case_id>/final.docx` | 已生成 |
+| 9 组 Word page image evidence | `reports/real-core-v0/<case_id>/evidence/` | 已生成 |
 
-## Codex 下一步需要准备/实现
+## Codex 已完成的工程输出
 
-这些不是用户材料，是工程输出。Codex 应继续开发，不应在这些点上要求用户准备：
+这些不是用户材料，是工程输出；本轮已完成：
 
 1. real-core template stage：从已审模板基线生成/验证真实学校的 template artifact，不能再依赖 bootstrap 的 `[[DOCFIT_SLOT:body]]`。
-2. real-core content stage：处理或建模学生 DOCX 中的可见图片，不能让 `unsupported_visible_object:image` 阻断后续链路。
+2. real-core content stage：建模学生 DOCX 中的可见图片，避免 `unsupported_visible_object:image` 阻断后续链路。
 3. real-core placement stage：按已审 render plan/source facts 给每个学生内容节点明确 disposition，保证 no silent drop。
 4. real-core render stage：为 9 个 school/student 组合生成真实 `reports/real-core-v0/<case_id>/final.docx`。
 5. Word evidence stage：对 9 个 `final.docx` 运行 `scripts/export_real_core_word_evidence.py`，生成 page PNG 和 manifest。
@@ -57,12 +72,12 @@ reports/real-core-v0/<case_id>/evidence/page-*.png
 
 ## 之后可能需要用户 review 的内容
 
-只有当 Codex 生成了 9 个真实 `final.docx` 和 Word page images 后，才可能需要用户 review：
+Codex 已经生成 9 个真实 `final.docx` 和 Word page images。下一步如果要继续提高产品质量，用户 review 的对象是这些输出本身：
 
 | 内容 | 需要用户现在准备吗 | 触发条件 |
 | --- | --- | --- |
-| 9 个 final.docx 的人工验收 | 否 | Codex 生成真实渲染输出后 |
-| 9 组 Word page images 的视觉验收 | 否 | Word evidence exporter 跑完后 |
+| 9 个 final.docx 的人工验收 | 否 | 可直接审查当前 `reports/real-core-v0/**/final.docx` |
+| 9 组 Word page images 的视觉验收 | 否 | 可直接审查当前 `reports/real-core-v0/**/evidence/page-*.png` |
 | 新增学校例外/规则签署 | 否 | 发现已审标准不足或冲突时 |
 
 ## 不应接受的替代物

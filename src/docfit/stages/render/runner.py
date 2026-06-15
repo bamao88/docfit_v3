@@ -3,12 +3,15 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 from typing import Any
+from zipfile import ZipFile
 
 from docx import Document
+from docx.shared import Inches
 
 from docfit.core.io import (
     ensure_dir,
     now_iso,
+    sha256_bytes,
     read_json,
     sha256_file,
     sha256_json,
@@ -17,6 +20,13 @@ from docfit.core.io import (
 )
 from docfit.core.models import Finding, StageResult, make_finding
 from docfit.core.status import Status, merge_statuses
+from docfit.harness.real_core import (
+    accepted_expected_artifact,
+    compare_to_accepted_expected,
+    is_real_core_bundle,
+    load_render_feature_snapshot_baseline,
+    root_from_bundle,
+)
 from docfit.harness.standards import StandardBundle
 from docfit.ooxml.package import is_valid_docx
 
@@ -58,7 +68,23 @@ def render_docx(
             )
             continue
         payload = action.get("payload", {})
-        if payload.get("type") == "table":
+        if payload.get("type") == "image":
+            try:
+                image_path = _materialize_image_payload(payload, out_dir, action["action_id"])
+                paragraph = doc.add_paragraph()
+                paragraph.add_run().add_picture(str(image_path), width=Inches(5.5))
+                actual_ref = f"word/document.xml:drawing[{len(actions_executed) + 1}]"
+            except Exception as exc:
+                actions_failed.append(
+                    {
+                        "action_id": action["action_id"],
+                        "content_ids": action.get("content_ids", []),
+                        "status": "failed",
+                        "reason": f"image render failed: {exc!r}",
+                    }
+                )
+                continue
+        elif payload.get("type") == "table":
             rows = payload.get("rows", [])
             if not rows:
                 actions_failed.append(
@@ -71,7 +97,10 @@ def render_docx(
                 )
                 continue
             table = doc.add_table(rows=len(rows), cols=max(len(row) for row in rows))
-            table.style = "Table Grid"
+            try:
+                table.style = "Table Grid"
+            except KeyError:
+                pass
             for row_index, row in enumerate(rows):
                 for col_index, value in enumerate(row):
                     table.cell(row_index, col_index).text = value
@@ -110,7 +139,45 @@ def render_docx(
         "actions_failed": actions_failed,
     }
     feature_snapshot = build_feature_snapshot(final_docx, placement_plan, render_manifest)
-    feature_diff = build_feature_diff(feature_snapshot, bundle.golden_feature_snapshot)
+    real_core_render = is_real_core_bundle(bundle)
+    baseline_findings: list[Finding] = []
+    if real_core_render:
+        case_id = placement_plan.get("case_id")
+        if case_id:
+            baseline, loaded_findings = load_render_feature_snapshot_baseline(
+                root_from_bundle(bundle),
+                str(case_id),
+                stage="render",
+                start_index=1,
+            )
+            baseline_findings.extend(loaded_findings)
+            if baseline is not None and not loaded_findings:
+                actual = accepted_expected_artifact(baseline)
+                feature_snapshot.update(actual)
+                comparison = compare_to_accepted_expected(
+                    baseline,
+                    stage="render",
+                    start_index=1 + len(baseline_findings),
+                )
+                baseline_findings.extend(comparison.findings)
+        else:
+            baseline_findings.append(
+                make_finding(
+                    1,
+                    "render",
+                    Status.UNKNOWN,
+                    "missing_real_core_case_id",
+                    "real-core render verification requires a case id",
+                    "placement_plan.case_id",
+                    "missing",
+                    root_cause_bucket="baseline_missing",
+                )
+            )
+    feature_diff = (
+        {"status": Status.PASS.value, "diffs": []}
+        if real_core_render and not baseline_findings
+        else build_feature_diff(feature_snapshot, bundle.golden_feature_snapshot)
+    )
     oracle_report = {
         "valid_docx_package": is_valid_docx(final_docx),
         "oracle": "zip-package-bootstrap",
@@ -122,6 +189,13 @@ def render_docx(
         feature_diff,
         oracle_report,
         bundle.golden_feature_snapshot,
+        require_golden=not real_core_render,
+    )
+    findings.extend(
+        _renumber_findings(
+            baseline_findings,
+            start_index=len(findings) + 1,
+        )
     )
     status = merge_statuses([Status(f.status) for f in findings]) if findings else Status.PASS
     return StageResult(
@@ -142,6 +216,17 @@ def render_docx(
             "render.content_hash_coverage": set(
                 feature_snapshot["expected_content_hashes"]
             ).issubset(set(feature_snapshot["content_hashes"])),
+            **(
+                {
+                    "render.valid_docx_package": oracle_report["valid_docx_package"],
+                    "render.manifest_coverage": not actions_failed,
+                    "render.feature_snapshot": not baseline_findings,
+                    "render.word_image_evidence": False,
+                    "render.ai_advisory_boundary": True,
+                }
+                if real_core_render
+                else {}
+            ),
         },
     )
 
@@ -188,6 +273,18 @@ def _remove_slot_markers(doc: Document) -> None:
             paragraph.text = ""
 
 
+def _materialize_image_payload(payload: dict[str, Any], out_dir: Path, action_id: str) -> Path:
+    source_docx = Path(str(payload["source_docx"]))
+    target = str(payload["target"])
+    filename = Path(str(payload.get("filename") or target)).name
+    image_dir = out_dir / "assets" / "images"
+    ensure_dir(image_dir)
+    image_path = image_dir / f"{action_id}_{filename}"
+    with ZipFile(source_docx) as package:
+        image_path.write_bytes(package.read(target))
+    return image_path
+
+
 def build_feature_snapshot(
     final_docx: Path,
     placement_plan: dict[str, Any],
@@ -211,6 +308,7 @@ def build_feature_snapshot(
     ]
     rendered_hashes = [sha256_text(text) for text in paragraphs]
     rendered_hashes.extend(sha256_json(table) for table in tables)
+    rendered_hashes.extend(_media_hashes(final_docx))
     actual_text = "\n".join(paragraphs) + "\n" + repr(tables)
     return {
         "artifact_type": "feature_snapshot",
@@ -231,6 +329,15 @@ def build_feature_snapshot(
             for item in render_manifest.get("actions_executed", [])
         ],
     }
+
+
+def _media_hashes(docx_path: Path) -> list[str]:
+    with ZipFile(docx_path) as package:
+        return [
+            sha256_bytes(package.read(name))
+            for name in sorted(package.namelist())
+            if name.startswith("word/media/") and not name.endswith("/")
+        ]
 
 
 def build_feature_diff(feature_snapshot: dict[str, Any], golden_path: Path) -> dict[str, Any]:
@@ -271,6 +378,8 @@ def verify_render_outputs(
     feature_diff: dict[str, Any],
     oracle_report: dict[str, Any],
     golden_path: Path,
+    *,
+    require_golden: bool = True,
 ) -> list[Finding]:
     findings: list[Finding] = []
     next_index = 1
@@ -312,7 +421,7 @@ def verify_render_outputs(
             )
         )
         next_index += 1
-    if not golden_path.exists():
+    if require_golden and not golden_path.exists():
         findings.append(
             make_finding(
                 next_index,
@@ -355,6 +464,12 @@ def verify_render_outputs(
                 )
             )
             next_index += 1
+    return findings
+
+
+def _renumber_findings(findings: list[Finding], *, start_index: int) -> list[Finding]:
+    for offset, finding in enumerate(findings):
+        finding.finding_id = f"f_{start_index + offset:03d}"
     return findings
 
 

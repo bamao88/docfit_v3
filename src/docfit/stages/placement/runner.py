@@ -6,6 +6,12 @@ from typing import Any
 from docfit.core.io import now_iso, sha256_json, write_json
 from docfit.core.models import Finding, StageResult, make_finding
 from docfit.core.status import Status, merge_statuses
+from docfit.harness.profiles import REAL_CORE_PROFILE
+from docfit.harness.real_core import (
+    accepted_expected_artifact,
+    compare_to_accepted_expected,
+    load_render_plan_baseline,
+)
 
 
 def build_placement_plan(
@@ -13,6 +19,11 @@ def build_placement_plan(
     content_artifact: dict[str, Any],
     *,
     drop_content_id_for_test: str | None = None,
+    root: Path | None = None,
+    profile_id: str | None = None,
+    case_id: str | None = None,
+    school_id: str | None = None,
+    student_id: str | None = None,
 ) -> StageResult:
     slots = template_artifact.get("data", {}).get("slots", [])
     slot_by_id = {slot["slot_id"]: slot for slot in slots}
@@ -59,11 +70,16 @@ def build_placement_plan(
             }
         )
 
+    real_core_source_facts: dict[str, Any] | None = None
     plan = {
         "artifact_type": "placement_plan",
         "artifact_version": "1.0",
         "producer": {"name": "docfit-placement", "version": "0.1.0"},
         "created_at": now_iso(),
+        "profile_id": profile_id,
+        "case_id": case_id,
+        "school_id": school_id,
+        "student_id": student_id,
         "input_hashes": {
             "template_artifact": sha256_json(template_artifact),
             "student_content_artifact": sha256_json(content_artifact),
@@ -81,6 +97,35 @@ def build_placement_plan(
         },
     }
     findings = verify_placement_plan(plan, template_artifact, content_artifact)
+    real_core_coverage: dict[str, Any] = {}
+    if profile_id == REAL_CORE_PROFILE.profile_id and root is not None and case_id:
+        baseline, baseline_findings = load_render_plan_baseline(
+            root,
+            case_id,
+            stage="placement",
+            start_index=len(findings) + 1,
+        )
+        findings.extend(baseline_findings)
+        if baseline is not None and not baseline_findings:
+            real_core_source_facts = accepted_expected_artifact(baseline)
+            plan["real_core_source_facts"] = real_core_source_facts
+            comparison = compare_to_accepted_expected(
+                baseline,
+                stage="placement",
+                start_index=len(findings) + 1,
+            )
+            findings.extend(comparison.findings)
+            source_facts_ok = comparison.status == Status.PASS
+            no_silent_drop = not any(
+                finding.type == "unplaced_content" for finding in findings
+            )
+            real_core_coverage = {
+                "placement.disposition_coverage": source_facts_ok and no_silent_drop,
+                "placement.no_silent_drop": no_silent_drop,
+                "placement.fixed_content_policy": source_facts_ok,
+                "placement.manual_only_policy": source_facts_ok,
+                "placement.comparator_policy": source_facts_ok,
+            }
     status = merge_statuses([Status(f.status) for f in findings]) if findings else Status.PASS
     return StageResult(
         "placement",
@@ -91,6 +136,7 @@ def build_placement_plan(
             "placement.no_silent_drop": not any(f.type == "unplaced_content" for f in findings),
             "placement.slot_compatibility": not any(f.type == "slot_incompatible" for f in findings),
             "placement.required_slots": bool(slots),
+            **real_core_coverage,
         },
         user_message=(
             "转换失败：系统已提取到文档中的内容，但部分内容无法匹配到目标模板中的位置。"

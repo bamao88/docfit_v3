@@ -1483,6 +1483,53 @@ Current gate result:
   `docs/human/real-core-v0-next-dev-materials.md`: no new user-provided
   materials are required before Codex continues implementation.
 
+### 2026-06-15 real-core Render and Word Evidence Completion Slice
+
+Implemented:
+
+- Added real-core stage adapters that load signed source-fact baselines and
+  expose the required real-core coverage capabilities without relying on the
+  bootstrap-only `[[DOCFIT_SLOT:body]]` marker.
+- Template parsing now registers real-core fixed template text boxes/footnotes
+  as preserved source-template layout features, since rendering copies the
+  signed source DOCX before appending student content.
+- Content extraction now models embedded DOCX images as visible ledger items,
+  preserves image hashes, and lets rendering copy those media parts into the
+  output DOCX.
+- Placement now binds each real-core case to its reviewed render-plan source
+  facts and preserves no-silent-drop coverage for text, tables, and images.
+- Render now writes image media into the final DOCX, records media hashes in the
+  feature snapshot, and compares real-core render feature source facts instead
+  of requiring the bootstrap golden snapshot path.
+- Generated all nine local real-core outputs under
+  `reports/real-core-v0/<case_id>/final.docx`.
+- Ran Microsoft Word export for all nine outputs and wrote
+  `reports/real-core-v0/<case_id>/evidence/word_image_evidence.json` plus
+  page PNGs.
+
+Verification for this slice:
+
+```bash
+uv run pytest -q
+uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage_after_word_evidence
+uv run python scripts/export_real_core_word_evidence.py
+```
+
+Current gate result:
+
+- `uv run pytest -q` passes with 44 tests.
+- `real-core-v0` deterministic coverage is `PASS` with `baseline_status:
+  signed`, `covered: 20`, and no missing categories.
+- The generated evidence set contains 9 `final.docx` files, 9 Word evidence
+  manifests, and 366 page PNGs.
+- A lightweight review index is tracked at
+  `docs/human/real-core-v0-generated-evidence-index.md`; the `reports/**`
+  artifacts remain local generated evidence.
+- Scope note: this PASS means the signed source-fact coverage and Word-open
+  page-image evidence gate is satisfied. It is not a claim that every visual
+  school-layout detail is product-perfect; those generated outputs are now
+  available for review.
+
 ### 2026-06-14 AI RCA Boundary Slice
 
 Implemented:

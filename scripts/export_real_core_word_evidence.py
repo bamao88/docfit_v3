@@ -4,6 +4,7 @@ import argparse
 import platform
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 from docfit.core.io import write_json
@@ -68,35 +69,38 @@ def main(argv: list[str] | None = None) -> int:
 
     word_version = _word_version()
     exported: list[Path] = []
-    for case in cases:
-        final_docx = reports_root / case.case_id / "final.docx"
-        evidence_dir = reports_root / case.case_id / "evidence"
-        evidence_dir.mkdir(parents=True, exist_ok=True)
-        pdf_path = evidence_dir / "final.word.pdf"
-        _clean_previous_exports(evidence_dir, keep_pdf=args.keep_pdf)
-        _export_pdf_with_word(final_docx, pdf_path, timeout_seconds=args.word_timeout)
-        image_paths = _render_pdf_pages(pdf_path, evidence_dir, dpi=args.dpi)
-        if not args.keep_pdf:
-            pdf_path.unlink(missing_ok=True)
-        manifest = build_word_image_evidence_manifest(
-            case_id=case.case_id,
-            school_id=case.school_id,
-            student_id=case.student_id or "",
-            final_docx=final_docx,
-            image_paths=image_paths,
-            word_application="Microsoft Word",
-            word_version=word_version,
-            platform=platform.platform(),
-            export_method=(
-                "Microsoft Word SaveAs PDF via AppleScript; "
-                f"pdftoppm PNG render at {args.dpi} DPI"
-            ),
-            open_repair_warnings=[],
-        )
-        manifest_path = evidence_dir / "word_image_evidence.json"
-        write_json(manifest_path, manifest)
-        exported.append(manifest_path)
-        print(f"exported {case.case_id}: {len(image_paths)} page image(s)")
+    with tempfile.TemporaryDirectory(prefix="docfit-word-evidence-") as temp_dir:
+        temp_root = Path(temp_dir)
+        for case in cases:
+            final_docx = reports_root / case.case_id / "final.docx"
+            evidence_dir = reports_root / case.case_id / "evidence"
+            evidence_dir.mkdir(parents=True, exist_ok=True)
+            pdf_path = temp_root / f"{case.case_id}.word.pdf"
+            _clean_previous_exports(evidence_dir, keep_pdf=args.keep_pdf)
+            _export_pdf_with_word(final_docx, pdf_path, timeout_seconds=args.word_timeout)
+            if args.keep_pdf:
+                kept_pdf = evidence_dir / "final.word.pdf"
+                kept_pdf.write_bytes(pdf_path.read_bytes())
+            image_paths = _render_pdf_pages(pdf_path, evidence_dir, dpi=args.dpi)
+            manifest = build_word_image_evidence_manifest(
+                case_id=case.case_id,
+                school_id=case.school_id,
+                student_id=case.student_id or "",
+                final_docx=final_docx,
+                image_paths=image_paths,
+                word_application="Microsoft Word",
+                word_version=word_version,
+                platform=platform.platform(),
+                export_method=(
+                    "Microsoft Word SaveAs PDF via AppleScript; "
+                    f"pdftoppm PNG render at {args.dpi} DPI"
+                ),
+                open_repair_warnings=[],
+            )
+            manifest_path = evidence_dir / "word_image_evidence.json"
+            write_json(manifest_path, manifest)
+            exported.append(manifest_path)
+            print(f"exported {case.case_id}: {len(image_paths)} page image(s)")
 
     print(f"wrote {len(exported)} Word image evidence manifest(s)")
     return 0

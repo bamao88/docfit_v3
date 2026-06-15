@@ -1,15 +1,25 @@
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 from pathlib import Path
 
+from docfit.convert.orchestrator import run_e2e_eval
+from docfit.core.io import read_json
 from docfit.core.status import Status
 from docfit.harness.baselines import validate_baseline_document
 from docfit.harness.coverage import evaluate_profile_coverage
 from docfit.harness.profiles import get_eval_cases_for_profile, get_eval_profile
+from docfit.harness.word_evidence import build_word_image_evidence_manifest
 
 
 ROOT = Path.cwd()
+
+
+def _link_real_core_inputs(root: Path) -> None:
+    for name in ["standards", "inputs", "docs"]:
+        os.symlink(ROOT / name, root / name, target_is_directory=True)
 
 
 def test_real_core_profile_declares_fixed_case_matrix() -> None:
@@ -28,8 +38,10 @@ def test_real_core_profile_declares_fixed_case_matrix() -> None:
     } == {"real-student-001", "real-student-002", "real-student-003"}
 
 
-def test_real_core_coverage_is_unknown_until_word_image_evidence_exists() -> None:
-    report, findings = evaluate_profile_coverage(ROOT, "real-core-v0")
+def test_real_core_coverage_is_unknown_until_word_image_evidence_exists(tmp_path) -> None:
+    _link_real_core_inputs(tmp_path)
+
+    report, findings = evaluate_profile_coverage(tmp_path, "real-core-v0")
 
     assert report["status"] == Status.UNKNOWN.value
     assert report["case_counts"] == {"template": 3, "content": 3, "e2e": 9}
@@ -42,11 +54,67 @@ def test_real_core_coverage_is_unknown_until_word_image_evidence_exists() -> Non
     assert sum(finding.type == "missing_word_image_evidence" for finding in findings) == 9
 
 
+def test_real_core_coverage_passes_with_bound_word_image_evidence(tmp_path) -> None:
+    _link_real_core_inputs(tmp_path)
+    cases = [case for case in get_eval_cases_for_profile("real-core-v0") if case.stage == "e2e"]
+    for case in cases:
+        case_dir = tmp_path / "reports/real-core-v0" / case.case_id
+        evidence_dir = case_dir / "evidence"
+        final_docx = case_dir / "final.docx"
+        page_png = evidence_dir / "page-1.png"
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        final_docx.write_bytes(b"docx")
+        page_png.write_bytes(b"png")
+        manifest = build_word_image_evidence_manifest(
+            case_id=case.case_id,
+            school_id=case.school_id,
+            student_id=case.student_id or "",
+            final_docx=final_docx,
+            image_paths=[page_png],
+            word_application="Microsoft Word",
+            word_version="16.test",
+            platform="macOS",
+            export_method="test fixture",
+        )
+        (evidence_dir / "word_image_evidence.json").write_text(
+            json.dumps(manifest),
+            encoding="utf-8",
+        )
+
+    report, findings = evaluate_profile_coverage(tmp_path, "real-core-v0")
+
+    assert report["status"] == Status.PASS.value
+    assert report["baseline_status"] == "signed"
+    assert findings == []
+
+
 def test_real_core_coverage_requires_checked_in_case_registry(tmp_path) -> None:
     report, findings = evaluate_profile_coverage(tmp_path, "real-core-v0")
 
     assert report["status"] == Status.UNKNOWN.value
     assert any(finding.type == "missing_profile_case_registry" for finding in findings)
+
+
+def test_real_core_e2e_reaches_render_and_writes_bound_final_docx(tmp_path) -> None:
+    result = run_e2e_eval(
+        ROOT,
+        "hunannongye",
+        ROOT / "inputs/real-student-001-source.docx",
+        tmp_path / "real_core_case",
+    )
+
+    assert result.status == Status.UNKNOWN
+    assert result.blocked_at == "render"
+    assert (tmp_path / "real_core_case/final.docx").exists()
+    summary = read_json(tmp_path / "real_core_case/summary.json")
+    assert summary["stage_statuses"] == {
+        "template": "PASS",
+        "content": "PASS",
+        "placement": "PASS",
+        "render": "UNKNOWN",
+    }
+    assert [finding.type for finding in result.findings] == ["coverage_insufficient"]
+    assert result.findings[0].affected_ids == ["render.word_image_evidence"]
 
 
 def test_required_dimension_without_comparator_policy_is_unknown() -> None:

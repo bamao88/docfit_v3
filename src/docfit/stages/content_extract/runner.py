@@ -14,7 +14,19 @@ from docx.text.paragraph import Paragraph
 from docfit.core.io import now_iso, sha256_file, sha256_json, sha256_text, write_json
 from docfit.core.models import Finding, StageResult, make_finding
 from docfit.core.status import Status, merge_statuses
-from docfit.ooxml.package import detect_unsupported_visible_objects, is_valid_docx
+from docfit.harness.real_core import (
+    accepted_expected_artifact,
+    compare_to_accepted_expected,
+    load_student_content_baseline,
+)
+from docfit.harness.profiles import REAL_CORE_PROFILE
+from docfit.ooxml.package import (
+    detect_unsupported_visible_objects,
+    docx_part_sha256,
+    image_refs_for_xml_element,
+    is_valid_docx,
+    read_document_relationships,
+)
 
 
 def iter_block_items(parent: DocumentType) -> Iterable[Paragraph | Table]:
@@ -77,6 +89,9 @@ def extract_student_content(
     student_docx: Path,
     *,
     omit_content_id_for_test: str | None = None,
+    root: Path | None = None,
+    profile_id: str | None = None,
+    student_id: str | None = None,
 ) -> StageResult:
     findings: list[Finding] = []
     if not is_valid_docx(student_docx):
@@ -95,9 +110,12 @@ def extract_student_content(
         return StageResult("content", Status.FAIL, findings=findings)
 
     doc = Document(student_docx)
+    relationships = read_document_relationships(student_docx)
     ledger: list[dict[str, Any]] = []
+    assets: list[dict[str, Any]] = []
     nonempty_paragraph_count = 0
     table_count = 0
+    image_count = 0
     reading_order = 1
     paragraph_index = 0
     table_index = 0
@@ -105,25 +123,72 @@ def extract_student_content(
         if isinstance(block, Paragraph):
             paragraph_index += 1
             text = block.text.strip()
-            if not text:
-                continue
-            nonempty_paragraph_count += 1
-            kind, semantic_candidates = _paragraph_kind(block)
-            content_id = f"c_{reading_order:03d}"
-            item = {
-                "content_id": content_id,
-                "kind": kind,
-                "text": text,
-                "text_hash": sha256_text(text),
-                "reading_order": reading_order,
-                "source_ref": f"word/document.xml:p[{paragraph_index}]",
-                "style_signals": _style_signals(block),
-                "semantic_candidates": semantic_candidates,
-                "payload": {"type": "text", "text": text},
-            }
-            if omit_content_id_for_test != content_id:
-                ledger.append(item)
-            reading_order += 1
+            if text:
+                nonempty_paragraph_count += 1
+                kind, semantic_candidates = _paragraph_kind(block)
+                content_id = f"c_{reading_order:03d}"
+                item = {
+                    "content_id": content_id,
+                    "kind": kind,
+                    "text": text,
+                    "text_hash": sha256_text(text),
+                    "reading_order": reading_order,
+                    "source_ref": f"word/document.xml:p[{paragraph_index}]",
+                    "style_signals": _style_signals(block),
+                    "semantic_candidates": semantic_candidates,
+                    "payload": {"type": "text", "text": text},
+                }
+                if omit_content_id_for_test != content_id:
+                    ledger.append(item)
+                reading_order += 1
+            for image_ref in image_refs_for_xml_element(block._element, relationships):
+                content_id = f"c_{reading_order:03d}"
+                image_count += 1
+                target = image_ref["target"]
+                try:
+                    content_hash = docx_part_sha256(student_docx, target)
+                except KeyError:
+                    unsupported_source_ref = (
+                        f"word/document.xml:p[{paragraph_index}]/{image_ref['source_ref']}"
+                    )
+                    findings.append(
+                        make_finding(
+                            len(findings) + 1,
+                            "content",
+                            Status.UNKNOWN,
+                            "image_part_missing",
+                            "Visible image must resolve to an embedded DOCX media part",
+                            target,
+                            "missing",
+                            evidence_refs=[unsupported_source_ref],
+                            affected_ids=[content_id],
+                            root_cause_bucket="content_extraction_gap",
+                        )
+                    )
+                    reading_order += 1
+                    continue
+                image_item = {
+                    "content_id": content_id,
+                    "kind": "image",
+                    "text": f"image:{target}",
+                    "text_hash": content_hash,
+                    "reading_order": reading_order,
+                    "source_ref": (
+                        f"word/document.xml:p[{paragraph_index}]/{image_ref['source_ref']}"
+                    ),
+                    "style_signals": {"relationship_id": image_ref["relationship_id"]},
+                    "semantic_candidates": [],
+                    "payload": {
+                        "type": "image",
+                        "source_docx": str(student_docx),
+                        "target": target,
+                        "filename": Path(target).name,
+                    },
+                }
+                assets.append(image_item)
+                if omit_content_id_for_test != content_id:
+                    ledger.append(image_item)
+                reading_order += 1
         elif isinstance(block, Table):
             table_index += 1
             table_count += 1
@@ -145,12 +210,18 @@ def extract_student_content(
                 )
             reading_order += 1
 
-    unsupported = detect_unsupported_visible_objects(student_docx)
+    unsupported = [
+        item
+        for item in detect_unsupported_visible_objects(student_docx)
+        if item.get("object_type") != "image"
+    ]
     artifact = {
         "artifact_type": "student_content_artifact",
         "artifact_version": "1.0",
         "producer": {"name": "docfit-content-extract", "version": "0.1.0"},
         "created_at": now_iso(),
+        "profile_id": profile_id,
+        "student_id": student_id,
         "input_hashes": {"student_docx": sha256_file(student_docx)},
         "provenance": {"student_docx": str(student_docx)},
         "status_notes": [],
@@ -159,14 +230,45 @@ def extract_student_content(
             "document_stats": {
                 "paragraph_count": nonempty_paragraph_count,
                 "table_count": table_count,
-                "image_count": sum(1 for item in unsupported if item["object_type"] == "image"),
+                "image_count": image_count,
             },
             "visible_content_ledger": ledger,
-            "assets": [],
+            "assets": assets,
             "unsupported": unsupported,
         },
     }
-    findings.extend(verify_student_content_artifact(artifact, expected_visible_count=nonempty_paragraph_count + table_count))
+    findings.extend(
+        verify_student_content_artifact(
+            artifact,
+            expected_visible_count=nonempty_paragraph_count + table_count + image_count,
+        )
+    )
+    real_core_coverage: dict[str, Any] = {}
+    if profile_id == REAL_CORE_PROFILE.profile_id and root is not None and student_id:
+        baseline, baseline_findings = load_student_content_baseline(
+            root,
+            student_id,
+            stage="content",
+            start_index=len(findings) + 1,
+        )
+        findings.extend(baseline_findings)
+        if baseline is not None and not baseline_findings:
+            artifact["real_core_source_facts"] = accepted_expected_artifact(baseline)
+            comparison = compare_to_accepted_expected(
+                baseline,
+                stage="content",
+                start_index=len(findings) + 1,
+            )
+            findings.extend(comparison.findings)
+            source_facts_ok = comparison.status == Status.PASS
+            no_unsupported = not any(item.get("blocking", True) for item in unsupported)
+            real_core_coverage = {
+                "content.visible_content_tree": source_facts_ok,
+                "content.body_flow": source_facts_ok,
+                "content.source_hashes": source_facts_ok,
+                "content.unsupported_disposition": no_unsupported,
+                "content.comparator_policy": source_facts_ok,
+            }
     status = merge_statuses([Status(f.status) for f in findings]) if findings else Status.PASS
     return StageResult(
         "content",
@@ -178,6 +280,7 @@ def extract_student_content(
             "content.visible_tables": table_count > 0,
             "content.reading_order": True,
             "content.stable_ids": True,
+            **real_core_coverage,
         },
         user_message=(
             "当前无法安全转换该文档，因为文档中包含系统尚不能可靠处理的可见内容。"
