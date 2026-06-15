@@ -1444,6 +1444,42 @@ Current gate result:
 - The only remaining blocking category is `missing_word_image_evidence` for
   the nine e2e render cases.
 
+### 2026-06-15 Local Word Exporter Slice
+
+Implemented:
+
+- Verified local Microsoft Word automation can export DOCX to PDF after macOS
+  file access is granted, and `pdftoppm` can render the exported PDF to page
+  PNGs.
+- Added `scripts/export_real_core_word_evidence.py` to export the nine
+  `real-core-v0` rendered `final.docx` files through Microsoft Word, render
+  page images, and write `word_image_evidence.json` manifests.
+- Tightened the Word evidence verifier and `real-core-v0` coverage so evidence
+  must bind to `reports/real-core-v0/<case_id>/final.docx`; image files alone
+  cannot satisfy the gate.
+- Documented that the exporter requires pre-existing rendered `final.docx`
+  files and does not create or substitute render outputs.
+
+Verification for this slice:
+
+```bash
+uv run python -m py_compile scripts/export_real_core_word_evidence.py
+uv run pytest tests/unit/test_word_evidence.py tests/contract/test_real_core_baseline_harness.py -q
+uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage_word_exporter_bound
+```
+
+Current gate result:
+
+- Local Word export is no longer a user-preparation blocker.
+- The current real-school e2e pipeline still does not produce the required
+  `reports/real-core-v0/<case_id>/final.docx` files: a probe case blocks at
+  template slot detection, and the three real student content probes are
+  `UNKNOWN` because image extraction is not implemented in the bootstrap
+  extractor.
+- Therefore the exporter is ready, but the nine accepted Word image evidence
+  packages cannot honestly be produced until real-core rendering emits bound
+  `final.docx` files.
+
 ### 2026-06-14 AI RCA Boundary Slice
 
 Implemented:

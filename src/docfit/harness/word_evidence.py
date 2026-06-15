@@ -12,6 +12,7 @@ REQUIRED_WORD_EVIDENCE_FIELDS = {
     "case_id",
     "school_id",
     "student_id",
+    "final_docx",
     "final_docx_sha256",
     "word_application",
     "word_version",
@@ -187,35 +188,50 @@ def verify_word_image_evidence(
         next_index += len(image_findings)
 
     expected_hash = manifest.get("final_docx_sha256")
-    if expected_final_docx is not None:
-        if not expected_final_docx.exists():
-            findings.append(
-                make_finding(
-                    next_index,
-                    stage,
-                    Status.UNKNOWN,
-                    "word_image_final_docx_missing",
-                    "Word image evidence must bind to the rendered DOCX",
-                    str(expected_final_docx),
-                    "missing",
-                    root_cause_bucket="oracle_gap",
-                )
+    manifest_final_docx = _manifest_final_docx(manifest)
+    final_docx_to_check = expected_final_docx or manifest_final_docx
+    if final_docx_to_check is None:
+        findings.append(
+            make_finding(
+                next_index,
+                stage,
+                Status.UNKNOWN,
+                "word_image_final_docx_missing",
+                "Word image evidence must bind to the rendered DOCX",
+                "final_docx path",
+                "missing",
+                root_cause_bucket="oracle_gap",
             )
-            next_index += 1
-        elif expected_hash != sha256_file(expected_final_docx):
-            findings.append(
-                make_finding(
-                    next_index,
-                    stage,
-                    Status.FAIL,
-                    "word_image_final_docx_hash_mismatch",
-                    "Word image evidence final DOCX hash must match the rendered output",
-                    sha256_file(expected_final_docx),
-                    str(expected_hash),
-                    root_cause_bucket="oracle_gap",
-                )
+        )
+        next_index += 1
+    elif not final_docx_to_check.exists():
+        findings.append(
+            make_finding(
+                next_index,
+                stage,
+                Status.UNKNOWN,
+                "word_image_final_docx_missing",
+                "Word image evidence must bind to the rendered DOCX",
+                str(final_docx_to_check),
+                "missing",
+                root_cause_bucket="oracle_gap",
             )
-            next_index += 1
+        )
+        next_index += 1
+    elif expected_hash != sha256_file(final_docx_to_check):
+        findings.append(
+            make_finding(
+                next_index,
+                stage,
+                Status.FAIL,
+                "word_image_final_docx_hash_mismatch",
+                "Word image evidence final DOCX hash must match the rendered output",
+                sha256_file(final_docx_to_check),
+                str(expected_hash),
+                root_cause_bucket="oracle_gap",
+            )
+        )
+        next_index += 1
 
     warnings = manifest.get("open_repair_warnings", [])
     if warnings:
@@ -232,6 +248,13 @@ def verify_word_image_evidence(
             )
         )
     return findings
+
+
+def _manifest_final_docx(manifest: dict[str, Any]) -> Path | None:
+    final_docx = manifest.get("final_docx")
+    if not isinstance(final_docx, str) or not final_docx.strip():
+        return None
+    return Path(final_docx)
 
 
 def _verify_image_entry(image: Any, index: int, stage: str) -> list[Finding]:

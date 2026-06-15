@@ -389,6 +389,12 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
             else:
                 evidence_findings = verify_word_image_evidence(
                     evidence_manifest,
+                    expected_final_docx=(
+                        root
+                        / "reports/real-core-v0"
+                        / case.case_id
+                        / "final.docx"
+                    ),
                     stage="coverage",
                     start_index=next_index,
                 )

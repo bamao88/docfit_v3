@@ -114,7 +114,13 @@ reports/real-core-v0/<case_id>/evidence/word_image_evidence.json
 reports/real-core-v0/<case_id>/evidence/page-*.png
 ```
 
-The manifest must bind the exported images to the rendered `final.docx` and
+The rendered DOCX must exist at:
+
+```text
+reports/real-core-v0/<case_id>/final.docx
+```
+
+The manifest must bind the exported images to that rendered `final.docx` and
 record:
 
 - `case_id`, `school_id`, and `student_id`.
@@ -128,6 +134,15 @@ record:
 This evidence proves that Word could open and paginate the rendered DOCX into a
 stable page-image set. It does not let a human or AI override a deterministic
 `FAIL` or `UNKNOWN`.
+
+The local exporter is:
+
+```bash
+uv run python scripts/export_real_core_word_evidence.py
+```
+
+It requires the nine rendered `final.docx` files to already exist; it does not
+create or substitute rendered outputs.
 
 ## What Not To Accept
 

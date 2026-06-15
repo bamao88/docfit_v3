@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from docfit.core.io import sha256_file
 from docfit.core.status import Status
 from docfit.harness.word_evidence import (
     build_word_image_evidence_manifest,
@@ -43,6 +44,7 @@ def test_word_image_export_unavailable_is_unknown(tmp_path) -> None:
         "case_id": "case-001",
         "school_id": "school",
         "student_id": "student",
+        "final_docx": str(final_docx),
         "final_docx_sha256": "sha256:placeholder",
         "word_application": "Microsoft Word",
         "word_version": "unknown",
@@ -59,6 +61,34 @@ def test_word_image_export_unavailable_is_unknown(tmp_path) -> None:
 
     assert any(finding.status == Status.UNKNOWN for finding in findings)
     assert any(finding.type == "word_image_export_unavailable" for finding in findings)
+
+
+def test_word_image_final_docx_path_is_required_without_expected_path(tmp_path) -> None:
+    final_docx = tmp_path / "missing-final.docx"
+    page_1 = tmp_path / "page-1.png"
+    _write_bytes(page_1, b"page1")
+
+    manifest = {
+        "case_id": "case-001",
+        "school_id": "school",
+        "student_id": "student",
+        "final_docx": str(final_docx),
+        "final_docx_sha256": "sha256:placeholder",
+        "word_application": "Microsoft Word",
+        "word_version": "16.test",
+        "platform": "macOS",
+        "export_method": "pdf-page-images",
+        "page_count": 1,
+        "exported_image_count": 1,
+        "images": [{"page": 1, "path": str(page_1), "sha256": sha256_file(page_1)}],
+        "export_status": "exported",
+        "open_repair_warnings": [],
+    }
+
+    findings = verify_word_image_evidence(manifest)
+
+    assert any(finding.status == Status.UNKNOWN for finding in findings)
+    assert any(finding.type == "word_image_final_docx_missing" for finding in findings)
 
 
 def test_word_image_count_mismatch_fails(tmp_path) -> None:
