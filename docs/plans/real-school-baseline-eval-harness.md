@@ -1412,6 +1412,38 @@ Current scope note:
   local Microsoft Word automation/export remains required before the nine
   render cases can satisfy the `real-core-v0` Word image evidence gate.
 
+### 2026-06-15 Reviewed Source-Fact Baseline Slice
+
+Implemented:
+
+- The user-reviewed `docs/human/real-core-v0-review-packet.md` is now treated
+  as the accepted source-fact packet for the fixed 3 school / 3 student / 9
+  render-case profile.
+- Added signed source-fact school standards under
+  `standards/schools/{hunannongye,nannong-undergraduate,pku-graduate}/v1/`.
+- Added expected profile baselines under
+  `standards/eval_profiles/real-core-v0/expected/**`.
+- Baselines bind to the reviewed packet hash and preserve full reviewed source
+  sections, including user remarks, rather than collapsing to unit-only
+  summaries.
+- `real-core-v0` coverage now distinguishes the state
+  `source_facts_signed_word_evidence_pending`.
+
+Verification for this slice:
+
+```bash
+uv run pytest tests/contract/test_real_core_baseline_harness.py tests/contract/test_contract_gates.py tests/unit/test_baseline_comparison.py tests/unit/test_word_evidence.py -q
+uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage_reviewed_baselines_final
+```
+
+Current gate result:
+
+- `real-core-v0` source files are present.
+- Signed source-fact standards and expected profile baselines are present.
+- Coverage status remains intentionally `UNKNOWN`.
+- The only remaining blocking category is `missing_word_image_evidence` for
+  the nine e2e render cases.
+
 ### 2026-06-14 AI RCA Boundary Slice
 
 Implemented:

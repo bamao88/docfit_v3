@@ -1,7 +1,8 @@
 profile_id: real-core-v0
-status: pending_baseline_review
+status: source_facts_signed_word_image_evidence_pending
 source_evidence:
   shared_alignment_review: inputs/shared-template-recognition-alignment-review.txt
+  accepted_review_packet: docs/human/real-core-v0-review-packet.md
 schools:
   - school_id: hunannongye
     template_docx: inputs/school-hunannongye-requirement.docx

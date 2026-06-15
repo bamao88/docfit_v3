@@ -1,0 +1,25 @@
+{
+  "contract_type": "template",
+  "contract_version": "1.0",
+  "coverage_requirements": {
+    "profile": "real-core-v0"
+  },
+  "owner": "docfit-core",
+  "required_capabilities": [
+    "template.unit_tree",
+    "template.element_order",
+    "template.style_dimensions",
+    "template.review_metadata",
+    "template.comparator_policy"
+  ],
+  "required_invariants": [
+    "template unit tree preserves units, elements, sub-elements, order, policies, styles, and layout constraints"
+  ],
+  "unsupported_policy": {
+    "blocking_unknown": true,
+    "unknown_is_blocking": true
+  },
+  "verifier_refs": [
+    "docfit.stages.template_parse.verify_template_artifact"
+  ]
+}

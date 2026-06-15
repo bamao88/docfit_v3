@@ -1,0 +1,60 @@
+baseline_type: aligned_render_plan
+profile_id: real-core-v0
+case_id: real_core_v0_hunannongye_real-student-003
+school_id: hunannongye
+student_id: real-student-003
+review_metadata:
+  reviewed_by: user-reviewed-source-fact-packet
+  review_source: docs/human/real-core-v0-review-packet.md#case-real_core_v0_hunannongye_real-student-003
+  source_docx_sha256: sha256:ad9c667fde8d76ad81137cba49d493d6b5eab9f11493c5e8980b8e247e338d50
+  change_reason: initial real-core-v0 reviewed placement/render source facts
+  auto_update_allowed: false
+accepted_source_facts:
+  review_packet: docs/human/real-core-v0-review-packet.md
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  case_source_bundle_sha256: sha256:ad9c667fde8d76ad81137cba49d493d6b5eab9f11493c5e8980b8e247e338d50
+  target_school_section_sha256: sha256:e3a0d411c694df992467c6dfc009125192be56ba265a3e240405879fc5d264b3
+  student_content_section_sha256: sha256:2705c1033bde215b8f905e9f8fb0a7b6e4306826f45d0f06a28ed535a0859059
+  shared_alignment_section_sha256: sha256:b692d444d509fd845dadcbe977ace56333ed396107fd424408f089f6829164c4
+  case_focus: target keeps Hunan fixed cover, integrity statement, TOC, title block,
+    abstract units, body, references, default acknowledgement/appendix policy, and
+    manual-only rear forms; ignore Hunan Agriculture donor front matter and template
+    lead-ins; preserve title metadata, abstracts, keywords, ordered body flow, 2 figures,
+    1 table, and references; second figure lacks independent English caption
+  no_silent_drop_policy: every accepted visible student content node receives a disposition
+expected:
+  case_id: real_core_v0_hunannongye_real-student-003
+  school_id: hunannongye
+  student_id: real-student-003
+  case_source_bundle_sha256: sha256:ad9c667fde8d76ad81137cba49d493d6b5eab9f11493c5e8980b8e247e338d50
+  source_section_hashes:
+  - sha256:e3a0d411c694df992467c6dfc009125192be56ba265a3e240405879fc5d264b3
+  - sha256:2705c1033bde215b8f905e9f8fb0a7b6e4306826f45d0f06a28ed535a0859059
+  - sha256:b692d444d509fd845dadcbe977ace56333ed396107fd424408f089f6829164c4
+  case_focus: target keeps Hunan fixed cover, integrity statement, TOC, title block,
+    abstract units, body, references, default acknowledgement/appendix policy, and
+    manual-only rear forms; ignore Hunan Agriculture donor front matter and template
+    lead-ins; preserve title metadata, abstracts, keywords, ordered body flow, 2 figures,
+    1 table, and references; second figure lacks independent English caption
+  no_silent_drop_policy: every accepted visible student content node receives a disposition
+dimensions:
+- dimension_id: placement.case_source_bundle_hash
+  required: true
+  comparator_mode: exact
+  expected_path: case_source_bundle_sha256
+  actual_path: case_source_bundle_sha256
+- dimension_id: placement.source_section_hashes
+  required: true
+  comparator_mode: set_equality
+  expected_path: source_section_hashes
+  actual_path: source_section_hashes
+- dimension_id: placement.case_focus
+  required: true
+  comparator_mode: normalized_text
+  expected_path: case_focus
+  actual_path: case_focus
+- dimension_id: placement.no_silent_drop_policy
+  required: true
+  comparator_mode: exact
+  expected_path: no_silent_drop_policy
+  actual_path: no_silent_drop_policy

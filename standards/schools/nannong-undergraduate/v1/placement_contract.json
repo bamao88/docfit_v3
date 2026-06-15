@@ -1,0 +1,25 @@
+{
+  "contract_type": "placement",
+  "contract_version": "1.0",
+  "coverage_requirements": {
+    "profile": "real-core-v0"
+  },
+  "owner": "docfit-core",
+  "required_capabilities": [
+    "placement.disposition_coverage",
+    "placement.no_silent_drop",
+    "placement.fixed_content_policy",
+    "placement.manual_only_policy",
+    "placement.comparator_policy"
+  ],
+  "required_invariants": [
+    "every accepted visible content node receives a target disposition without silent drop"
+  ],
+  "unsupported_policy": {
+    "blocking_unknown": true,
+    "unknown_is_blocking": true
+  },
+  "verifier_refs": [
+    "docfit.stages.placement.verify_placement_plan"
+  ]
+}

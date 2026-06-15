@@ -1,6 +1,6 @@
 # real-core-v0 Acceptance Guide
 
-Last updated: 2026-06-14
+Last updated: 2026-06-15
 
 ## Purpose
 
@@ -15,12 +15,12 @@ correct enough to become deterministic harness evidence.
 ## Current Blockers
 
 `uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage`
-currently returns `UNKNOWN` because these required evidence classes are missing:
+currently returns `UNKNOWN` because Word image evidence is still missing. The
+reviewed source facts are already bound into signed school standards and
+expected profile baselines.
 
 | Blocker | What it means | Owner |
 | --- | --- | --- |
-| `missing_signed_standard` | Each real school needs a reviewed runnable standard under `standards/schools/<school_id>/v1/`. | User/product signs content; engineering writes runnable files. |
-| `missing_profile_baseline` | Expected template, student-content, render-plan, and render-feature baselines are not locked under `standards/eval_profiles/real-core-v0/expected/`. | User/product signs expected facts; engineering normalizes and checks them in. |
 | `missing_word_image_evidence` | The nine render cases need Word-exported page image evidence manifests under `reports/real-core-v0/<case_id>/evidence/`. | Engineering produces packages; user confirms export provenance when needed. |
 
 ## What You Need To Accept
@@ -39,23 +39,27 @@ If a school or student should be replaced, stop the acceptance review and treat
 that as a scope change. Do not sign only part of the fixed profile and call the
 full profile complete.
 
-### 2. Baseline Drafts
+### 2. Full Source-Fact Review Packet
 
-Review the generated draft packet:
+Review the full source-fact packet:
 
 ```text
+docs/human/real-core-v0-review-packet.md
 out/real-core-v0-baseline-review/review_packet.md
-out/real-core-v0-baseline-review/drafts/template_unit_contracts/*.yaml
-out/real-core-v0-baseline-review/drafts/student_content_trees/*.yaml
-out/real-core-v0-baseline-review/drafts/render_plans/*.yaml
 ```
 
-These drafts are review inputs only. They are not standards until you approve
-their expected facts and review metadata.
+The packet embeds the complete human school-template review sources and student
+content review sources. It is the review surface for source facts that later
+become runnable baselines. The YAML drafts under
+`out/real-core-v0-baseline-review/drafts/**` are not sufficient for human
+approval by themselves; they are unsigned machine skeletons until engineering
+normalizes the accepted source facts into them.
 
 For each template contract, check:
 
 - Required document units are present and ordered correctly.
+- Unit elements, sub-elements, element order, same-paragraph relationships,
+  keep-together constraints, and missing-content behavior are correct.
 - Fixed school text is marked as fixed/template content.
 - Fillable, generated, manual-only, optional, and template-default sections are
   classified correctly.
@@ -78,7 +82,7 @@ For each student content tree, check:
 For each render plan, check:
 
 - Every student content id has exactly one disposition.
-- Target school units and elements are correct.
+- Target school units, unit elements, and sub-elements are correct.
 - Fixed template content is preserved.
 - Student content is not placed into fixed-only or manual-only elements.
 - Generated fields, missing-content policy, unsupported content, and ask-user
@@ -170,7 +174,8 @@ Approval boundary:
 
 ## After Acceptance
 
-After the accepted facts are clear, engineering can:
+After the accepted facts are clear, engineering has already completed steps 1
+and 2 below for the current packet. The next required evidence is step 3:
 
 1. Move approved school baselines into `standards/schools/<school_id>/v1/`.
 2. Move approved profile baselines into

@@ -22,6 +22,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=ROOT / "out/real-core-v0-baseline-review",
         help="Review packet output directory. Defaults to ignored generated output.",
     )
+    parser.add_argument(
+        "--docs-packet",
+        type=Path,
+        default=None,
+        help=(
+            "Optional checked-in markdown packet path. When set, writes the same "
+            "full source-fact review packet there."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -64,7 +73,10 @@ def main(argv: list[str] | None = None) -> None:
         "auto_update_allowed": False,
     }
     write_json(out_dir / "manifest.json", manifest)
-    write_text(out_dir / "review_packet.md", _review_packet_markdown(manifest))
+    packet_markdown = _review_packet_markdown(manifest)
+    write_text(out_dir / "review_packet.md", packet_markdown)
+    if args.docs_packet is not None:
+        write_text(ROOT / args.docs_packet, packet_markdown)
 
 
 def _template_contract_draft(school: dict[str, Any]) -> dict[str, Any]:
@@ -166,23 +178,255 @@ def _pending_review_metadata(
 
 
 def _review_packet_markdown(manifest: dict[str, Any]) -> str:
-    return "\n".join(
+    lines = [
+        "# real-core-v0 Full Source-Fact Review Packet",
+        "",
+        "Last generated: deterministic local script output",
+        "Status: source-fact review packet, not a signed baseline",
+        "",
+        "This packet is intended to be the human review surface for the real-core-v0",
+        "acceptance chain. It is not a direction-only draft. The full school template",
+        "review sources and full student content review sources are embedded below so",
+        "unit elements, element order, relationships, fill policy, layout constraints,",
+        "and style dimensions are not lost in summary tables.",
+        "",
+        "## Gate Boundary",
+        "",
+        "- Runtime human review is not allowed as a pass/fail gate.",
+        "- AI may diagnose and organize evidence but may not decide final status.",
+        "- `auto_update_allowed` must remain false.",
+        "- This packet can approve source facts; deterministic verifiers still decide",
+        "  `PASS`, `FAIL`, or `UNKNOWN` during eval runs.",
+        "",
+        "## How This Packet Is Used",
+        "",
+        "| Stage | Reviewer checks in this packet | Later runnable artifact |",
+        "| --- | --- | --- |",
+        "| template parse | Full embedded school review source: unit order, unit elements, sub-elements, relationships, fixed/manual/generated/content policy, style dimensions, page/header/footer rules, keep-together constraints. | `standards/schools/<school_id>/v1/template_unit_contract.yaml` and `signed_standard.yaml` |",
+        "| content extract | Full embedded student review source: ignored donor content, title metadata, abstracts, keywords, ordered body flow, figures, tables, references, appendix, acknowledgement. | `standards/eval_profiles/real-core-v0/expected/student_content_trees/<student_id>.yaml` |",
+        "| placement | Shared alignment rules plus every render case matrix row; every accepted student content node must receive a disposition against the accepted target-school unit tree. | `standards/eval_profiles/real-core-v0/expected/render_plans/<case_id>.yaml` |",
+        "| render | Accepted template/content/placement facts plus later DOCX feature snapshots and Word image evidence. | `render_feature_snapshots/<case_id>.json` and `reports/real-core-v0/<case_id>/evidence/word_image_evidence.json` |",
+        "",
+        "## Generated Draft Inventory",
+        "",
+        f"- Template draft files: {len(manifest['template_contract_drafts'])}",
+        f"- Student content draft files: {len(manifest['student_content_tree_drafts'])}",
+        f"- Render plan draft files: {len(manifest['render_plan_drafts'])}",
+        "- Draft YAML files remain unsigned until the full source facts below are accepted",
+        "  and converted into runnable baseline artifacts.",
+        "",
+        "## Fixed Source Evidence",
+        "",
+        "### School Templates",
+        "",
+        "| school_id | template_docx | template_sha256 | review_source | review_sha256 |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+
+    for school in REAL_CORE_SCHOOLS:
+        template_docx = ROOT / school["template_docx"]
+        review_source = ROOT / school["review_source"]
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    f"`{school['school_id']}`",
+                    f"`{school['template_docx']}`",
+                    f"`{sha256_file(template_docx)}`",
+                    f"`{school['review_source']}`",
+                    f"`{sha256_file(review_source)}`",
+                ]
+            )
+            + " |"
+        )
+
+    lines.extend(
         [
-            "# real-core-v0 Baseline Review Packet",
             "",
-            f"- Status: {manifest['status']}",
-            f"- Template drafts: {len(manifest['template_contract_drafts'])}",
-            f"- Student content drafts: {len(manifest['student_content_tree_drafts'])}",
-            f"- Render plan drafts: {len(manifest['render_plan_drafts'])}",
-            "- Runtime human review: not allowed as a pass/fail gate",
-            "- AI final-status authority: none",
-            "- Auto-update from current output: false",
+            "### Student Documents",
             "",
-            "These drafts are review inputs only. They are not signed standards until a",
-            "product/user reviewer locks the expected content and metadata.",
+            "| student_id | source_docx | source_sha256 | review_source | review_sha256 |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+    )
+    for student in REAL_CORE_STUDENTS:
+        student_docx = ROOT / student["student_docx"]
+        review_source = ROOT / student["review_source"]
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    f"`{student['student_id']}`",
+                    f"`{student['student_docx']}`",
+                    f"`{sha256_file(student_docx)}`",
+                    f"`{student['review_source']}`",
+                    f"`{sha256_file(review_source)}`",
+                ]
+            )
+            + " |"
+        )
+
+    shared_review = Path("inputs/shared-template-recognition-alignment-review.txt")
+    lines.extend(
+        [
+            "",
+            "### Shared Alignment Review",
+            "",
+            f"- Source: `{shared_review}`",
+            f"- SHA-256: `{sha256_file(ROOT / shared_review)}`",
+            "",
+            "## Render Case Matrix",
+            "",
+            "Every row below inherits the complete target-school template contract from",
+            "the embedded school review source and the complete student content tree from",
+            "the embedded student review source. The later render plan baseline must not",
+            "collapse this to a unit-only summary; it must preserve content-node",
+            "dispositions against target unit elements and sub-elements.",
+            "",
+            "| case_id | target_school | student_content | acceptance focus |",
+            "| --- | --- | --- | --- |",
+        ]
+    )
+
+    for case in get_eval_cases_for_profile(PROFILE_ID):
+        if case.stage != "e2e":
+            continue
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    f"`{case.case_id}`",
+                    f"`{case.school_id}`",
+                    f"`{case.student_id}`",
+                    _render_case_focus(case.school_id, case.student_id or ""),
+                ]
+            )
+            + " |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Full School Template Review Sources",
+            "",
+            "The following sections are embedded verbatim from the human school review",
+            "sources. They are the review facts for unit contents, element order,",
+            "relationships, policies, styles, page rules, and unresolved decisions.",
             "",
         ]
     )
+    for school in REAL_CORE_SCHOOLS:
+        lines.extend(_embedded_source_section(school["school_id"], school["review_source"]))
+
+    lines.extend(
+        [
+            "",
+            "## Full Student Content Review Sources",
+            "",
+            "The following sections are embedded verbatim from the human student content",
+            "review sources. They are the review facts for title metadata, ignored",
+            "donor content, abstracts, keywords, ordered body flow, visible objects,",
+            "references, appendix, and acknowledgement.",
+            "",
+        ]
+    )
+    for student in REAL_CORE_STUDENTS:
+        lines.extend(
+            _embedded_source_section(student["student_id"], student["review_source"])
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Full Shared Alignment Review Source",
+            "",
+            "This source defines the shared document-unit -> unit-element -> sub-element",
+            "model used to align template extraction, student content extraction,",
+            "placement, and render verification.",
+            "",
+            *_embedded_source_section("shared-template-recognition-alignment", shared_review),
+            "",
+            "## Reviewer Response Template",
+            "",
+            "```text",
+            "real-core-v0 source-fact review",
+            "",
+            "Reviewer:",
+            "- reviewed_by: <name or role>",
+            "- review_source: this acceptance note",
+            "",
+            "Accepted fact groups:",
+            "- fixed evidence set: accepted",
+            "- school template full facts: accepted / changes requested",
+            "- student content full facts: accepted / changes requested",
+            "- render-case placement expectations: accepted / changes requested",
+            "",
+            "Required changes:",
+            "- <school_id, student_id, case_id, unit, element, or line reference>: <change>",
+            "",
+            "Approval boundary:",
+            "- auto_update_allowed must remain false",
+            "- runtime human review is not allowed as a pass/fail gate",
+            "- AI may diagnose but may not decide final status",
+            "```",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _embedded_source_section(source_id: str, source_path: Path) -> list[str]:
+    absolute = ROOT / source_path
+    text = absolute.read_text(encoding="utf-8").rstrip()
+    return [
+        f"### Source: `{source_id}`",
+        "",
+        f"- Path: `{source_path}`",
+        f"- SHA-256: `{sha256_file(absolute)}`",
+        "",
+        "~~~~text",
+        text,
+        "~~~~",
+        "",
+    ]
+
+
+def _render_case_focus(school_id: str, student_id: str) -> str:
+    focus_by_student = {
+        "real-student-001": (
+            "ignore donor-school front matter and old TOC; preserve title metadata, "
+            "abstracts, keywords, ordered body flow, 2 figures, 2 content tables, "
+            "references, and acknowledgement; empty appendix title is not student content"
+        ),
+        "real-student-002": (
+            "preserve title metadata, abstracts, keywords, ordered body flow, "
+            "1 figure, 1 table, and references; no appendix or acknowledgement found"
+        ),
+        "real-student-003": (
+            "ignore Hunan Agriculture donor front matter and template lead-ins; "
+            "preserve title metadata, abstracts, keywords, ordered body flow, "
+            "2 figures, 1 table, and references; second figure lacks independent "
+            "English caption"
+        ),
+    }
+    focus_by_school = {
+        "hunannongye": (
+            "target keeps Hunan fixed cover, integrity statement, TOC, title block, "
+            "abstract units, body, references, default acknowledgement/appendix policy, "
+            "and manual-only rear forms"
+        ),
+        "nannong-undergraduate": (
+            "target keeps Nanjing cover, originality/authorization statements, TOC "
+            "before abstracts, abstract units, body with conclusion/outlook type, "
+            "references, appendix, achievements, and acknowledgement policy"
+        ),
+        "pku-graduate": (
+            "target keeps PKU cover, copyright, abstract units, TOC, figure/table "
+            "lists, body with conclusion/discussion ending, references, achievements, "
+            "acknowledgement, and originality/authorization page"
+        ),
+    }
+    return f"{focus_by_school[school_id]}; {focus_by_student[student_id]}"
 
 
 def _write_yaml(path: Path, data: dict[str, Any]) -> None:

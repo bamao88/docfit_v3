@@ -28,16 +28,18 @@ def test_real_core_profile_declares_fixed_case_matrix() -> None:
     } == {"real-student-001", "real-student-002", "real-student-003"}
 
 
-def test_real_core_coverage_is_unknown_until_baselines_are_signed() -> None:
+def test_real_core_coverage_is_unknown_until_word_image_evidence_exists() -> None:
     report, findings = evaluate_profile_coverage(ROOT, "real-core-v0")
 
     assert report["status"] == Status.UNKNOWN.value
     assert report["case_counts"] == {"template": 3, "content": 3, "e2e": 9}
     assert report["source_files"]["missing"] == []
     assert "missing_profile_case_registry" not in report["missing"]
-    assert any(finding.type == "missing_signed_standard" for finding in findings)
-    assert any(finding.type == "missing_profile_baseline" for finding in findings)
-    assert any(finding.type == "missing_word_image_evidence" for finding in findings)
+    assert report["baseline_status"] == "source_facts_signed_word_evidence_pending"
+    assert report["missing"] == ["missing_word_image_evidence"]
+    assert not any(finding.type == "missing_signed_standard" for finding in findings)
+    assert not any(finding.type == "missing_profile_baseline" for finding in findings)
+    assert sum(finding.type == "missing_word_image_evidence" for finding in findings) == 9
 
 
 def test_real_core_coverage_requires_checked_in_case_registry(tmp_path) -> None:
@@ -128,4 +130,4 @@ def test_review_packet_generator_writes_drafts_outside_standards(tmp_path) -> No
     assert len(list((tmp_path / "packet/drafts/template_unit_contracts").glob("*.yaml"))) == 3
     assert len(list((tmp_path / "packet/drafts/student_content_trees").glob("*.yaml"))) == 3
     assert len(list((tmp_path / "packet/drafts/render_plans").glob("*.yaml"))) == 9
-    assert not (ROOT / "standards/schools/hunannongye/v1/signed_standard.yaml").exists()
+    assert not (tmp_path / "standards").exists()

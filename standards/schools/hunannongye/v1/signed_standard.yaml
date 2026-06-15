@@ -1,0 +1,48 @@
+standard_id: hunannongye-v1
+school_id: hunannongye
+template_version: v1
+status: signed_source_facts
+owner: docfit-core
+approved_at: '2026-06-15T00:00:00+08:00'
+source:
+  template_docx: inputs/school-hunannongye-requirement.docx
+  template_docx_sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
+  review_packet: docs/human/real-core-v0-review-packet.md
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  template_review_source: inputs/school-hunannongye-template-review.txt
+  template_review_source_sha256: sha256:65bb89715ad40cc8e2948f65441312d3da7efb56b5973d8f2c4c507c177c9794
+  accepted_template_review_section_sha256: sha256:e3a0d411c694df992467c6dfc009125192be56ba265a3e240405879fc5d264b3
+contracts:
+  template_contract: template_contract.json
+  student_content_contract: student_content_contract.json
+  placement_contract: placement_contract.json
+  render_contract: render_contract.json
+evidence_baselines:
+  template_unit_contract: template_unit_contract.yaml
+coverage_requirements:
+  profile: real-core-v0
+  required_capabilities:
+  - template.unit_tree
+  - template.element_order
+  - template.style_dimensions
+  - template.review_metadata
+  - template.comparator_policy
+  - content.visible_content_tree
+  - content.body_flow
+  - content.source_hashes
+  - content.unsupported_disposition
+  - content.comparator_policy
+  - placement.disposition_coverage
+  - placement.no_silent_drop
+  - placement.fixed_content_policy
+  - placement.manual_only_policy
+  - placement.comparator_policy
+  - render.valid_docx_package
+  - render.manifest_coverage
+  - render.feature_snapshot
+  - render.word_image_evidence
+  - render.ai_advisory_boundary
+change_control:
+  auto_update_allowed: false
+  requires_review: true
+  change_reason: initial real-core-v0 reviewed source facts

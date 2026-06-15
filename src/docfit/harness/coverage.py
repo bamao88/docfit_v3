@@ -400,18 +400,26 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
 
     required_flat = REAL_CORE_PROFILE.all_required_capabilities()
     status = Status.UNKNOWN if findings else Status.PASS
+    missing_types = sorted({finding.type for finding in findings})
+    if not findings:
+        baseline_status = "signed"
+    elif set(missing_types) == {"missing_word_image_evidence"}:
+        baseline_status = "source_facts_signed_word_evidence_pending"
+    else:
+        baseline_status = "pending_review"
+
     report = {
         "profile": REAL_CORE_PROFILE.profile_id,
         "status": status.value,
         "required": len(required_flat),
         "covered": 0 if findings else len(required_flat),
-        "missing": sorted({finding.type for finding in findings}),
+        "missing": missing_types,
         "case_counts": case_counts,
         "source_files": {
             "required": [str(path) for path in required_source_files],
             "missing": missing_source_files,
         },
-        "baseline_status": "pending_review" if findings else "signed",
+        "baseline_status": baseline_status,
     }
     return report, findings
 

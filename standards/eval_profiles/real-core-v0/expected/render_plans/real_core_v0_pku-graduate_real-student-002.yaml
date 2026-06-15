@@ -1,0 +1,60 @@
+baseline_type: aligned_render_plan
+profile_id: real-core-v0
+case_id: real_core_v0_pku-graduate_real-student-002
+school_id: pku-graduate
+student_id: real-student-002
+review_metadata:
+  reviewed_by: user-reviewed-source-fact-packet
+  review_source: docs/human/real-core-v0-review-packet.md#case-real_core_v0_pku-graduate_real-student-002
+  source_docx_sha256: sha256:6a2e85f6958b2249e8e9be73c39ade6188e385a116423234b1af42f2f07360e8
+  change_reason: initial real-core-v0 reviewed placement/render source facts
+  auto_update_allowed: false
+accepted_source_facts:
+  review_packet: docs/human/real-core-v0-review-packet.md
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  case_source_bundle_sha256: sha256:6a2e85f6958b2249e8e9be73c39ade6188e385a116423234b1af42f2f07360e8
+  target_school_section_sha256: sha256:c4067e225d83e45fc96b9ae82f6a222f6315c8d32ff7c7618d2fc21cb8ea4638
+  student_content_section_sha256: sha256:4ce9ebf483d65fc11a36f32f0fbd003bd0653cebaebdfa4acb0ea1297fe735ec
+  shared_alignment_section_sha256: sha256:b692d444d509fd845dadcbe977ace56333ed396107fd424408f089f6829164c4
+  case_focus: target keeps PKU cover, copyright, abstract units, TOC, figure/table
+    lists, body with conclusion/discussion ending, references, achievements, acknowledgement,
+    and originality/authorization page; preserve title metadata, abstracts, keywords,
+    ordered body flow, 1 figure, 1 table, and references; no appendix or acknowledgement
+    found
+  no_silent_drop_policy: every accepted visible student content node receives a disposition
+expected:
+  case_id: real_core_v0_pku-graduate_real-student-002
+  school_id: pku-graduate
+  student_id: real-student-002
+  case_source_bundle_sha256: sha256:6a2e85f6958b2249e8e9be73c39ade6188e385a116423234b1af42f2f07360e8
+  source_section_hashes:
+  - sha256:c4067e225d83e45fc96b9ae82f6a222f6315c8d32ff7c7618d2fc21cb8ea4638
+  - sha256:4ce9ebf483d65fc11a36f32f0fbd003bd0653cebaebdfa4acb0ea1297fe735ec
+  - sha256:b692d444d509fd845dadcbe977ace56333ed396107fd424408f089f6829164c4
+  case_focus: target keeps PKU cover, copyright, abstract units, TOC, figure/table
+    lists, body with conclusion/discussion ending, references, achievements, acknowledgement,
+    and originality/authorization page; preserve title metadata, abstracts, keywords,
+    ordered body flow, 1 figure, 1 table, and references; no appendix or acknowledgement
+    found
+  no_silent_drop_policy: every accepted visible student content node receives a disposition
+dimensions:
+- dimension_id: placement.case_source_bundle_hash
+  required: true
+  comparator_mode: exact
+  expected_path: case_source_bundle_sha256
+  actual_path: case_source_bundle_sha256
+- dimension_id: placement.source_section_hashes
+  required: true
+  comparator_mode: set_equality
+  expected_path: source_section_hashes
+  actual_path: source_section_hashes
+- dimension_id: placement.case_focus
+  required: true
+  comparator_mode: normalized_text
+  expected_path: case_focus
+  actual_path: case_focus
+- dimension_id: placement.no_silent_drop_policy
+  required: true
+  comparator_mode: exact
+  expected_path: no_silent_drop_policy
+  actual_path: no_silent_drop_policy

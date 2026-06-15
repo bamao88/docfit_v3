@@ -1,0 +1,25 @@
+{
+  "contract_type": "student_content",
+  "contract_version": "1.0",
+  "coverage_requirements": {
+    "profile": "real-core-v0"
+  },
+  "owner": "docfit-core",
+  "required_capabilities": [
+    "content.visible_content_tree",
+    "content.body_flow",
+    "content.source_hashes",
+    "content.unsupported_disposition",
+    "content.comparator_policy"
+  ],
+  "required_invariants": [
+    "visible student content tree preserves ignored donor content, body flow, figures, tables, references, appendix, and acknowledgement facts"
+  ],
+  "unsupported_policy": {
+    "blocking_unknown": true,
+    "unknown_is_blocking": true
+  },
+  "verifier_refs": [
+    "docfit.stages.content_extract.verify_student_content_artifact"
+  ]
+}
