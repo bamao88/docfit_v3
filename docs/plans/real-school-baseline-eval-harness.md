@@ -1479,6 +1479,9 @@ Current gate result:
 - Therefore the exporter is ready, but the nine accepted Word image evidence
   packages cannot honestly be produced until real-core rendering emits bound
   `final.docx` files.
+- Next development material ownership is explicit in
+  `docs/human/real-core-v0-next-dev-materials.md`: no new user-provided
+  materials are required before Codex continues implementation.
 
 ### 2026-06-14 AI RCA Boundary Slice
 
