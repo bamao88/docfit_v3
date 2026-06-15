@@ -3,10 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from docfit.core.io import sha256_file
+from docfit.core.io import read_json, sha256_file
 from docfit.core.models import Finding, make_finding
-from docfit.core.status import Status
+from docfit.core.status import Status, merge_statuses
+from docfit.harness.reports import write_report_bundle
 
+
+WORD_IMAGE_COVERAGE_CAPABILITY = "render.word_image_evidence"
 
 REQUIRED_WORD_EVIDENCE_FIELDS = {
     "case_id",
@@ -248,6 +251,116 @@ def verify_word_image_evidence(
             )
         )
     return findings
+
+
+def reconcile_word_image_evidence_report(
+    case_dir: Path,
+    manifest: dict[str, Any],
+    *,
+    expected_final_docx: Path,
+    manifest_path: Path | None = None,
+) -> list[Finding]:
+    """Refresh a case report after Word page-image evidence has been produced."""
+
+    summary_path = case_dir / "summary.json"
+    findings_path = case_dir / "findings.json"
+    summary: dict[str, Any] = {}
+    existing_findings: list[dict[str, Any]] = []
+    if summary_path.exists():
+        summary = read_json(summary_path)
+    if findings_path.exists():
+        existing_findings = read_json(findings_path)
+
+    retained_findings = [
+        finding
+        for finding in existing_findings
+        if not _is_stale_word_image_coverage_finding(finding)
+    ]
+    evidence_findings = verify_word_image_evidence(
+        manifest,
+        expected_final_docx=expected_final_docx,
+        stage="render",
+        start_index=len(retained_findings) + 1,
+    )
+    for finding in evidence_findings:
+        if WORD_IMAGE_COVERAGE_CAPABILITY not in finding.affected_ids:
+            finding.affected_ids.append(WORD_IMAGE_COVERAGE_CAPABILITY)
+
+    combined_findings = retained_findings + [
+        finding.to_dict() for finding in evidence_findings
+    ]
+    coverage = dict(summary.get("coverage") or {})
+    coverage[WORD_IMAGE_COVERAGE_CAPABILITY] = not evidence_findings
+    artifacts = dict(summary.get("artifacts") or {})
+    if manifest_path is not None:
+        artifacts["word_image_evidence"] = _artifact_ref(case_dir, manifest_path)
+
+    stage_statuses = dict(
+        summary.get("stage_statuses") or {"render": Status.UNKNOWN.value}
+    )
+    if evidence_findings:
+        stage_statuses["render"] = merge_statuses(
+            [finding.status for finding in evidence_findings]
+        ).value
+    elif not any(
+        finding.get("stage") == "render" and finding.get("severity") == "blocking"
+        for finding in retained_findings
+    ):
+        stage_statuses["render"] = Status.PASS.value
+
+    status = _status_from_report_state(stage_statuses, combined_findings)
+    blocked_at = _blocked_at(combined_findings)
+    write_report_bundle(
+        case_dir,
+        stage=str(summary.get("stage") or "e2e"),
+        status=status,
+        findings=combined_findings,
+        artifacts=artifacts,
+        coverage=coverage,
+        stage_statuses=stage_statuses,
+        stage_run_states=summary.get("stage_run_states"),
+        blocked_at=blocked_at,
+        user_message=summary.get("user_message"),
+    )
+    return evidence_findings
+
+
+def _is_stale_word_image_coverage_finding(finding: dict[str, Any]) -> bool:
+    return (
+        finding.get("type") == "coverage_insufficient"
+        and WORD_IMAGE_COVERAGE_CAPABILITY in finding.get("affected_ids", [])
+    )
+
+
+def _artifact_ref(case_dir: Path, path: Path) -> str:
+    try:
+        return str(path.relative_to(case_dir))
+    except ValueError:
+        return str(path)
+
+
+def _status_from_report_state(
+    stage_statuses: dict[str, str],
+    findings: list[dict[str, Any]],
+) -> Status:
+    stage_status = merge_statuses(
+        [Status(status) for status in stage_statuses.values()]
+    )
+    blocking_statuses = [
+        Status(finding["status"])
+        for finding in findings
+        if finding.get("severity") == "blocking"
+    ]
+    if not blocking_statuses:
+        return stage_status
+    return merge_statuses([stage_status, *blocking_statuses])
+
+
+def _blocked_at(findings: list[dict[str, Any]]) -> str | None:
+    for finding in findings:
+        if finding.get("severity") == "blocking":
+            return str(finding.get("stage") or "unknown")
+    return None
 
 
 def _manifest_final_docx(manifest: dict[str, Any]) -> Path | None:

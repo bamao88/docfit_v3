@@ -2,9 +2,10 @@
 
 Date: 2026-06-14
 Owner: Product + Engineering
-Status: Partially implemented; Wave 0 harness infrastructure shipped, signed
-baselines and Word evidence still blocking full `real-core-v0`
-Last reviewed: 2026-06-14
+Status: Implemented for the deterministic `real-core-v0` source-fact and Word
+evidence gate; product-level layout review remains a separate follow-up over
+generated outputs.
+Last reviewed: 2026-06-15
 
 ## Purpose
 
@@ -27,10 +28,11 @@ AI may diagnose structured failures, but AI does not decide `PASS`, `FAIL`, or
   reports, and AI RCA limits.
 - `inputs/README.md` is the current catalog of raw school templates, raw student
   documents, and human review evidence.
-- Current runnable signed standard coverage is only `demo-school/v1`.
-- Real school evidence exists under `inputs/**`, but it is source evidence only.
-  It has not yet been normalized into runnable `standards/schools/**`
-  contracts.
+- Runnable signed standards now exist for `demo-school/v1` and the three
+  `real-core-v0` schools.
+- Real school source evidence under `inputs/**` has been normalized into signed
+  source-fact baselines under `standards/schools/**` and
+  `standards/eval_profiles/real-core-v0/expected/**`.
 - The shared alignment note
   `inputs/shared-template-recognition-alignment-review.txt` already defines the
   core domain model: `unit -> element -> sub-element`.
@@ -62,6 +64,9 @@ Evidence and baseline plane:
 - `standards/eval_profiles/**`: profile-level expected artifacts, fixed cases,
   and real evidence baselines.
 - `reports/**`: generated proof from eval runs.
+- `reports/real-core-v0/**`: local generated evidence for the nine real-core
+  school/student combinations; ignored by git, but currently present on this
+  machine.
 
 AI RCA plane:
 
@@ -1506,6 +1511,13 @@ Implemented:
 - Ran Microsoft Word export for all nine outputs and wrote
   `reports/real-core-v0/<case_id>/evidence/word_image_evidence.json` plus
   page PNGs.
+- Word evidence export now verifies the produced manifest and refreshes each
+  case report after export. Existing evidence can be reconciled without
+  re-opening Word:
+
+  ```bash
+  uv run python scripts/export_real_core_word_evidence.py --reconcile-existing
+  ```
 
 Verification for this slice:
 
@@ -1513,13 +1525,17 @@ Verification for this slice:
 uv run pytest -q
 uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage_after_word_evidence
 uv run python scripts/export_real_core_word_evidence.py
+uv run python scripts/export_real_core_word_evidence.py --reconcile-existing
 ```
 
 Current gate result:
 
-- `uv run pytest -q` passes with 44 tests.
+- `uv run pytest -q` passes with 45 tests.
 - `real-core-v0` deterministic coverage is `PASS` with `baseline_status:
   signed`, `covered: 20`, and no missing categories.
+- Each generated `reports/real-core-v0/<case_id>/summary.json` now reports
+  `PASS`, `blocked_at: null`, `render.word_image_evidence: true`, and zero
+  findings after Word evidence reconciliation.
 - The generated evidence set contains 9 `final.docx` files, 9 Word evidence
   manifests, and 366 page PNGs.
 - A lightweight review index is tracked at

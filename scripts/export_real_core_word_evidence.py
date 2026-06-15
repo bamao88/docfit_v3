@@ -7,9 +7,12 @@ import sys
 import tempfile
 from pathlib import Path
 
-from docfit.core.io import write_json
+from docfit.core.io import read_json, write_json
 from docfit.harness.profiles import REAL_CORE_PROFILE, get_eval_cases_for_profile
-from docfit.harness.word_evidence import build_word_image_evidence_manifest
+from docfit.harness.word_evidence import (
+    build_word_image_evidence_manifest,
+    reconcile_word_image_evidence_report,
+)
 
 
 WORD_EXPORT_SCRIPT = """
@@ -39,6 +42,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dpi", type=int, default=150)
     parser.add_argument("--word-timeout", type=int, default=600)
     parser.add_argument("--keep-pdf", action="store_true")
+    parser.add_argument(
+        "--reconcile-existing",
+        action="store_true",
+        help="Verify existing Word image evidence manifests and refresh case reports.",
+    )
     args = parser.parse_args(argv)
 
     root = args.root.resolve()
@@ -67,17 +75,26 @@ def main(argv: list[str] | None = None) -> int:
             print(f"- {path}", file=sys.stderr)
         return 2
 
+    if args.reconcile_existing:
+        return _reconcile_existing_reports(reports_root, cases)
+
     word_version = _word_version()
     exported: list[Path] = []
+    verification_failed = False
     with tempfile.TemporaryDirectory(prefix="docfit-word-evidence-") as temp_dir:
         temp_root = Path(temp_dir)
         for case in cases:
+            case_dir = reports_root / case.case_id
             final_docx = reports_root / case.case_id / "final.docx"
             evidence_dir = reports_root / case.case_id / "evidence"
             evidence_dir.mkdir(parents=True, exist_ok=True)
             pdf_path = temp_root / f"{case.case_id}.word.pdf"
             _clean_previous_exports(evidence_dir, keep_pdf=args.keep_pdf)
-            _export_pdf_with_word(final_docx, pdf_path, timeout_seconds=args.word_timeout)
+            _export_pdf_with_word(
+                final_docx,
+                pdf_path,
+                timeout_seconds=args.word_timeout,
+            )
             if args.keep_pdf:
                 kept_pdf = evidence_dir / "final.word.pdf"
                 kept_pdf.write_bytes(pdf_path.read_bytes())
@@ -99,11 +116,54 @@ def main(argv: list[str] | None = None) -> int:
             )
             manifest_path = evidence_dir / "word_image_evidence.json"
             write_json(manifest_path, manifest)
+            evidence_findings = reconcile_word_image_evidence_report(
+                case_dir,
+                manifest,
+                expected_final_docx=final_docx,
+                manifest_path=manifest_path,
+            )
+            if evidence_findings:
+                verification_failed = True
+                for finding in evidence_findings:
+                    print(
+                        f"{case.case_id}: {finding.status} {finding.type}: "
+                        f"{finding.actual}",
+                        file=sys.stderr,
+                    )
             exported.append(manifest_path)
             print(f"exported {case.case_id}: {len(image_paths)} page image(s)")
 
     print(f"wrote {len(exported)} Word image evidence manifest(s)")
-    return 0
+    return 1 if verification_failed else 0
+
+
+def _reconcile_existing_reports(reports_root: Path, cases) -> int:
+    verification_failed = False
+    for case in cases:
+        case_dir = reports_root / case.case_id
+        final_docx = case_dir / "final.docx"
+        manifest_path = case_dir / "evidence/word_image_evidence.json"
+        if not manifest_path.exists():
+            print(f"missing evidence manifest: {manifest_path}", file=sys.stderr)
+            verification_failed = True
+            continue
+        manifest = read_json(manifest_path)
+        evidence_findings = reconcile_word_image_evidence_report(
+            case_dir,
+            manifest,
+            expected_final_docx=final_docx,
+            manifest_path=manifest_path,
+        )
+        if evidence_findings:
+            verification_failed = True
+            for finding in evidence_findings:
+                print(
+                    f"{case.case_id}: {finding.status} {finding.type}: "
+                    f"{finding.actual}",
+                    file=sys.stderr,
+                )
+        print(f"reconciled {case.case_id}")
+    return 1 if verification_failed else 0
 
 
 def _resolve(root: Path, path: Path) -> Path:
