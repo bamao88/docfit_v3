@@ -34,6 +34,23 @@ def build_placement_plan(
         content_id = item["content_id"]
         if drop_content_id_for_test == content_id:
             continue
+        if _is_source_format_item(item):
+            actions.append(
+                {
+                    "action_id": f"a_{len(actions) + 1:03d}",
+                    "content_ids": [content_id],
+                    "disposition": "discard_as_source_format",
+                    "target_slot_id": None,
+                    "target_region_id": None,
+                    "render_kind": item.get("kind", "source_format"),
+                    "style_ref": None,
+                    "evidence": _evidence_for_item(item),
+                    "confidence": 0.95,
+                    "payload": item.get("payload", {"type": "text", "text": item.get("text", "")}),
+                    "content_hashes": [item.get("text_hash")],
+                }
+            )
+            continue
         if default_slot not in slot_by_id:
             unresolved.append(
                 {
@@ -157,6 +174,15 @@ def _style_for_item(item: dict[str, Any]) -> str:
     return "Normal"
 
 
+def _is_source_format_item(item: dict[str, Any]) -> bool:
+    if item.get("kind") == "source_format":
+        return True
+    return any(
+        candidate.get("kind") == "source_toc_entry"
+        for candidate in item.get("semantic_candidates", [])
+    )
+
+
 def _evidence_for_item(item: dict[str, Any]) -> list[str]:
     evidence = [item.get("source_ref", "")]
     for candidate in item.get("semantic_candidates", []):
@@ -220,6 +246,38 @@ def verify_placement_plan(
             )
             next_index += 1
     for action in actions:
+        if action.get("disposition") == "discard_as_source_format":
+            if action.get("target_slot_id") is not None:
+                findings.append(
+                    make_finding(
+                        next_index,
+                        "placement",
+                        Status.FAIL,
+                        "source_format_discard_has_target",
+                        "Source-format discards must not target a writable template slot",
+                        "target_slot_id is null",
+                        str(action.get("target_slot_id")),
+                        affected_ids=action.get("content_ids", []),
+                        root_cause_bucket="placement_source_format_policy",
+                    )
+                )
+                next_index += 1
+            if not action.get("evidence"):
+                findings.append(
+                    make_finding(
+                        next_index,
+                        "placement",
+                        Status.UNKNOWN,
+                        "placement_action_missing_evidence",
+                        "Placement action has no evidence",
+                        "evidence list is non-empty",
+                        action.get("action_id", "missing"),
+                        affected_ids=action.get("content_ids", []),
+                        root_cause_bucket="placement_evidence_gap",
+                    )
+                )
+                next_index += 1
+            continue
         slot = slot_by_id.get(action.get("target_slot_id"))
         if slot is None:
             findings.append(

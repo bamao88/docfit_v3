@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -41,6 +42,15 @@ def iter_block_items(parent: DocumentType) -> Iterable[Paragraph | Table]:
 def _paragraph_kind(paragraph: Paragraph) -> tuple[str, list[dict[str, Any]]]:
     style_name = paragraph.style.name if paragraph.style is not None else ""
     candidates: list[dict[str, Any]] = []
+    if _is_source_toc_style(style_name):
+        candidates.append(
+            {
+                "kind": "source_toc_entry",
+                "confidence": 0.95,
+                "evidence": [f"style:{style_name}"],
+            }
+        )
+        return "source_format", candidates
     if style_name.lower().startswith("heading"):
         level = 1
         parts = style_name.split()
@@ -65,6 +75,10 @@ def _paragraph_kind(paragraph: Paragraph) -> tuple[str, list[dict[str, Any]]]:
             }
         )
     return "paragraph", candidates
+
+
+def _is_source_toc_style(style_name: str) -> bool:
+    return bool(re.fullmatch(r"toc\s+\d+", style_name.strip().lower()))
 
 
 def _style_signals(paragraph: Paragraph) -> dict[str, Any]:

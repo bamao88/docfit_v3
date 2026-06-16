@@ -17,9 +17,14 @@ source evidence. Bootstrap expected artifacts live under
 `standards/eval_profiles/bootstrap-core/expected/`.
 
 Current work on the real-school baseline harness is tracked in `STATUS.md`.
-`real-core-v0` is registered as a fixed three-school, three-student profile, but
-its coverage gate is expected to return `UNKNOWN` until the real baselines are
-reviewed, signed, and paired with Word image evidence.
+`real-core-v0` is registered as a fixed three-school, three-student profile.
+Its deterministic coverage gate now returns `PASS` on this machine after the
+reviewed baselines and nine Microsoft Word page-image evidence packages were
+bound under `reports/real-core-v0/**`.
+
+That PASS proves the evidence loop; it is not a claim that the generated DOCX
+files are product-quality school submissions. Product-level layout review is
+tracked in `docs/human/real-core-v0-product-quality-review.md`.
 
 Run the bootstrap checks with:
 

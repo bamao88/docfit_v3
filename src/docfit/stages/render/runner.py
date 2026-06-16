@@ -68,7 +68,9 @@ def render_docx(
             )
             continue
         payload = action.get("payload", {})
-        if payload.get("type") == "image":
+        if action.get("disposition") == "discard_as_source_format":
+            actual_ref = "discarded:source_format"
+        elif payload.get("type") == "image":
             try:
                 image_path = _materialize_image_payload(payload, out_dir, action["action_id"])
                 paragraph = doc.add_paragraph()
@@ -303,6 +305,7 @@ def build_feature_snapshot(
     expected_hashes = [
         content_hash
         for action in placement_plan.get("data", {}).get("actions", [])
+        if _action_writes_visible_output(action)
         for content_hash in action.get("content_hashes", [])
         if content_hash
     ]
@@ -329,6 +332,10 @@ def build_feature_snapshot(
             for item in render_manifest.get("actions_executed", [])
         ],
     }
+
+
+def _action_writes_visible_output(action: dict[str, Any]) -> bool:
+    return action.get("disposition") != "discard_as_source_format"
 
 
 def _media_hashes(docx_path: Path) -> list[str]:

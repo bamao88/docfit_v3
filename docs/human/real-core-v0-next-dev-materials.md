@@ -26,6 +26,16 @@ uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_c
 # status = PASS
 ```
 
+产品质量验收已开始，结论见：
+
+```text
+docs/human/real-core-v0-product-quality-review.md
+```
+
+当前 9 个输出还不能视为产品质量合格成品；主要问题是目标模板说明/示例内容
+泄漏，以及学生内容被 append-only 写到模板内容之后。后续工程仍可继续推进，
+不需要用户补充新材料。
+
 生成物索引见：
 
 ```text
@@ -58,6 +68,7 @@ docs/human/real-core-v0-generated-evidence-index.md
 | Word 本机导出链路 | Microsoft Word SaveAs PDF + `pdftoppm` | 已验证 |
 | 9 个 real-core final.docx | `reports/real-core-v0/<case_id>/final.docx` | 已生成 |
 | 9 组 Word page image evidence | `reports/real-core-v0/<case_id>/evidence/` | 已生成 |
+| 产品质量 review 结论 | `docs/human/real-core-v0-product-quality-review.md` | 已生成，当前未验收通过 |
 
 ## Codex 已完成的工程输出
 
@@ -72,7 +83,9 @@ docs/human/real-core-v0-generated-evidence-index.md
 
 ## 之后可能需要用户 review 的内容
 
-Codex 已经生成 9 个真实 `final.docx` 和 Word page images。下一步如果要继续提高产品质量，用户 review 的对象是这些输出本身：
+Codex 已经生成 9 个真实 `final.docx` 和 Word page images。当前产品 QA
+已经确认这些输出不是最终可验收质量。下一次需要用户 review 的对象应是
+P0/P1 修复并重新生成后的 9 个输出：
 
 | 内容 | 需要用户现在准备吗 | 触发条件 |
 | --- | --- | --- |

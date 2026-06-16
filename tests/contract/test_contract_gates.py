@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 
 from docx import Document
+from docx.enum.style import WD_STYLE_TYPE
 
 from docfit.convert.orchestrator import run_content_eval
 from docfit.core.io import write_json
@@ -13,7 +14,7 @@ from docfit.harness.coverage import evaluate_bootstrap_coverage
 from docfit.harness.standards import load_standard_bundle
 from docfit.stages.content_extract.runner import extract_student_content
 from docfit.stages.placement.runner import build_placement_plan
-from docfit.stages.render.runner import verify_render_outputs
+from docfit.stages.render.runner import render_docx, verify_render_outputs
 from docfit.stages.template_parse.runner import parse_template
 
 
@@ -153,6 +154,50 @@ def test_fail_when_content_unplaced() -> None:
 
     assert result.status == Status.FAIL
     assert any(finding.type == "unplaced_content" for finding in result.findings)
+
+
+def test_source_toc_entry_is_discarded_as_source_format(tmp_path) -> None:
+    student = tmp_path / "student-with-old-toc.docx"
+    doc = Document()
+    doc.styles.add_style("toc 1", WD_STYLE_TYPE.PARAGRAPH)
+    doc.add_paragraph("摘要\tI", style="toc 1")
+    doc.add_paragraph("正文第一段。")
+    doc.save(student)
+
+    bundle = _bundle()
+    template = parse_template(bundle.template_docx, bundle)
+    content = extract_student_content(student)
+
+    first_item = content.artifacts["student_content_artifact"]["data"][
+        "visible_content_ledger"
+    ][0]
+    assert first_item["kind"] == "source_format"
+    assert first_item["semantic_candidates"][0]["kind"] == "source_toc_entry"
+
+    placement = build_placement_plan(
+        template.artifacts["template_artifact"],
+        content.artifacts["student_content_artifact"],
+    )
+
+    discard_action = placement.artifacts["placement_plan"]["data"]["actions"][0]
+    assert discard_action["disposition"] == "discard_as_source_format"
+    assert placement.status == Status.PASS
+
+    render = render_docx(
+        template.artifacts["template_artifact"],
+        placement.artifacts["placement_plan"],
+        bundle,
+        tmp_path / "rendered",
+    )
+    rendered_doc = Document(render.artifact_paths["final_docx"])
+
+    assert all("摘要\tI" not in paragraph.text for paragraph in rendered_doc.paragraphs)
+    assert render.artifacts["render_manifest"]["actions_executed"][0][
+        "actual_ooxml_ref"
+    ] == "discarded:source_format"
+    assert first_item["text_hash"] not in render.artifacts["feature_snapshot"][
+        "expected_content_hashes"
+    ]
 
 
 def test_unknown_when_golden_missing(tmp_path) -> None:

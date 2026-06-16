@@ -1,11 +1,13 @@
 # DocFit Status
 
-Last updated: 2026-06-15
+Last updated: 2026-06-16
 
 Current focus:
 
 - Keep `real-core-v0` deterministic evidence closed while the generated
   outputs move into product-level visual/semantic review.
+- Product QA has started for the nine generated Word outputs; deterministic
+  PASS is now explicitly separated from product layout acceptance.
 
 Current state:
 
@@ -23,6 +25,13 @@ Current state:
 - The nine generated case reports under `reports/real-core-v0/<case_id>/`
   now each report `PASS`, `blocked_at: null`, zero findings, and
   `render.word_image_evidence: true` after Word evidence reconciliation.
+- Product review of those nine generated outputs is recorded in
+  `docs/human/real-core-v0-product-quality-review.md`. The current outputs are
+  not product-accepted: they still retain target-template instructions/examples
+  and mostly append student content after copied template content.
+- Source TOC entries are now modeled as visible `source_format` content,
+  receive `discard_as_source_format` placement dispositions, and are executed
+  by render without writing old TOC text into future regenerated outputs.
 - A generic dimension comparator foundation exists for the signed comparator
   modes named by the real-school plan.
 - Baseline-to-artifact comparison now validates signed metadata, compares
@@ -38,10 +47,10 @@ Current state:
 
 Next action:
 
-- Review the generated `reports/real-core-v0/**/final.docx` and
-  `reports/real-core-v0/**/evidence/page-*.png` artifacts for product-level
-  visual/semantic acceptance beyond the deterministic source-fact coverage
-  gate.
+- Continue the product-quality implementation path in
+  `docs/human/real-core-v0-product-quality-review.md`: move render from
+  append-only output toward unit/slot-based rendering, then regenerate the nine
+  outputs and Word image evidence.
 
 Known blockers:
 

@@ -48,3 +48,13 @@ This evidence proves the deterministic source-fact coverage and Microsoft
 Word-open/page-image export gate. It does not replace product review of final
 layout quality. The next review surface is the generated `final.docx` and page
 images listed above.
+
+Product QA review has started here:
+
+```text
+docs/human/real-core-v0-product-quality-review.md
+```
+
+Current product QA result: the nine generated outputs are not yet product
+accepted. They prove the evidence loop, but still retain template
+instructions/examples and use append-only student-content rendering.
