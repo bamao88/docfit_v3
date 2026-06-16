@@ -54,9 +54,14 @@ Approval: LGTM/approve/go ahead approves; edits request revision.
 - `template_gap_report.json` 保留 `known_status`、`display_status`、
   `passed_count`、`failed_count`、`unknown_count` 和 `blocking_status`。
   当前真实 probe 的模板报告是 `FAIL + UNKNOWN`，说明已经发现确定性差距，
-  同时仍有分页、页眉页脚、字段绑定、编号绑定和部分样式继承无法完整证明。
+  同时仍有同页约束、页眉页脚、编号绑定、等价生成机制和部分样式继承无法完整证明。
 - 差距报告现在显式覆盖 field 和 numbering 两类检查：
-  - Word 字段缺失会报 `template_generation_field_missing`。
+  - Word 字段会从 OOXML complex field / fldSimple 解析为完整指令和起止段落；
+    南农 TOC、北大主目录/图目录/表目录等字段可以绑定到具体单元。
+  - Word 字段缺失会报 `template_generation_field_missing`；字段存在但不在对应
+    单元范围内会报 `template_generation_field_out_of_unit`。
+  - 允许“Word 字段或等价机制”的学校规则，如果当前未能证明等价机制，会保持
+    `template_generation_field_unverified`。
   - 编号规则还不能绑定到单元/元素时会报 `template_generation_numbering_unverified`。
 - 样式检查现在会读取 OOXML 里的字体、字号、加粗和对齐。能确定不一致时会报
   `template_generation_style_mismatch`；缺少行距或继承证据时仍保留
@@ -75,10 +80,10 @@ Approval: LGTM/approve/go ahead approves; edits request revision.
 
 ```bash
 uv run pytest tests/unit/test_baseline_comparison.py tests/unit/test_word_evidence.py tests/contract/test_contract_gates.py tests/contract/test_real_core_baseline_harness.py tests/contract/test_real_core_four_stage_problem_checks.py tests/contract/test_real_core_generated_template_gap.py tests/e2e/test_bootstrap_cli.py -q
-# 45 passed
+# 46 passed
 
 uv run pytest -q
-# 57 passed
+# 58 passed
 
 uv run docfit eval template-gap --school hunannongye --generated-template inputs/school-hunannongye-requirement.docx --out /tmp/docfit_template_gap_hunannongye
 # status = FAIL
@@ -95,7 +100,7 @@ uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_c
 
 - 当前原型还没有真正修正模板生成逻辑；本切片只是把生成模板 Word 作为被测输入并
   报告差距。
-- 行距、样式继承、同页约束、页眉页脚、字段绑定、编号绑定等 OOXML 检查仍有
+- 行距、样式继承、同页约束、页眉页脚、等价生成机制、编号绑定等 OOXML 检查仍有
   `UNKNOWN`，需要继续补解析能力。
 - Microsoft Word 打开和页面图片证据仍只覆盖已有 `final.docx` 证据包；生成模板
   Word 的 Word evidence 还不能宣称完整通过。

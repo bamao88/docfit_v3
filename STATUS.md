@@ -56,8 +56,10 @@ Current state:
   从 OOXML 解析 `generated_template_tree.json`，再输出三种
   `template_gap_report`。报告保留 `known_status`、`display_status`、
   `passed_count`、`failed_count`、`unknown_count` 和 `blocking_status`。
-  字段和编号现在也有显式检查：缺 Word 生成字段会报
-  `template_generation_field_missing`，编号规则未绑定到单元/元素会报
+  字段和编号现在也有显式检查：Word complex field / fldSimple 会合并成完整
+  指令并绑定到单元范围；缺 Word 生成字段会报
+  `template_generation_field_missing`，字段在错误单元会报
+  `template_generation_field_out_of_unit`，编号规则未绑定到单元/元素会报
   `template_generation_numbering_unverified`。
   样式检查现在会读取 OOXML 字体、字号、加粗和对齐；能确定不一致时会报
   `template_generation_style_mismatch`，缺行距或继承证据时仍保持 `UNKNOWN`。

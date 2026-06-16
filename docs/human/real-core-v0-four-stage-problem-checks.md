@@ -112,8 +112,10 @@ Word 的差距检查现在会把 template 阶段阻断；即使如此，e2e 仍�
   `template_gap_report.md` 和 `template_gap_report.docx`。报告有
   `known_status`、`display_status`、`passed_count`、`failed_count`、
   `unknown_count`、`blocking_status`，所以 `FAIL + UNKNOWN` 不会丢掉未知项。
-- 字段和编号也会单独列出：缺少 Word TOC/页码等生成字段会报
-  `template_generation_field_missing`，编号规则还不能绑定到具体单元/元素时会报
+- 字段和编号也会单独列出：Word complex field / fldSimple 会合并成完整指令并
+  绑定到单元范围；缺少 Word TOC/页码等生成字段会报
+  `template_generation_field_missing`，字段在错误单元会报
+  `template_generation_field_out_of_unit`，编号规则还不能绑定到具体单元/元素时会报
   `template_generation_numbering_unverified`。
 - 样式检查已经能读取 OOXML 字体、字号、加粗和对齐；确定不一致时会报
   `template_generation_style_mismatch`。行距和样式继承缺证据时仍保留为

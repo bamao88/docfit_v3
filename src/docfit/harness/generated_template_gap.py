@@ -386,10 +386,12 @@ def _compare_units(
     entries = iter_visible_text_entries(tree)
     checks: list[dict[str, Any]] = []
     unit_first_orders: list[tuple[str, int]] = []
+    unit_matched_orders: dict[str, list[int]] = {}
     for unit in expected_units:
         unit_id = str(unit.get("unit_id") or "unknown_unit")
         element_checks, matched_orders = _compare_elements(unit, entries, tree)
         checks.extend(element_checks)
+        unit_matched_orders[unit_id] = matched_orders
         if matched_orders:
             first_order = min(matched_orders)
             unit_first_orders.append((unit_id, first_order))
@@ -428,7 +430,9 @@ def _compare_units(
         checks.extend(_header_footer_checks(unit, tree))
         checks.extend(_page_rule_checks(unit, tree, matched_orders))
 
-    checks.extend(_field_checks(expected_units, tree))
+    checks.extend(
+        _field_checks(expected_units, tree, unit_matched_orders, unit_first_orders)
+    )
     checks.extend(_numbering_checks(expected_units, tree))
     if len(unit_first_orders) >= 2:
         ordered = sorted(unit_first_orders, key=lambda item: item[1])
@@ -537,15 +541,12 @@ def _compare_elements(
 def _field_checks(
     expected_units: list[dict[str, Any]],
     tree: dict[str, Any],
+    unit_matched_orders: dict[str, list[int]],
+    unit_first_orders: list[tuple[str, int]],
 ) -> list[dict[str, Any]]:
     checks: list[dict[str, Any]] = []
-    generated_elements = [
-        (unit, element)
-        for unit in expected_units
-        for element in unit.get("elements", [])
-        if element.get("policy") == "generated"
-    ]
-    if not generated_elements:
+    requirements = _field_requirements(expected_units)
+    if not requirements:
         return [
             _check(
                 "template_generation.field_match",
@@ -559,32 +560,394 @@ def _field_checks(
         ]
 
     fields = tree.get("data", {}).get("fields", [])
-    for unit, element in generated_elements:
-        unit_id = str(unit.get("unit_id") or "unknown_unit")
-        element_id = str(element.get("element_id") or "unknown_element")
-        status = Status.PASS if _has_generated_field(tree, element) else Status.FAIL
+    for requirement in requirements:
+        evaluation = _evaluate_field_requirement(
+            requirement,
+            fields,
+            unit_matched_orders.get(requirement["unit_id"], []),
+            unit_first_orders,
+        )
         checks.append(
             _check(
                 "template_generation.field_match",
-                status,
-                (
-                    "template_generation_field_match"
-                    if status == Status.PASS
-                    else "template_generation_field_missing"
-                ),
-                f"生成元素 {unit_id}.{element_id} 需要 Word 字段或可检查的生成占位",
-                element.get("content") or element.get("name") or f"{unit_id}.{element_id}",
-                (
-                    ", ".join(str(field.get("instruction", "")) for field in fields)
-                    or "no Word field parsed"
-                ),
+                evaluation["status"],
+                evaluation["type"],
+                evaluation["message"],
+                requirement["expected"],
+                evaluation["actual"],
                 category="field",
-                evidence_refs=[field.get("source_ref", "") for field in fields],
-                affected_ids=[f"{unit_id}.{element_id}.field"],
-                next_step="修模板生成逻辑输出字段，或补等价生成占位的确定性解析。",
+                evidence_refs=evaluation["evidence_refs"],
+                affected_ids=[requirement["affected_id"]],
+                next_step=evaluation["next_step"],
             )
         )
     return checks
+
+
+def _field_requirements(expected_units: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    requirements: list[dict[str, Any]] = []
+    for unit in expected_units:
+        unit_id = str(unit.get("unit_id") or "unknown_unit")
+        explicit_element_added = False
+        for element in unit.get("elements", []):
+            if element.get("policy") != "generated" or _is_generated_result_element(
+                element
+            ):
+                continue
+            element_id = str(element.get("element_id") or "unknown_element")
+            element_text = _field_requirement_text(element)
+            kind = _expected_element_field_kind(element_text)
+            if not kind:
+                continue
+            explicit_element_added = True
+            requirements.append(
+                {
+                    "unit_id": unit_id,
+                    "affected_id": f"{unit_id}.{element_id}.field",
+                    "kind": kind,
+                    "context_text": element_text,
+                    "expected": _field_expected_summary(kind, element_text),
+                    "toc_range": _expected_toc_range(element_text),
+                    "allows_equivalent": _allows_equivalent_generation(element_text),
+                    "source_refs": element.get("source_refs", []),
+                }
+            )
+        if explicit_element_added:
+            continue
+        unit_text = _field_requirement_text(unit)
+        kind = _expected_unit_field_kind(unit_text)
+        if kind:
+            requirements.append(
+                {
+                    "unit_id": unit_id,
+                    "affected_id": f"{unit_id}.field",
+                    "kind": kind,
+                    "context_text": unit_text,
+                    "expected": _field_expected_summary(kind, unit_text),
+                    "toc_range": _expected_toc_range(unit_text),
+                    "allows_equivalent": _allows_equivalent_generation(unit_text),
+                    "source_refs": unit.get("source_refs", []),
+                }
+            )
+    return requirements
+
+
+def _evaluate_field_requirement(
+    requirement: dict[str, Any],
+    fields: list[dict[str, Any]],
+    matched_orders: list[int],
+    unit_first_orders: list[tuple[str, int]],
+) -> dict[str, Any]:
+    unit_id = requirement["unit_id"]
+    kind = requirement["kind"]
+    if not matched_orders:
+        return {
+            "status": Status.UNKNOWN,
+            "type": "template_generation_field_unverified",
+            "message": f"单元 {unit_id} 未绑定到 Word 来源，无法检查字段",
+            "actual": "unit source not matched",
+            "evidence_refs": requirement.get("source_refs", []),
+            "next_step": "先修单元/元素匹配，再检查字段是否出现在该单元范围内。",
+        }
+
+    start_order, end_order = _field_unit_bounds(
+        requirement["unit_id"],
+        matched_orders,
+        unit_first_orders,
+    )
+    matching_kind_fields = [
+        field for field in fields if str(field.get("field_type", "")).upper() == kind
+    ]
+    candidate_fields = _field_candidates_for_requirement(
+        requirement,
+        matching_kind_fields,
+    )
+    in_unit_fields = [
+        field
+        for field in candidate_fields
+        if _field_overlaps_unit(field, start_order, end_order)
+        or _field_semantically_matches_requirement(requirement, field)
+    ]
+    if in_unit_fields:
+        mismatch = _field_parameter_mismatch(requirement, in_unit_fields)
+        if mismatch:
+            status = (
+                Status.UNKNOWN
+                if requirement.get("allows_equivalent")
+                else Status.FAIL
+            )
+            return {
+                "status": status,
+                "type": (
+                    "template_generation_field_unverified"
+                    if status == Status.UNKNOWN
+                    else "template_generation_field_mismatch"
+                ),
+                "message": f"单元 {unit_id} 找到 {kind} 字段，但字段参数与标准不一致",
+                "actual": mismatch,
+                "evidence_refs": _field_refs(in_unit_fields),
+                "next_step": (
+                    "补等价目录机制解析，或修模板生成逻辑输出标准 TOC 参数。"
+                    if status == Status.UNKNOWN
+                    else "修模板生成逻辑，输出标准要求的 Word 字段参数。"
+                ),
+            }
+        return {
+            "status": Status.PASS,
+            "type": "template_generation_field_match",
+            "message": f"单元 {unit_id} 的 {kind} 字段已绑定到 Word 来源",
+            "actual": _field_actual_summary(in_unit_fields),
+            "evidence_refs": _field_refs(in_unit_fields),
+            "next_step": "none",
+        }
+
+    if matching_kind_fields:
+        return {
+            "status": Status.FAIL,
+            "type": "template_generation_field_out_of_unit",
+            "message": f"模板中存在 {kind} 字段，但没有绑定到单元 {unit_id}",
+            "actual": _field_actual_summary(matching_kind_fields),
+            "evidence_refs": _field_refs(matching_kind_fields),
+            "next_step": "修模板生成逻辑，把字段放回对应单元；或补更准确的单元边界解析。",
+        }
+
+    if requirement.get("allows_equivalent"):
+        return {
+            "status": Status.UNKNOWN,
+            "type": "template_generation_field_unverified",
+            "message": f"单元 {unit_id} 允许 Word 字段或等价生成机制，但当前未解析到 {kind} 字段",
+            "actual": "no Word field parsed; equivalent mechanism not parsed",
+            "evidence_refs": requirement.get("source_refs", []),
+            "next_step": "补等价目录生成机制的确定性解析，或修模板生成逻辑输出 Word 字段。",
+        }
+
+    return {
+        "status": Status.FAIL,
+        "type": "template_generation_field_missing",
+        "message": f"单元 {unit_id} 缺少标准要求的 {kind} 字段",
+        "actual": "no matching Word field parsed",
+        "evidence_refs": requirement.get("source_refs", []),
+        "next_step": "修模板生成逻辑输出字段，或补字段解析器对该 Word 字段的识别。",
+    }
+
+
+def _field_requirement_text(item: dict[str, Any]) -> str:
+    values = [
+        str(item.get(field, ""))
+        for field in (
+            "name",
+            "source",
+            "handling",
+            "content",
+            "position",
+            "relationship",
+            "raw",
+            "element_order",
+            "layout_relation",
+        )
+    ]
+    return " ".join(values)
+
+
+def _is_generated_result_element(element: dict[str, Any]) -> bool:
+    text = _normalize_text(_field_requirement_text(element))
+    return (
+        "生成结果" in text
+        or "结果条目" in text
+        or "Word 更新域后生成" in text
+    )
+
+
+def _expected_element_field_kind(text: str) -> str | None:
+    normalized = text.upper()
+    if (
+        "TOC" in normalized
+        and ("字段" in text or "目录生成机制" in text or "自动目录" in text)
+    ):
+        return "TOC"
+    if "自动目录字段" in text or "目录生成机制" in text:
+        return "TOC"
+    if "页码字段" in text or re.search(r"\b(NUM)?PAGES?\b", normalized):
+        return "PAGE"
+    return None
+
+
+def _expected_unit_field_kind(text: str) -> str | None:
+    normalized = text.upper()
+    if "TOC" in normalized and ("字段" in text or "自动目录" in text):
+        return "TOC"
+    if (
+        "Word 自动目录" in text
+        or "Word 目录字段" in text
+        or "Word 图目录" in text
+        or "Word 表目录" in text
+    ):
+        return "TOC"
+    if "页码字段" in text or re.search(r"\b(NUM)?PAGES?\b", normalized):
+        return "PAGE"
+    return None
+
+
+def _field_expected_summary(kind: str, text: str) -> str:
+    if kind == "TOC":
+        toc_range = _expected_toc_range(text)
+        return f"Word TOC field{f' with range {toc_range}' if toc_range else ''}"
+    if kind == "PAGE":
+        return "Word PAGE/NUMPAGES field"
+    return f"Word {kind} field"
+
+
+def _expected_toc_range(text: str) -> str | None:
+    explicit = re.search(r"\\o\s+\"([^\"]+)\"", text)
+    if explicit:
+        return explicit.group(1)
+    range_match = re.search(r"(\d+)\s*-\s*(\d+)\s*级", text)
+    if range_match:
+        return f"{range_match.group(1)}-{range_match.group(2)}"
+    level_match = re.search(r"(?:层级到|目录层级到|到)\s*(\d+)\s*级", text)
+    if level_match:
+        return f"1-{level_match.group(1)}"
+    return None
+
+
+def _allows_equivalent_generation(text: str) -> bool:
+    return "等价" in text or "可使用" in text or "可用" in text
+
+
+def _field_overlaps_unit(
+    field: dict[str, Any],
+    start_order: int,
+    end_order: int,
+) -> bool:
+    paragraph_index = field.get("paragraph_index")
+    if paragraph_index is None:
+        return False
+    field_start = int(paragraph_index)
+    field_end = int(field.get("end_paragraph_index") or field_start)
+    upper_bound = max(end_order + 8, start_order + 120)
+    return field_end >= start_order - 2 and field_start <= upper_bound
+
+
+def _field_candidates_for_requirement(
+    requirement: dict[str, Any],
+    fields: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if requirement.get("kind") != "TOC":
+        return fields
+    toc_range = requirement.get("toc_range")
+    if toc_range:
+        expected_fragment = f'\\o "{toc_range}"'
+        ranged = [
+            field
+            for field in fields
+            if expected_fragment in str(field.get("instruction", ""))
+        ]
+        if ranged:
+            return ranged
+    context_text = str(requirement.get("context_text", ""))
+    if "图目录" in context_text or "figure" in requirement.get("unit_id", ""):
+        themed = [
+            field
+            for field in fields
+            if "图" in str(field.get("instruction", ""))
+        ]
+        if themed:
+            return themed
+    if "表目录" in context_text or "table" in requirement.get("unit_id", ""):
+        themed = [
+            field
+            for field in fields
+            if "表" in str(field.get("instruction", ""))
+        ]
+        if themed:
+            return themed
+    if requirement.get("unit_id") == "toc":
+        outline_fields = [
+            field
+            for field in fields
+            if "\\o" in str(field.get("instruction", ""))
+        ]
+        if outline_fields:
+            return outline_fields
+    return fields
+
+
+def _field_semantically_matches_requirement(
+    requirement: dict[str, Any],
+    field: dict[str, Any],
+) -> bool:
+    instruction = str(field.get("instruction", ""))
+    if requirement.get("kind") != "TOC":
+        return False
+    toc_range = requirement.get("toc_range")
+    if toc_range and f'\\o "{toc_range}"' in instruction:
+        return True
+    context_text = str(requirement.get("context_text", ""))
+    if ("图目录" in context_text or "figure" in requirement.get("unit_id", "")) and (
+        "图" in instruction
+    ):
+        return True
+    if ("表目录" in context_text or "table" in requirement.get("unit_id", "")) and (
+        "表" in instruction
+    ):
+        return True
+    return False
+
+
+def _field_unit_bounds(
+    unit_id: str,
+    matched_orders: list[int],
+    unit_first_orders: list[tuple[str, int]],
+) -> tuple[int, int]:
+    start_order = min(matched_orders)
+    fallback_end = max(matched_orders)
+    ordered_unit_ids = [item[0] for item in unit_first_orders]
+    if unit_id not in ordered_unit_ids:
+        return start_order, fallback_end
+    unit_index = ordered_unit_ids.index(unit_id)
+    later_starts = [
+        order
+        for _next_unit_id, order in unit_first_orders[unit_index + 1 :]
+        if order > start_order
+    ]
+    if later_starts:
+        return start_order, min(later_starts) - 1
+    return start_order, fallback_end + 8
+
+
+def _field_parameter_mismatch(
+    requirement: dict[str, Any],
+    fields: list[dict[str, Any]],
+) -> str:
+    toc_range = requirement.get("toc_range")
+    if requirement.get("kind") == "TOC" and toc_range:
+        expected_fragment = f'\\o "{toc_range}"'
+        if not any(
+            expected_fragment in str(field.get("instruction", ""))
+            for field in fields
+        ):
+            return (
+                f"expected {expected_fragment}; actual "
+                f"{_field_actual_summary(fields)}"
+            )
+    return ""
+
+
+def _field_actual_summary(fields: list[dict[str, Any]]) -> str:
+    return "; ".join(
+        str(field.get("instruction") or field.get("field_type") or "unknown field")
+        for field in fields[:5]
+    )
+
+
+def _field_refs(fields: list[dict[str, Any]]) -> list[str]:
+    refs: list[str] = []
+    for field in fields:
+        refs.append(str(field.get("source_ref", "")))
+        end_ref = field.get("end_source_ref")
+        if end_ref:
+            refs.append(str(end_ref))
+    return [ref for ref in refs if ref]
 
 
 def _numbering_checks(

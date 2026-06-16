@@ -143,6 +143,75 @@ def test_generated_template_gap_binds_page_rules_to_ooxml_sources(tmp_path) -> N
     )
 
 
+def test_generated_template_gap_binds_word_fields_to_units(tmp_path) -> None:
+    nannong_result = run_template_gap_eval(
+        ROOT,
+        "nannong-undergraduate",
+        ROOT / "inputs/school-nannong-undergraduate-template.docx",
+        tmp_path / "nannong_field_gap",
+    )
+    nannong_tree = read_json(
+        tmp_path / "nannong_field_gap/artifacts/generated_template_tree.json"
+    )
+    nannong_report = read_json(
+        tmp_path / "nannong_field_gap/artifacts/template_gap_report.json"
+    )
+
+    assert nannong_result.status == Status.FAIL
+    nannong_toc_field = next(
+        item
+        for item in nannong_tree["data"]["fields"]
+        if item["field_type"] == "TOC"
+    )
+    assert nannong_toc_field["kind"] == "complexField"
+    assert nannong_toc_field["instruction"] == 'TOC \\o "1-3" \\h \\z \\u'
+    assert nannong_toc_field["paragraph_index"] == 49
+    assert nannong_toc_field["end_paragraph_index"] == 74
+    assert any(
+        item["type"] == "template_generation_field_match"
+        and item["affected_ids"] == ["toc.e_002.field"]
+        and item["evidence_refs"] == [
+            "word/document.xml:p[49]/field[1]",
+            "word/document.xml:p[74]",
+        ]
+        for item in nannong_report["check_items"]
+    )
+
+    pku_result = run_template_gap_eval(
+        ROOT,
+        "pku-graduate",
+        ROOT / "inputs/school-pku-graduate-template.docx",
+        tmp_path / "pku_field_gap",
+    )
+    pku_report = read_json(tmp_path / "pku_field_gap/artifacts/template_gap_report.json")
+    pku_field_items = [
+        item
+        for item in pku_report["check_items"]
+        if item["category"] == "field"
+    ]
+
+    assert pku_result.status == Status.FAIL
+    assert any(
+        item["type"] == "template_generation_field_match"
+        and item["affected_ids"] == ["toc.field"]
+        and item["actual"]
+        == 'TOC \\o "3-3" \\h \\z \\t "标题 1,1,标题 2,2,PKU正文前标题,9,PKU正文尾标题,9"'
+        for item in pku_field_items
+    )
+    assert any(
+        item["type"] == "template_generation_field_match"
+        and item["affected_ids"] == ["figure_list.field"]
+        and item["actual"] == 'TOC \\h \\z \\t "PKU图题" \\c'
+        for item in pku_field_items
+    )
+    assert any(
+        item["type"] == "template_generation_field_match"
+        and item["affected_ids"] == ["table_list.field"]
+        and item["actual"] == 'TOC \\h \\z \\t "PKU表题" \\c'
+        for item in pku_field_items
+    )
+
+
 def test_generated_template_gap_missing_docx_is_unknown(tmp_path) -> None:
     result = run_template_gap_eval(
         ROOT,

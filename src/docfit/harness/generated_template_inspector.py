@@ -397,29 +397,101 @@ def _visible_text(root: ET.Element) -> str:
 
 def _fields(root: ET.Element, part_name: str) -> list[dict[str, Any]]:
     fields: list[dict[str, Any]] = []
-    for index, node in enumerate(root.iter(f"{W_NS}instrText"), start=1):
-        text = (node.text or "").strip()
-        if not text:
-            continue
-        fields.append(
-            {
-                "index": index,
-                "kind": "instrText",
-                "instruction": text,
-                "source_ref": f"{part_name}:instrText[{index}]",
-            }
-        )
-    for index, node in enumerate(root.iter(f"{W_NS}fldSimple"), start=1):
-        instruction = node.attrib.get(f"{W_NS}instr", "").strip()
-        fields.append(
-            {
-                "index": index,
-                "kind": "fldSimple",
-                "instruction": instruction,
-                "source_ref": f"{part_name}:fldSimple[{index}]",
-            }
+    field_stack: list[dict[str, Any]] = []
+    next_index = 1
+
+    def append_field(
+        *,
+        kind: str,
+        instruction: str,
+        paragraph_index: int | None,
+        end_paragraph_index: int | None = None,
+    ) -> None:
+        nonlocal next_index
+        normalized_instruction = _normalize_instruction(instruction)
+        if not normalized_instruction:
+            return
+        source_ref = f"{part_name}:field[{next_index}]"
+        if paragraph_index is not None:
+            source_ref = f"{part_name}:p[{paragraph_index}]/field[{next_index}]"
+        item = {
+            "index": next_index,
+            "kind": kind,
+            "field_type": _field_type(normalized_instruction),
+            "instruction": normalized_instruction,
+            "paragraph_index": paragraph_index,
+            "end_paragraph_index": end_paragraph_index,
+            "source_ref": source_ref,
+        }
+        if end_paragraph_index is not None and end_paragraph_index != paragraph_index:
+            item["end_source_ref"] = f"{part_name}:p[{end_paragraph_index}]"
+        fields.append(item)
+        next_index += 1
+
+    for paragraph_index, paragraph in enumerate(root.iter(f"{W_NS}p"), start=1):
+        for node in paragraph.iter():
+            if node.tag == f"{W_NS}fldSimple":
+                append_field(
+                    kind="fldSimple",
+                    instruction=node.attrib.get(f"{W_NS}instr", ""),
+                    paragraph_index=paragraph_index,
+                    end_paragraph_index=paragraph_index,
+                )
+                continue
+            if node.tag == f"{W_NS}fldChar":
+                field_char_type = node.attrib.get(f"{W_NS}fldCharType", "")
+                if field_char_type == "begin":
+                    field_stack.append(
+                        {
+                            "paragraph_index": paragraph_index,
+                            "instruction_parts": [],
+                        }
+                    )
+                elif field_char_type == "end" and field_stack:
+                    field = field_stack.pop()
+                    append_field(
+                        kind="complexField",
+                        instruction="".join(field["instruction_parts"]),
+                        paragraph_index=field["paragraph_index"],
+                        end_paragraph_index=paragraph_index,
+                    )
+                continue
+            if node.tag == f"{W_NS}instrText":
+                text = node.text or ""
+                if field_stack:
+                    field_stack[-1]["instruction_parts"].append(text)
+                else:
+                    append_field(
+                        kind="instrText",
+                        instruction=text,
+                        paragraph_index=paragraph_index,
+                        end_paragraph_index=paragraph_index,
+                    )
+
+    for field in reversed(field_stack):
+        append_field(
+            kind="complexField_unclosed",
+            instruction="".join(field["instruction_parts"]),
+            paragraph_index=field["paragraph_index"],
         )
     return fields
+
+
+def _normalize_instruction(instruction: str) -> str:
+    return " ".join(instruction.strip().split())
+
+
+def _field_type(instruction: str) -> str:
+    normalized = instruction.strip().upper()
+    if normalized.startswith("TOC"):
+        return "TOC"
+    if normalized.startswith("PAGEREF"):
+        return "PAGEREF"
+    if normalized.startswith("PAGE") or normalized.startswith("NUMPAGES"):
+        return "PAGE"
+    if normalized.startswith("HYPERLINK"):
+        return "HYPERLINK"
+    return normalized.split(" ", 1)[0] if normalized else "UNKNOWN"
 
 
 def _breaks(root: ET.Element, part_name: str) -> list[dict[str, Any]]:
