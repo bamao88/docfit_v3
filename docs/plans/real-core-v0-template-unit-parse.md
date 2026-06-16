@@ -1,6 +1,6 @@
 # real-core-v0 Template Unit Parse Plan
 
-Status: Implemented for template parser slice
+Status: Implemented for strict template parser/verifier slice
 Last reviewed: 2026-06-16
 
 ## Goal
@@ -29,6 +29,9 @@ Scope:
   of relying only on the virtual body slot.
 - Update focused tests and product-quality audit so template acceptance clears
   while content, placement, and render remain blocking.
+- Add executable `expected.units` to each real-school `template_unit_contract.yaml`
+  and compare actual template artifacts against it at unit, element, policy,
+  content, style, and relationship granularity.
 
 Non-goals:
 
@@ -44,6 +47,12 @@ Non-goals:
 
 - Each real-core template artifact contains a non-empty `data.units` list with
   school unit ids, element ids, order, policies, and source evidence.
+- Each real-school `template_unit_contract.yaml` contains `expected.units`; if
+  that structured standard is missing, template acceptance returns `UNKNOWN`.
+- The verifier compares every expected unit and element against
+  `template_artifact.data.units`, including style strings. A style mismatch
+  returns a path-specific finding such as `template_element_style_mismatch` on
+  `cover.e_001.style`.
 - Each real-core template artifact contains non-virtual writable slots derived
   from fillable/generated elements.
 - Template instruction/example paragraphs are classified and no longer trigger
@@ -88,6 +97,9 @@ uv run pytest
 
 Run on 2026-06-16:
 
+- Strict template verifier update:
+  `uv run pytest tests/contract/test_real_core_baseline_harness.py tests/contract/test_real_core_four_stage_problem_checks.py -q`: 13 passed.
+- Full verification after strict verifier update: `uv run pytest`: 50 passed.
 - `uv run pytest tests/contract/test_real_core_four_stage_problem_checks.py tests/contract/test_real_core_baseline_harness.py tests/contract/test_contract_gates.py tests/unit/test_baseline_comparison.py`: 25 passed.
 - `uv run pytest tests/e2e/test_bootstrap_cli.py`: 5 passed.
 - `uv run pytest`: 48 passed.

@@ -9,18 +9,8 @@ from docx import Document
 from docfit.core.io import read_json
 from docfit.core.models import Finding, make_finding
 from docfit.core.status import Status
+from docfit.harness import template_units
 
-
-INSTRUCTION_MARKERS = (
-    "附件1",
-    "基本格式",
-    "空一行",
-    "几号",
-    "号字",
-    "论文题目（三号黑体）",
-    "摘要（四号黑体）",
-    "研究生院网站上的毕业论文模板功能有严重欠缺",
-)
 
 DONOR_FRONT_MATTER_MARKERS = (
     "湖 南 农 业 大 学",
@@ -150,6 +140,13 @@ def audit_template_artifact(template_artifact: dict[str, Any]) -> list[Finding]:
                 root_cause_bucket="template_instruction_policy_gap",
             )
         )
+        next_index += 1
+    findings.extend(
+        template_units.verify_template_units_against_source_facts(
+            template_artifact,
+            start_index=next_index,
+        )
+    )
     return findings
 
 
@@ -371,7 +368,7 @@ def _append_only_finding(
 
 
 def _contains_instruction_marker(text: str) -> bool:
-    return any(marker in text for marker in INSTRUCTION_MARKERS)
+    return template_units.contains_instruction_marker(text)
 
 
 def _has_non_virtual_slot(slots: list[dict[str, Any]]) -> bool:

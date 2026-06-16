@@ -10,6 +10,7 @@ from docfit.core.io import read_json
 from docfit.core.status import Status
 from docfit.harness.baselines import validate_baseline_document
 from docfit.harness.coverage import evaluate_profile_coverage
+from docfit.harness.product_quality import audit_template_artifact
 from docfit.harness.profiles import (
     REAL_CORE_SCHOOLS,
     get_eval_cases_for_profile,
@@ -132,6 +133,70 @@ def test_real_core_template_parse_outputs_reviewed_unit_tree_for_all_schools(tmp
             if paragraph["index"]
             in {item["paragraph_index"] for item in instruction_paragraphs}
         )
+        assert audit_template_artifact(artifact) == []
+
+        if school_id == "hunannongye":
+            elements = {
+                (unit["unit_id"], element["name"]): element
+                for unit in units
+                for element in unit["elements"]
+            }
+            assert elements[("cover", "学校名称")]["policy"] == "fixed"
+            assert elements[("cover", "学校名称")]["style"] == (
+                "华文行楷；26pt（一号）；加粗；居中；单倍行距。"
+            )
+            assert elements[("cover", "中文题名")]["policy"] == "fill"
+            assert elements[("cover", "英文题名")]["policy"] == "fill"
+            assert elements[("cover", "学生基本信息")]["policy"] == "manual_only"
+            assert elements[("abstract_cn", "摘  要标签")]["policy"] == "fixed"
+            assert elements[("abstract_cn", "中文摘要正文")]["policy"] == "fill"
+
+
+def test_real_core_template_contract_verifier_reports_element_style_mismatch(
+    tmp_path,
+) -> None:
+    result = run_template_eval(
+        ROOT,
+        "hunannongye",
+        ROOT / "inputs/school-hunannongye-requirement.docx",
+        tmp_path / "hunannongye",
+    )
+    assert result.status == Status.PASS
+    artifact = read_json(tmp_path / "hunannongye/artifacts/template_artifact.json")
+
+    artifact["data"]["units"][0]["elements"][0]["style"] = "宋体；12pt；左对齐。"
+
+    findings = audit_template_artifact(artifact)
+
+    assert any(
+        finding.type == "template_element_style_mismatch"
+        and finding.affected_ids == ["cover.e_001.style"]
+        and "华文行楷" in finding.expected
+        and "宋体" in finding.actual
+        for finding in findings
+    )
+
+
+def test_real_core_template_contract_requires_structured_expected_units(
+    tmp_path,
+) -> None:
+    result = run_template_eval(
+        ROOT,
+        "hunannongye",
+        ROOT / "inputs/school-hunannongye-requirement.docx",
+        tmp_path / "hunannongye",
+    )
+    assert result.status == Status.PASS
+    artifact = read_json(tmp_path / "hunannongye/artifacts/template_artifact.json")
+    artifact["real_core_source_facts"].pop("units")
+
+    findings = audit_template_artifact(artifact)
+
+    assert any(
+        finding.type == "template_structured_expected_missing"
+        and finding.status == Status.UNKNOWN
+        for finding in findings
+    )
 
 
 def test_real_core_e2e_reaches_render_and_writes_bound_final_docx(tmp_path) -> None:

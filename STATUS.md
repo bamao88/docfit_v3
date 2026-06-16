@@ -5,7 +5,8 @@ Last updated: 2026-06-16
 Current focus:
 
 - `real-core-v0` 已从“证据绑定通过”推进到“业务验收 gate 会阻塞当前坏输出”；
-  模板解析切片已经完成，新的临时 e2e 输出会把 template 阶段判为 `PASS`。
+  模板解析切片已经升级为结构化标准逐项验收，新的临时 e2e 输出会把 template
+  阶段判为 `PASS`。
 - 新的 `PASS` 语义必须同时满足四层业务验收：模板解析、内容抽取、内容放置、
   Word 生成。只有 source-fact baseline 和 Word 页面图像证据不再足够。
 - 接下来重点不是继续准备材料，而是按 gate 暴露的问题修真实工程链路。
@@ -40,6 +41,11 @@ Current state:
   `template: PASS`、`blocked_at: content`、`business.template_acceptance: true`。
   详细说明见
   `docs/human/real-core-v0-four-stage-problem-checks.md`。
+- 三所学校的 `standards/schools/*/v1/template_unit_contract.yaml` 现在包含
+  `expected.units`：每个 unit、element、policy、type/fill、content、style、
+  position/relationship 都是可执行标准。模板 stage 和 product-quality gate 会把
+  `template_artifact.data.units` 与这些结构化标准逐项比对；例如元素样式不一致会
+  报 `template_element_style_mismatch`，并指出 `cover.e_001.style` 这类具体路径。
 - 学生源文档中的旧目录已经有一个通用修复：`toc 1` / `toc 2` / `toc 3`
   样式段落会被识别为源文档格式内容，内容放置时标为不写入成品，Word 生成记录
   会说明该动作已处理但不会把旧目录文字写进后续新输出。

@@ -276,6 +276,2027 @@ expected:
   source_section_sha256: sha256:a4bdd5a4cb6cfcf9ad6396586c9330381681d50e998675ab5a8078fdbd83025f
   review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
   unit_model: document_unit -> unit_element -> sub_element
+  units:
+    - unit_id: cover
+      name: 封面
+      order: 1
+      status: required
+      source_refs:
+        - review_text:1.1
+        - review_text:2.1
+      page:
+        page_break: 是
+        section_isolation: ''
+        keep_together: 封面整体模块必须完整落在同一页；封面底部日期、选项、签名或学校要求的固定字段不得溢出到下一页。
+      policy: fixed
+      elements:
+        - element_id: e_001
+          name: 封面整体模块
+          order: 1
+          policy: fixed
+          type: 固定模板模块
+          fill: 否
+          content: 保留学校封面本体；当前阶段不填任何封面字段。
+          style: 源模板封面为 1 个 1x1 表格。封面标题“本科生毕业论文（设计）”为华文中宋 36pt、居中；题目/姓名/学号/学院/专业/指导教师/职称标签为黑体 16pt、首行缩进约 4 字符、固定行距约 35pt；日期为宋体
+            16pt、居中。
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：固定模板模块；是否填充：否\n      内容：保留学校封面本体；当前阶段不填任何封面字段。\n      固定可见字段：本科生毕业论文（设计）；题目；姓名；学号；学院；专业；指导教师；职称；20 年 月 日。\n\
+            \      样式：源模板封面为 1 个 1x1 表格。封面标题“本科生毕业论文（设计）”为华文中宋 36pt、居中；题目/姓名/学号/学院/专业/指导教师/职称标签为黑体 16pt、首行缩进约 4 字符、固定行距约 35pt；日期为宋体\
+            \ 16pt、居中。\n      表格关系：封面本体在源模板中是 1 个 1x1 表格，内部包含封面标题与字段行；该表格属于封面模块本身，不作为普通正文表格处理。\n  判定（匹配 / 不匹配 / 不确定 / 不需要）：\n\
+            \  备注：\n  \U0001F468 已修改：将封面“样式必填/需拆分”占位改为原始 DOCX 证据：封面标题华文中宋 36pt，字段黑体 16pt，日期宋体 16pt，且封面本体是 1x1 表格固定模块。"
+      source: 学校模板
+      handling: 当前阶段保留学校封面模块；不填任何封面字段；不做字段文字锚点匹配。
+      header_footer:
+        header: 无
+        page_number: 无
+      element_order: 1 封面整体模块。
+      layout_relation: ''
+      missing_policy: ''
+    - unit_id: originality_statement
+      name: 原创性声明
+      order: 2
+      status: manual_only
+      source_refs:
+        - review_text:1.2
+        - review_text:2.2
+      page:
+        page_break: 是
+        section_isolation: ''
+        keep_together: ''
+      policy: manual_only
+      elements:
+        - element_id: e_001
+          name: 声明标题
+          order: 1
+          policy: manual_only
+          type: 固定
+          fill: 否
+          content: 南京农业大学本科生毕业论文（设计）原创性声明
+          style: 黑体；18pt（小二）；居中；不加粗；单倍行距。
+          position: 第 1 个元素；独立段落。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：固定；是否填充：否\n      内容：南京农业大学本科生毕业论文（设计）原创性声明\n      位置：第 1 个元素；独立段落。\n      样式：黑体；18pt（小二）；居中；不加粗；单倍行距。"
+        - element_id: e_002
+          name: 声明正文
+          order: 2
+          policy: manual_only
+          type: 固定
+          fill: 否
+          content: 本人郑重声明：所呈交的毕业论文（设计），是本人在导师的指导下，独立进行研究工作所取得的成果。除文中已经注明引用的内容外，本论文不包含任何其他个人或集体已经发表或撰写过的作品成果。对本文的研究做出重要贡献的个人和集体，均已在文中以明确方式标明。本人完全意识到本声明的法律结果由本人承担。
+          style: 宋体；12pt（小四）；两端对齐；首行缩进约 2 字符；固定值 20pt 行距。
+          position: 第 2 个元素；独立段落。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：固定；是否填充：否\n      内容：本人郑重声明：所呈交的毕业论文（设计），是本人在导师的指导下，独立进行研究工作所取得的成果。除文中已经注明引用的内容外，本论文不包含任何其他个人或集体已经发表或撰写过的作品成果。对本文的研究做出重要贡献的个人和集体，均已在文中以明确方式标明。本人完全意识到本声明的法律结果由本人承担。\n\
+            \      位置：第 2 个元素；独立段落。\n      样式：宋体；12pt（小四）；两端对齐；首行缩进约 2 字符；固定值 20pt 行距。"
+        - element_id: e_003
+          name: 论文作者签名/日期行
+          order: 3
+          policy: manual_only
+          type: 固定表单
+          fill: 否
+          content: 论文作者签名：                   日期：       年     月     日
+          style: 宋体；12pt（小四）；首行缩进约 2 字符；固定值 20pt 行距。
+          position: 第 3 个元素；独立段落。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：固定表单；是否填充：否\n      内容：论文作者签名：                   日期：       年     月     日\n      位置：第 3 个元素；独立段落。\n      样式：宋体；12pt（小四）；首行缩进约\
+            \ 2 字符；固定值 20pt 行距。\n  判定（匹配 / 不匹配 / 不确定 / 不需要）：\n  备注：\n  \U0001F468 已修改：声明标题、正文、签名/日期行已补成原始 DOCX 可见样式；标题黑体 18pt\
+            \ 居中，正文和签名日期为宋体 12pt、固定 20pt 行距。"
+      source: 学校模板
+      handling: 保留固定声明页；不自动填姓名、日期、签名。
+      header_footer:
+        header: 无
+        page_number: 无
+      element_order: 1 声明标题；2 声明正文；3 论文作者签名/日期行。
+      layout_relation: ''
+      missing_policy: ''
+    - unit_id: authorization_statement
+      name: 使用授权声明
+      order: 3
+      status: manual_only
+      source_refs:
+        - review_text:1.3
+        - review_text:2.3
+      page:
+        page_break: 否
+        section_isolation: ''
+        keep_together: ''
+      policy: manual_only
+      elements:
+        - element_id: e_001
+          name: 授权声明标题
+          order: 1
+          policy: manual_only
+          type: 固定
+          fill: 否
+          content: 南京农业大学本科生毕业论文（设计）使用授权声明
+          style: 黑体；18pt（小二）；居中；不加粗；单倍行距。
+          position: 第 1 个元素；独立段落。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：固定；是否填充：否\n      内容：南京农业大学本科生毕业论文（设计）使用授权声明\n      位置：第 1 个元素；独立段落。\n      样式：黑体；18pt（小二）；居中；不加粗；单倍行距。"
+        - element_id: e_002
+          name: 授权声明正文
+          order: 2
+          policy: manual_only
+          type: 固定
+          fill: 否
+          content: 本学位论文作者完全了解学校有关保留、使用毕业论文（设计）的规定，同意学校保留并向国家有关部门或机构送交论文的复印件和电子版，允许论文被查阅和借阅。本人授权南京农业大学教务处可以将本毕业论文（设计）的全部或部分内容编入有关数据库进行检索，可以采用影印、缩印或扫描等复制手段保存和汇编毕业论文（设计）。
+          style: 宋体；12pt（小四）；两端对齐；首行缩进约 2 字符；固定值 20pt 行距。
+          position: 第 2 个元素；独立段落。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：固定；是否填充：否\n      内容：本学位论文作者完全了解学校有关保留、使用毕业论文（设计）的规定，同意学校保留并向国家有关部门或机构送交论文的复印件和电子版，允许论文被查阅和借阅。本人授权南京农业大学教务处可以将本毕业论文（设计）的全部或部分内容编入有关数据库进行检索，可以采用影印、缩印或扫描等复制手段保存和汇编毕业论文（设计）。\n\
+            \      位置：第 2 个元素；独立段落。\n      样式：宋体；12pt（小四）；两端对齐；首行缩进约 2 字符；固定值 20pt 行距。"
+        - element_id: e_003
+          name: 论文作者签名/导师签名行
+          order: 3
+          policy: manual_only
+          type: 固定表单
+          fill: 否
+          content: 论文作者签名：                       导师签名：
+          style: 宋体；12pt（小四）；首行缩进约 2 字符；固定值 20pt 行距。
+          position: 第 3 个元素；独立段落。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：固定表单；是否填充：否\n      内容：论文作者签名：                       导师签名：\n      位置：第 3 个元素；独立段落。\n      样式：宋体；12pt（小四）；首行缩进约\
+            \ 2 字符；固定值 20pt 行距。"
+        - element_id: e_004
+          name: 作者日期/导师日期行
+          order: 4
+          policy: manual_only
+          type: 固定表单
+          fill: 否
+          content: 日期：       年      月      日      日期：     年      月      日
+          style: 宋体；12pt（小四）；首行缩进约 2 字符；固定值 20pt 行距。
+          position: 第 4 个元素；独立段落。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：固定表单；是否填充：否\n      内容：日期：       年      月      日      日期：     年      月      日\n      位置：第 4 个元素；独立段落。\n  \
+            \    样式：宋体；12pt（小四）；首行缩进约 2 字符；固定值 20pt 行距。\n  判定（匹配 / 不匹配 / 不确定 / 不需要）：\n  备注：\n  \U0001F468 已修改：授权声明标题、正文、签名行和日期行已补成原始\
+            \ DOCX 可见样式；签名和日期仍按固定表单项保留，不自动填写。"
+      source: 学校模板
+      handling: 保留固定授权声明；不自动填作者签名、导师签名、日期。
+      header_footer:
+        header: 无
+        page_number: 无
+      element_order: 1 授权声明标题；2 授权声明正文；3 论文作者签名/导师签名行；4 作者日期/导师日期行。
+      layout_relation: 本单元允许与原创性声明同页，但内容仍按本单元元素顺序输出。
+      missing_policy: ''
+    - unit_id: toc
+      name: 目录
+      order: 4
+      status: required
+      source_refs:
+        - review_text:1.4
+        - review_text:2.4
+      page:
+        page_break: 是
+        section_isolation: ''
+        keep_together: ''
+      policy: fixed
+      elements:
+        - element_id: e_001
+          name: 目  录
+          order: 1
+          policy: fixed
+          type: 固定
+          fill: 否
+          content: 目  录
+          style: 黑体；16pt（三号）；居中；段前=24pt；段后=18pt；行距=固定值 20pt。
+          position: 第 1 个元素；独立段落。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：固定；是否填充：否\n      内容：目  录\n      位置：第 1 个元素；独立段落。\n      样式：黑体；16pt（三号）；居中；段前=24pt；段后=18pt；行距=固定值 20pt。"
+        - element_id: e_002
+          name: 自动目录字段
+          order: 2
+          policy: generated
+          type: 生成
+          fill: 系统生成
+          content: Word TOC 字段，源模板字段为 TOC \o "1-3" \h \z \u。
+          style: ''
+          position: 第 2 个元素；位于目录标题下方。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：生成；是否填充：系统生成\n      内容：Word TOC 字段，源模板字段为 TOC \\o \"1-3\" \\h \\z \\u。\n      位置：第 2 个元素；位于目录标题下方。\n    \
+            \  收录层级：1-3 级。\n      收录内容：摘要、ABSTRACT、正文各章/节/小节、参考文献、附录、相关的学术成果目录、致谢。\n      注意：目录条目可以出现“摘  要”“ABSTRACT”“第一章”“参考文献”等文字，不能因此误判为正文内容。"
+        - element_id: e_003
+          name: 目录结果条目
+          order: 3
+          policy: generated
+          type: 生成结果
+          fill: 系统生成
+          content: 由 Word 更新域后生成；不得保留手打目录作为最终目录。
+          style: 中文宋体、英文/数字 Times New Roman；14pt（四号）；不加粗；左对齐；行距=固定值 20pt。
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：生成结果；是否填充：系统生成\n      内容：由 Word 更新域后生成；不得保留手打目录作为最终目录。\n      样式：中文宋体、英文/数字 Times New Roman；14pt（四号）；不加粗；左对齐；行距=固定值\
+            \ 20pt。\n  判定（匹配 / 不匹配 / 不确定 / 不需要）：\n  备注：\n  \U0001F468 无异议。目录标题、TOC 字段、1-3 级收录范围和目录结果条目均与原始 DOCX 中的目录字段和可见目录一致。"
+      source: Word 自动目录
+      handling: 使用 Word TOC 字段生成目录；目录层级到 3 级。
+      header_footer:
+        header: 无
+        page_number: 前置页页码规则，见 3.2
+      element_order: 1 目  录；2 自动目录字段；3 目录结果条目。
+      layout_relation: ''
+      missing_policy: ''
+    - unit_id: abstract_cn
+      name: 中文摘要
+      order: 5
+      status: required
+      source_refs:
+        - review_text:1.5
+        - review_text:2.5
+      page:
+        page_break: 是
+        section_isolation: ''
+        keep_together: ''
+      policy: fixed
+      elements:
+        - element_id: e_001
+          name: 中文论文题目
+          order: 1
+          policy: fill
+          type: 填充
+          fill: 是
+          content: 学生中文论文题目；缺失时保留题名占位并评论。
+          style: 黑体；18pt（小二）；居中；段前=24pt；段后=18pt。
+          position: 第 1 个元素；独立段落。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：填充；是否填充：是\n      内容：学生中文论文题目；缺失时保留题名占位并评论。\n      位置：第 1 个元素；独立段落。\n      样式：黑体；18pt（小二）；居中；段前=24pt；段后=18pt。\n\
+            \      依据：源模板 p53“论文题目（小二号黑体）”。"
+        - element_id: e_002
+          name: 摘  要
+          order: 2
+          policy: fixed
+          type: 固定
+          fill: 否
+          content: 摘  要
+          style: 黑体；16pt（三号）；居中；段前=24pt；段后=18pt；行距=固定值 20pt。
+          position: 第 2 个元素；独立段落，位于中文论文题目之后。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：固定；是否填充：否\n      内容：摘  要\n      位置：第 2 个元素；独立段落，位于中文论文题目之后。\n      样式：黑体；16pt（三号）；居中；段前=24pt；段后=18pt；行距=固定值\
+            \ 20pt。"
+        - element_id: e_003
+          name: 中文摘要正文
+          order: 3
+          policy: fill
+          type: 填充
+          fill: 是
+          content: 学生中文摘要；一般 400 字左右；缺失时保留占位并评论。
+          style: 中文宋体、英文/数字 Times New Roman；12pt（小四）；两端对齐；首行缩进 2 字符；段前=0；段后=0；行距=固定值 20pt。
+          position: 第 3 个元素；独立段落，位于“摘  要”之后。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：填充；是否填充：是\n      内容：学生中文摘要；一般 400 字左右；缺失时保留占位并评论。\n      位置：第 3 个元素；独立段落，位于“摘  要”之后。\n      样式：中文宋体、英文/数字\
+            \ Times New Roman；12pt（小四）；两端对齐；首行缩进 2 字符；段前=0；段后=0；行距=固定值 20pt。\n      内容规则：模板说明“不含图表，不加注释，具有独立性和完整性”。"
+        - element_id: e_004
+          name: 关键词：
+          order: 4
+          policy: fixed
+          type: 固定
+          fill: 否
+          content: 关键词：
+          style: 黑体；14pt（四号）；左对齐；行距=固定值 20pt。
+          position: 第 4 个元素的行首；与关键词内容同段。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：固定；是否填充：否\n      内容：关键词：\n      位置：第 4 个元素的行首；与关键词内容同段。\n      关系：与关键词内容同一行，关键词内容紧跟其后。\n      样式：黑体；14pt（四号）；左对齐；行距=固定值\
+            \ 20pt。"
+        - element_id: e_005
+          name: 中文关键词内容
+          order: 5
+          policy: fill
+          type: 填充
+          fill: 是
+          content: 学生中文关键词；3-5 个；缺失时保留占位并评论。
+          style: 宋体；12pt（小四）；左对齐；行距=固定值 20pt。
+          position: 第 5 个元素；紧跟“关键词：”，不另起段。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：填充；是否填充：是\n      内容：学生中文关键词；3-5 个；缺失时保留占位并评论。\n      位置：第 5 个元素；紧跟“关键词：”，不另起段。\n      分隔符：强制使用中文分号“；”；最后一个关键词后不打标点。\n\
+            \      样式：宋体；12pt（小四）；左对齐；行距=固定值 20pt。\n  判定（匹配 / 不匹配 / 不确定 / 不需要）：\n  备注：\n  \U0001F468 无异议。中文题名、摘要标题、摘要正文、关键词标签和关键词内容均有原始\
+            \ DOCX 可见说明支持；关键词最后不加标点的规则也来自源模板。"
+      source: 学生内容 + 元数据
+      handling: 填中文题名、中文摘要、中文关键词；固定“摘  要”和“关键词：”标签。
+      header_footer:
+        header: 无
+        page_number: 前置页页码规则，见 3.2
+      element_order: 1 中文论文题目；2 摘  要；3 中文摘要正文；4 关键词：；5 中文关键词内容。
+      layout_relation: 第 1、2、3 个元素各自独立成段；第 4、5 个元素组成同一个关键词段落，“关键词：”与关键词内容在同一段内连续排布。
+      missing_policy: 如果没有识别到中文题名、摘要正文或关键词，保留占位并添加人工评论。
+    - unit_id: abstract_en
+      name: 英文摘要
+      order: 6
+      status: required
+      source_refs:
+        - review_text:1.6
+        - review_text:2.6
+      page:
+        page_break: 是
+        section_isolation: ''
+        keep_together: ''
+      policy: fixed
+      elements:
+        - element_id: e_001
+          name: 英文论文题目
+          order: 1
+          policy: fill
+          type: 填充
+          fill: 是
+          content: 学生英文论文题目；全部采用大写字母；缺失时保留占位并评论。
+          style: Times New Roman；16pt（三号）；加粗；居中；段前=24pt；段后=18pt；行距=固定值 20pt。
+          position: 第 1 个元素；独立段落。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：填充；是否填充：是\n      内容：学生英文论文题目；全部采用大写字母；缺失时保留占位并评论。\n      位置：第 1 个元素；独立段落。\n      样式：Times New Roman；16pt（三号）；加粗；居中；段前=24pt；段后=18pt；行距=固定值\
+            \ 20pt。\n      依据：源模板 p62。"
+        - element_id: e_002
+          name: ABSTRACT
+          order: 2
+          policy: fixed
+          type: 固定
+          fill: 否
+          content: ABSTRACT
+          style: Times New Roman；16pt（三号）；加粗；居中；段前=24pt；段后=18pt；行距=固定值 20pt。
+          position: 第 2 个元素；独立段落，位于英文题名之后。
+          relationship: ''
+          source_refs:
+            - review_text:element:ABSTRACT
+          raw: "类型：固定；是否填充：否\n      内容：ABSTRACT\n      位置：第 2 个元素；独立段落，位于英文题名之后。\n      样式：Times New Roman；16pt（三号）；加粗；居中；段前=24pt；段后=18pt；行距=固定值\
+            \ 20pt。"
+        - element_id: e_003
+          name: 英文摘要正文
+          order: 3
+          policy: fill
+          type: 填充
+          fill: 是
+          content: 学生英文摘要；与中文摘要和关键词内容相一致；约 300 个实词；缺失时保留占位并评论。
+          style: Times New Roman；12pt（小四）；两端对齐；首行缩进 2 字符；段前=0；段后=0；行距=固定值 20pt。
+          position: 第 3 个元素；独立段落，位于 ABSTRACT 之后。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：填充；是否填充：是\n      内容：学生英文摘要；与中文摘要和关键词内容相一致；约 300 个实词；缺失时保留占位并评论。\n      位置：第 3 个元素；独立段落，位于 ABSTRACT 之后。\n\
+            \      样式：Times New Roman；12pt（小四）；两端对齐；首行缩进 2 字符；段前=0；段后=0；行距=固定值 20pt。"
+        - element_id: e_004
+          name: 'KEY WORDS:'
+          order: 4
+          policy: fixed
+          type: 固定
+          fill: 否
+          content: 'KEY WORDS:'
+          style: Times New Roman；14pt（四号）；加粗；左对齐；行距=固定值 20pt。
+          position: 第 4 个元素的行首；与英文关键词内容同段。
+          relationship: ''
+          source_refs:
+            - review_text:element:KEY_WORDS
+          raw: "类型：固定；是否填充：否\n      内容：KEY WORDS:\n      位置：第 4 个元素的行首；与英文关键词内容同段。\n      关系：与英文关键词内容同一行，英文关键词内容紧跟其后。\n    \
+            \  样式：Times New Roman；14pt（四号）；加粗；左对齐；行距=固定值 20pt。\n      注意：源模板可见文本用中文冒号“：”，工程输出可统一为英文冒号，但必须保持同段关系。"
+        - element_id: e_005
+          name: 英文关键词内容
+          order: 5
+          policy: fill
+          type: 填充
+          fill: 是
+          content: 学生英文关键词；小写；缺失时保留占位并评论。
+          style: Times New Roman；12pt（小四）；左对齐；行距=固定值 20pt。
+          position: 第 5 个元素；紧跟“KEY WORDS:”，不另起段。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：填充；是否填充：是\n      内容：学生英文关键词；小写；缺失时保留占位并评论。\n      位置：第 5 个元素；紧跟“KEY WORDS:”，不另起段。\n      分隔符：模板说明每个关键词之间用分号分开，最后一个关键词后不打标点。\n\
+            \      样式：Times New Roman；12pt（小四）；左对齐；行距=固定值 20pt。\n  判定（匹配 / 不匹配 / 不确定 / 不需要）：\n  备注：\n  \U0001F468 无异议。英文题名、ABSTRACT、英文摘要正文、KEY\
+            \ WORDS 标签和关键词分隔规则均有原始 DOCX 可见说明；冒号规范化需保持同段关系。"
+      source: 学生内容 + 元数据
+      handling: 填英文题名、英文摘要、英文关键词；固定“ABSTRACT”和“KEY WORDS：/KEY WORDS:”标签。
+      header_footer:
+        header: 无
+        page_number: 前置页页码规则，见 3.2
+      element_order: 1 英文论文题目；2 ABSTRACT；3 英文摘要正文；4 KEY WORDS:；5 英文关键词内容。
+      layout_relation: 第 1、2、3 个元素各自独立成段；第 4、5 个元素组成同一个关键词段落，“KEY WORDS:”与英文关键词内容在同一段内连续排布。
+      missing_policy: 如果没有识别到英文题名、英文摘要或英文关键词，保留占位并添加人工评论。
+    - unit_id: body_main
+      name: 正文主体
+      order: 7
+      status: required
+      source_refs:
+        - review_text:1.7
+        - review_text:2.7
+      page:
+        page_break: 是
+        section_isolation: ''
+        keep_together: ''
+      policy: fixed
+      elements:
+        - element_id: e_001
+          name: 正文章标题
+          order: 1
+          policy: fill
+          type: 填充
+          fill: 是
+          content: 学生章节标题；编号形式如“第一章 文献综述”“第X章 结论与展望”。
+          style: 黑体；16pt（三号）；居中；段前=24pt；段后=18pt；行距=固定值 20pt；大纲级别=1。
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：填充；是否填充：是\n      内容：学生章节标题；编号形式如“第一章 文献综述”“第X章 结论与展望”。\n      样式：黑体；16pt（三号）；居中；段前=24pt；段后=18pt；行距=固定值 20pt；大纲级别=1。\n\
+            \      编号规则：正文章标题使用“第X章 + 标题”；目录应收录。"
+        - element_id: e_002
+          name: 一级节标题
+          order: 2
+          policy: fill
+          type: 填充
+          fill: 是
+          content: 学生一级节标题；模板示例“1□材料与方法”。
+          style: 黑体；14pt（四号）；左对齐；行距=固定值 20pt；大纲级别=2。
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：填充；是否填充：是\n      内容：学生一级节标题；模板示例“1□材料与方法”。\n      样式：黑体；14pt（四号）；左对齐；行距=固定值 20pt；大纲级别=2。\n      编号规则：章内局部编号；编号后保留一个显式空格。"
+        - element_id: e_003
+          name: 二级节标题
+          order: 3
+          policy: fill
+          type: 填充
+          fill: 是
+          content: 学生二级节标题；模板示例“1.1□材料”。
+          style: 宋体；12pt（小四）；左对齐；行距=固定值 20pt；大纲级别=3。
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：填充；是否填充：是\n      内容：学生二级节标题；模板示例“1.1□材料”。\n      样式：宋体；12pt（小四）；左对齐；行距=固定值 20pt；大纲级别=3。\n      编号规则：章内局部编号；编号后保留一个显式空格。"
+        - element_id: e_004
+          name: 正文段落
+          order: 4
+          policy: fill
+          type: 填充
+          fill: 是
+          content: 学生正文。
+          style: 中文宋体、英文/数字 Times New Roman；12pt（小四）；两端对齐；首行缩进 2 字符；段前=0；段后=0；行距=固定值 20pt。
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：填充；是否填充：是\n      内容：学生正文。\n      样式：中文宋体、英文/数字 Times New Roman；12pt（小四）；两端对齐；首行缩进 2 字符；段前=0；段后=0；行距=固定值 20pt。"
+        - element_id: e_005
+          name: 图单元（figure）
+          order: 5
+          policy: generated
+          type: 填充 + 生成编号
+          fill: 是
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:figure
+          raw: "类型：填充 + 生成编号；是否填充：是\n      本校明确规则：图应有中英文标题；标题居中；图、表格按章顺序编号；图中文字说明用 5 号黑体，英文及数字用五号 Times New Roman。\n      示例核对：原始\
+            \ DOCX 虽包含媒体文件，但位于封面/说明框区域，不是正文图示例；正文区域没有真实图本体 + 图名示例。\n      未明示规则：源模板没有提供正文图样例，未明确图题在图上还是图下、中文/英文图题的先后、图注是否必填或图题同页规则。\n\
+            \      处理：本校专属标准只检查上述明确规则；题名位置、题名组同页和图注结构如需默认，应放共享默认规则或人工确认。\n      依据：源模板 p90“图、表格应有中英文标题，居中显示……表头及图的文字说明用5号黑体”。"
+        - element_id: e_006
+          name: 表单元（table）
+          order: 6
+          policy: generated
+          type: 填充 + 生成编号
+          fill: 是
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:table
+          raw: "类型：填充 + 生成编号；是否填充：是\n      本校明确规则：表格应有中英文标题；标题居中；图、表格按章顺序编号，如“表5-4”为第五章第四表；图表内容一般为 5 号及小 5 号宋体，表头用 5 号黑体，英文及数字用五号\
+            \ Times New Roman。\n      示例核对：原始 DOCX 只有封面 1x1 表格，没有正文表格示例。\n      未明示规则：源模板没有提供正文表格样例，未明确表题在表上还是表下、中文/英文表题先后、表注是否必填、三线表边框或续表规则。\n\
+            \      处理：本校专属标准只检查上述明确规则；题名位置、题名组同页、表注和续表结构如需默认，应放共享默认规则或人工确认。\n      依据：源模板 p90。"
+        - element_id: e_007
+          name: 公式
+          order: 7
+          policy: fill
+          type: 填充
+          fill: 是
+          content: 学生公式。
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：填充；是否填充：是\n      内容：学生公式。\n      示例核对：原始 DOCX 正文区域没有 Word 公式对象或公式示例。\n      处理：源模板只说明实验部分可包含公式，未提供公式编号、对齐、字体或正斜体规则；本校专属标准不定义公式结构和样式，后续由共享默认规则或人工确认处理。"
+        - element_id: e_008
+          name: 固定类型结尾章“第X章 结论与展望”
+          order: 8
+          policy: fill
+          type: 模板固定章类型 + 学生内容
+          fill: 章内内容需要填充
+          content: 最后一章应为“结论与展望”类型，具体章号随正文实际章数变化。
+          style: 同正文章标题；章内段落使用正文样式。
+          position: 正文主体最后一个章级单元，在参考文献之前。
+          relationship: ''
+          source_refs:
+            - review_text:element:X
+          raw: "类型：模板固定章类型 + 学生内容；是否填充：章内内容需要填充\n      内容：最后一章应为“结论与展望”类型，具体章号随正文实际章数变化。\n      位置：正文主体最后一个章级单元，在参考文献之前。\n \
+            \     样式：同正文章标题；章内段落使用正文样式。\n      注意：源模板 p109-p112 是写作说明，不是最终论文必须保留的固定正文。\n  判定（匹配 / 不匹配 / 不确定 / 不需要）：\n  备注：\n\
+            \  \U0001F468 已修改：按原始 DOCX 重新核对图/表/公式示例；南农只有封面/说明区域媒体和封面表格，没有正文图、正文表格或公式示例，因此仍不把图题位置、表题位置、题名组同页、续表和公式样式写成本校事实。"
+      source: 学生内容 + 模板章结构
+      handling: 按学校模板保留章、节、正文、图、表、公式等规则；包含固定类型结尾章“第X章 结论与展望”。
+      header_footer:
+        header: 南京农业大学本科毕业论文（设计）
+        page_number: 正文及后置页阿拉伯数字页码规则，见 3.2
+      element_order: 1 正文章标题；2 一级节标题；3 二级节标题；4 正文段落；5 图/表（如有）；6 公式（如有）；7 固定类型结尾章“第X章 结论与展望”。
+      layout_relation: 标题、正文段落、图、表、公式均按学生论文原有逻辑顺序进入正文流；图/表作为正文内部嵌套单元处理，不拍平成普通段落；如果源模板有实际图/表/公式示例，应以示例的相对位置和样式为准；已核对南农原始 DOCX，正文区域没有真实图、表、公式示例，因此学校未明确的图题位置、表题位置和公式样式不写成本校事实。
+      missing_policy: 如果没有识别到正文内容，保留正文占位并添加人工评论。
+    - unit_id: references
+      name: 参考文献
+      order: 8
+      status: required
+      source_refs:
+        - review_text:1.8
+        - review_text:2.8
+      page:
+        page_break: 是
+        section_isolation: ''
+        keep_together: ''
+      policy: fixed
+      elements:
+        - element_id: e_001
+          name: 参考文献
+          order: 1
+          policy: fixed
+          type: 固定
+          fill: 否
+          content: 参考文献
+          style: 黑体；16pt（三号）；居中；段前=24pt；段后=18pt；行距=固定值 20pt。
+          position: 第 1 个元素；独立段落；另起页。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：固定；是否填充：否\n      内容：参考文献\n      位置：第 1 个元素；独立段落；另起页。\n      样式：黑体；16pt（三号）；居中；段前=24pt；段后=18pt；行距=固定值 20pt。"
+        - element_id: e_002
+          name: 参考文献条目
+          order: 2
+          policy: fill
+          type: 填充
+          fill: 是
+          content: 学生参考文献条目。
+          style: 中文宋体、英文/数字 Times New Roman；10.5pt（五号）；左对齐；行距=固定值 20pt。
+          position: 第 2 个元素开始；每条独立段落。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：填充；是否填充：是\n      内容：学生参考文献条目。\n      位置：第 2 个元素开始；每条独立段落。\n      编号：保留或规范化为 [1] 后接空格。\n      样式：中文宋体、英文/数字\
+            \ Times New Roman；10.5pt（五号）；左对齐；行距=固定值 20pt。\n      著录规则：模板说明遵照 GB/T 7714-2005《文后参考文献著录规则》。\n  判定（匹配 / 不匹配 / 不确定\
+            \ / 不需要）：\n  备注：\n  \U0001F468 无异议。参考文献标题、条目字体字号、另起页要求和 GB/T 7714-2005 依据均与原始 DOCX 可见说明一致。"
+      source: 学生参考文献
+      handling: 保留标题“参考文献”；填参考文献条目。
+      header_footer:
+        header: 南京农业大学本科毕业论文（设计）
+        page_number: 正文及后置页阿拉伯数字页码规则，见 3.2
+      element_order: 1 参考文献；2 参考文献条目。
+      layout_relation: ''
+      missing_policy: 如果没有识别到参考文献，保留参考文献标题、占位和人工评论。
+    - unit_id: appendix
+      name: 附录
+      order: 9
+      status: template_default_optional
+      source_refs:
+        - review_text:1.9
+        - review_text:2.9
+      page:
+        page_break: 是
+        section_isolation: ''
+        keep_together: ''
+      policy: template_default_optional
+      elements:
+        - element_id: e_001
+          name: 附  录 + 附录名称
+          order: 1
+          policy: fill
+          type: 固定标题 + 填充标题
+          fill: 附录名称可填充
+          content: 附  录 附录名称
+          style: 黑体；16pt（三号）；居中；段前=24pt；段后=18pt；行距=固定值 20pt。
+          position: 第 1 个元素；独立段落；另起页。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：固定标题 + 填充标题；是否填充：附录名称可填充\n      内容：附  录 附录名称\n      位置：第 1 个元素；独立段落；另起页。\n      样式：黑体；16pt（三号）；居中；段前=24pt；段后=18pt；行距=固定值\
+            \ 20pt。"
+        - element_id: e_002
+          name: 附录正文/材料
+          order: 2
+          policy: fill
+          type: 填充
+          fill: 是
+          content: 不宜放在正文中的重要支撑材料，如原始数据、数学推导、程序全文、复杂图表、设计图纸等。
+          style: 正文类内容默认使用正文样式；复杂材料按其自身结构保留。
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：填充；是否填充：是\n      内容：不宜放在正文中的重要支撑材料，如原始数据、数学推导、程序全文、复杂图表、设计图纸等。\n      样式：正文类内容默认使用正文样式；复杂材料按其自身结构保留。\n  判定（匹配\
+            \ / 不匹配 / 不确定 / 不需要）：\n  备注：\n  \U0001F468 无异议。附录标题“附  录 附录名称”和“此项非必需项”均来自原始 DOCX；保留草稿占位、正式输出人工确认的处理合理。"
+      source: 学校模板 + 学生内容
+      handling: 源模板标注“此项非必需项”，但草稿/审阅输出默认保留；无内容时保留标题、占位和评论。
+      header_footer:
+        header: 南京农业大学本科毕业论文（设计）
+        page_number: 正文及后置页阿拉伯数字页码规则，见 3.2
+      element_order: 1 附  录 + 附录名称；2 附录正文/材料。
+      layout_relation: ''
+      missing_policy: 源文档未识别到附录内容时，草稿/审阅输出保留本页并写入“【源文档中未识别到本页内容；如学校不要求，可删除本页。】”。
+    - unit_id: academic_achievements
+      name: 相关的学术成果目录
+      order: 10
+      status: template_default_optional
+      source_refs:
+        - review_text:1.10
+        - review_text:2.10
+      page:
+        page_break: 是
+        section_isolation: ''
+        keep_together: ''
+      policy: template_default_optional
+      elements:
+        - element_id: e_001
+          name: 相关的学术成果目录
+          order: 1
+          policy: template_default_optional
+          type: 固定
+          fill: 否
+          content: 相关的学术成果目录
+          style: 黑体；16pt（三号）；居中；段前=24pt；段后=18pt；行距=固定值 20pt。
+          position: 第 1 个元素；独立段落；另起页。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：固定；是否填充：否\n      内容：相关的学术成果目录\n      位置：第 1 个元素；独立段落；另起页。\n      样式：黑体；16pt（三号）；居中；段前=24pt；段后=18pt；行距=固定值\
+            \ 20pt。"
+        - element_id: e_002
+          name: 成果条目
+          order: 2
+          policy: fill
+          type: 填充
+          fill: 是
+          content: 本科期间发表的与毕业论文（设计）相关的已发表论文或被鉴定的技术成果、发明专利等成果。
+          style: 正文类内容默认使用正文样式；如成果列表有固定学校格式，后续需补充。
+          position: 第 2 个元素开始。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：填充；是否填充：是\n      内容：本科期间发表的与毕业论文（设计）相关的已发表论文或被鉴定的技术成果、发明专利等成果。\n      位置：第 2 个元素开始。\n      样式：正文类内容默认使用正文样式；如成果列表有固定学校格式，后续需补充。\n\
+            \  判定（匹配 / 不匹配 / 不确定 / 不需要）：\n  备注：\n  \U0001F468 无异议。成果目录标题和“本科期间发表的与毕业论文相关成果”说明来自原始 DOCX；本页应作为后置可选目标页处理。"
+      source: 学校模板 + 学生成果
+      handling: 源模板标注“此项非必需项”，但草稿/审阅输出默认保留；无内容时保留标题、占位和评论。
+      header_footer:
+        header: 南京农业大学本科毕业论文（设计）
+        page_number: 正文及后置页阿拉伯数字页码规则，见 3.2
+      element_order: 1 相关的学术成果目录；2 成果条目。
+      layout_relation: ''
+      missing_policy: 源文档未识别到成果内容时，草稿/审阅输出保留本页并写入“【源文档中未识别到本页内容；如学校不要求，可删除本页。】”。
+    - unit_id: acknowledgement
+      name: 致谢
+      order: 11
+      status: template_default
+      source_refs:
+        - review_text:1.11
+        - review_text:2.11
+      page:
+        page_break: 是
+        section_isolation: ''
+        keep_together: ''
+      policy: fixed
+      elements:
+        - element_id: e_001
+          name: 致  谢
+          order: 1
+          policy: fixed
+          type: 固定
+          fill: 否
+          content: 致  谢
+          style: 黑体；16pt（三号）；居中；段前=24pt；段后=18pt；行距=固定值 20pt。
+          position: 第 1 个元素；独立段落；另起页。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：固定；是否填充：否\n      内容：致  谢\n      位置：第 1 个元素；独立段落；另起页。\n      样式：黑体；16pt（三号）；居中；段前=24pt；段后=18pt；行距=固定值 20pt。"
+        - element_id: e_002
+          name: 致谢正文
+          order: 2
+          policy: fill
+          type: 填充
+          fill: 是
+          content: 学生致谢正文；一般 500 字以内。
+          style: 中文宋体、英文/数字 Times New Roman；12pt（小四）；两端对齐；首行缩进 2 字符；段前=0；段后=0；行距=固定值 20pt。
+          position: 第 2 个元素；独立段落，位于“致  谢”之后。
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "类型：填充；是否填充：是\n      内容：学生致谢正文；一般 500 字以内。\n      位置：第 2 个元素；独立段落，位于“致  谢”之后。\n      样式：中文宋体、英文/数字 Times New\
+            \ Roman；12pt（小四）；两端对齐；首行缩进 2 字符；段前=0；段后=0；行距=固定值 20pt。\n  判定（匹配 / 不匹配 / 不确定 / 不需要）：\n  备注：\n  \U0001F468 无异议。致谢标题、字数一般\
+            \ 500 字以内、正文小四宋体固定 20pt 行距均由原始 DOCX 可见说明支持。\n\n================================================================================\n\
+            3. 全局规则（第三层级）\n================================================================================\n\n3.1 页面、页眉、页脚与\
+            \ Word section\n  页面："
+        - element_id: e_003
+          name: 纸张：A4。
+          order: 3
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:A4
+          raw: ''
+        - element_id: e_004
+          name: 上/下/左/右边距：20mm。
+          order: 4
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:20mm
+          raw: ''
+        - element_id: e_005
+          name: 装订线：5mm，居左。
+          order: 5
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:5mm
+          raw: 页眉/页脚距离：
+        - element_id: e_006
+          name: 源模板可见说明写“页眉和页脚为 5mm”。
+          order: 6
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:5mm
+          raw: ''
+        - element_id: e_007
+          name: 源模板 OOXML：封面附近 section 为页眉约 5mm、页脚约 5mm；正文及后置页多数 section 为页眉约 15mm、页脚约 17.5mm。
+          order: 7
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:OOXML_section_5mm_5mm_section_15mm_17_5mm
+          raw: ''
+        - element_id: e_008
+          name: 审查口径：记录为证据冲突。学校可见说明优先；如实现侧直接继承源 DOCX section，应单独标注这是模板 OOXML 实现值，不写成学校明示要求。
+          order: 8
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:DOCX_section_OOXML
+          raw: 页眉内容归属：
+        - element_id: e_009
+          name: 全局只记录页眉机制和距离。
+          order: 9
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_010
+          name: 单元记录本单元显示什么页眉。
+          order: 10
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_011
+          name: 正文、参考文献、附录、成果目录、致谢页眉显示：南京农业大学本科毕业论文（设计）。
+          order: 11
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_012
+          name: 封面、声明、授权、目录、中英文摘要默认无页眉。
+          order: 12
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: Word section 规则：
+        - element_id: e_013
+          name: 只在页眉/页脚/页码格式/页边距/横竖版变化时创建或切换 section。
+          order: 13
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:section
+          raw: ''
+        - element_id: e_014
+          name: 新 section 需要断开 Link to Previous，避免正文页眉或页码串到封面、声明、目录、摘要。
+          order: 14
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:section_Link_to_Previous
+          raw: ''
+        - element_id: e_015
+          name: 单元不是天然等于 Word section；单元只是声明需要的页面属性，渲染层再合并相邻相同属性。
+          order: 15
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:Word_section
+          raw: "判定（匹配 / 不匹配 / 不确定 / 不需要）：\n  备注：\n  \U0001F468 已修改：页眉/页脚距离从单纯采用 OOXML 改为“证据冲突”处理；源模板可见说明写 5mm，OOXML 部分 section\
+            \ 为 15mm/17.5mm，学校明示要求优先。\n\n3.2 页码\n  归属："
+        - element_id: e_016
+          name: 页码格式、字体字号、起始编号和连续规则属于全局规则。
+          order: 16
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_017
+          name: 每个单元只声明使用哪一种页码规则。
+          order: 17
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 页码显示：
+        - element_id: e_018
+          name: 封面：不显示页码。
+          order: 18
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_019
+          name: 原创性声明/使用授权声明：不显示页码。
+          order: 19
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_020
+          name: 目录、中英文摘要：前置页页码规则。
+          order: 20
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_021
+          name: 正文及后置页：阿拉伯数字页码规则。
+          order: 21
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 前置页页码规则：
+        - element_id: e_022
+          name: 官方源模板存在罗马页码证据，页脚字段显示 I，目录示例显示 Ⅰ/Ⅱ。
+          order: 22
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:I
+          raw: ''
+        - element_id: e_023
+          name: 当前 school.yaml 使用 lowerRoman；这里需人工确认最终采用大写罗马还是小写罗马。
+          order: 23
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:school_yaml_lowerRoman
+          raw: ''
+        - element_id: e_024
+          name: 在确认前，审查重点是“前置页使用罗马页码，且不与正文阿拉伯页码连续混用”。
+          order: 24
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 正文及后置页页码规则：
+        - element_id: e_025
+          name: 从正文首页开始使用阿拉伯数字，起始页码为 1。
+          order: 25
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:1
+          raw: ''
+        - element_id: e_026
+          name: 参考文献、附录、相关的学术成果目录、致谢继续正文阿拉伯数字页码，不重新从 1 开始。
+          order: 26
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:1
+          raw: ''
+        - element_id: e_027
+          name: 页码字体：Times New Roman；10.5pt（五号）；居中。
+          order: 27
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: 中文宋体、英文/数字 Times New Roman；12pt（小四）；两端对齐；首行缩进 2 字符；段前=0；段后=0；行距=固定值 20pt。
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:Times_New_Roman_10_5pt
+          raw: "判定（匹配 / 不匹配 / 不确定 / 不需要）：\n  备注：\n  \U0001F468 无异议。前置页罗马页码与正文阿拉伯页码分层正确；原始 DOCX 存在大小写/字段结果不完全一致的证据，因此保留人工确认大小写。\n\
+            \n3.3 正文基础样式（Normal / Body）\n  样式：中文宋体、英文/数字 Times New Roman；12pt（小四）；两端对齐；首行缩进 2 字符；段前=0；段后=0；行距=固定值 20pt。\n  依据：源模板\
+            \ p75、p89。\n  判定（匹配 / 不匹配 / 不确定 / 不需要）：\n  备注：\n  \U0001F468 无异议。正文宋体/Times New Roman、小四、首行缩进 2 字符、固定 20pt 行距与原始\
+            \ DOCX 可见说明一致。\n\n3.4 标题样式与目录层级\n  章标题："
+        - element_id: e_028
+          name: 编号/文本：第X章 标题。
+          order: 28
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:X
+          raw: ''
+        - element_id: e_029
+          name: 样式：黑体；16pt（三号）；居中；段前=24pt；段后=18pt；行距=固定值 20pt；大纲级别=1。
+          order: 29
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:16pt_24pt_18pt_20pt_1
+          raw: 一级节标题：
+        - element_id: e_030
+          name: 编号/文本：1 标题。
+          order: 30
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:1
+          raw: ''
+        - element_id: e_031
+          name: 样式：黑体；14pt（四号）；左对齐；行距=固定值 20pt；大纲级别=2。
+          order: 31
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:14pt_20pt_2
+          raw: ''
+        - element_id: e_032
+          name: 编号后必须保留一个显式空格。
+          order: 32
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 二级节标题：
+        - element_id: e_033
+          name: 编号/文本：1.1 标题。
+          order: 33
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:1_1
+          raw: ''
+        - element_id: e_034
+          name: 样式：宋体；12pt（小四）；左对齐；行距=固定值 20pt；大纲级别=3。
+          order: 34
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:12pt_20pt_3
+          raw: ''
+        - element_id: e_035
+          name: 编号后必须保留一个显式空格。
+          order: 35
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 目录层级：
+        - element_id: e_036
+          name: 官方源模板 TOC 字段为 1-3 级。
+          order: 36
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:TOC_1-3
+          raw: ''
+        - element_id: e_037
+          name: 目录应收录章标题、一级节标题、二级节标题，以及前后置固定标题。
+          order: 37
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "判定（匹配 / 不匹配 / 不确定 / 不需要）：\n  备注：\n  \U0001F468 无异议。章标题、一级节标题、二级节标题和目录 1-3 级均与原始 DOCX 示例和 TOC 字段一致。\n\n3.5 摘要与关键词全局规则\n\
+            \  中文摘要："
+        - element_id: e_038
+          name: 中文论文题名：黑体；18pt（小二）；居中。
+          order: 38
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:18pt
+          raw: ''
+        - element_id: e_039
+          name: 摘要标题：黑体；16pt（三号）；居中。
+          order: 39
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:16pt
+          raw: ''
+        - element_id: e_040
+          name: 摘要正文：宋体/Times New Roman；12pt；固定值 20pt；首行缩进 2 字符。
+          order: 40
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:Times_New_Roman_12pt_20pt_2
+          raw: ''
+        - element_id: e_041
+          name: 关键词标签：黑体；14pt；与关键词内容同段。
+          order: 41
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:14pt
+          raw: ''
+        - element_id: e_042
+          name: 关键词内容：宋体；12pt；中文分号分隔；最后不加标点。
+          order: 42
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:12pt
+          raw: 英文摘要：
+        - element_id: e_043
+          name: 英文题名：Times New Roman；16pt；加粗；居中；全部大写。
+          order: 43
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:Times_New_Roman_16pt
+          raw: ''
+        - element_id: e_044
+          name: ABSTRACT：Times New Roman；16pt；加粗；居中。
+          order: 44
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:ABSTRACT_Times_New_Roman_16pt
+          raw: ''
+        - element_id: e_045
+          name: 英文摘要正文：Times New Roman；12pt；固定值 20pt；首行缩进 2 字符。
+          order: 45
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:Times_New_Roman_12pt_20pt_2
+          raw: ''
+        - element_id: e_046
+          name: KEY WORDS 标签：Times New Roman；14pt；加粗；与英文关键词内容同段。
+          order: 46
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:KEY_WORDS_Times_New_Roman_14pt
+          raw: ''
+        - element_id: e_047
+          name: 英文关键词内容：Times New Roman；12pt；分号分隔；最后不加标点。
+          order: 47
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:Times_New_Roman_12pt
+          raw: "判定（匹配 / 不匹配 / 不确定 / 不需要）：\n  备注：\n  \U0001F468 无异议。中英文摘要、关键词标签、字号、分号分隔和末尾不加标点均有原始 DOCX 可见说明。\n\n3.6 图、表、公式全局规则覆盖范围\n\
+            \  图："
+        - element_id: e_048
+          name: 源模板明确：图应有中英文标题；居中；按章顺序编号；图中文字说明用 5 号黑体，英文及数字为五号 Times New Roman。
+          order: 48
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:5_Times_New_Roman
+          raw: ''
+        - element_id: e_049
+          name: 示例核对：原始 DOCX 的媒体对象不属于正文图示例；正文区域没有真实图本体 + 图名示例。
+          order: 49
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:DOCX
+          raw: ''
+        - element_id: e_050
+          name: 源模板未明确：图题位置、中文/英文图题先后、图注是否必填、图题组同页规则。
+          order: 50
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 表：
+        - element_id: e_051
+          name: 源模板明确：表格应有中英文标题；居中；按章顺序编号；图表内容一般为 5 号及小 5 号宋体；表头用 5 号黑体，英文及数字为五号 Times New Roman。
+          order: 51
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:5_5_5_Times_New_Roman
+          raw: ''
+        - element_id: e_052
+          name: 示例核对：原始 DOCX 只有封面 1x1 表格，没有正文表格示例。
+          order: 52
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:DOCX_1x1
+          raw: ''
+        - element_id: e_053
+          name: 源模板未明确：表题位置、中文/英文表题先后、表注是否必填、三线表边框、续表规则。
+          order: 53
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 公式：
+        - element_id: e_054
+          name: 示例核对：原始 DOCX 正文区域没有 Word 公式对象或公式示例。
+          order: 54
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:DOCX_Word
+          raw: ''
+        - element_id: e_055
+          name: 源模板只说明实验部分可包含公式；未提供公式编号、对齐、字体、正斜体或同页规则。
+          order: 55
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 处理：
+        - element_id: e_056
+          name: 本校专属测试标准只记录源模板明示项；其他图表公式默认结构和样式放共享默认规则或人工确认。
+          order: 56
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "判定（匹配 / 不匹配 / 不确定 / 不需要）：\n  备注：\n  \U0001F468 已修改：补充“先看原始 DOCX 是否有实际示例”的核对口径；南农正文没有图、表、公式实际示例，所以只记录源模板明示的图表中英文标题、居中、按章编号和部分字号。\n\
+            \n3.7 参考文献全局规则\n  参考文献标题：黑体；16pt（三号）；居中；段前=24pt；段后=18pt；行距=固定值 20pt。\n  参考文献条目：中文宋体、英文/数字 Times New Roman；10.5pt（五号）；左对齐；行距=固定值\
+            \ 20pt。\n  编号：使用 [1] 形式，编号后保留空格。\n  著录规则：源模板说明遵照 GB/T 7714-2005。\n  判定（匹配 / 不匹配 / 不确定 / 不需要）：\n  备注：\n  \U0001F468\
+            \ 无异议。参考文献标题、条目样式、编号示例和 GB/T 7714-2005 依据均有原始 DOCX 证据。\n\n3.8 模板默认页保留策略\n  附录："
+        - element_id: e_057
+          name: 学校模板标注“此项非必需项”，但草稿/审阅输出默认保留。
+          order: 57
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_058
+          name: 无学生内容时保留标题和人工确认占位。
+          order: 58
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 相关的学术成果目录：
+        - element_id: e_059
+          name: 学校模板标注“此项非必需项”，但草稿/审阅输出默认保留。
+          order: 59
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_060
+          name: 无学生内容时保留标题和人工确认占位。
+          order: 60
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 致谢：
+        - element_id: e_061
+          name: 学校模板写“一般应放置致谢”，因此默认保留。
+          order: 61
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_062
+          name: 无学生内容时保留标题和人工确认占位。
+          order: 62
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 说明文字：
+        - element_id: e_063
+          name: 源模板中用于指导写作的说明段落不是最终论文固定正文。
+          order: 63
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_064
+          name: 说明段落可作为审查证据，但最终输出应由学生内容或占位替换。
+          order: 64
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "判定（匹配 / 不匹配 / 不确定 / 不需要）：\n  备注：\n  \U0001F468 无异议。附录、相关学术成果目录为“此项非必需项”，致谢为“一般应放置”；草稿保留、正式人工确认删除的策略符合源模板。\n\n\
+            3.9 同页约束与分页完整性\n  适用对象："
+        - element_id: e_065
+          name: 封面整体模块。
+          order: 65
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_066
+          name: 固定声明/授权页的签名区。
+          order: 66
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_067
+          name: 标题与紧随其后的第一段或第一项内容。
+          order: 67
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_068
+          name: 学校模板中明确要求同页呈现的表单、勾选项、底部说明或签名日期。
+          order: 68
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_069
+          name: 图题/表题组同页规则：源模板未明示；如产品共享默认规则需要，可在共享层补充，不写成南农本校事实。
+          order: 69
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 审查原则：
+        - element_id: e_070
+          name: 同页约束是单元/元素的布局属性，不是单纯样式属性。
+          order: 70
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_071
+          name: 如果同页约束失败，应记为版面完整性问题。
+          order: 71
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_072
+          name: 不应为了通过分页而删除固定元素，也不应把同一固定表单拆成多个逻辑单元。
+          order: 72
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: Word 实现提示：
+        - element_id: e_073
+          name: 普通段落可使用“与下段同页”“段中不分页”。
+          order: 73
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_074
+          name: 固定表单和封面可优先保留为整体表格、内容控件或模板块。
+          order: 74
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_075
+          name: 图题/表题是否使用 keep-with-next，属于共享默认或渲染策略，需要单独标注来源。
+          order: 75
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:keep-with-next
+          raw: ''
+        - element_id: e_076
+          name: 如果内容本身超过一页，应保留学校模板结构并输出人工调整提示。
+          order: 76
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: "判定（匹配 / 不匹配 / 不确定 / 不需要）：\n  备注：\n  \U0001F468 已修改：删除把图题/表题同页约束写成南农源模板事实的表述；同页规则保留在封面、声明签名区、标题与首段等可确认对象上，图表同页可由共享默认规则另行补充。\n\
+            \n================================================================================\n4. 实现对齐提醒\n================================================================================\n\
+            \n4.1 单元顺序对齐\n  官方源模板可见顺序为“目录 -> 中文摘要 -> 英文摘要”，当前审查按此顺序。\n  现有 school.yaml/template_manifest 中存在“摘要 -> 目录”的工程化顺序迹象，需要后续实现确认并对齐。\n\
+            \n4.2 页眉页脚距离对齐\n  源模板 OOXML 的正文页眉/页脚距离约为 15mm/17.5mm；当前 school.yaml 顶层 page.header_mm/footer_mm 为 5mm。\n  如果最终以源模板为准，运行时\
+            \ section 生成不能只使用统一 5mm。\n\n4.3 前置页页码大小写\n  源模板存在大写罗马页码证据，school.yaml 当前写 lowerRoman。\n  需要人工确认学校最终要求大写罗马还是小写罗马；确认前测试只应断言“前置页为罗马页码，正文为阿拉伯数字页码”。\n\
+            \n4.4 图目录/表目录\n  南农官方模板没有独立图目录/表目录页。\n  不应在本校审查里直接列为南农模板单元；若未来中国通用规范要求，可作为默认配置另行加入，并标注不是源模板证据。\n\n4.5 图表样例不足\n \
+            \ 源模板只有图表规则说明，没有提供真实图、表样例。\n  目前可审查图表单元顺序、双语标题、编号、位置和样式；三线表边框、复杂表注、跨页续表等细节需要后续样本或人工补证。\n\n4.6 其他高风险非样式约束\n  固定模板隐藏结构："
+        - element_id: e_077
+          name: 封面是整体表格/模板块，声明和授权页有固定签名日期区；合成时不能只复制可见文字而丢掉表格、字段、签名线或占位结构。
+          order: 77
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 生成字段：
+        - element_id: e_078
+          name: 目录必须保留 Word TOC 字段；目录可见页码可能是旧结果，不能把旧结果当成固定文本。
+          order: 78
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:Word_TOC
+          raw: ''
+        - element_id: e_079
+          name: 页码应由页脚字段或等价机制生成，不能手打成普通正文。
+          order: 79
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 单元边界：
+        - element_id: e_080
+          name: 参考文献必须在“附录/相关的学术成果目录/致谢”之前结束，不能吞掉后置页。
+          order: 80
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_081
+          name: 目录条目里的“第一章”“参考文献”“附录”等不能被误识别为正文标题。
+          order: 81
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 段内混排：
+        - element_id: e_082
+          name: 中文“关键词：”与关键词内容同段但 run 样式不同。
+          order: 82
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:run
+          raw: ''
+        - element_id: e_083
+          name: 英文“KEY WORDS:”与英文关键词内容同段但 run 样式不同。
+          order: 83
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:KEY_WORDS_run
+          raw: ''
+        - element_id: e_084
+          name: 不能只给整段一个统一样式后忽略标签与内容的差异。
+          order: 84
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 无页眉/无页码也是规则：
+        - element_id: e_085
+          name: 封面、声明、授权、目录、中英文摘要默认无页眉；封面、声明、授权不显示页码。
+          order: 85
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_086
+          name: 这些“空”不是缺失，应该进入验证。
+          order: 86
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 新页与分节：
+        - element_id: e_087
+          name: 单元要求“另起页”时，不一定要新建 section；只有页眉页脚、页码格式、页边距等 section 级属性变化时才需要新 section。
+          order: 87
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:section_section_section
+          raw: 渲染预检：
+        - element_id: e_088
+          name: 同页约束、封面溢出、签名区掉页、孤立表题/图题，必须通过渲染后页面级检查或人工 review 标记确认。
+          order: 88
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:review
+          raw: "================================================================================\n5. 本校总评\n================================================================================\n\
+            \n5.1 当前审查口径\n  南京农业大学本科模板可以按“单元 -> 元素 -> 子元素/嵌套单元”建模。\n  封面、声明、授权、目录属于学校模板/系统拥有的固定或生成单元；摘要、正文、参考文献、附录、成果目录、致谢属于学生内容填充到学校模板槽位。\n\
+            \n5.2 需要用户确认的点"
+        - element_id: e_089
+          name: 目录是否最终确认为位于摘要之前。
+          order: 89
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_090
+          name: 前置页页码使用大写罗马还是小写罗马。
+          order: 90
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_091
+          name: 附录和相关的学术成果目录在最终正式输出中，是否允许学生确认后删除。
+          order: 91
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_092
+          name: 如果后续中国通用规范要求图目录/表目录，是否要对南农这类未提供目录页的模板也默认补入。
+          order: 92
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: 5.3 可以先按本文件执行的点
+        - element_id: e_093
+          name: 封面字段当前不自动填。
+          order: 93
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_094
+          name: 原创性声明和使用授权声明保留固定内容，不自动填签名日期。
+          order: 94
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_095
+          name: 图/表必须有中英文标题。
+          order: 95
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_096
+          name: 图/表必须有中英文标题；源模板未明示图题/表题位置和中文/英文标题先后，相关结构由共享默认规则或人工确认补充。
+          order: 96
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_097
+          name: 图表按章顺序编号；源模板未明示公式结构和样式，公式由共享默认规则或人工确认处理。
+          order: 97
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:unnamed
+          raw: ''
+        - element_id: e_098
+          name: “第X章 结论与展望”归入正文主体的固定类型结尾章。
+          order: 98
+          policy: fixed
+          type: ''
+          fill: ''
+          content: ''
+          style: ''
+          position: ''
+          relationship: ''
+          source_refs:
+            - review_text:element:X
+          raw: ''
+      source: 学校模板 + 学生内容
+      handling: 默认保留学校模板中的致谢模块；填致谢正文；无内容时保留标题、占位和评论。
+      header_footer:
+        header: 南京农业大学本科毕业论文（设计）
+        page_number: 正文及后置页阿拉伯数字页码规则，见 3.2
+      element_order: 1 致  谢；2 致谢正文。
+      layout_relation: ''
+      missing_policy: 源文档未识别到致谢内容时，草稿/审阅输出保留本页并写入“【源文档中未识别到本页内容；如学校不要求，可删除本页。】”。
   full_review_text: "南京农业大学本科生毕业论文（设计）模板审查包 V2\n日期：2026-06-09\n\n依据：优先使用学校官方 Word\
     \ 模板\n/Users/fl/ws/gogo/docfit/schools/nannong-undergraduate/sources/nannong_template.docx\n\
     \n辅助证据：\n- /Users/fl/ws/gogo/docfit/schools/nannong-undergraduate/README.md\n\

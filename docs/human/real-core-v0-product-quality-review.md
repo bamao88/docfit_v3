@@ -137,10 +137,13 @@ docs/human/real-core-v0-four-stage-problem-checks.md
 问题，以及每个问题的期望、实际情况和证据。新口径下，当前坏输出会被
 `FAIL` 或 `UNKNOWN` 阻塞，不能再因为证据绑定存在而通过。
 
-本轮又完成了模板解析单步：三个真实学校模板现在会从人工审查文本派生
-`data.units`、非虚拟 slots/regions、固定/填充/manual_only/strip 等策略，以及模板
-说明段落的 `strip` 处理标记。新的临时 e2e 结果已经从 `blocked_at: template`
-推进到 `blocked_at: content`，说明当前代码层面的下一处业务阻塞是学生内容树。
+本轮又完成了模板解析单步，并补上了细粒度验收：三个真实学校模板现在会从
+`standards/schools/*/v1/template_unit_contract.yaml` 的 `expected.units` 读取
+结构化标准，再逐 unit、element、policy、type/fill、content、style、
+position/relationship 比对 `template_artifact.data.units`。例如元素样式改错会报
+`template_element_style_mismatch` 并指出 `cover.e_001.style` 这类具体路径。
+新的临时 e2e 结果已经从 `blocked_at: template` 推进到 `blocked_at: content`，
+说明当前代码层面的下一处业务阻塞是学生内容树。
 
 注意：既有 `reports/real-core-v0/**` 仍是旧成品和旧证据，未在本轮重生。因此 coverage
 读取旧报告时仍会看到旧的模板问题；这不代表模板 parser 代码回退，而是后续需要在

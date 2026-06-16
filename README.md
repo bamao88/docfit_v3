@@ -21,6 +21,9 @@ Current work on the real-school baseline harness is tracked in `STATUS.md`.
 The reviewed baselines and nine Microsoft Word page-image evidence packages are
 bound under `reports/real-core-v0/**`, but evidence binding is no longer a
 sufficient pass condition.
+The real-school template contracts now include executable `expected.units`
+standards, so template parsing is checked at the unit, element, policy, and
+style-field level before later stages can claim acceptance.
 
 The current `real-core-v0` coverage gate returns `FAIL` for the existing
 generated outputs because deterministic product-quality checks find template,

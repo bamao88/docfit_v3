@@ -95,6 +95,11 @@ uv run pytest tests/contract/test_real_core_four_stage_problem_checks.py -q
 - 模板说明、示例、占位文字必须被标成“固定保留”“需要填写”或“不能进成品”。
 - 如果一个真实学校模板最后只解析出 `slot_body_start` 这种兜底位置，这个环节
   会直接报告问题，不能让后续输出被当成产品质量合格。
+- 三所学校标准文件里的 `expected.units` 是结构化可执行标准：
+  每个 unit、element、policy、type/fill、content、style、position/relationship
+  都要和 `template_artifact.data.units` 对齐。
+- 如果某个元素的样式、策略或位置不一致，验收会报到具体路径，例如
+  `template_element_style_mismatch` + `cover.e_001.style`，而不是只说“模板有问题”。
 
 最新临时验证：
 
