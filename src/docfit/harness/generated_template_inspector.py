@@ -170,6 +170,7 @@ def _paragraph_style_details_by_index(path: Path) -> dict[int, dict[str, Any]]:
     try:
         with ZipFile(path) as package:
             root = ET.fromstring(package.read("word/document.xml"))
+            style_catalog = _style_catalog(package)
     except (KeyError, ET.ParseError):
         return {}
 
@@ -179,22 +180,172 @@ def _paragraph_style_details_by_index(path: Path) -> dict[int, dict[str, Any]]:
         if not text:
             continue
         paragraph_properties = paragraph.find(f"{W_NS}pPr")
+        direct_paragraph_style = _paragraph_style(paragraph_properties)
+        style_id = direct_paragraph_style.get("style_id")
+        inherited = style_catalog.get(style_id, {})
+        inherited_paragraph = inherited.get("paragraph", {})
+        inherited_run = inherited.get("run", {})
+        direct_paragraph_run = _run_properties(
+            paragraph_properties.find(f"{W_NS}rPr")
+            if paragraph_properties is not None
+            else None
+        )
+        paragraph_run_properties = _merge_run_styles(
+            inherited_run,
+            direct_paragraph_run,
+        )
         runs = [
-            _run_style(run)
+            _run_style(run, paragraph_run_properties)
             for run in paragraph.findall(f"{W_NS}r")
             if _visible_text(run)
         ]
         details[index] = {
-            "paragraph": _paragraph_style(paragraph_properties),
-            "paragraph_run_properties": _run_properties(
-                paragraph_properties.find(f"{W_NS}rPr")
-                if paragraph_properties is not None
-                else None
+            "paragraph": _merge_paragraph_styles(
+                inherited_paragraph,
+                direct_paragraph_style,
             ),
+            "paragraph_run_properties": paragraph_run_properties,
             "runs": runs,
             "dominant_run": _dominant_run_style(runs),
+            "style_inheritance": inherited.get("inheritance", {}),
         }
     return details
+
+
+def _style_catalog(package: ZipFile) -> dict[str | None, dict[str, Any]]:
+    try:
+        root = ET.fromstring(package.read("word/styles.xml"))
+    except (KeyError, ET.ParseError):
+        return {}
+
+    raw_styles: dict[str, dict[str, Any]] = {}
+    default_style_id: str | None = None
+    for style in root.findall(f"{W_NS}style"):
+        if _attr(style, "type") != "paragraph":
+            continue
+        style_id = _attr(style, "styleId")
+        if not style_id:
+            continue
+        if _attr(style, "default") in {"1", "true", "on"}:
+            default_style_id = style_id
+        style_name = style.find(f"{W_NS}name")
+        based_on = style.find(f"{W_NS}basedOn")
+        paragraph_properties = style.find(f"{W_NS}pPr")
+        run_properties = style.find(f"{W_NS}rPr")
+        raw_styles[style_id] = {
+            "style_id": style_id,
+            "style_name": _attr(style_name, "val"),
+            "based_on": _attr(based_on, "val"),
+            "paragraph": _paragraph_style(paragraph_properties),
+            "run": _run_properties(run_properties),
+            "source_ref": f"word/styles.xml:style[{style_id}]",
+        }
+
+    resolved: dict[str | None, dict[str, Any]] = {
+        style_id: _resolve_style(style_id, raw_styles, [])
+        for style_id in raw_styles
+    }
+    if default_style_id and None not in resolved:
+        resolved[None] = resolved.get(default_style_id, {})
+    return resolved
+
+
+def _resolve_style(
+    style_id: str,
+    raw_styles: dict[str, dict[str, Any]],
+    seen: list[str],
+) -> dict[str, Any]:
+    if style_id in seen:
+        return {}
+    style = raw_styles.get(style_id)
+    if not style:
+        return {}
+    base = _resolve_style(
+        str(style.get("based_on")),
+        raw_styles,
+        [*seen, style_id],
+    ) if style.get("based_on") else {}
+    source_refs = [
+        *base.get("inheritance", {}).get("source_refs", []),
+        style.get("source_ref", ""),
+    ]
+    style_chain = [
+        *base.get("inheritance", {}).get("style_chain", []),
+        style_id,
+    ]
+    return {
+        "paragraph": _merge_paragraph_styles(
+            base.get("paragraph", {}),
+            style.get("paragraph", {}),
+        ),
+        "run": _merge_run_styles(base.get("run", {}), style.get("run", {})),
+        "inheritance": {
+            "style_id": style_id,
+            "style_name": style.get("style_name"),
+            "based_on": style.get("based_on"),
+            "style_chain": style_chain,
+            "source_refs": [ref for ref in source_refs if ref],
+        },
+    }
+
+
+def _merge_paragraph_styles(
+    inherited: dict[str, Any],
+    override: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "style_id": override.get("style_id") or inherited.get("style_id"),
+        "alignment": override.get("alignment") or inherited.get("alignment"),
+        "spacing": _merge_optional_dict(
+            inherited.get("spacing", {}),
+            override.get("spacing", {}),
+        ),
+        "indent": _merge_optional_dict(
+            inherited.get("indent", {}),
+            override.get("indent", {}),
+        ),
+        "page_break_before": bool(
+            override.get("page_break_before")
+            or inherited.get("page_break_before")
+        ),
+        "keep_next": bool(override.get("keep_next") or inherited.get("keep_next")),
+        "keep_lines": bool(override.get("keep_lines") or inherited.get("keep_lines")),
+    }
+
+
+def _merge_run_styles(
+    inherited: dict[str, Any],
+    override: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "font_names": override.get("font_names") or inherited.get("font_names", []),
+        "font_size_pt": _first_not_none(
+            override.get("font_size_pt"),
+            inherited.get("font_size_pt"),
+        ),
+        "bold": _first_not_none(override.get("bold"), inherited.get("bold")),
+        "italic": _first_not_none(override.get("italic"), inherited.get("italic")),
+    }
+
+
+def _merge_optional_dict(
+    inherited: dict[str, Any],
+    override: dict[str, Any],
+) -> dict[str, Any]:
+    keys = set(inherited) | set(override)
+    merged: dict[str, Any] = {}
+    for key in keys:
+        value = _first_not_none(override.get(key), inherited.get(key))
+        if value is not None:
+            merged[key] = value
+    return merged
+
+
+def _first_not_none(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
 
 
 def _paragraph_style(properties: ET.Element | None) -> dict[str, Any]:
@@ -215,11 +366,17 @@ def _paragraph_style(properties: ET.Element | None) -> dict[str, Any]:
     }
 
 
-def _run_style(run: ET.Element) -> dict[str, Any]:
+def _run_style(
+    run: ET.Element,
+    inherited_run_properties: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     properties = run.find(f"{W_NS}rPr")
     return {
         "text": _visible_text(run),
-        **_run_properties(properties),
+        **_merge_run_styles(
+            inherited_run_properties or {},
+            _run_properties(properties),
+        ),
     }
 
 
@@ -333,6 +490,7 @@ def _line_spacing(line: str | None, line_rule: str | None) -> str | None:
             return "1.5"
         if number == 480:
             return "double"
+        return f"multiple:{number / 240:g}"
     if line_rule == "exact":
         return f"exact:{number / 20:g}pt"
     return str(number)

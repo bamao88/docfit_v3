@@ -117,8 +117,9 @@ Word 的差距检查现在会把 template 阶段阻断；即使如此，e2e 仍�
   `template_generation_field_missing`，字段在错误单元会报
   `template_generation_field_out_of_unit`，编号规则还不能绑定到具体单元/元素时会报
   `template_generation_numbering_unverified`。
-- 样式检查已经能读取 OOXML 字体、字号、加粗和对齐；确定不一致时会报
-  `template_generation_style_mismatch`。行距和样式继承缺证据时仍保留为
+- 样式检查已经能读取 OOXML 字体、字号、加粗、对齐和行距，并合并
+  `word/styles.xml` 段落样式继承链；确定不一致时会报
+  `template_generation_style_mismatch`。样式表或单元绑定证据仍不足时保留为
   `template_generation_style_unverified`。
 - 分页检查已经能把单元位置和 OOXML page break / section 绑定起来；缺少应有
   分页或分节证据时会报 `template_generation_page_rule_mismatch`。同页约束在

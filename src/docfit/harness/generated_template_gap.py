@@ -1488,7 +1488,7 @@ def _compare_style_details(
         actual_line_spacing = actual["line_spacing"]
         if not actual_line_spacing:
             unknown.append(f"line_spacing expected {expected_line_spacing}")
-        elif actual_line_spacing == expected_line_spacing:
+        elif _line_spacing_matches(expected_line_spacing, actual_line_spacing):
             matched.append(f"line_spacing={actual_line_spacing}")
         else:
             mismatches.append(
@@ -1528,7 +1528,16 @@ def _expected_style_requirements(expected_style: str) -> dict[str, Any]:
         line_spacing = "single"
     elif "1.5 倍行距" in normalized or "1.5倍行距" in normalized:
         line_spacing = "1.5"
-    exact_match = re.search(r"固定值\s*(?P<size>\d+(?:\.\d+)?)\s*pt", normalized)
+    multiple_match = re.search(
+        r"多倍行距[；;，, ]*设置值[=＝]?\s*(?P<size>\d+(?:\.\d+)?)",
+        normalized,
+    )
+    if multiple_match:
+        line_spacing = f"multiple:{float(multiple_match.group('size')):g}"
+    exact_match = re.search(
+        r"固定(?:值|行距约)?\s*(?P<size>\d+(?:\.\d+)?)\s*pt",
+        normalized,
+    )
     if exact_match:
         line_spacing = f"exact:{float(exact_match.group('size')):g}pt"
     return {
@@ -1563,6 +1572,33 @@ def _actual_style_properties(match: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _line_spacing_matches(expected: str, actual: str) -> bool:
+    if expected == actual:
+        return True
+    expected_kind, expected_value = _line_spacing_parts(expected)
+    actual_kind, actual_value = _line_spacing_parts(actual)
+    if expected_kind != actual_kind:
+        return False
+    if expected_value is None or actual_value is None:
+        return False
+    tolerance = 0.05 if expected_kind == "multiple" else 0.25
+    return abs(expected_value - actual_value) <= tolerance
+
+
+def _line_spacing_parts(value: str) -> tuple[str, float | None]:
+    if value.startswith("exact:") and value.endswith("pt"):
+        return "exact", _float_or_none(value.removeprefix("exact:").removesuffix("pt"))
+    if value.startswith("multiple:"):
+        return "multiple", _float_or_none(value.removeprefix("multiple:"))
+    if value == "single":
+        return "multiple", 1.0
+    if value == "1.5":
+        return "multiple", 1.5
+    if value == "double":
+        return "multiple", 2.0
+    return value, None
+
+
 def _style_actual_summary(match: dict[str, Any]) -> str:
     details = match.get("style_details") or {}
     props = _actual_style_properties(match)
@@ -1590,6 +1626,13 @@ def _first_known(*values: Any) -> Any:
         if value is not None:
             return value
     return None
+
+
+def _float_or_none(value: str) -> float | None:
+    try:
+        return float(value)
+    except ValueError:
+        return None
 
 
 def _unit_mentions_numbering(unit: dict[str, Any]) -> bool:

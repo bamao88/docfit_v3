@@ -61,8 +61,10 @@ Current state:
   `template_generation_field_missing`，字段在错误单元会报
   `template_generation_field_out_of_unit`，编号规则未绑定到单元/元素会报
   `template_generation_numbering_unverified`。
-  样式检查现在会读取 OOXML 字体、字号、加粗和对齐；能确定不一致时会报
-  `template_generation_style_mismatch`，缺行距或继承证据时仍保持 `UNKNOWN`。
+  样式检查现在会读取 OOXML 字体、字号、加粗、对齐和行距，并合并
+  `word/styles.xml` 段落样式继承链；能确定不一致时会报
+  `template_generation_style_mismatch`，样式表或单元绑定证据仍不足时保持
+  `UNKNOWN`。
   分页检查现在会绑定单元位置和 OOXML page break / section；缺少应有分页或
   分节证据时会报 `template_generation_page_rule_mismatch`。
 - 学生源文档中的旧目录已经有一个通用修复：`toc 1` / `toc 2` / `toc 3`

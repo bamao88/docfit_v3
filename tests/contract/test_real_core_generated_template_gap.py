@@ -114,6 +114,40 @@ def test_generated_template_gap_reports_ooxml_style_details(tmp_path) -> None:
     assert any("font_size=" in item["actual"] for item in style_mismatches)
 
 
+def test_generated_template_gap_resolves_ooxml_style_inheritance(tmp_path) -> None:
+    result = run_template_gap_eval(
+        ROOT,
+        "nannong-undergraduate",
+        ROOT / "inputs/school-nannong-undergraduate-template.docx",
+        tmp_path / "style_inheritance_gap",
+    )
+    tree = read_json(
+        tmp_path / "style_inheritance_gap/artifacts/generated_template_tree.json"
+    )
+    report = read_json(
+        tmp_path / "style_inheritance_gap/artifacts/template_gap_report.json"
+    )
+
+    assert result.status == Status.FAIL
+    signature_line = next(
+        item
+        for item in tree["data"]["paragraphs"]
+        if item["text"].startswith("论文作者签名：")
+    )
+    assert signature_line["style_details"]["paragraph"]["spacing"][
+        "line_spacing"
+    ] == "exact:35pt"
+    assert signature_line["style_details"]["style_inheritance"]["source_refs"] == [
+        "word/styles.xml:style[a]"
+    ]
+    assert any(
+        item["type"] == "template_generation_style_mismatch"
+        and item["affected_ids"] == ["abstract_cn.e_003.style"]
+        and "line_spacing=exact:20pt" in item["actual"]
+        for item in report["check_items"]
+    )
+
+
 def test_generated_template_gap_binds_page_rules_to_ooxml_sources(tmp_path) -> None:
     result = run_template_gap_eval(
         ROOT,
