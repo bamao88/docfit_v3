@@ -56,6 +56,9 @@ Current state:
   从 OOXML 解析 `generated_template_tree.json`，再输出三种
   `template_gap_report`。报告保留 `known_status`、`display_status`、
   `passed_count`、`failed_count`、`unknown_count` 和 `blocking_status`。
+  字段和编号现在也有显式检查：缺 Word 生成字段会报
+  `template_generation_field_missing`，编号规则未绑定到单元/元素会报
+  `template_generation_numbering_unverified`。
 - 学生源文档中的旧目录已经有一个通用修复：`toc 1` / `toc 2` / `toc 3`
   样式段落会被识别为源文档格式内容，内容放置时标为不写入成品，Word 生成记录
   会说明该动作已处理但不会把旧目录文字写进后续新输出。

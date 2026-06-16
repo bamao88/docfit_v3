@@ -26,6 +26,8 @@ TEMPLATE_GENERATION_CAPABILITIES = (
     "template_generation.style_match",
     "template_generation.header_footer_match",
     "template_generation.page_rule_match",
+    "template_generation.field_match",
+    "template_generation.numbering_match",
     "template_generation.report",
 )
 
@@ -298,6 +300,8 @@ def template_generation_coverage_from_items(
         "style_match": "style" in categories,
         "header_footer_match": "header_footer" in categories,
         "page_rule_match": "page_rule" in categories,
+        "field_match": "field" in categories,
+        "numbering_match": "numbering" in categories,
         "report": bool(check_items),
     }
 
@@ -384,7 +388,7 @@ def _compare_units(
     unit_first_orders: list[tuple[str, int]] = []
     for unit in expected_units:
         unit_id = str(unit.get("unit_id") or "unknown_unit")
-        element_checks, matched_orders = _compare_elements(unit, entries)
+        element_checks, matched_orders = _compare_elements(unit, entries, tree)
         checks.extend(element_checks)
         if matched_orders:
             first_order = min(matched_orders)
@@ -424,6 +428,8 @@ def _compare_units(
         checks.extend(_header_footer_checks(unit, tree))
         checks.extend(_page_rule_checks(unit))
 
+    checks.extend(_field_checks(expected_units, tree))
+    checks.extend(_numbering_checks(expected_units, tree))
     if len(unit_first_orders) >= 2:
         ordered = sorted(unit_first_orders, key=lambda item: item[1])
         checks.append(
@@ -449,6 +455,7 @@ def _compare_units(
 def _compare_elements(
     unit: dict[str, Any],
     entries: list[dict[str, Any]],
+    tree: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], list[int]]:
     unit_id = str(unit.get("unit_id") or "unknown_unit")
     checks: list[dict[str, Any]] = []
@@ -477,21 +484,7 @@ def _compare_elements(
             checks.append(_style_check(unit_id, element, matches[0]))
             continue
 
-        if policy == "generated" and not _has_generated_field(entries, element):
-            checks.append(
-                _check(
-                    "template_generation.element_match",
-                    Status.FAIL,
-                    "template_generation_generated_field_missing",
-                    f"生成元素 {affected_id} 缺少可见生成字段或等价占位",
-                    element.get("content") or element.get("name") or affected_id,
-                    "missing",
-                    category="element",
-                    affected_ids=[affected_id],
-                    next_step="修模板生成逻辑，输出 Word 字段或可检查的生成占位。",
-                )
-            )
-        elif policy in {"fixed", "manual_only"}:
+        if policy in {"fixed", "manual_only"}:
             checks.append(
                 _check(
                     "template_generation.element_match",
@@ -503,6 +496,25 @@ def _compare_elements(
                     category="element",
                     affected_ids=[affected_id],
                     next_step="修模板生成逻辑，保留该固定内容或手工填写位置。",
+                )
+            )
+        elif policy == "generated":
+            field_status = (
+                "field parsed"
+                if _has_generated_field(tree, element)
+                else "no field parsed"
+            )
+            checks.append(
+                _check(
+                    "template_generation.element_match",
+                    Status.UNKNOWN,
+                    "template_generation_generated_element_source_unknown",
+                    f"生成元素 {affected_id} 需要可检查的 Word 字段或等价占位",
+                    element.get("content") or element.get("name") or affected_id,
+                    field_status,
+                    category="element",
+                    affected_ids=[affected_id],
+                    next_step="补字段到单元/元素的绑定检查，或修模板生成逻辑输出字段。",
                 )
             )
         else:
@@ -520,6 +532,104 @@ def _compare_elements(
                 )
             )
     return checks, matched_orders
+
+
+def _field_checks(
+    expected_units: list[dict[str, Any]],
+    tree: dict[str, Any],
+) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    generated_elements = [
+        (unit, element)
+        for unit in expected_units
+        for element in unit.get("elements", [])
+        if element.get("policy") == "generated"
+    ]
+    if not generated_elements:
+        return [
+            _check(
+                "template_generation.field_match",
+                Status.PASS,
+                "template_generation_no_required_fields",
+                "模板标准没有声明必须检查的 Word 生成字段",
+                "no generated field requirements",
+                "no generated field requirements",
+                category="field",
+            )
+        ]
+
+    fields = tree.get("data", {}).get("fields", [])
+    for unit, element in generated_elements:
+        unit_id = str(unit.get("unit_id") or "unknown_unit")
+        element_id = str(element.get("element_id") or "unknown_element")
+        status = Status.PASS if _has_generated_field(tree, element) else Status.FAIL
+        checks.append(
+            _check(
+                "template_generation.field_match",
+                status,
+                (
+                    "template_generation_field_match"
+                    if status == Status.PASS
+                    else "template_generation_field_missing"
+                ),
+                f"生成元素 {unit_id}.{element_id} 需要 Word 字段或可检查的生成占位",
+                element.get("content") or element.get("name") or f"{unit_id}.{element_id}",
+                (
+                    ", ".join(str(field.get("instruction", "")) for field in fields)
+                    or "no Word field parsed"
+                ),
+                category="field",
+                evidence_refs=[field.get("source_ref", "") for field in fields],
+                affected_ids=[f"{unit_id}.{element_id}.field"],
+                next_step="修模板生成逻辑输出字段，或补等价生成占位的确定性解析。",
+            )
+        )
+    return checks
+
+
+def _numbering_checks(
+    expected_units: list[dict[str, Any]],
+    tree: dict[str, Any],
+) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    requirements = [
+        unit
+        for unit in expected_units
+        if _unit_mentions_numbering(unit)
+    ]
+    if not requirements:
+        return [
+            _check(
+                "template_generation.numbering_match",
+                Status.PASS,
+                "template_generation_no_numbering_requirements",
+                "模板标准没有声明必须检查的编号规则",
+                "no numbering requirements",
+                "no numbering requirements",
+                category="numbering",
+            )
+        ]
+    numbering_refs = tree.get("data", {}).get("numbering_refs", [])
+    for unit in requirements:
+        unit_id = str(unit.get("unit_id") or "unknown_unit")
+        checks.append(
+            _check(
+                "template_generation.numbering_match",
+                Status.UNKNOWN,
+                "template_generation_numbering_unverified",
+                f"单元 {unit_id} 声明了编号规则，但当前解析器还不能把编号绑定到单元/元素",
+                _preview(_numbering_requirement_text(unit)),
+                (
+                    ", ".join(ref.get("source_ref", "") for ref in numbering_refs[:5])
+                    or "no OOXML numbering refs parsed"
+                ),
+                category="numbering",
+                evidence_refs=[ref.get("source_ref", "") for ref in numbering_refs[:5]],
+                affected_ids=[f"{unit_id}.numbering"],
+                next_step="补编号定义、段落 numPr 和标题层级到模板单元的绑定检查。",
+            )
+        )
+    return checks
 
 
 def _style_check(
@@ -720,9 +830,47 @@ def _find_matches(
     return matches
 
 
-def _has_generated_field(entries: list[dict[str, Any]], element: dict[str, Any]) -> bool:
+def _has_generated_field(tree: dict[str, Any], element: dict[str, Any]) -> bool:
+    fields = tree.get("data", {}).get("fields", [])
+    if not fields:
+        return False
     name = _normalize_text(element.get("name")).lower()
-    return any("toc" in name or "目录" in name for _entry in entries)
+    content = _normalize_text(element.get("content")).lower()
+    instructions = [
+        str(field.get("instruction", "")).upper()
+        for field in fields
+    ]
+    if "toc" in name or "目录" in name or "toc" in content or "目录" in content:
+        return any("TOC" in instruction for instruction in instructions)
+    if "页码" in name or "page" in name or "页码" in content:
+        return any("PAGE" in instruction for instruction in instructions)
+    return bool(fields)
+
+
+def _unit_mentions_numbering(unit: dict[str, Any]) -> bool:
+    requirement_text = _numbering_requirement_text(unit)
+    return "编号" in requirement_text or "目录层级" in requirement_text
+
+
+def _numbering_requirement_text(unit: dict[str, Any]) -> str:
+    values: list[str] = [
+        str(unit.get("name", "")),
+        str(unit.get("element_order", "")),
+        str(unit.get("layout_relation", "")),
+        str(unit.get("missing_policy", "")),
+    ]
+    for element in unit.get("elements", []):
+        values.extend(
+            str(element.get(field, ""))
+            for field in (
+                "name",
+                "content",
+                "position",
+                "relationship",
+                "raw",
+            )
+        )
+    return " ".join(values)
 
 
 def _style_matches(expected_style: str, actual_style: str) -> bool:

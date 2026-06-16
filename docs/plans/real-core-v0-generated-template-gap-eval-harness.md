@@ -55,6 +55,9 @@ Approval: LGTM/approve/go ahead approves; edits request revision.
   `passed_count`、`failed_count`、`unknown_count` 和 `blocking_status`。
   当前真实 probe 的模板报告是 `FAIL + UNKNOWN`，说明已经发现确定性差距，
   同时仍有样式/分页/页眉页脚/字段无法完整证明。
+- 差距报告现在显式覆盖 field 和 numbering 两类检查：
+  - Word 字段缺失会报 `template_generation_field_missing`。
+  - 编号规则还不能绑定到单元/元素时会报 `template_generation_numbering_unverified`。
 - e2e 不再因为 source-fact binding 或 Word evidence binding 存在就把模板视为通过。
   如果模板差距报告阻断，summary 会保持 `blocked_at: template`，但仍继续生成后续
   内容、放置、渲染诊断产物。
@@ -85,7 +88,8 @@ uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_c
 
 - 当前原型还没有真正修正模板生成逻辑；本切片只是把生成模板 Word 作为被测输入并
   报告差距。
-- 样式、分页、页眉页脚、字段等 OOXML 检查仍有 `UNKNOWN`，需要继续补解析能力。
+- 样式、分页、页眉页脚、字段绑定、编号绑定等 OOXML 检查仍有 `UNKNOWN`，
+  需要继续补解析能力。
 - Microsoft Word 打开和页面图片证据仍只覆盖已有 `final.docx` 证据包；生成模板
   Word 的 Word evidence 还不能宣称完整通过。
 - 9 个真实成品尚未在修复生成模板、内容、放置、渲染后统一重生。

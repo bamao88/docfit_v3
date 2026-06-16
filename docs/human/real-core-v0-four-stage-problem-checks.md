@@ -112,6 +112,9 @@ Word 的差距检查现在会把 template 阶段阻断；即使如此，e2e 仍�
   `template_gap_report.md` 和 `template_gap_report.docx`。报告有
   `known_status`、`display_status`、`passed_count`、`failed_count`、
   `unknown_count`、`blocking_status`，所以 `FAIL + UNKNOWN` 不会丢掉未知项。
+- 字段和编号也会单独列出：缺少 Word TOC/页码等生成字段会报
+  `template_generation_field_missing`，编号规则还不能绑定到具体单元/元素时会报
+  `template_generation_numbering_unverified`。
 
 最新临时验证：
 

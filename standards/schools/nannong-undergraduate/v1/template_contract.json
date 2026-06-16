@@ -18,6 +18,8 @@
     "template_generation.style_match",
     "template_generation.header_footer_match",
     "template_generation.page_rule_match",
+    "template_generation.field_match",
+    "template_generation.numbering_match",
     "template_generation.report"
   ],
   "required_invariants": [
