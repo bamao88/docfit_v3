@@ -153,8 +153,9 @@ position/relationship 比对 `template_artifact.data.units`。例如元素样式
 也能按 Word section 绑定检查。Word 自动编号现在会解析 `word/numbering.xml`、
 样式 `numPr`、段落直接 `numPr` 和段落样式引用；北大正文标题这类要求已经能绑定到
 具体单元/元素并报 match。同页约束现在能检查 `keepNext` / `keepLines`、表格真实
-段落范围和表格行 `cantSplit`，南农封面这类固定表格已经能报 match。页面级版面
-完整性、等价生成机制、图题/表题/公式编号这类非列表自动编号机制、复杂样式表缺项、
+段落范围和表格行 `cantSplit`，南农封面这类固定表格已经能报 match。北大图名、
+表名和公式编号这类题注/公式序号现在也能按 Word `SEQ` 字段绑定到具体标准条目。
+页面级版面完整性、等价生成机制、脚注编号、更复杂题注规则、复杂样式表缺项、
 复杂 section 继承和更细页码规则仍有未证明项。
 
 注意：既有 `reports/real-core-v0/**` 仍是旧成品和旧证据，未在本轮重生。因此 coverage

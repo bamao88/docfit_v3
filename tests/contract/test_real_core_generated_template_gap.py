@@ -296,14 +296,27 @@ def test_generated_template_gap_binds_word_fields_to_units(tmp_path) -> None:
         ROOT / "inputs/school-pku-graduate-template.docx",
         tmp_path / "pku_field_gap",
     )
+    pku_tree = read_json(
+        tmp_path / "pku_field_gap/artifacts/generated_template_tree.json"
+    )
     pku_report = read_json(tmp_path / "pku_field_gap/artifacts/template_gap_report.json")
     pku_field_items = [
         item
         for item in pku_report["check_items"]
         if item["category"] == "field"
     ]
+    pku_seq_instructions = {
+        item["instruction"]
+        for item in pku_tree["data"]["fields"]
+        if item["field_type"] == "SEQ"
+    }
 
     assert pku_result.status == Status.FAIL
+    assert {
+        "SEQ 图 \\* ARABIC \\S 1",
+        "SEQ 表 \\* ARABIC \\s 1",
+        "SEQ 公式 \\* ARABIC \\s 1",
+    } <= pku_seq_instructions
     assert any(
         item["type"] == "template_generation_field_match"
         and item["affected_ids"] == ["toc.field"]
@@ -321,6 +334,27 @@ def test_generated_template_gap_binds_word_fields_to_units(tmp_path) -> None:
         item["type"] == "template_generation_field_match"
         and item["affected_ids"] == ["table_list.field"]
         and item["actual"] == 'TOC \\h \\z \\t "PKU表题" \\c'
+        for item in pku_field_items
+    )
+    assert any(
+        item["type"] == "template_generation_field_match"
+        and item["affected_ids"] == ["body_main.e_014.field"]
+        and "SEQ 图" in item["actual"]
+        and "word/document.xml:p[133]/field[64]" in item["evidence_refs"]
+        for item in pku_field_items
+    )
+    assert any(
+        item["type"] == "template_generation_field_match"
+        and item["affected_ids"] == ["body_main.e_017.field"]
+        and "SEQ 表" in item["actual"]
+        and "word/document.xml:p[200]/field[100]" in item["evidence_refs"]
+        for item in pku_field_items
+    )
+    assert any(
+        item["type"] == "template_generation_field_match"
+        and item["affected_ids"] == ["body_main.e_024.field"]
+        and "SEQ 公式" in item["actual"]
+        and "word/document.xml:p[188]/field[89]" in item["evidence_refs"]
         for item in pku_field_items
     )
 

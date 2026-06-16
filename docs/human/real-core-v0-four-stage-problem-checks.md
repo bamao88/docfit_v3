@@ -117,8 +117,10 @@ Word 的差距检查现在会把 template 阶段阻断；即使如此，e2e 仍�
   `template_generation_field_missing`，字段在错误单元会报
   `template_generation_field_out_of_unit`。自动编号会解析 `word/numbering.xml`、
   样式 `numPr`、段落直接 `numPr` 和段落样式引用；北大正文标题这类要求已经能
-  绑定到具体单元/元素并报 `template_generation_numbering_match`。如果只有编号
-  定义但不能证明用于该单元，仍会报 `template_generation_numbering_unverified`。
+  绑定到具体单元/元素并报 `template_generation_numbering_match`。北大图名、表名
+  和公式编号这类题注/公式序号会按 `SEQ 图`、`SEQ 表`、`SEQ 公式` 字段绑定到
+  具体标准条目。如果只有编号定义但不能证明用于该单元，仍会报
+  `template_generation_numbering_unverified`。
 - 样式检查已经能读取 OOXML 字体、字号、加粗、对齐和行距，并合并
   `word/styles.xml` 段落样式继承链；确定不一致时会报
   `template_generation_style_mismatch`。样式表或单元绑定证据仍不足时保留为

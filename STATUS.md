@@ -63,7 +63,9 @@ Current state:
   样式 `numPr`、段落直接 `numPr` 和段落样式引用；北大正文标题这类要求可以报
   `template_generation_numbering_match`，缺失或格式不一致会报
   `template_generation_numbering_missing` / `template_generation_numbering_mismatch`。
-  图题、表题、公式编号和等价生成机制仍需要后续更细检查。
+  北大图名、表名和公式编号这类题注/公式序号也能按 `SEQ 图`、`SEQ 表`、
+  `SEQ 公式` 字段绑定到具体标准条目。等价生成机制、脚注编号和更细题注规则
+  仍需要后续检查。
   样式检查现在会读取 OOXML 字体、字号、加粗、对齐和行距，并合并
   `word/styles.xml` 段落样式继承链；能确定不一致时会报
   `template_generation_style_mismatch`，样式表或单元绑定证据仍不足时保持

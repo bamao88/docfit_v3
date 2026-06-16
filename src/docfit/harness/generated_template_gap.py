@@ -599,14 +599,15 @@ def _field_requirements(expected_units: list[dict[str, Any]]) -> list[dict[str, 
         unit_id = str(unit.get("unit_id") or "unknown_unit")
         explicit_element_added = False
         for element in unit.get("elements", []):
-            if element.get("policy") != "generated" or _is_generated_result_element(
-                element
-            ):
-                continue
             element_id = str(element.get("element_id") or "unknown_element")
             element_text = _field_requirement_text(element)
             kind = _expected_element_field_kind(element_text)
             if not kind:
+                continue
+            if kind != "SEQ" and (
+                element.get("policy") != "generated"
+                or _is_generated_result_element(element)
+            ):
                 continue
             explicit_element_added = True
             requirements.append(
@@ -614,10 +615,14 @@ def _field_requirements(expected_units: list[dict[str, Any]]) -> list[dict[str, 
                     "unit_id": unit_id,
                     "affected_id": f"{unit_id}.{element_id}.field",
                     "kind": kind,
+                    "sequence_label": _expected_sequence_label(element_text),
                     "context_text": element_text,
                     "expected": _field_expected_summary(kind, element_text),
                     "toc_range": _expected_toc_range(element_text),
-                    "allows_equivalent": _allows_equivalent_generation(element_text),
+                    "allows_equivalent": _allows_equivalent_field_generation(
+                        kind,
+                        element_text,
+                    ),
                     "source_refs": element.get("source_refs", []),
                 }
             )
@@ -631,10 +636,14 @@ def _field_requirements(expected_units: list[dict[str, Any]]) -> list[dict[str, 
                     "unit_id": unit_id,
                     "affected_id": f"{unit_id}.field",
                     "kind": kind,
+                    "sequence_label": _expected_sequence_label(unit_text),
                     "context_text": unit_text,
                     "expected": _field_expected_summary(kind, unit_text),
                     "toc_range": _expected_toc_range(unit_text),
-                    "allows_equivalent": _allows_equivalent_generation(unit_text),
+                    "allows_equivalent": _allows_equivalent_field_generation(
+                        kind,
+                        unit_text,
+                    ),
                     "source_refs": unit.get("source_refs", []),
                 }
             )
@@ -769,6 +778,8 @@ def _is_generated_result_element(element: dict[str, Any]) -> bool:
 
 def _expected_element_field_kind(text: str) -> str | None:
     normalized = text.upper()
+    if _is_sequence_field_requirement(text):
+        return "SEQ"
     if (
         "TOC" in normalized
         and ("字段" in text or "目录生成机制" in text or "自动目录" in text)
@@ -803,7 +814,35 @@ def _field_expected_summary(kind: str, text: str) -> str:
         return f"Word TOC field{f' with range {toc_range}' if toc_range else ''}"
     if kind == "PAGE":
         return "Word PAGE/NUMPAGES field"
+    if kind == "SEQ":
+        label = _expected_sequence_label(text)
+        if label:
+            return f"Word SEQ field for {label} generated numbering"
+        return "Word SEQ field"
     return f"Word {kind} field"
+
+
+def _is_sequence_field_requirement(text: str) -> bool:
+    if not _expected_sequence_label(text):
+        return False
+    normalized = text.upper()
+    if "目录" in text:
+        return False
+    if "SEQ" in normalized:
+        return True
+    if any(token in text for token in ("域代码", "更新域", "Word 字段", "字段")):
+        return True
+    return any(token in text for token in ("生成图编号", "生成表编号", "生成公式编号"))
+
+
+def _expected_sequence_label(text: str) -> str | None:
+    if any(token in text for token in ("生成公式编号", "公式编号", "公式序号")):
+        return "公式"
+    if any(token in text for token in ("生成表编号", "表号", "表名", "表题")):
+        return "表"
+    if any(token in text for token in ("生成图编号", "图号", "图名", "图题")):
+        return "图"
+    return None
 
 
 def _expected_toc_range(text: str) -> str | None:
@@ -821,6 +860,16 @@ def _expected_toc_range(text: str) -> str | None:
 
 def _allows_equivalent_generation(text: str) -> bool:
     return "等价" in text or "可使用" in text or "可用" in text
+
+
+def _allows_equivalent_field_generation(kind: str, text: str) -> bool:
+    if _allows_equivalent_generation(text):
+        return True
+    if kind != "SEQ":
+        return False
+    if any(token in text for token in ("域代码", "更新域", "Word 字段", "SEQ")):
+        return False
+    return "生成" in text and "编号" in text
 
 
 def _field_overlaps_unit(
@@ -841,6 +890,19 @@ def _field_candidates_for_requirement(
     requirement: dict[str, Any],
     fields: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    if requirement.get("kind") == "SEQ":
+        sequence_label = requirement.get("sequence_label")
+        if not sequence_label:
+            return fields
+        labeled = [
+            field
+            for field in fields
+            if _sequence_label_matches(
+                _field_sequence_label(field),
+                str(sequence_label),
+            )
+        ]
+        return labeled or fields
     if requirement.get("kind") != "TOC":
         return fields
     toc_range = requirement.get("toc_range")
@@ -886,6 +948,15 @@ def _field_semantically_matches_requirement(
     field: dict[str, Any],
 ) -> bool:
     instruction = str(field.get("instruction", ""))
+    if requirement.get("kind") == "SEQ":
+        sequence_label = requirement.get("sequence_label")
+        return bool(
+            sequence_label
+            and _sequence_label_matches(
+                _field_sequence_label(field),
+                str(sequence_label),
+            )
+        )
     if requirement.get("kind") != "TOC":
         return False
     toc_range = requirement.get("toc_range")
@@ -939,7 +1010,36 @@ def _field_parameter_mismatch(
                 f"expected {expected_fragment}; actual "
                 f"{_field_actual_summary(fields)}"
             )
+    if requirement.get("kind") == "SEQ":
+        sequence_label = requirement.get("sequence_label")
+        if sequence_label and not any(
+            _sequence_label_matches(
+                _field_sequence_label(field),
+                str(sequence_label),
+            )
+            for field in fields
+        ):
+            return (
+                f"expected SEQ {sequence_label}; actual "
+                f"{_field_actual_summary(fields)}"
+            )
     return ""
+
+
+def _field_sequence_label(field: dict[str, Any]) -> str:
+    instruction = str(field.get("instruction", ""))
+    match = re.search(r"\bSEQ\s+([^\\\s]+)", instruction, flags=re.IGNORECASE)
+    if not match:
+        return ""
+    return match.group(1).strip('"')
+
+
+def _sequence_label_matches(actual: str, expected: str) -> bool:
+    if actual == expected:
+        return True
+    if expected == "公式" and actual.lower() in {"equation", "formula"}:
+        return True
+    return False
 
 
 def _field_actual_summary(fields: list[dict[str, Any]]) -> str:

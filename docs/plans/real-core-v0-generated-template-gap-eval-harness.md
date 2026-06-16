@@ -60,6 +60,8 @@ Approval: LGTM/approve/go ahead approves; edits request revision.
 - 差距报告现在显式覆盖 field 和 numbering 两类检查：
   - Word 字段会从 OOXML complex field / fldSimple 解析为完整指令和起止段落；
     南农 TOC、北大主目录/图目录/表目录等字段可以绑定到具体单元。
+    北大图名、表名和公式编号这类题注/公式序号会按 `SEQ 图`、`SEQ 表`、
+    `SEQ 公式` 字段绑定到具体标准条目。
   - Word 字段缺失会报 `template_generation_field_missing`；字段存在但不在对应
     单元范围内会报 `template_generation_field_out_of_unit`。
   - 允许“Word 字段或等价机制”的学校规则，如果当前未能证明等价机制，会保持
@@ -70,8 +72,7 @@ Approval: LGTM/approve/go ahead approves; edits request revision.
   - 自动编号缺失或格式不一致时会报 `template_generation_numbering_missing` 或
     `template_generation_numbering_mismatch`；如果只有定义、没有能绑定到单元的段落
     来源，仍会报 `template_generation_numbering_unverified`。
-  - 图题、表题、公式编号、脚注编号和等价生成机制不属于本轮 Word 自动编号绑定，
-    仍需要后续字段/题注/等价机制检查。
+  - 脚注编号、等价生成机制和更复杂题注规则仍需要后续字段/题注/等价机制检查。
 - 样式检查现在会读取 OOXML 里的字体、字号、加粗、对齐和行距，并会从
   `word/styles.xml` 合并段落样式继承链。能确定不一致时会报
   `template_generation_style_mismatch`；样式表或单元绑定仍不足时保留
@@ -117,6 +118,16 @@ uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_c
 # status = FAIL
 ```
 
+补充题注/公式序号字段证据：
+
+```text
+北大生成模板差距 probe：
+template_gap_report.json 中 field 检查有 6 条 template_generation_field_match。
+其中 body_main.e_014.field 绑定到 SEQ 图，证据包括 word/document.xml:p[133]/field[64]；
+body_main.e_017.field 绑定到 SEQ 表，证据包括 word/document.xml:p[200]/field[100]；
+body_main.e_024.field 绑定到 SEQ 公式，证据包括 word/document.xml:p[188]/field[89]。
+```
+
 补充同页约束证据：
 
 ```text
@@ -139,9 +150,9 @@ template_gap_report.json 中有 5 条 template_generation_numbering_match，
 
 - 当前原型还没有真正修正模板生成逻辑；本切片只是把生成模板 Word 作为被测输入并
   报告差距。
-- 页面级版面完整性、等价生成机制、图题/表题/公式编号这类非列表自动编号机制、
-  复杂样式表缺项、复杂 section 继承和更细页码规则等检查仍有 `UNKNOWN`，需要继续
-  补解析能力或 Word evidence。
+- 页面级版面完整性、等价生成机制、脚注编号、更复杂题注规则、复杂样式表缺项、
+  复杂 section 继承和更细页码规则等检查仍有 `UNKNOWN`，需要继续补解析能力或
+  Word evidence。
 - Microsoft Word 打开和页面图片证据仍只覆盖已有 `final.docx` 证据包；生成模板
   Word 的 Word evidence 还不能宣称完整通过。
 - 9 个真实成品尚未在修复生成模板、内容、放置、渲染后统一重生。
