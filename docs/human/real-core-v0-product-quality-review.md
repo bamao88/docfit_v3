@@ -128,6 +128,15 @@ uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_c
 - full test suite：46 passed
 - real-core-v0 coverage：PASS
 
+四阶段测试暴露能力的详细矩阵见：
+
+```text
+docs/human/real-core-v0-stage-test-exposure.md
+```
+
+该文档记录了当前测试如何分别暴露 template、content、placement、render
+四个阶段的问题，以及每个 finding 的具体 expected/actual/evidence。
+
 ## 下一步开发任务
 
 ### P0：把 renderer 从 append-only 改成 unit/slot-based render
@@ -212,4 +221,3 @@ uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_c
 - 各学校固定/手工表单是否应该完整保留；
 - 缺学生内容的默认模块应该保留占位、评论，还是省略；
 - 北大模板中的空白页/版权页/原创性声明页哪些属于必须保留的最终成品页。
-

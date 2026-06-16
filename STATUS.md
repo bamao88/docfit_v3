@@ -29,6 +29,12 @@ Current state:
   `docs/human/real-core-v0-product-quality-review.md`. The current outputs are
   not product-accepted: they still retain target-template instructions/examples
   and mostly append student content after copied template content.
+- Four-stage product-quality exposure is now executable via
+  `src/docfit/harness/product_quality.py` and
+  `tests/contract/test_real_core_product_quality_exposure.py`; the exposure
+  matrix is documented in `docs/human/real-core-v0-stage-test-exposure.md`.
+  It produces specific template/content/placement/render findings for the
+  current generated-output failure mode without changing deterministic gates.
 - Source TOC entries are now modeled as visible `source_format` content,
   receive `discard_as_source_format` placement dispositions, and are executed
   by render without writing old TOC text into future regenerated outputs.
@@ -48,9 +54,9 @@ Current state:
 Next action:
 
 - Continue the product-quality implementation path in
-  `docs/human/real-core-v0-product-quality-review.md`: move render from
-  append-only output toward unit/slot-based rendering, then regenerate the nine
-  outputs and Word image evidence.
+  `docs/human/real-core-v0-stage-test-exposure.md`: promote the four
+  product-quality exposure findings into stage contracts/verifiers, starting
+  with template unit tree and non-output instruction policy.
 
 Known blockers:
 

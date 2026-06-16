@@ -24,7 +24,9 @@ bound under `reports/real-core-v0/**`.
 
 That PASS proves the evidence loop; it is not a claim that the generated DOCX
 files are product-quality school submissions. Product-level layout review is
-tracked in `docs/human/real-core-v0-product-quality-review.md`.
+tracked in `docs/human/real-core-v0-product-quality-review.md`; the four-stage
+test exposure matrix is tracked in
+`docs/human/real-core-v0-stage-test-exposure.md`.
 
 Run the bootstrap checks with:
 
