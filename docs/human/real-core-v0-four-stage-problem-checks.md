@@ -118,6 +118,9 @@ Word 的差距检查现在会把 template 阶段阻断；即使如此，e2e 仍�
 - 样式检查已经能读取 OOXML 字体、字号、加粗和对齐；确定不一致时会报
   `template_generation_style_mismatch`。行距和样式继承缺证据时仍保留为
   `template_generation_style_unverified`。
+- 分页检查已经能把单元位置和 OOXML page break / section 绑定起来；缺少应有
+  分页或分节证据时会报 `template_generation_page_rule_mismatch`。同页约束在
+  缺少 keep/table/页面证据时仍保留 `UNKNOWN`。
 
 最新临时验证：
 

@@ -426,7 +426,7 @@ def _compare_units(
                 )
             )
         checks.extend(_header_footer_checks(unit, tree))
-        checks.extend(_page_rule_checks(unit))
+        checks.extend(_page_rule_checks(unit, tree, matched_orders))
 
     checks.extend(_field_checks(expected_units, tree))
     checks.extend(_numbering_checks(expected_units, tree))
@@ -764,7 +764,11 @@ def _header_footer_checks(
     return checks
 
 
-def _page_rule_checks(unit: dict[str, Any]) -> list[dict[str, Any]]:
+def _page_rule_checks(
+    unit: dict[str, Any],
+    tree: dict[str, Any],
+    matched_orders: list[int],
+) -> list[dict[str, Any]]:
     unit_id = str(unit.get("unit_id") or "unknown_unit")
     page = unit.get("page") or {}
     if not isinstance(page, dict):
@@ -774,20 +778,225 @@ def _page_rule_checks(unit: dict[str, Any]) -> list[dict[str, Any]]:
         rule = _normalize_text(page.get(field))
         if not rule:
             continue
+        page_check = _evaluate_page_rule(
+            unit_id,
+            field,
+            rule,
+            tree,
+            matched_orders,
+        )
         checks.append(
             _check(
                 "template_generation.page_rule_match",
-                Status.UNKNOWN,
-                "template_generation_page_rule_unverified",
-                f"单元 {unit_id} 的分页/同页规则当前无法完整证明：{field}",
+                page_check["status"],
+                page_check["type"],
+                page_check["message"],
                 rule,
-                "unit-to-section/page binding not implemented",
+                page_check["actual"],
                 category="page_rule",
+                evidence_refs=page_check["evidence_refs"],
                 affected_ids=[f"{unit_id}.page.{field}"],
-                next_step="补单元边界到 OOXML 分页符、分节符、keep-with-next/keep-lines 的映射检查。",
+                next_step=page_check["next_step"],
             )
         )
     return checks
+
+
+def _evaluate_page_rule(
+    unit_id: str,
+    field: str,
+    rule: str,
+    tree: dict[str, Any],
+    matched_orders: list[int],
+) -> dict[str, Any]:
+    if not matched_orders:
+        return {
+            "status": Status.UNKNOWN,
+            "type": "template_generation_page_rule_unverified",
+            "message": f"单元 {unit_id} 未绑定到 Word 来源，无法检查分页规则：{field}",
+            "actual": "unit source not matched",
+            "evidence_refs": [],
+            "next_step": "先修单元/元素匹配，再检查分页规则。",
+        }
+
+    first_order = min(matched_orders)
+    context = _page_context(tree, first_order)
+    if field == "page_break":
+        if _page_rule_is_document_start(rule):
+            status = Status.PASS if first_order <= 5 else Status.FAIL
+            return {
+                "status": status,
+                "type": (
+                    "template_generation_page_rule_match"
+                    if status == Status.PASS
+                    else "template_generation_page_rule_mismatch"
+                ),
+                "message": f"单元 {unit_id} 应在文档首页开始",
+                "actual": f"first matched paragraph p[{first_order}]",
+                "evidence_refs": [context["paragraph_ref"]],
+                "next_step": (
+                    "none"
+                    if status == Status.PASS
+                    else "修模板生成顺序，让该单元从文档首页开始。"
+                ),
+            }
+        if _page_rule_requires_yes(rule):
+            has_break = bool(context["page_break_refs"] or context["section_refs"])
+            status = Status.PASS if has_break else Status.FAIL
+            return {
+                "status": status,
+                "type": (
+                    "template_generation_page_rule_match"
+                    if status == Status.PASS
+                    else "template_generation_page_rule_mismatch"
+                ),
+                "message": f"单元 {unit_id} 要求另起页",
+                "actual": (
+                    ", ".join(context["page_break_refs"] + context["section_refs"])
+                    or f"no explicit page/section break before p[{first_order}]"
+                ),
+                "evidence_refs": context["page_break_refs"] + context["section_refs"],
+                "next_step": (
+                    "none"
+                    if status == Status.PASS
+                    else "修模板生成逻辑，在该单元前写入显式分页符或分节符。"
+                ),
+            }
+        if _page_rule_means_no_or_optional(rule):
+            has_break = bool(context["page_break_refs"])
+            status = Status.FAIL if has_break else Status.PASS
+            return {
+                "status": status,
+                "type": (
+                    "template_generation_page_rule_mismatch"
+                    if status == Status.FAIL
+                    else "template_generation_page_rule_match"
+                ),
+                "message": f"单元 {unit_id} 不要求另起页",
+                "actual": (
+                    ", ".join(context["page_break_refs"])
+                    if has_break
+                    else f"no explicit page break before p[{first_order}]"
+                ),
+                "evidence_refs": context["page_break_refs"] or [context["paragraph_ref"]],
+                "next_step": (
+                    "修模板生成逻辑，移除不应存在的显式分页符。"
+                    if status == Status.FAIL
+                    else "none"
+                ),
+            }
+
+    if field == "section_isolation":
+        if _page_rule_requires_yes(rule):
+            has_section = bool(context["section_refs"])
+            status = Status.PASS if has_section else Status.FAIL
+            return {
+                "status": status,
+                "type": (
+                    "template_generation_page_rule_match"
+                    if status == Status.PASS
+                    else "template_generation_page_rule_mismatch"
+                ),
+                "message": f"单元 {unit_id} 要求分页隔离",
+                "actual": (
+                    ", ".join(context["section_refs"])
+                    or f"no section break before p[{first_order}]"
+                ),
+                "evidence_refs": context["section_refs"] or [context["paragraph_ref"]],
+                "next_step": (
+                    "none"
+                    if status == Status.PASS
+                    else "修模板生成逻辑，用 section 或等价确定性边界隔离该单元。"
+                ),
+            }
+
+    if field == "keep_together":
+        keep_refs = context["keep_refs"]
+        if keep_refs:
+            return {
+                "status": Status.PASS,
+                "type": "template_generation_page_rule_match",
+                "message": f"单元 {unit_id} 有 OOXML keep 属性证据",
+                "actual": ", ".join(keep_refs),
+                "evidence_refs": keep_refs,
+                "next_step": "none",
+            }
+        return {
+            "status": Status.UNKNOWN,
+            "type": "template_generation_page_rule_unverified",
+            "message": f"单元 {unit_id} 的同页约束当前无法完整证明",
+            "actual": f"no keepNext/keepLines parsed near p[{first_order}]",
+            "evidence_refs": [context["paragraph_ref"]],
+            "next_step": "补单元范围、表格边界和 keep-with-next/keep-lines 的绑定检查。",
+        }
+
+    return {
+        "status": Status.UNKNOWN,
+        "type": "template_generation_page_rule_unverified",
+        "message": f"单元 {unit_id} 的分页规则当前无法完整证明：{field}",
+        "actual": f"unsupported page rule value near p[{first_order}]",
+        "evidence_refs": [context["paragraph_ref"]],
+        "next_step": "补单元边界到 OOXML 分页符、分节符、keep 属性的映射检查。",
+    }
+
+
+def _page_context(tree: dict[str, Any], first_order: int) -> dict[str, Any]:
+    paragraphs = {
+        int(paragraph.get("index")): paragraph
+        for paragraph in tree.get("data", {}).get("paragraphs", [])
+        if paragraph.get("index") is not None
+    }
+    paragraph = paragraphs.get(first_order, {})
+    style = (paragraph.get("style_details") or {}).get("paragraph") or {}
+    breaks = tree.get("data", {}).get("breaks", [])
+    nearby_breaks = [
+        item
+        for item in breaks
+        if item.get("paragraph_index") is not None
+        and first_order - 2 <= int(item.get("paragraph_index")) <= first_order
+    ]
+    page_break_refs = [
+        item.get("source_ref", "")
+        for item in nearby_breaks
+        if item.get("kind") == "break" and item.get("type") == "page"
+    ]
+    section_refs = [
+        item.get("source_ref", "")
+        for item in nearby_breaks
+        if item.get("kind") == "section"
+    ]
+    if style.get("page_break_before"):
+        page_break_refs.append(f"word/document.xml:p[{first_order}]/pageBreakBefore")
+    keep_refs: list[str] = []
+    if style.get("keep_next"):
+        keep_refs.append(f"word/document.xml:p[{first_order}]/keepNext")
+    if style.get("keep_lines"):
+        keep_refs.append(f"word/document.xml:p[{first_order}]/keepLines")
+    return {
+        "paragraph_ref": paragraph.get("source_ref", f"word/document.xml:p[{first_order}]"),
+        "page_break_refs": [ref for ref in page_break_refs if ref],
+        "section_refs": [ref for ref in section_refs if ref],
+        "keep_refs": keep_refs,
+    }
+
+
+def _page_rule_is_document_start(rule: str) -> bool:
+    return "文档首页" in rule
+
+
+def _page_rule_requires_yes(rule: str) -> bool:
+    normalized = _normalize_text(rule)
+    return normalized == "是" or normalized.startswith("是；")
+
+
+def _page_rule_means_no_or_optional(rule: str) -> bool:
+    normalized = _normalize_text(rule)
+    return (
+        normalized == "否"
+        or "否/未要求" in normalized
+        or "不要求" in normalized
+        or "随正文首页" in normalized
+    )
 
 
 def _unknown_visible_object_checks(tree: dict[str, Any]) -> list[dict[str, Any]]:

@@ -424,24 +424,45 @@ def _fields(root: ET.Element, part_name: str) -> list[dict[str, Any]]:
 
 def _breaks(root: ET.Element, part_name: str) -> list[dict[str, Any]]:
     breaks: list[dict[str, Any]] = []
-    for index, node in enumerate(root.iter(f"{W_NS}br"), start=1):
+    next_index = 1
+    for paragraph_index, paragraph in enumerate(root.iter(f"{W_NS}p"), start=1):
+        for node in paragraph.iter(f"{W_NS}br"):
+            breaks.append(
+                {
+                    "index": next_index,
+                    "kind": "break",
+                    "paragraph_index": paragraph_index,
+                    "type": node.attrib.get(f"{W_NS}type", "line"),
+                    "source_ref": f"{part_name}:p[{paragraph_index}]/br[{next_index}]",
+                }
+            )
+            next_index += 1
+        paragraph_properties = paragraph.find(f"{W_NS}pPr")
+        if (
+            paragraph_properties is not None
+            and paragraph_properties.find(f"{W_NS}sectPr") is not None
+        ):
+            breaks.append(
+                {
+                    "index": next_index,
+                    "kind": "section",
+                    "paragraph_index": paragraph_index,
+                    "type": "section_properties",
+                    "source_ref": f"{part_name}:p[{paragraph_index}]/sectPr",
+                }
+            )
+            next_index += 1
+    for _node in root.findall(f"./{W_NS}body/{W_NS}sectPr"):
         breaks.append(
             {
-                "index": index,
-                "kind": "break",
-                "type": node.attrib.get(f"{W_NS}type", "line"),
-                "source_ref": f"{part_name}:br[{index}]",
-            }
-        )
-    for index, _node in enumerate(root.iter(f"{W_NS}sectPr"), start=1):
-        breaks.append(
-            {
-                "index": index,
+                "index": next_index,
                 "kind": "section",
+                "paragraph_index": None,
                 "type": "section_properties",
-                "source_ref": f"{part_name}:sectPr[{index}]",
+                "source_ref": f"{part_name}:body/sectPr",
             }
         )
+        next_index += 1
     return breaks
 
 

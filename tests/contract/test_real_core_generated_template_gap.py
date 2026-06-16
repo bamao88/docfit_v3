@@ -114,6 +114,35 @@ def test_generated_template_gap_reports_ooxml_style_details(tmp_path) -> None:
     assert any("font_size=" in item["actual"] for item in style_mismatches)
 
 
+def test_generated_template_gap_binds_page_rules_to_ooxml_sources(tmp_path) -> None:
+    result = run_template_gap_eval(
+        ROOT,
+        "hunannongye",
+        ROOT / "inputs/school-hunannongye-requirement.docx",
+        tmp_path / "page_gap",
+    )
+    report = read_json(tmp_path / "page_gap/artifacts/template_gap_report.json")
+
+    assert result.status == Status.FAIL
+    page_items = [
+        item
+        for item in report["check_items"]
+        if item["category"] == "page_rule"
+    ]
+    assert any(
+        item["type"] == "template_generation_page_rule_match"
+        and item["affected_ids"] == ["cover.page.page_break"]
+        and "word/document.xml:p[" in item["evidence_refs"][0]
+        for item in page_items
+    )
+    assert any(
+        item["type"] == "template_generation_page_rule_mismatch"
+        and item["affected_ids"] == ["integrity_statement.page.page_break"]
+        and "no explicit page/section break" in item["actual"]
+        for item in page_items
+    )
+
+
 def test_generated_template_gap_missing_docx_is_unknown(tmp_path) -> None:
     result = run_template_gap_eval(
         ROOT,
