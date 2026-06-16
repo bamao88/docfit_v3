@@ -6,6 +6,16 @@ DocFit v3 is an eval-harness-first DOCX conversion prototype. The product is
 not "make a DOCX"; it is proving, with deterministic evidence, that conversion
 satisfies signed contracts.
 
+## 写作约定
+
+- 回消息、写计划、写总结和写文档时，优先使用普通产品语言，
+  直接说明“这个文件做什么、在检查什么、失败说明什么、下一步要改哪类问题”。
+- 不要用名词堆叠代替解释。避免把 `exposure`、`finding`、`contract`、
+  `verifier`、`strategy contract`、`stage contract` 这类词当成默认表达。
+- 标题、文件名、状态页和下一步目标也要说清楚具体用途，不要只写专有名词。
+- 如果这些词是代码、文件名、命令输出或既有产品概念的一部分，可以保留原名，
+  但必须先用中文说明它的实际用途和对应的具体检查。
+
 ## Read First
 
 - `README.md` for the short orientation and bootstrap command.
