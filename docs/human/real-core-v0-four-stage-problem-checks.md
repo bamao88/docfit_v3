@@ -30,8 +30,8 @@
 uv run pytest tests/contract/test_real_core_four_stage_problem_checks.py -q
 ```
 
-当前结果：测试通过。它证明“问题能被具体指出并阻塞当前坏输出”，不证明
-“问题已经修好”。
+当前结果：测试通过。它证明模板解析问题已经在新临时 e2e 输出中被清除，
+后续内容抽取、内容放置、Word 生成问题仍会阻塞当前坏输出。
 
 ## 为什么先做这层检查
 
@@ -74,7 +74,7 @@ uv run pytest tests/contract/test_real_core_four_stage_problem_checks.py -q
   附录、致谢、手工表单；
 - 看懂哪些文字只是模板说明或示例，不能进入最终成品。
 
-当前测试能指出的具体问题：
+旧报告中曾经能指出的具体问题：
 
 - 湖南农业模板有 145 个非空段落，但解析结果里只有一个 `slot_body_start`。
   这说明程序没有形成“模板里有哪些目标位置”的结构清单。
@@ -89,12 +89,22 @@ uv run pytest tests/contract/test_real_core_four_stage_problem_checks.py -q
 如果模板解析不知道哪里是封面、摘要、正文等目标位置，也不知道哪些文字只是
 说明文字，后面的步骤就只能复制模板文字，或者把学生内容粗暴追加到某个兜底位置。
 
-下一步要做的正式检查：
+当前代码已经具备的检查：
 
 - 模板解析结果必须列出学校模板的主要目标位置。
 - 模板说明、示例、占位文字必须被标成“固定保留”“需要填写”或“不能进成品”。
 - 如果一个真实学校模板最后只解析出 `slot_body_start` 这种兜底位置，这个环节
-  要直接报告问题，不能让后续输出被当成产品质量合格。
+  会直接报告问题，不能让后续输出被当成产品质量合格。
+
+最新临时验证：
+
+```text
+uv run docfit eval e2e --school hunannongye --student inputs/real-student-003-source.docx --out /tmp/docfit_real_core_template_probe
+```
+
+结果中 `stage_statuses.template = PASS`，`business.template_acceptance = true`，
+`blocked_at = content`。这说明当前代码的模板解析切片已经推进完成；旧
+`reports/real-core-v0/**` 里的历史 artifacts 在重新生成前仍可能显示旧模板问题。
 
 ### 2. 内容抽取
 
@@ -195,13 +205,11 @@ uv run pytest tests/contract/test_real_core_four_stage_problem_checks.py -q
 
 建议按这个顺序继续做：
 
-1. 先修模板解析：让程序能列出学校模板的主要目标位置，并标出哪些模板文字
-   不能进成品。
-2. 再修内容抽取：让程序能识别学生文档里的标题、摘要、关键词、参考文献、
+1. 修内容抽取：让程序能识别学生文档里的标题、摘要、关键词、参考文献、
    致谢，也能识别旧封面、旧目录这类源文档格式内容。
-3. 再修内容放置：让每段学生内容有目标学校位置，不能继续全部放到
+2. 再修内容放置：让每段学生内容有目标学校位置，不能继续全部放到
    `slot_body_start`。
-4. 最后修 Word 生成：清掉模板说明文字，把学生内容写到目标位置，然后重新生成
+3. 最后修 Word 生成：清掉模板说明文字，把学生内容写到目标位置，然后重新生成
    9 个 Word 成品和页面图像证据。
 
 这四步完成后，测试就不只是“能说出当前问题”，而是能在对应环节直接阻止同类

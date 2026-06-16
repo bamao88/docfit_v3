@@ -26,15 +26,10 @@ def test_real_core_problem_check_reports_all_four_stages(tmp_path) -> None:
     direct_by_type = _by_type(direct_audit_findings)
     by_type = _by_type(result.findings)
 
-    assert "template_unit_tree_missing" in by_type
-    assert by_type["template_unit_tree_missing"].stage == "template"
-    assert "template_unit_tree_missing" in direct_by_type
-    assert "slot_body_start" in by_type["template_unit_tree_missing"].actual
-    assert "第一个段落" in by_type["template_unit_tree_missing"].actual
-
-    assert "template_instruction_paragraph_unclassified" in by_type
-    assert by_type["template_instruction_paragraph_unclassified"].stage == "template"
-    assert "附件1" in by_type["template_instruction_paragraph_unclassified"].actual
+    assert "template_unit_tree_missing" not in by_type
+    assert "template_instruction_paragraph_unclassified" not in by_type
+    assert "template_unit_tree_missing" not in direct_by_type
+    assert "template_instruction_paragraph_unclassified" not in direct_by_type
 
     assert "content_heading_semantics_unclassified" in by_type
     assert by_type["content_heading_semantics_unclassified"].stage == "content"
@@ -63,5 +58,5 @@ def test_real_core_problem_check_reports_all_four_stages(tmp_path) -> None:
     assert "word/document.xml:p[" in by_type["render_append_only_insertion"].actual
     assert "模板解析结果有" in by_type["render_append_only_insertion"].actual
 
-    assert result.blocked_at == "template"
+    assert result.blocked_at == "content"
     assert result.status.value == "FAIL"

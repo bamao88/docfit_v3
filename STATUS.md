@@ -4,7 +4,8 @@ Last updated: 2026-06-16
 
 Current focus:
 
-- `real-core-v0` 已从“证据绑定通过”推进到“业务验收 gate 会阻塞当前坏输出”。
+- `real-core-v0` 已从“证据绑定通过”推进到“业务验收 gate 会阻塞当前坏输出”；
+  模板解析切片已经完成，新的临时 e2e 输出会把 template 阶段判为 `PASS`。
 - 新的 `PASS` 语义必须同时满足四层业务验收：模板解析、内容抽取、内容放置、
   Word 生成。只有 source-fact baseline 和 Word 页面图像证据不再足够。
 - 接下来重点不是继续准备材料，而是按 gate 暴露的问题修真实工程链路。
@@ -23,17 +24,20 @@ Current state:
   新的 `docfit eval coverage --profile real-core-v0` 会重新读取这些报告和 artifacts，
   并把当前模板说明泄漏、追加写入、内容未定位等业务问题作为阻塞 findings。
 - 最新 product-run 输出到 `/tmp/docfit_real_core_coverage`，结果为 `FAIL`：
-  9/9 个 e2e case 已被业务验收检查，`business.template_acceptance`、
-  `business.content_acceptance`、`business.placement_acceptance`、
-  `business.render_acceptance` 都是 `false`。
+  该 run 仍读取历史 `reports/real-core-v0/**` 成品和 artifacts，所以 9/9 个 e2e
+  case 仍显示 `business.template_acceptance`、`business.content_acceptance`、
+  `business.placement_acceptance`、`business.render_acceptance` 都是 `false`。
 - 9 个成品的产品审查记录在
   `docs/human/real-core-v0-product-quality-review.md`。当前结论是：
   这些 Word 文件还不能算学校格式转换合格，因为它们仍保留目标模板说明/示例，
   并且大多是在复制模板后把学生内容追加到末尾。
 - 四个环节的问题检查已经成为 real-core 验收 gate：
   `tests/contract/test_real_core_four_stage_problem_checks.py` 会用湖南农业大学模板
-  和学生 003 源文档跑一次转换，并确认模板解析、内容抽取、内容放置、Word 生成
-  都能给出具体问题说明；当前坏输出会返回 `FAIL`，不能再因为证据绑定存在而通过。
+  和学生 003 源文档跑一次转换，并确认模板解析已经通过，内容抽取、内容放置、
+  Word 生成仍能给出具体问题说明；当前坏输出会返回 `FAIL`，不能再因为证据绑定
+  存在而通过。
+  最新临时 probe `/tmp/docfit_real_core_template_probe` 的结果是
+  `template: PASS`、`blocked_at: content`、`business.template_acceptance: true`。
   详细说明见
   `docs/human/real-core-v0-four-stage-problem-checks.md`。
 - 学生源文档中的旧目录已经有一个通用修复：`toc 1` / `toc 2` / `toc 3`
@@ -50,19 +54,16 @@ Current state:
 
 Next action:
 
-- 先修模板解析本身：真实学校模板不能只解析出 `slot_body_start`；解析结果必须
-  说清楚封面、声明、目录、题名、摘要、正文、参考文献、附录/致谢、手工表单等
-  目标位置；模板说明和示例文字必须说明能不能进成品。现在这已经是阻塞 gate，
-  不是旁路审查说明。
-- 然后按顺序补内容抽取、内容放置、Word 生成的正式检查：
-  - 内容抽取要识别标题、摘要、关键词、参考文献、致谢，以及旧封面、旧目录这类
-    不该进目标正文的源文档格式内容。
-  - 内容放置要确认每段学生内容进入目标学校模板的具体位置，不能全部放到
-    `slot_body_start`。
-  - Word 生成要确认最终文件没有模板说明文字，并且学生内容不是追加到整份模板后面。
+- 下一步修内容抽取：识别标题、摘要、关键词、参考文献、致谢，以及旧封面、
+  旧目录这类不该进目标正文的源文档格式内容。
+- 然后修内容放置：确认每段学生内容进入目标学校模板的具体位置，不能全部放到
+  `slot_body_start`。
+- 最后修 Word 生成：确认最终文件没有模板说明文字，并且学生内容不是追加到
+  整份模板后面。
 
 Known blockers:
 
 - 目前没有需要用户提供的新材料阻塞工程继续。
-- 等 P0 修复后，需要用户或产品 owner review 新生成的 9 个 Word 成品，判断
-  固定表单、缺失内容占位、北大空白页/版权页/原创性声明页等最终成品策略。
+- 等内容抽取、内容放置和渲染修复后，需要用户或产品 owner review 新生成的
+  9 个 Word 成品，判断固定表单、缺失内容占位、北大空白页/版权页/原创性声明页
+  等最终成品策略。

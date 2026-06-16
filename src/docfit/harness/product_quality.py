@@ -85,13 +85,18 @@ def business_acceptance_coverage(findings: list[Finding]) -> dict[str, bool]:
 def audit_template_artifact(template_artifact: dict[str, Any]) -> list[Finding]:
     data = template_artifact.get("data", {})
     paragraphs = data.get("paragraphs", [])
+    units = data.get("units", [])
     slots = data.get("slots", [])
     protected_zones = data.get("protected_zones", [])
     required_fields = data.get("required_fields", [])
     findings: list[Finding] = []
     next_index = 1
 
-    if paragraphs and (len(slots) <= 1 or _only_virtual_slots(slots)):
+    if paragraphs and (
+        len(units) < 5
+        or _units_lack_elements(units)
+        or not _has_non_virtual_slot(slots)
+    ):
         findings.append(
             make_finding(
                 next_index,
@@ -105,7 +110,8 @@ def audit_template_artifact(template_artifact: dict[str, Any]) -> list[Finding]:
                 ),
                 (
                     f"{template_artifact.get('school_id')}/{template_artifact.get('template_version')} "
-                    f"有 {len(paragraphs)} 个非空模板段落，但只有 "
+                    f"有 {len(paragraphs)} 个非空模板段落，"
+                    f"{len(units)} 个单元，{_element_count(units)} 个元素，"
                     f"{len(slots)} 个位置={_slot_ids(slots)}，"
                     f"{len(protected_zones)} 个受保护区域，"
                     f"{len(required_fields)} 个必填字段；第一个段落："
@@ -122,6 +128,7 @@ def audit_template_artifact(template_artifact: dict[str, Any]) -> list[Finding]:
         paragraph
         for paragraph in paragraphs
         if _contains_instruction_marker(str(paragraph.get("text", "")))
+        and not _has_output_policy(paragraph)
     ][:3]
     if instruction_examples:
         findings.append(
@@ -367,12 +374,31 @@ def _contains_instruction_marker(text: str) -> bool:
     return any(marker in text for marker in INSTRUCTION_MARKERS)
 
 
-def _only_virtual_slots(slots: list[dict[str, Any]]) -> bool:
-    return bool(slots) and all(
-        str(slot.get("source_ref", "")).startswith("real-core:virtual")
-        or slot.get("slot_id") == "slot_body_start"
+def _has_non_virtual_slot(slots: list[dict[str, Any]]) -> bool:
+    return any(
+        slot.get("slot_id") != "slot_body_start"
+        and not str(slot.get("source_ref", "")).startswith("real-core:virtual")
         for slot in slots
     )
+
+
+def _units_lack_elements(units: list[dict[str, Any]]) -> bool:
+    return any(not unit.get("elements") for unit in units)
+
+
+def _element_count(units: list[dict[str, Any]]) -> int:
+    return sum(len(unit.get("elements", [])) for unit in units)
+
+
+def _has_output_policy(paragraph: dict[str, Any]) -> bool:
+    return paragraph.get("template_policy") in {
+        "fixed",
+        "fill",
+        "generated",
+        "manual_only",
+        "strip",
+        "template_default_optional",
+    }
 
 
 def _slot_ids(slots: list[dict[str, Any]]) -> list[str]:

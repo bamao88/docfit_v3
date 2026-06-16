@@ -5,12 +5,16 @@ import json
 import os
 from pathlib import Path
 
-from docfit.convert.orchestrator import run_e2e_eval
+from docfit.convert.orchestrator import run_e2e_eval, run_template_eval
 from docfit.core.io import read_json
 from docfit.core.status import Status
 from docfit.harness.baselines import validate_baseline_document
 from docfit.harness.coverage import evaluate_profile_coverage
-from docfit.harness.profiles import get_eval_cases_for_profile, get_eval_profile
+from docfit.harness.profiles import (
+    REAL_CORE_SCHOOLS,
+    get_eval_cases_for_profile,
+    get_eval_profile,
+)
 from docfit.harness.word_evidence import build_word_image_evidence_manifest
 
 
@@ -99,6 +103,37 @@ def test_real_core_coverage_requires_checked_in_case_registry(tmp_path) -> None:
     assert any(finding.type == "missing_profile_case_registry" for finding in findings)
 
 
+def test_real_core_template_parse_outputs_reviewed_unit_tree_for_all_schools(tmp_path) -> None:
+    for school in REAL_CORE_SCHOOLS:
+        school_id = str(school["school_id"])
+        result = run_template_eval(
+            ROOT,
+            school_id,
+            ROOT / school["template_docx"],
+            tmp_path / school_id,
+        )
+
+        assert result.status == Status.PASS
+        artifact = read_json(tmp_path / school_id / "artifacts/template_artifact.json")
+        units = artifact["data"]["units"]
+        slots = artifact["data"]["slots"]
+        paragraphs = artifact["data"]["paragraphs"]
+        instruction_paragraphs = artifact["data"]["instruction_paragraphs"]
+
+        assert len(units) >= 10
+        assert all(unit["unit_id"] for unit in units)
+        assert all(unit["elements"] for unit in units)
+        assert any(slot["slot_id"] != "slot_body_start" for slot in slots)
+        assert instruction_paragraphs
+        assert all(item["policy"] == "strip" for item in instruction_paragraphs)
+        assert all(
+            paragraph.get("template_policy") == "strip"
+            for paragraph in paragraphs
+            if paragraph["index"]
+            in {item["paragraph_index"] for item in instruction_paragraphs}
+        )
+
+
 def test_real_core_e2e_reaches_render_and_writes_bound_final_docx(tmp_path) -> None:
     result = run_e2e_eval(
         ROOT,
@@ -108,17 +143,19 @@ def test_real_core_e2e_reaches_render_and_writes_bound_final_docx(tmp_path) -> N
     )
 
     assert result.status == Status.FAIL
-    assert result.blocked_at == "template"
+    assert result.blocked_at == "content"
     assert (tmp_path / "real_core_case/final.docx").exists()
     summary = read_json(tmp_path / "real_core_case/summary.json")
     assert summary["stage_statuses"] == {
-        "template": "UNKNOWN",
+        "template": "PASS",
         "content": "UNKNOWN",
         "placement": "UNKNOWN",
         "render": "FAIL",
     }
     assert "coverage_insufficient" in [finding.type for finding in result.findings]
-    assert "template_unit_tree_missing" in [finding.type for finding in result.findings]
+    assert "template_unit_tree_missing" not in [
+        finding.type for finding in result.findings
+    ]
     assert "render_append_only_insertion" in [finding.type for finding in result.findings]
     assert result.findings[0].affected_ids == ["render.word_image_evidence"]
 
