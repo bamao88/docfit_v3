@@ -292,6 +292,63 @@ def test_generated_template_gap_binds_word_fields_to_units(tmp_path) -> None:
     )
 
 
+def test_generated_template_gap_binds_numbering_rules_to_units(tmp_path) -> None:
+    result = run_template_gap_eval(
+        ROOT,
+        "pku-graduate",
+        ROOT / "inputs/school-pku-graduate-template.docx",
+        tmp_path / "pku_numbering_gap",
+    )
+    tree = read_json(
+        tmp_path / "pku_numbering_gap/artifacts/generated_template_tree.json"
+    )
+    report = read_json(
+        tmp_path / "pku_numbering_gap/artifacts/template_gap_report.json"
+    )
+
+    assert result.status == Status.FAIL
+    heading_definition = next(
+        item
+        for item in tree["data"]["numbering_definitions"]
+        if item["paragraph_style_id"] == "1"
+        and item["lvl_text"] == "第%1章"
+    )
+    assert heading_definition["num_fmt"] == "chineseCountingThousand"
+
+    heading_ref = next(
+        item
+        for item in tree["data"]["numbering_refs"]
+        if item["paragraph_index"] == 127
+    )
+    assert heading_ref["source_kind"] == "paragraph_style"
+    assert heading_ref["num_id"] == "1"
+    assert heading_ref["ilvl"] == "0"
+    assert heading_ref["lvl_text"] == "第%1章"
+    assert heading_ref["source_refs"] == [
+        "word/styles.xml:style[1]/numPr",
+        "word/numbering.xml:abstractNum[0]/lvl[0]",
+    ]
+
+    numbering_items = [
+        item
+        for item in report["check_items"]
+        if item["category"] == "numbering"
+    ]
+    assert any(
+        item["type"] == "template_generation_numbering_match"
+        and item["affected_ids"] == ["body_main.e_001.numbering"]
+        and "text=第%1章" in item["actual"]
+        and "word/document.xml:p[127]/pStyle" in item["evidence_refs"]
+        for item in numbering_items
+    )
+    assert any(
+        item["type"] == "template_generation_numbering_match"
+        and item["affected_ids"] == ["body_main.e_004.numbering"]
+        and "%1.%2.%3.%4.%5" in item["actual"]
+        for item in numbering_items
+    )
+
+
 def test_generated_template_gap_missing_docx_is_unknown(tmp_path) -> None:
     result = run_template_gap_eval(
         ROOT,

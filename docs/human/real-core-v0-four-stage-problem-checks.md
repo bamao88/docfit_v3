@@ -112,11 +112,13 @@ Word 的差距检查现在会把 template 阶段阻断；即使如此，e2e 仍�
   `template_gap_report.md` 和 `template_gap_report.docx`。报告有
   `known_status`、`display_status`、`passed_count`、`failed_count`、
   `unknown_count`、`blocking_status`，所以 `FAIL + UNKNOWN` 不会丢掉未知项。
-- 字段和编号也会单独列出：Word complex field / fldSimple 会合并成完整指令并
+- 字段和 Word 自动编号也会单独列出：Word complex field / fldSimple 会合并成完整指令并
   绑定到单元范围；缺少 Word TOC/页码等生成字段会报
   `template_generation_field_missing`，字段在错误单元会报
-  `template_generation_field_out_of_unit`，编号规则还不能绑定到具体单元/元素时会报
-  `template_generation_numbering_unverified`。
+  `template_generation_field_out_of_unit`。自动编号会解析 `word/numbering.xml`、
+  样式 `numPr`、段落直接 `numPr` 和段落样式引用；北大正文标题这类要求已经能
+  绑定到具体单元/元素并报 `template_generation_numbering_match`。如果只有编号
+  定义但不能证明用于该单元，仍会报 `template_generation_numbering_unverified`。
 - 样式检查已经能读取 OOXML 字体、字号、加粗、对齐和行距，并合并
   `word/styles.xml` 段落样式继承链；确定不一致时会报
   `template_generation_style_mismatch`。样式表或单元绑定证据仍不足时保留为
@@ -135,7 +137,8 @@ uv run docfit eval e2e --school hunannongye --student inputs/real-student-003-so
 
 当前结果是 `stage_statuses.template = FAIL`，`blocked_at = template`。
 `artifacts/template_gap_report.json` 展示为 `FAIL + UNKNOWN`：当前生成模板已经
-有确定性缺失项，同时样式、分页、页眉页脚和字段还有未证明项。旧
+有确定性缺失项，同时同页约束、部分页眉页码规则、等价生成机制和复杂样式/section
+继承还有未证明项。旧
 `reports/real-core-v0/**` 里的历史 artifacts 在重新生成前仍可能显示旧模板问题。
 
 ### 2. 内容抽取

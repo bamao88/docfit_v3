@@ -35,6 +35,7 @@ def inspect_generated_template_docx(generated_template: Path) -> dict[str, Any]:
             "breaks": [],
             "sections": [],
             "numbering_refs": [],
+            "numbering_definitions": [],
             "unknown_visible_objects": [],
         },
     }
@@ -514,9 +515,12 @@ def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, A
     breaks: list[dict[str, Any]] = []
     sections: list[dict[str, Any]] = []
     numbering_refs: list[dict[str, Any]] = []
+    numbering_definitions: list[dict[str, Any]] = []
 
     with ZipFile(generated_template) as package:
         relationships = _document_relationships(package)
+        numbering_catalog = _numbering_catalog(package)
+        numbering_definitions = numbering_catalog["definitions"]
         part_names = [
             name
             for name in package.namelist()
@@ -545,7 +549,7 @@ def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, A
             breaks.extend(_breaks(root, part_name))
             if part_name == "word/document.xml":
                 sections.extend(_sections(root, relationships))
-                numbering_refs.extend(_numbering_refs(root))
+                numbering_refs.extend(_numbering_refs(root, numbering_catalog))
 
     return {
         "headers_footers": headers_footers,
@@ -553,6 +557,7 @@ def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, A
         "breaks": breaks,
         "sections": sections,
         "numbering_refs": numbering_refs,
+        "numbering_definitions": numbering_definitions,
     }
 
 
@@ -828,18 +833,299 @@ def _breaks(root: ET.Element, part_name: str) -> list[dict[str, Any]]:
     return breaks
 
 
-def _numbering_refs(root: ET.Element) -> list[dict[str, Any]]:
+def _numbering_catalog(package: ZipFile) -> dict[str, Any]:
+    catalog: dict[str, Any] = {
+        "definitions": [],
+        "definitions_by_num": {},
+        "definitions_by_style": {},
+        "style_numbering": {},
+        "style_names": {},
+    }
+    abstract_levels: dict[str, dict[str, dict[str, Any]]] = {}
+    nums: dict[str, str] = {}
+    try:
+        root = ET.fromstring(package.read("word/numbering.xml"))
+    except (KeyError, ET.ParseError):
+        return catalog
+
+    for abstract in root.findall(f"{W_NS}abstractNum"):
+        abstract_num_id = _attr(abstract, "abstractNumId")
+        if not abstract_num_id:
+            continue
+        abstract_levels[abstract_num_id] = {}
+        for level in abstract.findall(f"{W_NS}lvl"):
+            ilvl = _attr(level, "ilvl") or "0"
+            level_source_ref = (
+                f"word/numbering.xml:abstractNum[{abstract_num_id}]/lvl[{ilvl}]"
+            )
+            abstract_levels[abstract_num_id][ilvl] = {
+                "abstract_num_id": abstract_num_id,
+                "ilvl": ilvl,
+                "num_fmt": _attr(level.find(f"{W_NS}numFmt"), "val"),
+                "lvl_text": _attr(level.find(f"{W_NS}lvlText"), "val"),
+                "start": _int_or_none(_attr(level.find(f"{W_NS}start"), "val")),
+                "suffix": _attr(level.find(f"{W_NS}suff"), "val"),
+                "paragraph_style_id": _attr(level.find(f"{W_NS}pStyle"), "val"),
+                "definition_source_ref": level_source_ref,
+            }
+
+    for num in root.findall(f"{W_NS}num"):
+        num_id = _attr(num, "numId")
+        abstract_num_id = _attr(num.find(f"{W_NS}abstractNumId"), "val")
+        if num_id and abstract_num_id:
+            nums[num_id] = abstract_num_id
+
+    for num_id, abstract_num_id in nums.items():
+        for ilvl, level in abstract_levels.get(abstract_num_id, {}).items():
+            definition = {
+                **level,
+                "num_id": num_id,
+                "num_source_ref": f"word/numbering.xml:num[{num_id}]",
+                "source_ref": level["definition_source_ref"],
+            }
+            catalog["definitions"].append(definition)
+            catalog["definitions_by_num"][(num_id, ilvl)] = definition
+            style_id = definition.get("paragraph_style_id")
+            if style_id:
+                catalog["definitions_by_style"].setdefault(style_id, []).append(
+                    definition
+                )
+
+    style_numbering, style_names = _style_numbering_catalog(package)
+    catalog["style_numbering"] = style_numbering
+    catalog["style_names"] = style_names
+    return catalog
+
+
+def _style_numbering_catalog(
+    package: ZipFile,
+) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
+    try:
+        root = ET.fromstring(package.read("word/styles.xml"))
+    except (KeyError, ET.ParseError):
+        return {}, {}
+
+    raw_styles: dict[str, dict[str, Any]] = {}
+    style_names: dict[str, str] = {}
+    for style in root.findall(f"{W_NS}style"):
+        if _attr(style, "type") != "paragraph":
+            continue
+        style_id = _attr(style, "styleId")
+        if not style_id:
+            continue
+        name = _attr(style.find(f"{W_NS}name"), "val")
+        if name:
+            style_names[style_id] = name
+        based_on = _attr(style.find(f"{W_NS}basedOn"), "val")
+        paragraph_properties = style.find(f"{W_NS}pPr")
+        num_pr = (
+            paragraph_properties.find(f"{W_NS}numPr")
+            if paragraph_properties is not None
+            else None
+        )
+        raw_styles[style_id] = {
+            "style_id": style_id,
+            "style_name": name,
+            "based_on": based_on,
+            "num_id": _attr(
+                num_pr.find(f"{W_NS}numId") if num_pr is not None else None,
+                "val",
+            ),
+            "ilvl": _attr(
+                num_pr.find(f"{W_NS}ilvl") if num_pr is not None else None,
+                "val",
+            ),
+            "source_ref": (
+                f"word/styles.xml:style[{style_id}]/numPr"
+                if num_pr is not None
+                else ""
+            ),
+        }
+
+    return (
+        {
+            style_id: _resolve_style_numbering(style_id, raw_styles, [])
+            for style_id in raw_styles
+        },
+        style_names,
+    )
+
+
+def _resolve_style_numbering(
+    style_id: str,
+    raw_styles: dict[str, dict[str, Any]],
+    seen: list[str],
+) -> dict[str, Any]:
+    if style_id in seen:
+        return {}
+    style = raw_styles.get(style_id)
+    if not style:
+        return {}
+    base = (
+        _resolve_style_numbering(
+            str(style.get("based_on")),
+            raw_styles,
+            [*seen, style_id],
+        )
+        if style.get("based_on")
+        else {}
+    )
+    num_id = _first_not_none(style.get("num_id"), base.get("num_id"))
+    ilvl = _first_not_none(style.get("ilvl"), base.get("ilvl"))
+    source_refs = [
+        *base.get("source_refs", []),
+        style.get("source_ref", ""),
+    ]
+    return {
+        "style_id": style_id,
+        "style_name": style.get("style_name"),
+        "num_id": num_id,
+        "ilvl": ilvl,
+        "source_refs": [ref for ref in source_refs if ref],
+    }
+
+
+def _numbering_refs(
+    root: ET.Element,
+    numbering_catalog: dict[str, Any],
+) -> list[dict[str, Any]]:
     refs: list[dict[str, Any]] = []
     paragraph_index = 0
     for paragraph in root.iter(f"{W_NS}p"):
         paragraph_index += 1
-        num_pr = paragraph.find(f".//{W_NS}numPr")
-        if num_pr is None:
+        paragraph_properties = paragraph.find(f"{W_NS}pPr")
+        if paragraph_properties is None:
             continue
-        refs.append(
-            {
-                "paragraph_index": paragraph_index,
-                "source_ref": f"word/document.xml:p[{paragraph_index}]/numPr",
-            }
+        paragraph_style_id = _attr(paragraph_properties.find(f"{W_NS}pStyle"), "val")
+        num_pr = paragraph_properties.find(f"{W_NS}numPr")
+        direct_num_id = _attr(
+            num_pr.find(f"{W_NS}numId") if num_pr is not None else None,
+            "val",
         )
+        direct_ilvl = _attr(
+            num_pr.find(f"{W_NS}ilvl") if num_pr is not None else None,
+            "val",
+        )
+        style_numbering = numbering_catalog["style_numbering"].get(
+            paragraph_style_id,
+            {},
+        )
+        definition = _numbering_definition_for_paragraph(
+            numbering_catalog,
+            paragraph_style_id=paragraph_style_id,
+            num_id=direct_num_id or style_numbering.get("num_id"),
+            ilvl=direct_ilvl or style_numbering.get("ilvl"),
+        )
+        if num_pr is None and not definition:
+            continue
+        source_refs = []
+        if num_pr is not None:
+            source_refs.append(f"word/document.xml:p[{paragraph_index}]/numPr")
+        source_refs.extend(style_numbering.get("source_refs", []))
+        if definition and definition.get("source_ref"):
+            source_refs.append(definition["source_ref"])
+        source_kind = "direct"
+        if num_pr is None:
+            source_kind = "paragraph_style"
+        elif style_numbering:
+            source_kind = "direct_with_style"
+        ref = {
+            "paragraph_index": paragraph_index,
+            "paragraph_style_id": paragraph_style_id,
+            "paragraph_style_name": numbering_catalog["style_names"].get(
+                paragraph_style_id,
+                "",
+            ),
+            "source_kind": source_kind,
+            "source_ref": f"word/document.xml:p[{paragraph_index}]/numPr"
+            if num_pr is not None
+            else f"word/document.xml:p[{paragraph_index}]/pStyle",
+            "source_refs": _dedupe(source_refs),
+            "text": _visible_text(paragraph),
+        }
+        if definition:
+            ref.update(
+                {
+                    "num_id": definition.get("num_id"),
+                    "abstract_num_id": definition.get("abstract_num_id"),
+                    "ilvl": definition.get("ilvl"),
+                    "num_fmt": definition.get("num_fmt"),
+                    "lvl_text": definition.get("lvl_text"),
+                    "paragraph_numbering_style_id": definition.get(
+                        "paragraph_style_id"
+                    ),
+                    "definition_source_ref": definition.get("source_ref"),
+                }
+            )
+        else:
+            ref.update(
+                {
+                    "num_id": direct_num_id or style_numbering.get("num_id"),
+                    "ilvl": direct_ilvl or style_numbering.get("ilvl"),
+                    "num_fmt": None,
+                    "lvl_text": None,
+                }
+            )
+        refs.append(ref)
     return refs
+
+
+def _numbering_definition_for_paragraph(
+    numbering_catalog: dict[str, Any],
+    *,
+    paragraph_style_id: str | None,
+    num_id: str | None,
+    ilvl: str | None,
+) -> dict[str, Any] | None:
+    by_num = numbering_catalog["definitions_by_num"]
+    if num_id:
+        if ilvl and (num_id, ilvl) in by_num:
+            return by_num[(num_id, ilvl)]
+        style_candidates = [
+            definition
+            for definition in numbering_catalog["definitions"]
+            if definition.get("num_id") == num_id
+            and definition.get("paragraph_style_id") == paragraph_style_id
+        ]
+        if style_candidates:
+            return _first_numbering_definition(style_candidates)
+        num_candidates = [
+            definition
+            for definition in numbering_catalog["definitions"]
+            if definition.get("num_id") == num_id
+        ]
+        if num_candidates:
+            return _first_numbering_definition(num_candidates)
+
+    if paragraph_style_id:
+        style_candidates = numbering_catalog["definitions_by_style"].get(
+            paragraph_style_id,
+            [],
+        )
+        if ilvl:
+            style_candidates = [
+                definition
+                for definition in style_candidates
+                if definition.get("ilvl") == ilvl
+            ]
+        if style_candidates:
+            return _first_numbering_definition(style_candidates)
+    return None
+
+
+def _first_numbering_definition(
+    definitions: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not definitions:
+        return None
+    return sorted(
+        definitions,
+        key=lambda item: (
+            _int_or_none(str(item.get("num_id"))) or 0,
+            _int_or_none(str(item.get("ilvl"))) or 0,
+        ),
+    )[0]
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    return [value for value in dict.fromkeys(values) if value]

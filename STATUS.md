@@ -56,11 +56,14 @@ Current state:
   从 OOXML 解析 `generated_template_tree.json`，再输出三种
   `template_gap_report`。报告保留 `known_status`、`display_status`、
   `passed_count`、`failed_count`、`unknown_count` 和 `blocking_status`。
-  字段和编号现在也有显式检查：Word complex field / fldSimple 会合并成完整
-  指令并绑定到单元范围；缺 Word 生成字段会报
+  字段和 Word 自动编号现在也有显式检查：Word complex field / fldSimple 会合并成
+  完整指令并绑定到单元范围；缺 Word 生成字段会报
   `template_generation_field_missing`，字段在错误单元会报
-  `template_generation_field_out_of_unit`，编号规则未绑定到单元/元素会报
-  `template_generation_numbering_unverified`。
+  `template_generation_field_out_of_unit`。自动编号会解析 `word/numbering.xml`、
+  样式 `numPr`、段落直接 `numPr` 和段落样式引用；北大正文标题这类要求可以报
+  `template_generation_numbering_match`，缺失或格式不一致会报
+  `template_generation_numbering_missing` / `template_generation_numbering_mismatch`。
+  图题、表题、公式编号和等价生成机制仍需要后续更细检查。
   样式检查现在会读取 OOXML 字体、字号、加粗、对齐和行距，并合并
   `word/styles.xml` 段落样式继承链；能确定不一致时会报
   `template_generation_style_mismatch`，样式表或单元绑定证据仍不足时保持
@@ -87,7 +90,8 @@ Current state:
 Next action:
 
 - 下一步先修生成模板差距报告暴露的 template 阶段问题：补齐生成模板实际输出、
-  样式/分页/页眉页脚/字段解析，或修模板生成逻辑，直到模板差距报告不再阻断。
+  同页约束、等价生成机制、复杂样式/section/页码规则等解析，或修模板生成逻辑，
+  直到模板差距报告不再阻断。
 - 然后继续修内容抽取：识别摘要、关键词、参考文献、附录、致谢这类章节角色，
   以及旧封面、旧目录这类不该进目标正文的源文档格式内容。
 - 再修内容放置：确认每段学生内容进入目标学校模板的具体位置，不能全部放到

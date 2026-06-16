@@ -433,7 +433,14 @@ def _compare_units(
     checks.extend(
         _field_checks(expected_units, tree, unit_matched_orders, unit_first_orders)
     )
-    checks.extend(_numbering_checks(expected_units, tree))
+    checks.extend(
+        _numbering_checks(
+            expected_units,
+            tree,
+            unit_matched_orders,
+            unit_first_orders,
+        )
+    )
     if len(unit_first_orders) >= 2:
         ordered = sorted(unit_first_orders, key=lambda item: item[1])
         checks.append(
@@ -953,46 +960,372 @@ def _field_refs(fields: list[dict[str, Any]]) -> list[str]:
 def _numbering_checks(
     expected_units: list[dict[str, Any]],
     tree: dict[str, Any],
+    unit_matched_orders: dict[str, list[int]],
+    unit_first_orders: list[tuple[str, int]],
 ) -> list[dict[str, Any]]:
     checks: list[dict[str, Any]] = []
-    requirements = [
-        unit
-        for unit in expected_units
-        if _unit_mentions_numbering(unit)
-    ]
+    requirements = _numbering_requirements(expected_units)
     if not requirements:
         return [
             _check(
                 "template_generation.numbering_match",
                 Status.PASS,
                 "template_generation_no_numbering_requirements",
-                "模板标准没有声明必须检查的编号规则",
-                "no numbering requirements",
-                "no numbering requirements",
+                "模板标准没有声明必须用 Word 自动编号证明的规则",
+                "no Word automatic numbering requirements",
+                "no Word automatic numbering requirements",
                 category="numbering",
             )
         ]
     numbering_refs = tree.get("data", {}).get("numbering_refs", [])
-    for unit in requirements:
-        unit_id = str(unit.get("unit_id") or "unknown_unit")
+    numbering_definitions = tree.get("data", {}).get("numbering_definitions", [])
+    for requirement in requirements:
+        evaluation = _evaluate_numbering_requirement(
+            requirement,
+            numbering_refs,
+            numbering_definitions,
+            unit_matched_orders.get(requirement["unit_id"], []),
+            unit_first_orders,
+        )
         checks.append(
             _check(
                 "template_generation.numbering_match",
-                Status.UNKNOWN,
-                "template_generation_numbering_unverified",
-                f"单元 {unit_id} 声明了编号规则，但当前解析器还不能把编号绑定到单元/元素",
-                _preview(_numbering_requirement_text(unit)),
-                (
-                    ", ".join(ref.get("source_ref", "") for ref in numbering_refs[:5])
-                    or "no OOXML numbering refs parsed"
-                ),
+                evaluation["status"],
+                evaluation["type"],
+                evaluation["message"],
+                requirement["expected"],
+                evaluation["actual"],
                 category="numbering",
-                evidence_refs=[ref.get("source_ref", "") for ref in numbering_refs[:5]],
-                affected_ids=[f"{unit_id}.numbering"],
-                next_step="补编号定义、段落 numPr 和标题层级到模板单元的绑定检查。",
+                evidence_refs=evaluation["evidence_refs"],
+                affected_ids=[requirement["affected_id"]],
+                next_step=evaluation["next_step"],
             )
         )
     return checks
+
+
+def _numbering_requirements(
+    expected_units: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    requirements: list[dict[str, Any]] = []
+    for unit in expected_units:
+        unit_id = str(unit.get("unit_id") or "unknown_unit")
+        for element in unit.get("elements", []):
+            text = _numbering_item_text(element)
+            if not _requires_word_numbering(text):
+                continue
+            element_id = str(element.get("element_id") or "unknown_element")
+            expected_formats = _expected_numbering_formats(text)
+            requirements.append(
+                {
+                    "unit_id": unit_id,
+                    "element_id": element_id,
+                    "affected_id": f"{unit_id}.{element_id}.numbering",
+                    "context_text": text,
+                    "expected_formats": expected_formats,
+                    "expected": _numbering_expected_summary(
+                        expected_formats,
+                        text,
+                    ),
+                    "source_refs": element.get("source_refs", []),
+                }
+            )
+    return requirements
+
+
+def _evaluate_numbering_requirement(
+    requirement: dict[str, Any],
+    numbering_refs: list[dict[str, Any]],
+    numbering_definitions: list[dict[str, Any]],
+    matched_orders: list[int],
+    unit_first_orders: list[tuple[str, int]],
+) -> dict[str, Any]:
+    unit_id = requirement["unit_id"]
+    if not numbering_refs and not numbering_definitions:
+        return {
+            "status": Status.FAIL,
+            "type": "template_generation_numbering_missing",
+            "message": f"单元 {unit_id} 要求 Word 自动编号，但生成模板没有 OOXML 编号定义",
+            "actual": "no word/numbering.xml definitions or paragraph numPr parsed",
+            "evidence_refs": requirement.get("source_refs", []),
+            "next_step": "修模板生成逻辑，写入 Word 自动编号定义和对应段落样式。",
+        }
+
+    if not matched_orders:
+        return {
+            "status": Status.UNKNOWN,
+            "type": "template_generation_numbering_unverified",
+            "message": f"单元 {unit_id} 未绑定到 Word 来源，无法检查自动编号",
+            "actual": _numbering_actual_summary(numbering_refs[:5])
+            or _numbering_definition_summary(numbering_definitions[:5]),
+            "evidence_refs": _numbering_evidence_refs(numbering_refs[:5]),
+            "next_step": "先修单元/元素匹配，再检查编号段落是否出现在该单元范围内。",
+        }
+
+    start_order, end_order = _field_unit_bounds(
+        requirement["unit_id"],
+        matched_orders,
+        unit_first_orders,
+    )
+    bounded_refs = [
+        ref
+        for ref in numbering_refs
+        if _numbering_ref_overlaps_unit(ref, start_order, end_order)
+    ]
+    expected_formats = requirement.get("expected_formats", [])
+    search_refs = bounded_refs or numbering_refs
+    if expected_formats:
+        matched_by_format = {
+            expected: [
+                ref
+                for ref in search_refs
+                if _numbering_format_matches(expected, ref)
+            ]
+            for expected in expected_formats
+        }
+        missing_formats = [
+            expected
+            for expected, refs in matched_by_format.items()
+            if not refs
+        ]
+        if not missing_formats:
+            matched_refs = [
+                refs[0]
+                for refs in matched_by_format.values()
+                if refs
+            ]
+            return {
+                "status": Status.PASS,
+                "type": "template_generation_numbering_match",
+                "message": f"单元 {unit_id} 的 Word 自动编号格式已绑定到 OOXML 来源",
+                "actual": _numbering_actual_summary(matched_refs),
+                "evidence_refs": _numbering_evidence_refs(matched_refs),
+                "next_step": "none",
+            }
+        if bounded_refs:
+            return {
+                "status": Status.FAIL,
+                "type": "template_generation_numbering_mismatch",
+                "message": f"单元 {unit_id} 的 Word 自动编号格式与标准不一致",
+                "actual": (
+                    f"missing formats={missing_formats}; "
+                    f"actual {_numbering_actual_summary(bounded_refs[:5])}"
+                ),
+                "evidence_refs": _numbering_evidence_refs(bounded_refs[:5]),
+                "next_step": "修模板生成逻辑，确保编号格式、层级和段落样式符合标准。",
+            }
+
+    if bounded_refs:
+        has_resolved_definition = any(
+            ref.get("num_fmt") or ref.get("lvl_text")
+            for ref in bounded_refs
+        )
+        return {
+            "status": Status.PASS if has_resolved_definition else Status.UNKNOWN,
+            "type": (
+                "template_generation_numbering_match"
+                if has_resolved_definition
+                else "template_generation_numbering_unverified"
+            ),
+            "message": f"单元 {unit_id} 的 Word 自动编号段落已绑定到单元范围",
+            "actual": _numbering_actual_summary(bounded_refs[:5]),
+            "evidence_refs": _numbering_evidence_refs(bounded_refs[:5]),
+            "next_step": (
+                "none"
+                if has_resolved_definition
+                else "补 numbering.xml 层级定义解析，证明编号格式。"
+            ),
+        }
+
+    matching_definitions = _numbering_definitions_matching_formats(
+        numbering_definitions,
+        expected_formats,
+    )
+    if matching_definitions:
+        return {
+            "status": Status.UNKNOWN,
+            "type": "template_generation_numbering_unverified",
+            "message": f"单元 {unit_id} 有匹配的编号定义，但当前还不能绑定到单元段落",
+            "actual": _numbering_definition_summary(matching_definitions[:5]),
+            "evidence_refs": [
+                str(item.get("source_ref", ""))
+                for item in matching_definitions[:5]
+                if item.get("source_ref")
+            ],
+            "next_step": "补该单元的可见来源或段落样式绑定，确认编号定义实际用于该单元。",
+        }
+
+    return {
+        "status": Status.FAIL,
+        "type": "template_generation_numbering_missing",
+        "message": f"单元 {unit_id} 缺少标准要求的 Word 自动编号段落",
+        "actual": (
+            f"unit bounds p[{start_order}]-p[{end_order}] have no numbering refs"
+        ),
+        "evidence_refs": requirement.get("source_refs", []),
+        "next_step": "修模板生成逻辑，把自动编号样式应用到该单元对应段落。",
+    }
+
+
+def _numbering_item_text(item: dict[str, Any]) -> str:
+    values = [
+        str(item.get(field, ""))
+        for field in (
+            "name",
+            "type",
+            "content",
+            "position",
+            "relationship",
+            "raw",
+        )
+    ]
+    return " ".join(values)
+
+
+def _requires_word_numbering(text: str) -> bool:
+    normalized = _normalize_text(text)
+    if not normalized or "编号" not in normalized:
+        return False
+    non_numbering_mechanisms = (
+        "脚注",
+        "图编号",
+        "表编号",
+        "公式编号",
+        "图号",
+        "表号",
+        "题注",
+        "域代码",
+        "目录条目",
+        "点引导线",
+    )
+    if any(marker in normalized for marker in non_numbering_mechanisms):
+        return False
+    strong_markers = (
+        "Word 列表编号",
+        "由 Word 列表编号生成",
+        "模板编号规则生成",
+        "编号由模板生成",
+        "章号由模板生成",
+        "Word 自动编号",
+        "自动编号",
+    )
+    if any(marker in normalized for marker in strong_markers):
+        return True
+    return "编号生成" in normalized and (
+        "标题" in normalized or "章" in normalized
+    )
+
+
+def _expected_numbering_formats(text: str) -> list[str]:
+    formats: list[str] = []
+    for match in re.finditer(r"(?:四级|五级)?格式[=＝]\s*([^；。\n]+)", text):
+        normalized = _normalize_expected_numbering_format(match.group(1))
+        if normalized:
+            formats.append(normalized)
+    return _dedupe(formats)
+
+
+def _normalize_expected_numbering_format(value: str) -> str:
+    normalized = value.strip().replace("％", "%")
+    if "+" in normalized:
+        base, suffix = normalized.split("+", 1)
+        normalized = base.strip()
+        if "半角空格" in suffix:
+            normalized += " "
+    return normalized.strip("；。")
+
+
+def _numbering_expected_summary(
+    expected_formats: list[str],
+    text: str,
+) -> str:
+    if expected_formats:
+        return "Word automatic numbering formats: " + ", ".join(
+            repr(item) for item in expected_formats
+        )
+    if "列表" in text:
+        return "Word automatic list numbering"
+    return "Word automatic numbering bound to paragraph style"
+
+
+def _numbering_ref_overlaps_unit(
+    ref: dict[str, Any],
+    start_order: int,
+    end_order: int,
+) -> bool:
+    paragraph_index = ref.get("paragraph_index")
+    if paragraph_index is None:
+        return False
+    paragraph_index = int(paragraph_index)
+    upper_bound = max(end_order + 8, start_order + 120)
+    return start_order - 2 <= paragraph_index <= upper_bound
+
+
+def _numbering_format_matches(expected: str, ref: dict[str, Any]) -> bool:
+    actual = str(ref.get("lvl_text") or "")
+    if not actual:
+        return False
+    return _normalize_numbering_format_for_compare(
+        expected,
+    ) == _normalize_numbering_format_for_compare(actual)
+
+
+def _normalize_numbering_format_for_compare(value: str) -> str:
+    return value.replace("％", "%").strip()
+
+
+def _numbering_definitions_matching_formats(
+    numbering_definitions: list[dict[str, Any]],
+    expected_formats: list[str],
+) -> list[dict[str, Any]]:
+    if not expected_formats:
+        return numbering_definitions
+    return [
+        definition
+        for definition in numbering_definitions
+        if any(
+            _numbering_format_matches(expected, definition)
+            for expected in expected_formats
+        )
+    ]
+
+
+def _numbering_actual_summary(refs: list[dict[str, Any]]) -> str:
+    return "; ".join(
+        (
+            f"p[{ref.get('paragraph_index')}]"
+            f" style={ref.get('paragraph_style_id') or 'missing'}"
+            f" numId={ref.get('num_id') or 'missing'}"
+            f" ilvl={ref.get('ilvl') or 'missing'}"
+            f" fmt={ref.get('num_fmt') or 'missing'}"
+            f" text={ref.get('lvl_text') or 'missing'}"
+        )
+        for ref in refs
+    )
+
+
+def _numbering_definition_summary(definitions: list[dict[str, Any]]) -> str:
+    return "; ".join(
+        (
+            f"numId={definition.get('num_id') or 'missing'}"
+            f" ilvl={definition.get('ilvl') or 'missing'}"
+            f" fmt={definition.get('num_fmt') or 'missing'}"
+            f" text={definition.get('lvl_text') or 'missing'}"
+            f" pStyle={definition.get('paragraph_style_id') or 'missing'}"
+        )
+        for definition in definitions
+    )
+
+
+def _numbering_evidence_refs(refs: list[dict[str, Any]]) -> list[str]:
+    evidence_refs: list[str] = []
+    for ref in refs:
+        if ref.get("source_ref"):
+            evidence_refs.append(str(ref.get("source_ref")))
+        evidence_refs.extend(str(item) for item in ref.get("source_refs", []))
+        if ref.get("definition_source_ref"):
+            evidence_refs.append(str(ref.get("definition_source_ref")))
+    return _dedupe(evidence_refs)
 
 
 def _style_check(
@@ -1834,32 +2167,6 @@ def _float_or_none(value: str) -> float | None:
         return float(value)
     except ValueError:
         return None
-
-
-def _unit_mentions_numbering(unit: dict[str, Any]) -> bool:
-    requirement_text = _numbering_requirement_text(unit)
-    return "编号" in requirement_text or "目录层级" in requirement_text
-
-
-def _numbering_requirement_text(unit: dict[str, Any]) -> str:
-    values: list[str] = [
-        str(unit.get("name", "")),
-        str(unit.get("element_order", "")),
-        str(unit.get("layout_relation", "")),
-        str(unit.get("missing_policy", "")),
-    ]
-    for element in unit.get("elements", []):
-        values.extend(
-            str(element.get(field, ""))
-            for field in (
-                "name",
-                "content",
-                "position",
-                "relationship",
-                "raw",
-            )
-        )
-    return " ".join(values)
 
 
 def _style_matches(expected_style: str, actual_style: str) -> bool:
