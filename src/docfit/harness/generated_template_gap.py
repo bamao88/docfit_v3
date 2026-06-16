@@ -427,9 +427,11 @@ def _compare_units(
                     next_step="如果生成逻辑应输出该单元，修模板生成；如果解析器无法识别，补生成模板解析器。",
                 )
             )
+    for unit in expected_units:
+        unit_id = str(unit.get("unit_id") or "unknown_unit")
+        matched_orders = unit_matched_orders.get(unit_id, [])
         checks.extend(_header_footer_checks(unit, tree, matched_orders))
-        checks.extend(_page_rule_checks(unit, tree, matched_orders))
-
+        checks.extend(_page_rule_checks(unit, tree, matched_orders, unit_first_orders))
     checks.extend(
         _field_checks(expected_units, tree, unit_matched_orders, unit_first_orders)
     )
@@ -1665,6 +1667,7 @@ def _page_rule_checks(
     unit: dict[str, Any],
     tree: dict[str, Any],
     matched_orders: list[int],
+    unit_first_orders: list[tuple[str, int]],
 ) -> list[dict[str, Any]]:
     unit_id = str(unit.get("unit_id") or "unknown_unit")
     page = unit.get("page") or {}
@@ -1681,6 +1684,7 @@ def _page_rule_checks(
             rule,
             tree,
             matched_orders,
+            unit_first_orders,
         )
         checks.append(
             _check(
@@ -1705,6 +1709,7 @@ def _evaluate_page_rule(
     rule: str,
     tree: dict[str, Any],
     matched_orders: list[int],
+    unit_first_orders: list[tuple[str, int]],
 ) -> dict[str, Any]:
     if not matched_orders:
         return {
@@ -1716,8 +1721,9 @@ def _evaluate_page_rule(
             "next_step": "先修单元/元素匹配，再检查分页规则。",
         }
 
-    first_order = min(matched_orders)
-    context = _page_context(tree, first_order)
+    bounded_orders = _unit_bounded_orders(unit_id, matched_orders, unit_first_orders)
+    first_order = min(bounded_orders or matched_orders)
+    context = _page_context(tree, first_order, bounded_orders or matched_orders)
     if field == "page_break":
         if _page_rule_is_document_start(rule):
             status = Status.PASS if first_order <= 5 else Status.FAIL
@@ -1808,21 +1814,33 @@ def _evaluate_page_rule(
             }
 
     if field == "keep_together":
-        keep_refs = context["keep_refs"]
+        keep_refs = context["keep_refs"] + context["table_keep_refs"]
         if keep_refs:
             return {
                 "status": Status.PASS,
                 "type": "template_generation_page_rule_match",
-                "message": f"单元 {unit_id} 有 OOXML keep 属性证据",
+                "message": f"单元 {unit_id} 有 OOXML keep 或表格不拆行证据",
                 "actual": ", ".join(keep_refs),
                 "evidence_refs": keep_refs,
                 "next_step": "none",
+            }
+        if context["table_refs"]:
+            return {
+                "status": Status.UNKNOWN,
+                "type": "template_generation_page_rule_unverified",
+                "message": f"单元 {unit_id} 已绑定到表格块，但同页约束仍无法完整证明",
+                "actual": (
+                    "table block parsed without cantSplit/keep evidence: "
+                    + ", ".join(context["table_refs"])
+                ),
+                "evidence_refs": context["table_refs"],
+                "next_step": "补表格行不拆分、内容控件、页面图像或 Word evidence 检查。",
             }
         return {
             "status": Status.UNKNOWN,
             "type": "template_generation_page_rule_unverified",
             "message": f"单元 {unit_id} 的同页约束当前无法完整证明",
-            "actual": f"no keepNext/keepLines parsed near p[{first_order}]",
+            "actual": f"no keepNext/keepLines/table no-split parsed near p[{first_order}]",
             "evidence_refs": [context["paragraph_ref"]],
             "next_step": "补单元范围、表格边界和 keep-with-next/keep-lines 的绑定检查。",
         }
@@ -1837,7 +1855,18 @@ def _evaluate_page_rule(
     }
 
 
-def _page_context(tree: dict[str, Any], first_order: int) -> dict[str, Any]:
+def _page_context(
+    tree: dict[str, Any],
+    first_order: int,
+    matched_orders: list[int] | None = None,
+) -> dict[str, Any]:
+    matched_paragraph_orders = [
+        int(order)
+        for order in (matched_orders or [first_order])
+        if int(order) < 20_000
+    ]
+    range_start = min(matched_paragraph_orders) if matched_paragraph_orders else first_order
+    range_end = max(matched_paragraph_orders) if matched_paragraph_orders else first_order
     paragraphs = {
         int(paragraph.get("index")): paragraph
         for paragraph in tree.get("data", {}).get("paragraphs", [])
@@ -1865,16 +1894,76 @@ def _page_context(tree: dict[str, Any], first_order: int) -> dict[str, Any]:
     if style.get("page_break_before"):
         page_break_refs.append(f"word/document.xml:p[{first_order}]/pageBreakBefore")
     keep_refs: list[str] = []
-    if style.get("keep_next"):
-        keep_refs.append(f"word/document.xml:p[{first_order}]/keepNext")
-    if style.get("keep_lines"):
-        keep_refs.append(f"word/document.xml:p[{first_order}]/keepLines")
+    for paragraph_index in range(range_start, range_end + 1):
+        paragraph_style = (
+            (paragraphs.get(paragraph_index, {}).get("style_details") or {}).get(
+                "paragraph"
+            )
+            or {}
+        )
+        if paragraph_style.get("keep_next"):
+            keep_refs.append(f"word/document.xml:p[{paragraph_index}]/keepNext")
+        if paragraph_style.get("keep_lines"):
+            keep_refs.append(f"word/document.xml:p[{paragraph_index}]/keepLines")
+    if not keep_refs:
+        if style.get("keep_next"):
+            keep_refs.append(f"word/document.xml:p[{first_order}]/keepNext")
+        if style.get("keep_lines"):
+            keep_refs.append(f"word/document.xml:p[{first_order}]/keepLines")
+
+    table_refs: list[str] = []
+    table_keep_refs: list[str] = []
+    for table in tree.get("data", {}).get("tables", []):
+        table_start = table.get("first_paragraph_index")
+        table_end = table.get("last_paragraph_index")
+        if table_start is None or table_end is None:
+            continue
+        if not _ranges_overlap(
+            range_start - 2,
+            range_end + 2,
+            int(table_start),
+            int(table_end),
+        ):
+            continue
+        table_refs.append(str(table.get("source_ref", "")))
+        table_keep_refs.extend(str(ref) for ref in table.get("cant_split_row_refs", []))
+        table_keep_refs.extend(str(ref) for ref in table.get("keep_refs", []))
     return {
         "paragraph_ref": paragraph.get("source_ref", f"word/document.xml:p[{first_order}]"),
         "page_break_refs": [ref for ref in page_break_refs if ref],
         "section_refs": [ref for ref in section_refs if ref],
-        "keep_refs": keep_refs,
+        "keep_refs": _dedupe(keep_refs),
+        "table_refs": _dedupe(table_refs),
+        "table_keep_refs": _dedupe(table_keep_refs),
     }
+
+
+def _unit_bounded_orders(
+    unit_id: str,
+    matched_orders: list[int],
+    unit_first_orders: list[tuple[str, int]],
+) -> list[int]:
+    if not matched_orders:
+        return []
+    start_order, end_order = _field_unit_bounds(
+        unit_id,
+        matched_orders,
+        unit_first_orders,
+    )
+    return [
+        order
+        for order in matched_orders
+        if start_order <= int(order) <= end_order
+    ]
+
+
+def _ranges_overlap(
+    left_start: int,
+    left_end: int,
+    right_start: int,
+    right_end: int,
+) -> bool:
+    return left_start <= right_end and right_start <= left_end
 
 
 def _page_rule_is_document_start(rule: str) -> bool:
@@ -1930,7 +2019,23 @@ def _candidate_needles(element: dict[str, Any]) -> list[str]:
     label = re.sub(r"(标签|内容|正文|结果|机制)$", "", name).strip()
     if label and not _looks_like_descriptor(label) and len(label) >= 2:
         candidates.append(label)
+    candidates.extend(_fixed_visible_field_needles(element))
     return _dedupe(candidates)
+
+
+def _fixed_visible_field_needles(element: dict[str, Any]) -> list[str]:
+    raw = _normalize_text(element.get("raw"))
+    if not raw:
+        return []
+    match = re.search(r"固定可见字段[:：](?P<fields>.+?)(?:样式[:：]|$)", raw)
+    if not match:
+        return []
+    fields = re.split(r"[；;、,，。]", match.group("fields"))
+    return [
+        field.strip()
+        for field in fields
+        if len(field.strip()) >= 2 and not _looks_like_descriptor(field.strip())
+    ]
 
 
 def _find_matches(
@@ -1944,7 +2049,7 @@ def _find_matches(
         text = _normalize_text(entry.get("text"))
         if any(_normalize_text(needle) in text for needle in needles):
             matches.append(entry)
-    return matches
+    return sorted(matches, key=lambda entry: int(entry.get("order") or 0))
 
 
 def _has_generated_field(tree: dict[str, Any], element: dict[str, Any]) -> bool:

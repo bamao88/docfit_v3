@@ -126,8 +126,11 @@ Word 的差距检查现在会把 template 阶段阻断；即使如此，e2e 仍�
 - 页眉页脚检查已经能读取 `document.xml.rels` 和 Word section 的 header/footer
   引用，并按单元位置检查对应 section；确定冲突时会报页眉或页码规则 mismatch。
 - 分页检查已经能把单元位置和 OOXML page break / section 绑定起来；缺少应有
-  分页或分节证据时会报 `template_generation_page_rule_mismatch`。同页约束在
-  缺少 keep/table/页面证据时仍保留 `UNKNOWN`。
+  分页或分节证据时会报 `template_generation_page_rule_mismatch`。同页约束会检查
+  单元范围内的 `keepNext` / `keepLines`、表格真实段落范围和表格行 `cantSplit`；
+  南农封面这类固定表格可以报 `template_generation_page_rule_match`。如果只能证明
+  是表格块但没有不拆行/keep 证据，或需要判断封面溢出、签名区掉页，仍保留
+  `UNKNOWN`。
 
 最新临时验证：
 
@@ -137,8 +140,8 @@ uv run docfit eval e2e --school hunannongye --student inputs/real-student-003-so
 
 当前结果是 `stage_statuses.template = FAIL`，`blocked_at = template`。
 `artifacts/template_gap_report.json` 展示为 `FAIL + UNKNOWN`：当前生成模板已经
-有确定性缺失项，同时同页约束、部分页眉页码规则、等价生成机制和复杂样式/section
-继承还有未证明项。旧
+有确定性缺失项，同时页面级版面完整性、部分页眉页码规则、等价生成机制和复杂
+样式/section 继承还有未证明项。旧
 `reports/real-core-v0/**` 里的历史 artifacts 在重新生成前仍可能显示旧模板问题。
 
 ### 2. 内容抽取

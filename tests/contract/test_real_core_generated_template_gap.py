@@ -177,6 +177,39 @@ def test_generated_template_gap_binds_page_rules_to_ooxml_sources(tmp_path) -> N
     )
 
 
+def test_generated_template_gap_binds_keep_together_to_table_sources(tmp_path) -> None:
+    result = run_template_gap_eval(
+        ROOT,
+        "nannong-undergraduate",
+        ROOT / "inputs/school-nannong-undergraduate-template.docx",
+        tmp_path / "table_keep_gap",
+    )
+    tree = read_json(tmp_path / "table_keep_gap/artifacts/generated_template_tree.json")
+    report = read_json(tmp_path / "table_keep_gap/artifacts/template_gap_report.json")
+
+    assert result.status == Status.FAIL
+    cover_table = tree["data"]["tables"][0]
+    assert cover_table["first_paragraph_index"] == 1
+    assert cover_table["last_paragraph_index"] == 21
+    assert cover_table["cant_split_row_refs"] == [
+        "word/document.xml:tbl[1]/tr[1]/cantSplit"
+    ]
+    assert cover_table["cells"][0]["first_paragraph_index"] == 1
+
+    assert any(
+        item["type"] == "template_generation_element_found"
+        and item["affected_ids"] == ["cover.e_001"]
+        and item["evidence_refs"][0] == "word/document.xml:tbl[1]/tr[1]/tc[1]"
+        for item in report["check_items"]
+    )
+    assert any(
+        item["type"] == "template_generation_page_rule_match"
+        and item["affected_ids"] == ["cover.page.keep_together"]
+        and item["evidence_refs"] == ["word/document.xml:tbl[1]/tr[1]/cantSplit"]
+        for item in report["check_items"]
+    )
+
+
 def test_generated_template_gap_binds_header_footer_rules_to_sections(tmp_path) -> None:
     result = run_template_gap_eval(
         ROOT,

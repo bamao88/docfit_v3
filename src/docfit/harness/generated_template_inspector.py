@@ -45,8 +45,9 @@ def inspect_generated_template_docx(generated_template: Path) -> dict[str, Any]:
     tree["input_hashes"]["generated_template_docx"] = sha256_file(generated_template)
     doc = Document(generated_template)
     paragraph_styles = _paragraph_style_details_by_index(generated_template)
+    table_details = _table_details_by_index(generated_template)
     tree["data"]["paragraphs"] = _paragraphs(doc, paragraph_styles)
-    tree["data"]["tables"] = _tables(doc)
+    tree["data"]["tables"] = _tables(doc, table_details)
     tree["data"].update(_inspect_ooxml_parts(generated_template))
     tree["data"]["unknown_visible_objects"] = detect_unsupported_visible_objects(
         generated_template
@@ -79,7 +80,12 @@ def iter_visible_text_entries(tree: dict[str, Any]) -> list[dict[str, Any]]:
                         "text": cell.get("text", ""),
                         "style": table.get("style", ""),
                         "source_ref": cell.get("source_ref", ""),
-                        "order": 10_000 + cell.get("global_index", 0),
+                        "order": cell.get("first_paragraph_index")
+                        or 10_000 + cell.get("global_index", 0),
+                        "paragraph_index": cell.get("first_paragraph_index"),
+                        "end_paragraph_index": cell.get("last_paragraph_index"),
+                        "table_index": table.get("index"),
+                        "table_source_ref": table.get("source_ref", ""),
                     }
                 )
     for part in data.get("headers_footers", []):
@@ -132,14 +138,20 @@ def _paragraphs(
     return paragraphs
 
 
-def _tables(doc: Document) -> list[dict[str, Any]]:
+def _tables(
+    doc: Document,
+    table_details: dict[int, dict[str, Any]],
+) -> list[dict[str, Any]]:
     tables: list[dict[str, Any]] = []
     global_cell_index = 0
     for table_index, table in enumerate(doc.tables, start=1):
+        table_detail = table_details.get(table_index, {})
+        cell_details = table_detail.get("cells", {})
         cells: list[dict[str, Any]] = []
         for row_index, row in enumerate(table.rows, start=1):
             for cell_index, cell in enumerate(row.cells, start=1):
                 global_cell_index += 1
+                cell_detail = cell_details.get((row_index, cell_index), {})
                 text = "\n".join(
                     paragraph.text.strip()
                     for paragraph in cell.paragraphs
@@ -151,7 +163,16 @@ def _tables(doc: Document) -> list[dict[str, Any]]:
                         "column": cell_index,
                         "global_index": global_cell_index,
                         "text": text,
-                        "source_ref": (
+                        "paragraph_indices": cell_detail.get("paragraph_indices", []),
+                        "first_paragraph_index": cell_detail.get(
+                            "first_paragraph_index"
+                        ),
+                        "last_paragraph_index": cell_detail.get("last_paragraph_index"),
+                        "keep_refs": cell_detail.get("keep_refs", []),
+                        "row_cant_split": bool(cell_detail.get("row_cant_split")),
+                        "row_source_ref": cell_detail.get("row_source_ref", ""),
+                        "source_ref": cell_detail.get("source_ref")
+                        or (
                             f"word/document.xml:tbl[{table_index}]"
                             f"/tr[{row_index}]/tc[{cell_index}]"
                         ),
@@ -163,11 +184,95 @@ def _tables(doc: Document) -> list[dict[str, Any]]:
                 "style": table.style.name if table.style is not None else "",
                 "row_count": len(table.rows),
                 "column_count": max((len(row.cells) for row in table.rows), default=0),
+                "first_paragraph_index": table_detail.get("first_paragraph_index"),
+                "last_paragraph_index": table_detail.get("last_paragraph_index"),
+                "cant_split_row_refs": table_detail.get("cant_split_row_refs", []),
+                "keep_refs": table_detail.get("keep_refs", []),
                 "cells": cells,
                 "source_ref": f"word/document.xml:tbl[{table_index}]",
             }
         )
     return tables
+
+
+def _table_details_by_index(path: Path) -> dict[int, dict[str, Any]]:
+    try:
+        with ZipFile(path) as package:
+            root = ET.fromstring(package.read("word/document.xml"))
+    except (KeyError, ET.ParseError):
+        return {}
+
+    paragraph_indices = {
+        id(paragraph): index
+        for index, paragraph in enumerate(root.iter(f"{W_NS}p"), start=1)
+    }
+    details: dict[int, dict[str, Any]] = {}
+    for table_index, table in enumerate(root.iter(f"{W_NS}tbl"), start=1):
+        table_paragraphs = [
+            paragraph_indices[id(paragraph)]
+            for paragraph in table.iter(f"{W_NS}p")
+            if id(paragraph) in paragraph_indices
+        ]
+        table_keep_refs: list[str] = []
+        cant_split_refs: list[str] = []
+        cell_details: dict[tuple[int, int], dict[str, Any]] = {}
+        for row_index, row in enumerate(table.findall(f"{W_NS}tr"), start=1):
+            row_source_ref = f"word/document.xml:tbl[{table_index}]/tr[{row_index}]"
+            row_cant_split = (
+                row.find(f"{W_NS}trPr/{W_NS}cantSplit") is not None
+            )
+            if row_cant_split:
+                cant_split_refs.append(f"{row_source_ref}/cantSplit")
+            for cell_index, cell in enumerate(row.findall(f"{W_NS}tc"), start=1):
+                cell_paragraphs = [
+                    paragraph_indices[id(paragraph)]
+                    for paragraph in cell.iter(f"{W_NS}p")
+                    if id(paragraph) in paragraph_indices
+                ]
+                cell_keep_refs: list[str] = []
+                for paragraph in cell.iter(f"{W_NS}p"):
+                    paragraph_index = paragraph_indices.get(id(paragraph))
+                    if paragraph_index is None:
+                        continue
+                    properties = paragraph.find(f"{W_NS}pPr")
+                    if properties is None:
+                        continue
+                    if properties.find(f"{W_NS}keepNext") is not None:
+                        cell_keep_refs.append(
+                            f"word/document.xml:p[{paragraph_index}]/keepNext"
+                        )
+                    if properties.find(f"{W_NS}keepLines") is not None:
+                        cell_keep_refs.append(
+                            f"word/document.xml:p[{paragraph_index}]/keepLines"
+                        )
+                table_keep_refs.extend(cell_keep_refs)
+                cell_details[(row_index, cell_index)] = {
+                    "paragraph_indices": cell_paragraphs,
+                    "first_paragraph_index": min(cell_paragraphs)
+                    if cell_paragraphs
+                    else None,
+                    "last_paragraph_index": max(cell_paragraphs)
+                    if cell_paragraphs
+                    else None,
+                    "keep_refs": cell_keep_refs,
+                    "row_cant_split": row_cant_split,
+                    "row_source_ref": row_source_ref,
+                    "source_ref": (
+                        f"{row_source_ref}/tc[{cell_index}]"
+                    ),
+                }
+        details[table_index] = {
+            "first_paragraph_index": min(table_paragraphs)
+            if table_paragraphs
+            else None,
+            "last_paragraph_index": max(table_paragraphs)
+            if table_paragraphs
+            else None,
+            "cant_split_row_refs": cant_split_refs,
+            "keep_refs": _dedupe(table_keep_refs),
+            "cells": cell_details,
+        }
+    return details
 
 
 def _paragraph_style_details_by_index(path: Path) -> dict[int, dict[str, Any]]:

@@ -49,13 +49,14 @@ Approval: LGTM/approve/go ahead approves; edits request revision.
   - `artifacts/template_gap_report.json`
   - `artifacts/template_gap_report.md`
   - `artifacts/template_gap_report.docx`
-- `generated_template_tree.json` 来自 DOCX/OOXML 解析，包含段落、表格、页眉页脚、
-  字段、分页/section、编号定义/编号引用、段落/运行样式属性和未建模可见对象的
-  来源位置。
+- `generated_template_tree.json` 来自 DOCX/OOXML 解析，包含段落、表格真实段落范围、
+  表格行不拆分证据、页眉页脚、字段、分页/section、编号定义/编号引用、段落/运行
+  样式属性和未建模可见对象的来源位置。
 - `template_gap_report.json` 保留 `known_status`、`display_status`、
   `passed_count`、`failed_count`、`unknown_count` 和 `blocking_status`。
   当前真实 probe 的模板报告是 `FAIL + UNKNOWN`，说明已经发现确定性差距，
-  同时仍有同页约束、部分页眉页码规则、等价生成机制和部分复杂样式继承无法完整证明。
+  同时仍有页面级版面完整性、部分页眉页码规则、等价生成机制和部分复杂样式继承
+  无法完整证明。
 - 差距报告现在显式覆盖 field 和 numbering 两类检查：
   - Word 字段会从 OOXML complex field / fldSimple 解析为完整指令和起止段落；
     南农 TOC、北大主目录/图目录/表目录等字段可以绑定到具体单元。
@@ -81,8 +82,11 @@ Approval: LGTM/approve/go ahead approves; edits request revision.
   `template_generation_page_number_rule_mismatch`。
 - 分页检查现在会把单元匹配位置和 OOXML page break / section / pageBreakBefore
   绑定起来。能证明不符合另起页或分页隔离要求时会报
-  `template_generation_page_rule_mismatch`；同页约束仍在缺少 keep/table/页面证据时
-  保留 `template_generation_page_rule_unverified`。
+  `template_generation_page_rule_mismatch`。同页约束现在会检查单元范围内的
+  `keepNext` / `keepLines`，也会把表格单元的真实段落范围和表格行 `cantSplit`
+  绑定到单元；南农封面这类 1x1 固定表格可以报 `template_generation_page_rule_match`。
+  如果只能证明是表格块但缺少不拆行/keep 证据，或需要判断封面溢出、签名区掉页，
+  仍保留 `template_generation_page_rule_unverified`。
 - e2e 不再因为 source-fact binding 或 Word evidence binding 存在就把模板视为通过。
   如果模板差距报告阻断，summary 会保持 `blocked_at: template`，但仍继续生成后续
   内容、放置、渲染诊断产物。
@@ -93,13 +97,13 @@ Approval: LGTM/approve/go ahead approves; edits request revision.
 
 ```bash
 uv run pytest tests/unit/test_baseline_comparison.py tests/unit/test_word_evidence.py tests/contract/test_contract_gates.py tests/contract/test_real_core_baseline_harness.py tests/contract/test_real_core_four_stage_problem_checks.py tests/contract/test_real_core_generated_template_gap.py tests/e2e/test_bootstrap_cli.py -q
-# 49 passed
+# 50 passed
 
 uv run pytest -q
-# 61 passed
+# 62 passed
 
 uv run pytest tests/contract/test_real_core_generated_template_gap.py -q
-# 10 passed
+# 11 passed
 
 uv run docfit eval template-gap --school hunannongye --generated-template inputs/school-hunannongye-requirement.docx --out /tmp/docfit_template_gap_hunannongye
 # status = FAIL
@@ -111,6 +115,15 @@ uv run docfit eval e2e --school hunannongye --student inputs/real-student-003-so
 
 uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage
 # status = FAIL
+```
+
+补充同页约束证据：
+
+```text
+南农生成模板差距 probe：
+generated_template_tree.json 中封面表格绑定到 word/document.xml:tbl[1]，
+段落范围 p[1]-p[21]，并解析到 word/document.xml:tbl[1]/tr[1]/cantSplit。
+template_gap_report.json 中 cover.page.keep_together 为 template_generation_page_rule_match。
 ```
 
 补充编号证据：
@@ -126,8 +139,9 @@ template_gap_report.json 中有 5 条 template_generation_numbering_match，
 
 - 当前原型还没有真正修正模板生成逻辑；本切片只是把生成模板 Word 作为被测输入并
   报告差距。
-- 同页约束、等价生成机制、图题/表题/公式编号这类非列表自动编号机制、复杂样式表缺项、
-  复杂 section 继承和更细页码规则等 OOXML 检查仍有 `UNKNOWN`，需要继续补解析能力。
+- 页面级版面完整性、等价生成机制、图题/表题/公式编号这类非列表自动编号机制、
+  复杂样式表缺项、复杂 section 继承和更细页码规则等检查仍有 `UNKNOWN`，需要继续
+  补解析能力或 Word evidence。
 - Microsoft Word 打开和页面图片证据仍只覆盖已有 `final.docx` 证据包；生成模板
   Word 的 Word evidence 还不能宣称完整通过。
 - 9 个真实成品尚未在修复生成模板、内容、放置、渲染后统一重生。

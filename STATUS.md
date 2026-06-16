@@ -71,7 +71,10 @@ Current state:
   页眉页脚检查现在会解析 `document.xml.rels` 和 section 的 header/footer 引用，
   并按单元位置检查对应 section；确定冲突时会报页眉或页码规则 mismatch。
   分页检查现在会绑定单元位置和 OOXML page break / section；缺少应有分页或
-  分节证据时会报 `template_generation_page_rule_mismatch`。
+  分节证据时会报 `template_generation_page_rule_mismatch`。同页约束会检查
+  `keepNext` / `keepLines`、表格真实段落范围和表格行 `cantSplit`；南农封面这类
+  固定表格可以报 `template_generation_page_rule_match`。页面溢出和签名区掉页
+  仍需要 Word evidence 或更细页面级检查。
 - 学生源文档中的旧目录已经有一个通用修复：`toc 1` / `toc 2` / `toc 3`
   样式段落会被识别为源文档格式内容，内容放置时标为不写入成品，Word 生成记录
   会说明该动作已处理但不会把旧目录文字写进后续新输出。
@@ -90,7 +93,7 @@ Current state:
 Next action:
 
 - 下一步先修生成模板差距报告暴露的 template 阶段问题：补齐生成模板实际输出、
-  同页约束、等价生成机制、复杂样式/section/页码规则等解析，或修模板生成逻辑，
+  等价生成机制、复杂样式/section/页码规则和页面级版面证据，或修模板生成逻辑，
   直到模板差距报告不再阻断。
 - 然后继续修内容抽取：识别摘要、关键词、参考文献、附录、致谢这类章节角色，
   以及旧封面、旧目录这类不该进目标正文的源文档格式内容。
