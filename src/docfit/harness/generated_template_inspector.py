@@ -12,6 +12,8 @@ from docfit.ooxml.package import detect_unsupported_visible_objects, is_valid_do
 
 
 W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+R_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
+REL_NS = "{http://schemas.openxmlformats.org/package/2006/relationships}"
 
 
 def inspect_generated_template_docx(generated_template: Path) -> dict[str, Any]:
@@ -31,6 +33,7 @@ def inspect_generated_template_docx(generated_template: Path) -> dict[str, Any]:
             "headers_footers": [],
             "fields": [],
             "breaks": [],
+            "sections": [],
             "numbering_refs": [],
             "unknown_visible_objects": [],
         },
@@ -509,9 +512,11 @@ def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, A
     headers_footers: list[dict[str, Any]] = []
     fields: list[dict[str, Any]] = []
     breaks: list[dict[str, Any]] = []
+    sections: list[dict[str, Any]] = []
     numbering_refs: list[dict[str, Any]] = []
 
     with ZipFile(generated_template) as package:
+        relationships = _document_relationships(package)
         part_names = [
             name
             for name in package.namelist()
@@ -539,18 +544,144 @@ def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, A
             fields.extend(_fields(root, part_name))
             breaks.extend(_breaks(root, part_name))
             if part_name == "word/document.xml":
+                sections.extend(_sections(root, relationships))
                 numbering_refs.extend(_numbering_refs(root))
 
     return {
         "headers_footers": headers_footers,
         "fields": fields,
         "breaks": breaks,
+        "sections": sections,
         "numbering_refs": numbering_refs,
     }
 
 
 def _visible_text(root: ET.Element) -> str:
     return "".join(node.text or "" for node in root.iter(f"{W_NS}t")).strip()
+
+
+def _document_relationships(package: ZipFile) -> dict[str, str]:
+    try:
+        root = ET.fromstring(package.read("word/_rels/document.xml.rels"))
+    except (KeyError, ET.ParseError):
+        return {}
+    relationships: dict[str, str] = {}
+    for node in root.findall(f"{REL_NS}Relationship"):
+        relationship_id = node.attrib.get("Id")
+        target = node.attrib.get("Target")
+        if relationship_id and target:
+            relationships[relationship_id] = _normalize_word_target(target)
+    return relationships
+
+
+def _normalize_word_target(target: str) -> str:
+    if target.startswith("/"):
+        return target.lstrip("/")
+    if target.startswith("word/"):
+        return target
+    return f"word/{target}"
+
+
+def _sections(
+    root: ET.Element,
+    relationships: dict[str, str],
+) -> list[dict[str, Any]]:
+    sections: list[dict[str, Any]] = []
+    effective_refs: dict[tuple[str, str], dict[str, Any]] = {}
+
+    def append_section(
+        section_properties: ET.Element,
+        paragraph_index: int | None,
+        source_ref: str,
+    ) -> None:
+        nonlocal effective_refs
+        direct_refs = _section_references(
+            section_properties,
+            relationships,
+            source_ref,
+        )
+        for ref in direct_refs:
+            effective_refs[(ref["kind"], ref["type"])] = ref
+        section_index = len(sections) + 1
+        sections.append(
+            {
+                "index": section_index,
+                "paragraph_index": paragraph_index,
+                "source_ref": source_ref,
+                "references": direct_refs,
+                "effective_references": sorted(
+                    effective_refs.values(),
+                    key=lambda item: (item["kind"], item["type"], item["part_name"]),
+                ),
+                "page_numbering": _page_numbering(section_properties),
+                "page_margins": _page_margins(section_properties),
+            }
+        )
+
+    for paragraph_index, paragraph in enumerate(root.iter(f"{W_NS}p"), start=1):
+        paragraph_properties = paragraph.find(f"{W_NS}pPr")
+        section_properties = (
+            paragraph_properties.find(f"{W_NS}sectPr")
+            if paragraph_properties is not None
+            else None
+        )
+        if section_properties is not None:
+            append_section(
+                section_properties,
+                paragraph_index,
+                f"word/document.xml:p[{paragraph_index}]/sectPr",
+            )
+    for section_properties in root.findall(f"./{W_NS}body/{W_NS}sectPr"):
+        append_section(section_properties, None, "word/document.xml:body/sectPr")
+    return sections
+
+
+def _section_references(
+    section_properties: ET.Element,
+    relationships: dict[str, str],
+    section_source_ref: str,
+) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for index, node in enumerate(section_properties, start=1):
+        local_name = node.tag.rsplit("}", 1)[-1]
+        if local_name not in {"headerReference", "footerReference"}:
+            continue
+        relationship_id = node.attrib.get(f"{R_NS}id", "")
+        part_name = relationships.get(relationship_id, "")
+        refs.append(
+            {
+                "kind": "header" if local_name == "headerReference" else "footer",
+                "type": node.attrib.get(f"{W_NS}type", "default"),
+                "relationship_id": relationship_id,
+                "part_name": part_name,
+                "source_ref": f"{section_source_ref}/{local_name}[{index}]",
+            }
+        )
+    return refs
+
+
+def _page_numbering(section_properties: ET.Element) -> dict[str, Any]:
+    node = section_properties.find(f"{W_NS}pgNumType")
+    if node is None:
+        return {}
+    return {
+        "format": _attr(node, "fmt"),
+        "start": _int_or_none(_attr(node, "start")),
+    }
+
+
+def _page_margins(section_properties: ET.Element) -> dict[str, Any]:
+    node = section_properties.find(f"{W_NS}pgMar")
+    if node is None:
+        return {}
+    return {
+        "header_pt": _twips_to_points(_attr(node, "header")),
+        "footer_pt": _twips_to_points(_attr(node, "footer")),
+        "top_pt": _twips_to_points(_attr(node, "top")),
+        "bottom_pt": _twips_to_points(_attr(node, "bottom")),
+        "left_pt": _twips_to_points(_attr(node, "left")),
+        "right_pt": _twips_to_points(_attr(node, "right")),
+    }
 
 
 def _fields(root: ET.Element, part_name: str) -> list[dict[str, Any]]:
@@ -577,6 +708,7 @@ def _fields(root: ET.Element, part_name: str) -> list[dict[str, Any]]:
             "kind": kind,
             "field_type": _field_type(normalized_instruction),
             "instruction": normalized_instruction,
+            "part_name": part_name,
             "paragraph_index": paragraph_index,
             "end_paragraph_index": end_paragraph_index,
             "source_ref": source_ref,

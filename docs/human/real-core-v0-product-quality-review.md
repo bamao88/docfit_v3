@@ -149,8 +149,9 @@ position/relationship 比对 `template_artifact.data.units`。例如元素样式
 生成模板 Word 本身；当前报告为 `FAIL + UNKNOWN`，说明已经发现确定性差距，
 其中部分样式差距已经能以 OOXML 字体、字号、加粗、对齐和行距属性报出明确
 `FAIL`，并会合并 `word/styles.xml` 段落样式继承链；分页/分节缺失也能报出明确
-`FAIL`；Word 字段也能合并 complex field 并绑定到单元范围。同页约束、页眉页脚、
-等价生成机制、编号绑定和复杂样式表缺项仍有未证明项。
+`FAIL`；Word 字段也能合并 complex field 并绑定到单元范围；页眉页脚和页码字段
+也能按 Word section 绑定检查。同页约束、等价生成机制、编号绑定、复杂样式表缺项、
+复杂 section 继承和更细页码规则仍有未证明项。
 
 注意：既有 `reports/real-core-v0/**` 仍是旧成品和旧证据，未在本轮重生。因此 coverage
 读取旧报告时仍会看到旧的模板问题；这不代表 source-fact parser 代码回退，而是后续需要

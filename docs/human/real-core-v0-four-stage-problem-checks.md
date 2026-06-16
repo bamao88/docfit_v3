@@ -121,6 +121,8 @@ Word 的差距检查现在会把 template 阶段阻断；即使如此，e2e 仍�
   `word/styles.xml` 段落样式继承链；确定不一致时会报
   `template_generation_style_mismatch`。样式表或单元绑定证据仍不足时保留为
   `template_generation_style_unverified`。
+- 页眉页脚检查已经能读取 `document.xml.rels` 和 Word section 的 header/footer
+  引用，并按单元位置检查对应 section；确定冲突时会报页眉或页码规则 mismatch。
 - 分页检查已经能把单元位置和 OOXML page break / section 绑定起来；缺少应有
   分页或分节证据时会报 `template_generation_page_rule_mismatch`。同页约束在
   缺少 keep/table/页面证据时仍保留 `UNKNOWN`。

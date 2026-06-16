@@ -177,6 +177,52 @@ def test_generated_template_gap_binds_page_rules_to_ooxml_sources(tmp_path) -> N
     )
 
 
+def test_generated_template_gap_binds_header_footer_rules_to_sections(tmp_path) -> None:
+    result = run_template_gap_eval(
+        ROOT,
+        "nannong-undergraduate",
+        ROOT / "inputs/school-nannong-undergraduate-template.docx",
+        tmp_path / "header_footer_gap",
+    )
+    tree = read_json(tmp_path / "header_footer_gap/artifacts/generated_template_tree.json")
+    report = read_json(
+        tmp_path / "header_footer_gap/artifacts/template_gap_report.json"
+    )
+
+    assert result.status == Status.FAIL
+    assert tree["data"]["sections"]
+    toc_section = next(
+        item for item in tree["data"]["sections"] if item["paragraph_index"] == 45
+    )
+    assert {
+        (item["kind"], item["type"], item["part_name"])
+        for item in toc_section["effective_references"]
+    } >= {
+        ("header", "default", "word/header2.xml"),
+        ("footer", "default", "word/footer4.xml"),
+    }
+    assert toc_section["page_numbering"] == {"format": "upperRoman", "start": 1}
+
+    header_footer_items = [
+        item
+        for item in report["check_items"]
+        if item["category"] == "header_footer"
+    ]
+    assert any(
+        item["type"] == "template_generation_header_footer_match"
+        and item["affected_ids"] == ["toc.header_footer.header"]
+        and "word/document.xml:p[45]/sectPr" in item["evidence_refs"][0]
+        for item in header_footer_items
+    )
+    assert any(
+        item["type"] == "template_generation_page_number_rule_mismatch"
+        and item["affected_ids"] == ["body_main.header_footer.page_number"]
+        and "page_numbering={'format': 'upperRoman', 'start': 1}" in item["actual"]
+        and any("sectPr" in ref for ref in item["evidence_refs"])
+        for item in header_footer_items
+    )
+
+
 def test_generated_template_gap_binds_word_fields_to_units(tmp_path) -> None:
     nannong_result = run_template_gap_eval(
         ROOT,

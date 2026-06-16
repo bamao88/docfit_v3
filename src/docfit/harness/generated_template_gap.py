@@ -427,7 +427,7 @@ def _compare_units(
                     next_step="如果生成逻辑应输出该单元，修模板生成；如果解析器无法识别，补生成模板解析器。",
                 )
             )
-        checks.extend(_header_footer_checks(unit, tree))
+        checks.extend(_header_footer_checks(unit, tree, matched_orders))
         checks.extend(_page_rule_checks(unit, tree, matched_orders))
 
     checks.extend(
@@ -1052,6 +1052,7 @@ def _style_check(
 def _header_footer_checks(
     unit: dict[str, Any],
     tree: dict[str, Any],
+    matched_orders: list[int],
 ) -> list[dict[str, Any]]:
     unit_id = str(unit.get("unit_id") or "unknown_unit")
     header_footer = unit.get("header_footer") or {}
@@ -1060,71 +1061,271 @@ def _header_footer_checks(
     checks: list[dict[str, Any]] = []
     header_rule = _normalize_text(header_footer.get("header"))
     page_rule = _normalize_text(header_footer.get("page_number"))
-    parts = tree.get("data", {}).get("headers_footers", [])
-    fields = tree.get("data", {}).get("fields", [])
-    header_text = _normalize_text(" ".join(part.get("text", "") for part in parts))
-    page_fields = [
-        field
-        for field in fields
-        if "PAGE" in str(field.get("instruction", "")).upper()
-        or "NUMPAGES" in str(field.get("instruction", "")).upper()
-    ]
+    context = _header_footer_context(tree, matched_orders)
 
     if header_rule:
-        no_header_expected = _means_none(header_rule)
-        status = (
-            Status.PASS
-            if (no_header_expected and not header_text)
-            or (not no_header_expected and header_rule in header_text)
-            else Status.UNKNOWN
+        header_check = _evaluate_header_rule(
+            unit_id,
+            header_rule,
+            context,
         )
         checks.append(
             _check(
                 "template_generation.header_footer_match",
-                status,
-                (
-                    "template_generation_header_footer_match"
-                    if status == Status.PASS
-                    else "template_generation_header_footer_unverified"
-                ),
-                f"单元 {unit_id} 的页眉规则需要和生成模板 Word 对齐",
+                header_check["status"],
+                header_check["type"],
+                header_check["message"],
                 header_rule,
-                header_text or "no header/footer text parsed",
+                header_check["actual"],
                 category="header_footer",
-                evidence_refs=[part.get("source_ref", "") for part in parts],
+                evidence_refs=header_check["evidence_refs"],
                 affected_ids=[f"{unit_id}.header_footer.header"],
-                next_step="补 section 级页眉页脚继承和单元边界绑定检查。",
+                next_step=header_check["next_step"],
             )
         )
     if page_rule:
-        no_page_expected = "无页码字段" in page_rule or page_rule == "无"
-        status = (
-            Status.PASS
-            if no_page_expected and not page_fields
-            else Status.UNKNOWN
+        page_check = _evaluate_page_number_rule(
+            unit_id,
+            page_rule,
+            context,
         )
         checks.append(
             _check(
                 "template_generation.header_footer_match",
-                status,
-                (
-                    "template_generation_page_number_rule_match"
-                    if status == Status.PASS
-                    else "template_generation_page_number_rule_unverified"
-                ),
-                f"单元 {unit_id} 的页码规则需要和生成模板 Word 对齐",
+                page_check["status"],
+                page_check["type"],
+                page_check["message"],
                 page_rule,
-                (
-                    ", ".join(field.get("instruction", "") for field in page_fields)
-                    or "no page field parsed"
-                ),
+                page_check["actual"],
                 category="header_footer",
-                evidence_refs=[field.get("source_ref", "") for field in page_fields],
+                evidence_refs=page_check["evidence_refs"],
                 affected_ids=[f"{unit_id}.header_footer.page_number"],
-                next_step="补页脚页码字段、页码格式和 section 起始页检查。",
+                next_step=page_check["next_step"],
             )
         )
     return checks
+
+
+def _header_footer_context(
+    tree: dict[str, Any],
+    matched_orders: list[int],
+) -> dict[str, Any]:
+    if not matched_orders:
+        return {
+            "section": None,
+            "header_parts": [],
+            "footer_parts": [],
+            "page_fields": [],
+            "page_numbering": {},
+            "evidence_refs": [],
+        }
+    first_order = min(matched_orders)
+    section = _section_for_order(tree, first_order)
+    if not section:
+        return {
+            "section": None,
+            "header_parts": [],
+            "footer_parts": [],
+            "page_fields": [],
+            "page_numbering": {},
+            "evidence_refs": [],
+        }
+    part_by_name = {
+        part.get("part_name"): part
+        for part in tree.get("data", {}).get("headers_footers", [])
+    }
+    header_part_names = _section_part_names(section, "header")
+    footer_part_names = _section_part_names(section, "footer")
+    header_parts = [
+        part_by_name[name]
+        for name in header_part_names
+        if name in part_by_name
+    ]
+    footer_parts = [
+        part_by_name[name]
+        for name in footer_part_names
+        if name in part_by_name
+    ]
+    page_fields = [
+        field
+        for field in tree.get("data", {}).get("fields", [])
+        if field.get("part_name") in footer_part_names
+        and (
+            "PAGE" in str(field.get("instruction", "")).upper()
+            or "NUMPAGES" in str(field.get("instruction", "")).upper()
+        )
+    ]
+    return {
+        "section": section,
+        "header_parts": header_parts,
+        "footer_parts": footer_parts,
+        "page_fields": page_fields,
+        "page_numbering": section.get("page_numbering", {}),
+        "evidence_refs": [
+            section.get("source_ref", ""),
+            *[ref.get("source_ref", "") for ref in section.get("effective_references", [])],
+        ],
+    }
+
+
+def _section_for_order(tree: dict[str, Any], order: int) -> dict[str, Any] | None:
+    sections = tree.get("data", {}).get("sections", [])
+    if not sections:
+        return None
+    for section in sections:
+        paragraph_index = section.get("paragraph_index")
+        if paragraph_index is None or order <= int(paragraph_index):
+            return section
+    return sections[-1]
+
+
+def _section_part_names(section: dict[str, Any], kind: str) -> list[str]:
+    names = [
+        str(ref.get("part_name", ""))
+        for ref in section.get("effective_references", [])
+        if ref.get("kind") == kind and ref.get("part_name")
+    ]
+    return _dedupe(names)
+
+
+def _evaluate_header_rule(
+    unit_id: str,
+    header_rule: str,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    if not context["section"]:
+        return {
+            "status": Status.UNKNOWN,
+            "type": "template_generation_header_footer_unverified",
+            "message": f"单元 {unit_id} 未绑定到 Word section，无法检查页眉",
+            "actual": "unit section not resolved",
+            "evidence_refs": [],
+            "next_step": "先修单元到 section 的绑定，再检查页眉。",
+        }
+    header_text = _normalize_text(
+        " ".join(part.get("text", "") for part in context["header_parts"])
+    )
+    no_header_expected = _means_none(header_rule)
+    if no_header_expected:
+        status = Status.PASS if not header_text else Status.FAIL
+    else:
+        status = Status.PASS if header_rule in header_text else Status.FAIL
+    return {
+        "status": status,
+        "type": (
+            "template_generation_header_footer_match"
+            if status == Status.PASS
+            else "template_generation_header_footer_mismatch"
+        ),
+        "message": f"单元 {unit_id} 的页眉规则已按 Word section 检查",
+        "actual": header_text or "no section header text parsed",
+        "evidence_refs": _header_footer_refs(context, "header"),
+        "next_step": (
+            "none"
+            if status == Status.PASS
+            else "修模板生成逻辑，确保该单元所在 section 的页眉符合标准。"
+        ),
+    }
+
+
+def _evaluate_page_number_rule(
+    unit_id: str,
+    page_rule: str,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    if not context["section"]:
+        return {
+            "status": Status.UNKNOWN,
+            "type": "template_generation_page_number_rule_unverified",
+            "message": f"单元 {unit_id} 未绑定到 Word section，无法检查页码",
+            "actual": "unit section not resolved",
+            "evidence_refs": [],
+            "next_step": "先修单元到 section 的绑定，再检查页脚页码字段和页码格式。",
+        }
+    page_fields = context["page_fields"]
+    footer_text = _normalize_text(
+        " ".join(part.get("text", "") for part in context["footer_parts"])
+    )
+    page_numbering = context["page_numbering"]
+    actual = _page_number_actual(page_fields, footer_text, page_numbering)
+    no_page_expected = page_rule == "无" or "不显示页码" in page_rule
+    source_no_field = "无页码字段" in page_rule
+    has_page_evidence = bool(page_fields or footer_text)
+    if no_page_expected:
+        status = Status.PASS if not has_page_evidence else Status.FAIL
+        type_ = (
+            "template_generation_page_number_rule_match"
+            if status == Status.PASS
+            else "template_generation_page_number_rule_mismatch"
+        )
+    elif "前置页页码规则" in page_rule:
+        status = (
+            Status.PASS
+            if has_page_evidence
+            and str(page_numbering.get("format", "")).lower().endswith("roman")
+            else Status.FAIL
+        )
+        type_ = (
+            "template_generation_page_number_rule_match"
+            if status == Status.PASS
+            else "template_generation_page_number_rule_mismatch"
+        )
+    elif "阿拉伯数字页码规则" in page_rule:
+        fmt = str(page_numbering.get("format") or "decimal")
+        status = (
+            Status.PASS
+            if has_page_evidence and fmt in {"decimal", ""}
+            else Status.FAIL
+        )
+        type_ = (
+            "template_generation_page_number_rule_match"
+            if status == Status.PASS
+            else "template_generation_page_number_rule_mismatch"
+        )
+    elif source_no_field and not has_page_evidence:
+        status = Status.PASS
+        type_ = "template_generation_page_number_rule_match"
+    else:
+        status = Status.UNKNOWN
+        type_ = "template_generation_page_number_rule_unverified"
+    return {
+        "status": status,
+        "type": type_,
+        "message": f"单元 {unit_id} 的页码规则已按 Word section 检查",
+        "actual": actual,
+        "evidence_refs": _header_footer_refs(context, "footer")
+        + [field.get("source_ref", "") for field in page_fields],
+        "next_step": (
+            "none"
+            if status == Status.PASS
+            else "修模板生成逻辑，或补页码格式/section 继承的更细检查。"
+        ),
+    }
+
+
+def _page_number_actual(
+    page_fields: list[dict[str, Any]],
+    footer_text: str,
+    page_numbering: dict[str, Any],
+) -> str:
+    parts = []
+    if page_fields:
+        parts.append(
+            "fields="
+            + ", ".join(str(field.get("instruction", "")) for field in page_fields)
+        )
+    if footer_text:
+        parts.append(f"footer_text={footer_text}")
+    if page_numbering:
+        parts.append(f"page_numbering={page_numbering}")
+    return "; ".join(parts) or "no section footer page evidence parsed"
+
+
+def _header_footer_refs(context: dict[str, Any], kind: str) -> list[str]:
+    refs = [ref for ref in context["evidence_refs"] if ref]
+    parts = context["header_parts"] if kind == "header" else context["footer_parts"]
+    refs.extend(part.get("source_ref", "") for part in parts)
+    return [ref for ref in refs if ref]
 
 
 def _page_rule_checks(

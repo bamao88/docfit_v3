@@ -65,6 +65,8 @@ Current state:
   `word/styles.xml` 段落样式继承链；能确定不一致时会报
   `template_generation_style_mismatch`，样式表或单元绑定证据仍不足时保持
   `UNKNOWN`。
+  页眉页脚检查现在会解析 `document.xml.rels` 和 section 的 header/footer 引用，
+  并按单元位置检查对应 section；确定冲突时会报页眉或页码规则 mismatch。
   分页检查现在会绑定单元位置和 OOXML page break / section；缺少应有分页或
   分节证据时会报 `template_generation_page_rule_mismatch`。
 - 学生源文档中的旧目录已经有一个通用修复：`toc 1` / `toc 2` / `toc 3`

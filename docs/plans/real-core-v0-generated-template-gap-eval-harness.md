@@ -67,6 +67,10 @@ Approval: LGTM/approve/go ahead approves; edits request revision.
   `word/styles.xml` 合并段落样式继承链。能确定不一致时会报
   `template_generation_style_mismatch`；样式表或单元绑定仍不足时保留
   `template_generation_style_unverified`。
+- 页眉页脚检查现在会解析 `word/_rels/document.xml.rels` 和 section 里的
+  header/footer 引用，并按单元匹配位置落到对应 Word section。能确定页眉或页码
+  不符合单元规则时会报 `template_generation_header_footer_mismatch` 或
+  `template_generation_page_number_rule_mismatch`。
 - 分页检查现在会把单元匹配位置和 OOXML page break / section / pageBreakBefore
   绑定起来。能证明不符合另起页或分页隔离要求时会报
   `template_generation_page_rule_mismatch`；同页约束仍在缺少 keep/table/页面证据时
@@ -81,10 +85,10 @@ Approval: LGTM/approve/go ahead approves; edits request revision.
 
 ```bash
 uv run pytest tests/unit/test_baseline_comparison.py tests/unit/test_word_evidence.py tests/contract/test_contract_gates.py tests/contract/test_real_core_baseline_harness.py tests/contract/test_real_core_four_stage_problem_checks.py tests/contract/test_real_core_generated_template_gap.py tests/e2e/test_bootstrap_cli.py -q
-# 47 passed
+# 48 passed
 
 uv run pytest -q
-# 59 passed
+# 60 passed
 
 uv run docfit eval template-gap --school hunannongye --generated-template inputs/school-hunannongye-requirement.docx --out /tmp/docfit_template_gap_hunannongye
 # status = FAIL
@@ -101,8 +105,8 @@ uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_c
 
 - 当前原型还没有真正修正模板生成逻辑；本切片只是把生成模板 Word 作为被测输入并
   报告差距。
-- 同页约束、页眉页脚、等价生成机制、编号绑定、复杂样式表缺项等 OOXML 检查仍有
-  `UNKNOWN`，需要继续补解析能力。
+- 同页约束、等价生成机制、编号绑定、复杂样式表缺项、复杂 section 继承和更细页码
+  规则等 OOXML 检查仍有 `UNKNOWN`，需要继续补解析能力。
 - Microsoft Word 打开和页面图片证据仍只覆盖已有 `final.docx` 证据包；生成模板
   Word 的 Word evidence 还不能宣称完整通过。
 - 9 个真实成品尚未在修复生成模板、内容、放置、渲染后统一重生。
