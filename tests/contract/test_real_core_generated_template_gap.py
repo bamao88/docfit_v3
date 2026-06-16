@@ -85,6 +85,35 @@ def test_generated_template_gap_bad_docx_does_not_pass(tmp_path) -> None:
     )
 
 
+def test_generated_template_gap_reports_ooxml_style_details(tmp_path) -> None:
+    result = run_template_gap_eval(
+        ROOT,
+        "hunannongye",
+        ROOT / "inputs/school-hunannongye-requirement.docx",
+        tmp_path / "style_gap",
+    )
+    tree = read_json(tmp_path / "style_gap/artifacts/generated_template_tree.json")
+    report = read_json(tmp_path / "style_gap/artifacts/template_gap_report.json")
+
+    assert result.status == Status.FAIL
+    paragraph = next(
+        item
+        for item in tree["data"]["paragraphs"]
+        if item["text"].startswith("湖 南 农 业 大 学")
+    )
+    assert paragraph["style_details"]["dominant_run"]["font_names"] == ["华文行楷"]
+    assert paragraph["style_details"]["dominant_run"]["font_size_pt"] == 26.0
+    assert paragraph["style_details"]["paragraph"]["alignment"] == "center"
+
+    style_mismatches = [
+        item
+        for item in report["check_items"]
+        if item["type"] == "template_generation_style_mismatch"
+    ]
+    assert style_mismatches
+    assert any("font_size=" in item["actual"] for item in style_mismatches)
+
+
 def test_generated_template_gap_missing_docx_is_unknown(tmp_path) -> None:
     result = run_template_gap_eval(
         ROOT,

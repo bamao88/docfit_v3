@@ -650,11 +650,22 @@ def _style_check(
             category="style",
             affected_ids=[f"{unit_id}.{element_id}.style"],
         )
-    actual_style = _normalize_text(match.get("style"))
-    if _style_matches(expected_style, actual_style):
+    actual_style = _style_actual_summary(match)
+    style_result = _compare_style_details(expected_style, match)
+    if _style_matches(expected_style, _normalize_text(match.get("style"))):
         status = Status.PASS
         type_ = "template_generation_style_match"
         message = f"元素 {unit_id}.{element_id} 的段落样式名称与标准可比对"
+        next_step = "none"
+    elif style_result["mismatches"]:
+        status = Status.FAIL
+        type_ = "template_generation_style_mismatch"
+        message = f"元素 {unit_id}.{element_id} 的 OOXML 样式属性不符合标准"
+        next_step = "修模板生成样式，或修解析器的样式继承规则。"
+    elif style_result["matched"] and not style_result["unknown"]:
+        status = Status.PASS
+        type_ = "template_generation_style_match"
+        message = f"元素 {unit_id}.{element_id} 的 OOXML 样式属性符合已声明标准"
         next_step = "none"
     else:
         status = Status.UNKNOWN
@@ -845,6 +856,168 @@ def _has_generated_field(tree: dict[str, Any], element: dict[str, Any]) -> bool:
     if "页码" in name or "page" in name or "页码" in content:
         return any("PAGE" in instruction for instruction in instructions)
     return bool(fields)
+
+
+def _compare_style_details(
+    expected_style: str,
+    match: dict[str, Any],
+) -> dict[str, list[str]]:
+    expected = _expected_style_requirements(expected_style)
+    actual = _actual_style_properties(match)
+    matched: list[str] = []
+    mismatches: list[str] = []
+    unknown: list[str] = []
+
+    for font in expected["fonts"]:
+        actual_fonts = actual["font_names"]
+        if font in actual_fonts:
+            matched.append(f"font={font}")
+        elif actual_fonts:
+            mismatches.append(f"font expected {font}, actual {'/'.join(actual_fonts)}")
+        else:
+            unknown.append(f"font expected {font}")
+
+    expected_size = expected["font_size_pt"]
+    if expected_size is not None:
+        actual_size = actual["font_size_pt"]
+        if actual_size is None:
+            unknown.append(f"font_size expected {expected_size:g}pt")
+        elif abs(actual_size - expected_size) <= 0.25:
+            matched.append(f"font_size={actual_size:g}pt")
+        else:
+            mismatches.append(
+                f"font_size expected {expected_size:g}pt, actual {actual_size:g}pt"
+            )
+
+    expected_bold = expected["bold"]
+    if expected_bold is not None:
+        actual_bold = actual["bold"]
+        if actual_bold is None:
+            unknown.append(f"bold expected {expected_bold}")
+        elif actual_bold == expected_bold:
+            matched.append(f"bold={actual_bold}")
+        else:
+            mismatches.append(f"bold expected {expected_bold}, actual {actual_bold}")
+
+    expected_alignment = expected["alignment"]
+    if expected_alignment:
+        actual_alignment = actual["alignment"]
+        if not actual_alignment:
+            unknown.append(f"alignment expected {expected_alignment}")
+        elif actual_alignment == expected_alignment:
+            matched.append(f"alignment={actual_alignment}")
+        else:
+            mismatches.append(
+                f"alignment expected {expected_alignment}, actual {actual_alignment}"
+            )
+
+    expected_line_spacing = expected["line_spacing"]
+    if expected_line_spacing:
+        actual_line_spacing = actual["line_spacing"]
+        if not actual_line_spacing:
+            unknown.append(f"line_spacing expected {expected_line_spacing}")
+        elif actual_line_spacing == expected_line_spacing:
+            matched.append(f"line_spacing={actual_line_spacing}")
+        else:
+            mismatches.append(
+                "line_spacing expected "
+                f"{expected_line_spacing}, actual {actual_line_spacing}"
+            )
+
+    return {
+        "matched": matched,
+        "mismatches": mismatches,
+        "unknown": unknown,
+    }
+
+
+def _expected_style_requirements(expected_style: str) -> dict[str, Any]:
+    normalized = _normalize_text(expected_style)
+    fonts = [
+        font
+        for font in ("华文行楷", "黑体", "宋体", "Times New Roman")
+        if font in normalized
+    ]
+    size_match = re.search(r"(?P<size>\d+(?:\.\d+)?)\s*pt", normalized)
+    bold: bool | None = None
+    if "不加粗" in normalized:
+        bold = False
+    elif "加粗" in normalized:
+        bold = True
+    alignment = None
+    if "居中" in normalized:
+        alignment = "center"
+    elif "两端对齐" in normalized:
+        alignment = "both"
+    elif "左对齐" in normalized:
+        alignment = "left"
+    line_spacing = None
+    if "单倍行距" in normalized:
+        line_spacing = "single"
+    elif "1.5 倍行距" in normalized or "1.5倍行距" in normalized:
+        line_spacing = "1.5"
+    exact_match = re.search(r"固定值\s*(?P<size>\d+(?:\.\d+)?)\s*pt", normalized)
+    if exact_match:
+        line_spacing = f"exact:{float(exact_match.group('size')):g}pt"
+    return {
+        "fonts": fonts,
+        "font_size_pt": float(size_match.group("size")) if size_match else None,
+        "bold": bold,
+        "alignment": alignment,
+        "line_spacing": line_spacing,
+    }
+
+
+def _actual_style_properties(match: dict[str, Any]) -> dict[str, Any]:
+    details = match.get("style_details") or {}
+    dominant = details.get("dominant_run") or {}
+    paragraph_run = details.get("paragraph_run_properties") or {}
+    paragraph = details.get("paragraph") or {}
+    font_names = list(
+        dict.fromkeys(
+            [
+                *dominant.get("font_names", []),
+                *paragraph_run.get("font_names", []),
+            ]
+        )
+    )
+    return {
+        "font_names": font_names,
+        "font_size_pt": dominant.get("font_size_pt")
+        or paragraph_run.get("font_size_pt"),
+        "bold": _first_known(dominant.get("bold"), paragraph_run.get("bold")),
+        "alignment": paragraph.get("alignment"),
+        "line_spacing": (paragraph.get("spacing") or {}).get("line_spacing"),
+    }
+
+
+def _style_actual_summary(match: dict[str, Any]) -> str:
+    details = match.get("style_details") or {}
+    props = _actual_style_properties(match)
+    paragraph = details.get("paragraph") or {}
+    parts = [
+        f"style={match.get('style') or paragraph.get('style_id') or 'missing'}",
+        f"font={'/'.join(props['font_names']) or 'missing'}",
+        (
+            "font_size="
+            + (
+                f"{props['font_size_pt']:g}pt"
+                if props["font_size_pt"] is not None
+                else "missing"
+            )
+        ),
+        f"bold={props['bold']}",
+        f"alignment={props['alignment'] or 'missing'}",
+        f"line_spacing={props['line_spacing'] or 'missing'}",
+    ]
+    return "; ".join(parts)
+
+
+def _first_known(*values: Any) -> Any:
+    for value in values:
+        if value is not None:
+            return value
+    return None
 
 
 def _unit_mentions_numbering(unit: dict[str, Any]) -> bool:

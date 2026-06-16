@@ -115,6 +115,9 @@ Word 的差距检查现在会把 template 阶段阻断；即使如此，e2e 仍�
 - 字段和编号也会单独列出：缺少 Word TOC/页码等生成字段会报
   `template_generation_field_missing`，编号规则还不能绑定到具体单元/元素时会报
   `template_generation_numbering_unverified`。
+- 样式检查已经能读取 OOXML 字体、字号、加粗和对齐；确定不一致时会报
+  `template_generation_style_mismatch`。行距和样式继承缺证据时仍保留为
+  `template_generation_style_unverified`。
 
 最新临时验证：
 

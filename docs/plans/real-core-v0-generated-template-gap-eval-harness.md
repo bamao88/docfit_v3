@@ -50,14 +50,17 @@ Approval: LGTM/approve/go ahead approves; edits request revision.
   - `artifacts/template_gap_report.md`
   - `artifacts/template_gap_report.docx`
 - `generated_template_tree.json` 来自 DOCX/OOXML 解析，包含段落、表格、页眉页脚、
-  字段、分页/section、编号引用和未建模可见对象的来源位置。
+  字段、分页/section、编号引用、段落/运行样式属性和未建模可见对象的来源位置。
 - `template_gap_report.json` 保留 `known_status`、`display_status`、
   `passed_count`、`failed_count`、`unknown_count` 和 `blocking_status`。
   当前真实 probe 的模板报告是 `FAIL + UNKNOWN`，说明已经发现确定性差距，
-  同时仍有样式/分页/页眉页脚/字段无法完整证明。
+  同时仍有分页、页眉页脚、字段绑定、编号绑定和部分样式继承无法完整证明。
 - 差距报告现在显式覆盖 field 和 numbering 两类检查：
   - Word 字段缺失会报 `template_generation_field_missing`。
   - 编号规则还不能绑定到单元/元素时会报 `template_generation_numbering_unverified`。
+- 样式检查现在会读取 OOXML 里的字体、字号、加粗和对齐。能确定不一致时会报
+  `template_generation_style_mismatch`；缺少行距或继承证据时仍保留
+  `template_generation_style_unverified`。
 - e2e 不再因为 source-fact binding 或 Word evidence binding 存在就把模板视为通过。
   如果模板差距报告阻断，summary 会保持 `blocked_at: template`，但仍继续生成后续
   内容、放置、渲染诊断产物。
@@ -68,10 +71,10 @@ Approval: LGTM/approve/go ahead approves; edits request revision.
 
 ```bash
 uv run pytest tests/unit/test_baseline_comparison.py tests/unit/test_word_evidence.py tests/contract/test_contract_gates.py tests/contract/test_real_core_baseline_harness.py tests/contract/test_real_core_four_stage_problem_checks.py tests/contract/test_real_core_generated_template_gap.py tests/e2e/test_bootstrap_cli.py -q
-# 43 passed
+# 44 passed
 
 uv run pytest -q
-# 55 passed
+# 56 passed
 
 uv run docfit eval template-gap --school hunannongye --generated-template inputs/school-hunannongye-requirement.docx --out /tmp/docfit_template_gap_hunannongye
 # status = FAIL
@@ -88,8 +91,8 @@ uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_c
 
 - 当前原型还没有真正修正模板生成逻辑；本切片只是把生成模板 Word 作为被测输入并
   报告差距。
-- 样式、分页、页眉页脚、字段绑定、编号绑定等 OOXML 检查仍有 `UNKNOWN`，
-  需要继续补解析能力。
+- 行距、样式继承、分页、页眉页脚、字段绑定、编号绑定等 OOXML 检查仍有
+  `UNKNOWN`，需要继续补解析能力。
 - Microsoft Word 打开和页面图片证据仍只覆盖已有 `final.docx` 证据包；生成模板
   Word 的 Word evidence 还不能宣称完整通过。
 - 9 个真实成品尚未在修复生成模板、内容、放置、渲染后统一重生。

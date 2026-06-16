@@ -59,6 +59,8 @@ Current state:
   字段和编号现在也有显式检查：缺 Word 生成字段会报
   `template_generation_field_missing`，编号规则未绑定到单元/元素会报
   `template_generation_numbering_unverified`。
+  样式检查现在会读取 OOXML 字体、字号、加粗和对齐；能确定不一致时会报
+  `template_generation_style_mismatch`，缺行距或继承证据时仍保持 `UNKNOWN`。
 - 学生源文档中的旧目录已经有一个通用修复：`toc 1` / `toc 2` / `toc 3`
   样式段落会被识别为源文档格式内容，内容放置时标为不写入成品，Word 生成记录
   会说明该动作已处理但不会把旧目录文字写进后续新输出。
