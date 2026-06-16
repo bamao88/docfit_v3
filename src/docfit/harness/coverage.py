@@ -7,7 +7,7 @@ from docx import Document
 
 from docfit.core.io import read_json
 from docfit.core.models import Finding, make_finding
-from docfit.core.status import Status
+from docfit.core.status import Status, merge_statuses
 from docfit.ooxml.package import is_valid_docx, read_document_xml
 from docfit.harness.baselines import load_baseline_file
 from docfit.harness.profiles import (
@@ -18,6 +18,11 @@ from docfit.harness.profiles import (
     REAL_CORE_STUDENTS,
     get_eval_cases_for_profile,
     get_eval_profile,
+)
+from docfit.harness.product_quality import (
+    audit_e2e_case,
+    business_acceptance_coverage,
+    missing_e2e_audit_inputs,
 )
 from docfit.harness.word_evidence import verify_word_image_evidence
 
@@ -244,6 +249,13 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
     findings: list[Finding] = []
     next_index = 1
     cases = get_eval_cases_for_profile(REAL_CORE_PROFILE.profile_id)
+    product_quality_findings: list[Finding] = []
+    product_quality_report: dict[str, Any] = {
+        "checked_cases": [],
+        "failing_cases": [],
+        "missing_cases": [],
+        "coverage": business_acceptance_coverage([]),
+    }
     case_counts = {
         "template": sum(1 for case in cases if case.stage == "template"),
         "content": sum(1 for case in cases if case.stage == "content"),
@@ -353,6 +365,7 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
             / case.case_id
             / "evidence/word_image_evidence.json"
         )
+        case_dir = root / "reports/real-core-v0" / case.case_id
         if not evidence_path.exists():
             findings.append(
                 make_finding(
@@ -404,13 +417,57 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
                 findings.extend(evidence_findings)
                 next_index += len(evidence_findings)
 
+            missing_audit_inputs = missing_e2e_audit_inputs(case_dir)
+            if missing_audit_inputs:
+                findings.append(
+                    make_finding(
+                        next_index,
+                        "coverage",
+                        Status.UNKNOWN,
+                        "missing_product_quality_evidence",
+                        "real-core-v0 coverage requires auditable e2e business artifacts",
+                        "final.docx and template/content/placement/render artifacts",
+                        ", ".join(str(path) for path in missing_audit_inputs),
+                        affected_ids=[case.case_id],
+                        root_cause_bucket="business_acceptance_gap",
+                    )
+                )
+                product_quality_report["missing_cases"].append(case.case_id)
+                next_index += 1
+            else:
+                product_quality_report["checked_cases"].append(case.case_id)
+                case_findings = audit_e2e_case(case_dir)
+                if case_findings:
+                    product_quality_report["failing_cases"].append(case.case_id)
+                for offset, finding in enumerate(case_findings):
+                    finding.finding_id = f"f_{next_index + offset:03d}"
+                    if case.case_id not in finding.affected_ids:
+                        finding.affected_ids.append(case.case_id)
+                findings.extend(case_findings)
+                product_quality_findings.extend(case_findings)
+                next_index += len(case_findings)
+
     required_flat = REAL_CORE_PROFILE.all_required_capabilities()
-    status = Status.UNKNOWN if findings else Status.PASS
+    product_quality_report["coverage"] = business_acceptance_coverage(
+        product_quality_findings
+    )
+    if product_quality_report["missing_cases"]:
+        product_quality_report["coverage"] = {
+            capability: False
+            for capability in product_quality_report["coverage"]
+        }
+    status = (
+        merge_statuses([finding.status for finding in findings])
+        if findings
+        else Status.PASS
+    )
     missing_types = sorted({finding.type for finding in findings})
     if not findings:
-        baseline_status = "signed"
+        baseline_status = "signed_business_accepted"
     elif set(missing_types) == {"missing_word_image_evidence"}:
         baseline_status = "source_facts_signed_word_evidence_pending"
+    elif product_quality_report["failing_cases"] or product_quality_report["missing_cases"]:
+        baseline_status = "business_acceptance_blocked"
     else:
         baseline_status = "pending_review"
 
@@ -426,6 +483,7 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
             "missing": missing_source_files,
         },
         "baseline_status": baseline_status,
+        "product_quality": product_quality_report,
     }
     return report, findings
 

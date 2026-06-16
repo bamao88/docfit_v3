@@ -22,11 +22,13 @@ def test_real_core_problem_check_reports_all_four_stages(tmp_path) -> None:
     )
     assert (tmp_path / "real_core_product_quality_case/final.docx").exists()
 
-    findings = audit_e2e_case(tmp_path / "real_core_product_quality_case")
-    by_type = _by_type(findings)
+    direct_audit_findings = audit_e2e_case(tmp_path / "real_core_product_quality_case")
+    direct_by_type = _by_type(direct_audit_findings)
+    by_type = _by_type(result.findings)
 
     assert "template_unit_tree_missing" in by_type
     assert by_type["template_unit_tree_missing"].stage == "template"
+    assert "template_unit_tree_missing" in direct_by_type
     assert "slot_body_start" in by_type["template_unit_tree_missing"].actual
     assert "第一个段落" in by_type["template_unit_tree_missing"].actual
 
@@ -61,5 +63,5 @@ def test_real_core_problem_check_reports_all_four_stages(tmp_path) -> None:
     assert "word/document.xml:p[" in by_type["render_append_only_insertion"].actual
     assert "模板解析结果有" in by_type["render_append_only_insertion"].actual
 
-    assert result.blocked_at == "render"
-    assert result.status.value == "UNKNOWN"
+    assert result.blocked_at == "template"
+    assert result.status.value == "FAIL"

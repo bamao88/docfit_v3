@@ -4,12 +4,12 @@
 
 ## 结论
 
-`real-core-v0` 的 9 个 `final.docx` 都已经通过固定证据检查：报告为 `PASS`，
-并且都有 Microsoft Word 导出的页面图像证据。
+`real-core-v0` 的 9 个 `final.docx` 曾经在旧口径下通过固定证据检查：报告记录为
+`PASS`，并且都有 Microsoft Word 导出的页面图像证据。
 
-但从产品验收视角看，这 9 个成品还不能算学校格式转换合格。当前 `PASS` 只证明：
-输入事实已签收，转换流程生成了 Word，Word 能打开并导出页面图像。它不证明
-版式、内容位置和学校论文顺序已经正确。
+但从产品验收视角看，这 9 个成品还不能算学校格式转换合格。现在新的
+`real-core-v0` gate 已经把这个差异纳入确定性验收：输入事实已签收、Word 能打开、
+页面图像证据齐全，仍然不能单独证明版式、内容位置和学校论文顺序正确。
 
 ## 审查范围
 
@@ -113,7 +113,7 @@ source TOC style -> 源文档格式内容
 不写入动作 -> Word 生成记录已处理，但不写入最终 DOCX
 ```
 
-验证：
+当时验证：
 
 ```bash
 uv run pytest tests/contract/test_contract_gates.py::test_source_toc_entry_is_discarded_as_source_format -q
@@ -121,11 +121,11 @@ uv run pytest -q
 uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage_product_qa
 ```
 
-结果：
+当时结果：
 
 - 旧目录处理测试：PASS
 - 全量测试：46 passed
-- `real-core-v0` coverage：PASS
+- `real-core-v0` coverage：PASS，含义仍是旧的证据闭环口径
 
 四个环节问题检查见：
 
@@ -133,8 +133,9 @@ uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_c
 docs/human/real-core-v0-four-stage-problem-checks.md
 ```
 
-该文档说明当前测试如何分别指出模板解析、内容抽取、内容放置、Word 生成的问题，
-以及每个问题的期望、实际情况和证据。
+该文档现在说明当前 gate 如何分别指出模板解析、内容抽取、内容放置、Word 生成的
+问题，以及每个问题的期望、实际情况和证据。新口径下，当前坏输出会被
+`FAIL` 或 `UNKNOWN` 阻塞，不能再因为证据绑定存在而通过。
 
 ## 下一步开发任务
 

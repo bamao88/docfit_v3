@@ -4,17 +4,21 @@
 
 ## 这个文件是干嘛的
 
-这个文件只回答一件事：现在的测试能不能把当前生成 Word 的问题，分别归到
+这个文件回答一件事：现在的验收 gate 如何把当前生成 Word 的问题，分别归到
 模板解析、内容抽取、内容放置、Word 生成四个环节，并且把每个问题说具体。
 
-它不是 9 个 Word 成品的验收结论，也不会改变 `real-core-v0` 当前的 `PASS`。
-当前 `PASS` 只表示固定证据闭环已经跑通：输入事实已签收，输出文件能打开，
-Word 页面图像证据也齐了。它不表示生成的论文已经符合学校格式。
+它已经不只是旁路说明。现在 `real-core-v0` 的 e2e 和 coverage gate 会读取这些
+确定性 findings：只要模板、内容、放置或渲染层存在阻塞问题，当前 case 就不能
+因为 source-fact baseline 和 Word 页面图像证据齐全而 `PASS`。
 
 本文件对应两个代码入口：
 
 - `src/docfit/harness/product_quality.py`：读取一次真实转换产生的中间 JSON 和
-  `final.docx`，整理四个环节各自暴露出来的问题。
+  `final.docx`，整理四个环节各自暴露出来的问题，并提供业务验收 coverage flags。
+- `src/docfit/convert/orchestrator.py`：real-core e2e 在 render 后合并这些 findings，
+  并把对应阶段状态改成 `FAIL` 或 `UNKNOWN`。
+- `src/docfit/harness/coverage.py`：profile coverage 在 Word evidence 存在后继续检查
+  业务 artifacts，缺 artifacts 或业务审计失败都不能 `PASS`。
 - `tests/contract/test_real_core_four_stage_problem_checks.py`：用
   湖南农业大学模板和学生 003 源文档跑一次转换，然后确认四个环节都能给出
   具体问题说明。这里的 `tests/contract/` 是仓库现有测试目录名，意思是从外部
@@ -26,7 +30,8 @@ Word 页面图像证据也齐了。它不表示生成的论文已经符合学校
 uv run pytest tests/contract/test_real_core_four_stage_problem_checks.py -q
 ```
 
-当前结果：测试通过。它证明“问题能被具体指出”，不证明“问题已经修好”。
+当前结果：测试通过。它证明“问题能被具体指出并阻塞当前坏输出”，不证明
+“问题已经修好”。
 
 ## 为什么先做这层检查
 
@@ -43,8 +48,9 @@ uv run pytest tests/contract/test_real_core_four_stage_problem_checks.py -q
 - 学生源文档里的旧封面、旧目录、旧模板说明没有被当成正文；
 - Word 生成不是“复制整份模板，然后把学生内容追加到最后”。
 
-所以这层检查的目标很窄：先确认四个环节都能把当前坏输出说清楚。只有先能
-具体说清楚，后面才能把这些问题逐条改成正式检查规则。
+所以这层检查的目标很窄：先确认四个环节都能把当前坏输出说清楚，并且把这种
+说清楚转化为确定性 gate。后面修真实渲染链路时，每消除一类问题，gate 才会
+允许对应阶段回到 `PASS`。
 
 ## 当前选择的测试样例
 

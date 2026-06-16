@@ -31,6 +31,13 @@ def _echo_status(status: Status) -> None:
     typer.echo(f"status = {status.value}")
 
 
+def _blocked_at_from_findings(findings: list[dict]) -> str | None:
+    for finding in findings:
+        if finding.get("severity") == "blocking":
+            return str(finding.get("stage") or "unknown")
+    return None
+
+
 @eval_app.command("template")
 def eval_template(
     school: str = typer.Option(..., "--school"),
@@ -119,6 +126,7 @@ def eval_coverage(
         findings=findings,
         artifacts={"coverage_report": "coverage_report.json"},
         coverage=report,
+        blocked_at=_blocked_at_from_findings(findings),
     )
     _echo_status(status)
 

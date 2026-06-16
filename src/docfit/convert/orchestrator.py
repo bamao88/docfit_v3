@@ -9,6 +9,11 @@ from docfit.core.models import Finding, StageResult
 from docfit.core.status import StageRunState, Status, merge_statuses
 from docfit.harness.coverage import coverage_gate_findings
 from docfit.harness.profiles import BOOTSTRAP_PROFILE
+from docfit.harness.product_quality import (
+    BUSINESS_ACCEPTANCE_STAGES,
+    audit_e2e_case,
+    business_acceptance_coverage,
+)
 from docfit.harness.real_core import (
     case_id_for,
     is_real_core_bundle,
@@ -63,6 +68,39 @@ def _apply_coverage_gate(result: StageResult, required_capabilities: list[str]) 
     result.findings.extend(findings)
     result.status = merge_statuses([result.status] + [finding.status for finding in findings])
     return result
+
+
+def _renumber_findings(findings: list[Finding], *, start_index: int) -> list[Finding]:
+    for offset, finding in enumerate(findings):
+        finding.finding_id = f"f_{start_index + offset:03d}"
+    return findings
+
+
+def _merge_findings_into_stage_statuses(
+    stage_statuses: dict[str, str],
+    findings: list[Finding],
+) -> None:
+    for stage in BUSINESS_ACCEPTANCE_STAGES:
+        stage_findings = [
+            finding
+            for finding in findings
+            if finding.stage == stage and finding.severity == "blocking"
+        ]
+        if not stage_findings:
+            continue
+        existing_status = stage_statuses.get(stage)
+        statuses = [finding.status for finding in stage_findings]
+        if existing_status is not None:
+            statuses.insert(0, Status(existing_status))
+        stage_statuses[stage] = merge_statuses(statuses).value
+
+
+def _first_non_pass_stage(stage_statuses: dict[str, str]) -> str | None:
+    for stage in BUSINESS_ACCEPTANCE_STAGES:
+        status = stage_statuses.get(stage)
+        if status is not None and Status(status) != Status.PASS:
+            return stage
+    return None
 
 
 def run_template_eval(root: Path, school_id: str, template_docx: Path, out_dir: Path) -> StageResult:
@@ -351,10 +389,21 @@ def run_e2e_eval(
     artifacts.update(render_result.artifacts)
     artifact_paths.update(render_result.artifact_paths)
     coverage.update(render_result.coverage)
-    if final_copy and render_result.status == Status.PASS:
+
+    product_quality_findings: list[Finding] = []
+    if real_core_run:
+        product_quality_findings = _renumber_findings(
+            audit_e2e_case(out_dir),
+            start_index=len(all_findings) + 1,
+        )
+        all_findings.extend(product_quality_findings)
+        coverage.update(business_acceptance_coverage(product_quality_findings))
+        _merge_findings_into_stage_statuses(stage_statuses, product_quality_findings)
+
+    blocked_at = _first_non_pass_stage(stage_statuses)
+    if final_copy and blocked_at is None:
         final_copy.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(render_result.artifact_paths["final_docx"], final_copy)
-    blocked_at = None if render_result.status == Status.PASS else "render"
     return _finish_e2e(
         out_dir,
         stage_statuses,
@@ -378,9 +427,12 @@ def _finish_e2e(
     blocked_at: str | None,
 ) -> StageResult:
     completed_statuses = [Status(status) for status in stage_statuses.values()]
-    final_status = merge_statuses(completed_statuses)
-    if findings and final_status == Status.PASS:
-        final_status = merge_statuses([Status(finding.status) for finding in findings])
+    blocking_finding_statuses = [
+        finding.status
+        for finding in findings
+        if finding.severity == "blocking"
+    ]
+    final_status = merge_statuses(completed_statuses + blocking_finding_statuses)
     result = StageResult(
         "e2e",
         final_status,

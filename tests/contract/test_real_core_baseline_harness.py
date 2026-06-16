@@ -54,7 +54,7 @@ def test_real_core_coverage_is_unknown_until_word_image_evidence_exists(tmp_path
     assert sum(finding.type == "missing_word_image_evidence" for finding in findings) == 9
 
 
-def test_real_core_coverage_passes_with_bound_word_image_evidence(tmp_path) -> None:
+def test_real_core_coverage_does_not_pass_with_only_bound_word_image_evidence(tmp_path) -> None:
     _link_real_core_inputs(tmp_path)
     cases = [case for case in get_eval_cases_for_profile("real-core-v0") if case.stage == "e2e"]
     for case in cases:
@@ -83,9 +83,13 @@ def test_real_core_coverage_passes_with_bound_word_image_evidence(tmp_path) -> N
 
     report, findings = evaluate_profile_coverage(tmp_path, "real-core-v0")
 
-    assert report["status"] == Status.PASS.value
-    assert report["baseline_status"] == "signed"
-    assert findings == []
+    assert report["status"] == Status.UNKNOWN.value
+    assert report["baseline_status"] == "business_acceptance_blocked"
+    assert report["missing"] == ["missing_product_quality_evidence"]
+    assert report["product_quality"]["missing_cases"] == [
+        case.case_id for case in cases
+    ]
+    assert sum(finding.type == "missing_product_quality_evidence" for finding in findings) == 9
 
 
 def test_real_core_coverage_requires_checked_in_case_registry(tmp_path) -> None:
@@ -103,17 +107,19 @@ def test_real_core_e2e_reaches_render_and_writes_bound_final_docx(tmp_path) -> N
         tmp_path / "real_core_case",
     )
 
-    assert result.status == Status.UNKNOWN
-    assert result.blocked_at == "render"
+    assert result.status == Status.FAIL
+    assert result.blocked_at == "template"
     assert (tmp_path / "real_core_case/final.docx").exists()
     summary = read_json(tmp_path / "real_core_case/summary.json")
     assert summary["stage_statuses"] == {
-        "template": "PASS",
-        "content": "PASS",
-        "placement": "PASS",
-        "render": "UNKNOWN",
+        "template": "UNKNOWN",
+        "content": "UNKNOWN",
+        "placement": "UNKNOWN",
+        "render": "FAIL",
     }
-    assert [finding.type for finding in result.findings] == ["coverage_insufficient"]
+    assert "coverage_insufficient" in [finding.type for finding in result.findings]
+    assert "template_unit_tree_missing" in [finding.type for finding in result.findings]
+    assert "render_append_only_insertion" in [finding.type for finding in result.findings]
     assert result.findings[0].affected_ids == ["render.word_image_evidence"]
 
 

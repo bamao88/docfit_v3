@@ -32,9 +32,19 @@ DONOR_FRONT_MATTER_MARKERS = (
     "学    院：",
 )
 
+BUSINESS_ACCEPTANCE_STAGES = ("template", "content", "placement", "render")
+
+REQUIRED_E2E_AUDIT_FILES = (
+    Path("artifacts/template_artifact.json"),
+    Path("artifacts/student_content_artifact.json"),
+    Path("artifacts/placement_plan.json"),
+    Path("artifacts/render_manifest.json"),
+    Path("final.docx"),
+)
+
 
 def audit_e2e_case(case_dir: Path) -> list[Finding]:
-    """Return product-quality problem records without changing existing status."""
+    """Return deterministic product-quality findings for a rendered e2e case."""
 
     artifacts = case_dir / "artifacts"
     template_artifact = read_json(artifacts / "template_artifact.json")
@@ -52,6 +62,24 @@ def audit_e2e_case(case_dir: Path) -> list[Finding]:
     ):
         findings.extend(_renumber(stage_findings, start_index=len(findings) + 1))
     return findings
+
+
+def missing_e2e_audit_inputs(case_dir: Path) -> list[Path]:
+    return [
+        case_dir / relative_path
+        for relative_path in REQUIRED_E2E_AUDIT_FILES
+        if not (case_dir / relative_path).exists()
+    ]
+
+
+def business_acceptance_coverage(findings: list[Finding]) -> dict[str, bool]:
+    return {
+        f"business.{stage}_acceptance": not any(
+            finding.stage == stage and finding.severity == "blocking"
+            for finding in findings
+        )
+        for stage in BUSINESS_ACCEPTANCE_STAGES
+    }
 
 
 def audit_template_artifact(template_artifact: dict[str, Any]) -> list[Finding]:
