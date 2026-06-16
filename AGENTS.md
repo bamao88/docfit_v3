@@ -69,6 +69,13 @@ behavior, run focused tests plus the relevant `docfit eval ...` command. Use
 
 - Keep root guidance small. Put long agent-only procedures in `docs/agents/**`;
   keep reusable mechanics in scripts or skills.
+- Development autonomy rule: if a task can be completed by the agent with
+  available repo context, local tools, or generated evidence, continue through
+  implementation, verification, documentation alignment, and commit before
+  stopping. Stop for the user only when the next action genuinely requires
+  user-owned review, product judgment, credentials, external materials, or
+  unavailable local capability. When stopping, state exactly what the user must
+  do, why it is user-owned, and what it unblocks.
 - Before broad or vague work, use `$intuitive-preflight`; for ordinary scoped
   build/change work, use `$intuitive-flow`.
 - Use `$intuitive-doc` for human-facing documentation drift, `$intuitive-tests`
