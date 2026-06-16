@@ -1,13 +1,15 @@
 # real-core-v0 人工 review 简明说明
 
-Last updated: 2026-06-15
+Last updated: 2026-06-16
 
 你已经确认 `real-core-v0` 的固定证据集就是 3 所学校、3 份学生文档、9 个
-学校 x 学生组合。现在需要 review 的不是空 YAML，也不是转换效果，而是：
+学校 x 学生组合。源事实已经写入 runnable baseline，Word image evidence 也已经
+绑定。当前需要继续推进的不是补材料，而是让确定性业务 gate 挡住的问题逐项消失：
 
-1. 学校模板事实是否正确；
-2. 学生内容事实是否正确；
-3. 9 个组合的放置策略是否符合预期。
+1. 学校模板是否真的解析成目标单元、元素、子元素和输出策略；
+2. 学生内容是否真的抽取成可放置的内容树；
+3. 9 个组合的放置计划是否给每个内容节点明确去向；
+4. 最终 Word 是否真的没有模板说明泄漏、没有 append-only 写入，并且有 Word evidence。
 
 完整审阅包已经整理在：
 
@@ -19,7 +21,7 @@ docs/human/real-core-v0-review-packet.md
 学生内容 review 源文，保留单元内元素、元素顺序、元素关系、处理策略、
 样式、页眉页码和同页/分页约束。本文只是入口说明，不能替代完整包。
 
-## 你这次怎么审
+## 如果继续审标准，怎么审
 
 请以完整包里的源事实为准。重点找这些问题：
 
@@ -29,11 +31,12 @@ docs/human/real-core-v0-review-packet.md
 - 某个学生文档的 donor-school 前置页是否应该忽略但没有忽略；
 - 某个学校 x 学生组合里，附录、致谢、成果目录、图目录、表目录的默认保留策略是否不对。
 
-## 这次不需要你审什么
+## 现在不需要你补什么
 
-- 不需要审 `out/real-core-v0-baseline-review/drafts/**/*.yaml`，那些仍是空骨架；
-  需要审的是完整包里嵌入的 school review / student review 源事实。
-- 不需要审 Word 输出是否好看，9 个 Word image evidence package 还没生成。
+- 不需要新增学校模板审查文档或学生内容审查文档。
+- 不需要审 `out/real-core-v0-baseline-review/drafts/**/*.yaml`；当前 gate 使用
+  已签入的 `standards/**` 和 `reports/real-core-v0/**`。
+- 不需要把当前 9 个旧 Word 输出当成合格成品审；它们已经被业务 gate 判为不合格。
 - 不需要决定 PASS/FAIL，AI 和人工都不能作为 runtime gate。
 - 不需要自动更新 golden 或 signed standard。
 
@@ -61,5 +64,6 @@ Approval boundary:
 - AI may diagnose but may not decide final status
 ```
 
-当前这版 source facts 已经写成 runnable `standards/**` baseline。下一步
-阻塞只剩 9 个 Word image evidence package。
+当前这版 source facts 已经写成 runnable `standards/**` baseline。下一步阻塞是工程
+实现：先修模板解析，再修内容抽取、放置和 Word 渲染。修完并重新生成 9 个
+`final.docx` 后，才需要重新导出 Word image evidence 并再次验收。

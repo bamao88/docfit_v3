@@ -18,17 +18,15 @@ source evidence. Bootstrap expected artifacts live under
 
 Current work on the real-school baseline harness is tracked in `STATUS.md`.
 `real-core-v0` is registered as a fixed three-school, three-student profile.
-On this machine, its fixed evidence check returns `PASS` after the reviewed
-baselines and nine Microsoft Word page-image evidence packages were bound under
-`reports/real-core-v0/**`.
+The reviewed baselines and nine Microsoft Word page-image evidence packages are
+bound under `reports/real-core-v0/**`, but evidence binding is no longer a
+sufficient pass condition.
 
-That `PASS` proves the evidence loop only: the inputs, generated files, Word
-open result, and page images are all accounted for. It is not a claim that the
-generated DOCX files are product-quality school submissions. Product-level
-layout review is tracked in
-`docs/human/real-core-v0-product-quality-review.md`; the check that each of the
-four conversion steps can point to a concrete current problem is tracked in
-`docs/human/real-core-v0-four-stage-problem-checks.md`.
+The current `real-core-v0` coverage gate returns `FAIL` for the existing
+generated outputs because deterministic product-quality checks find template,
+content, placement, and render problems. Product-level layout review is tracked
+in `docs/human/real-core-v0-product-quality-review.md`; the four-stage gate is
+tracked in `docs/human/real-core-v0-four-stage-problem-checks.md`.
 
 Run the bootstrap checks with:
 
