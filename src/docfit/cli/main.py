@@ -9,6 +9,7 @@ from docfit.convert.orchestrator import (
     run_placement_eval,
     run_render_eval,
     run_template_eval,
+    run_template_gap_eval,
 )
 from docfit.core.io import read_json, write_json
 from docfit.core.status import Status
@@ -45,6 +46,16 @@ def eval_template(
     out: Path = typer.Option(..., "--out"),
 ) -> None:
     result = run_template_eval(_root(), school, template, out)
+    _echo_status(result.status)
+
+
+@eval_app.command("template-gap")
+def eval_template_gap(
+    school: str = typer.Option(..., "--school"),
+    generated_template: Path = typer.Option(..., "--generated-template"),
+    out: Path = typer.Option(..., "--out"),
+) -> None:
+    result = run_template_gap_eval(_root(), school, generated_template, out)
     _echo_status(result.status)
 
 

@@ -6,7 +6,7 @@
 
 目前不需要用户再准备新的外部材料。
 
-本轮继续开发后，`real-core-v0` 已经把已审材料转成 9 个真实渲染输出：
+此前开发已经把 `real-core-v0` 的已审材料转成 9 个真实渲染输出：
 
 ```text
 reports/real-core-v0/<case_id>/final.docx
@@ -19,11 +19,12 @@ reports/real-core-v0/<case_id>/evidence/word_image_evidence.json
 reports/real-core-v0/<case_id>/evidence/page-*.png
 ```
 
-当前 deterministic coverage 结果：
+这些输出和 Word evidence 证明旧的证据闭环曾经跑通，但它们不再代表当前
+`real-core-v0` 已通过。当前 deterministic coverage 结果：
 
 ```bash
-uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage_after_word_evidence
-# status = PASS
+uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage
+# status = FAIL
 ```
 
 产品质量验收已开始，结论见：
@@ -32,9 +33,9 @@ uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_c
 docs/human/real-core-v0-product-quality-review.md
 ```
 
-当前 9 个输出还不能视为产品质量合格成品；主要问题是目标模板说明/示例内容
-泄漏，以及学生内容被 append-only 写到模板内容之后。后续工程仍可继续推进，
-不需要用户补充新材料。
+当前 9 个输出还不能视为产品质量合格成品；主要问题是生成模板 Word 差距检查
+已经阻断 template 阶段，后续内容抽取、内容放置、Word 生成仍有具体问题。
+后续工程仍可继续推进，不需要用户补充新材料。
 
 生成物索引见：
 
@@ -63,6 +64,7 @@ docs/human/real-core-v0-generated-evidence-index.md
 | 签名 source-fact 学校标准 | `standards/schools/*/v1/` | 已生成 |
 | real-core profile expected baselines | `standards/eval_profiles/real-core-v0/expected/` | 已生成 |
 | coverage gate | `docfit eval coverage --profile real-core-v0` | 可运行 |
+| 生成模板差距检查 | `docfit eval template-gap --school ... --generated-template ...` | 已实现，当前会阻断坏模板 |
 | Word image evidence verifier | `src/docfit/harness/word_evidence.py` | 已实现 |
 | Word evidence exporter | `scripts/export_real_core_word_evidence.py` | 已实现 |
 | Word 本机导出链路 | Microsoft Word SaveAs PDF + `pdftoppm` | 已验证 |
@@ -72,14 +74,14 @@ docs/human/real-core-v0-generated-evidence-index.md
 
 ## Codex 已完成的工程输出
 
-这些不是用户材料，是工程输出；本轮已完成：
+这些不是用户材料，是工程输出；此前已完成并仍可复用的部分：
 
 1. real-core template stage：从已审模板基线生成/验证真实学校的 template artifact，不能再依赖 bootstrap 的 `[[DOCFIT_SLOT:body]]`。
 2. real-core content stage：建模学生 DOCX 中的可见图片，避免 `unsupported_visible_object:image` 阻断后续链路。
 3. real-core placement stage：按已审 render plan/source facts 给每个学生内容节点明确 disposition，保证 no silent drop。
 4. real-core render stage：为 9 个 school/student 组合生成真实 `reports/real-core-v0/<case_id>/final.docx`。
 5. Word evidence stage：对 9 个 `final.docx` 运行 `scripts/export_real_core_word_evidence.py`，生成 page PNG 和 manifest。
-6. verification：运行 coverage、focused tests、必要的 e2e probe，确认 `real-core-v0` 不再因为 Word evidence 缺失而 UNKNOWN。
+6. verification：Word evidence 不再是唯一阻断；当前 coverage 会继续检查生成模板差距和业务质量，坏输出返回 `FAIL`。
 
 ## 之后可能需要用户 review 的内容
 

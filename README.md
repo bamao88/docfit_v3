@@ -24,11 +24,16 @@ sufficient pass condition.
 The real-school template contracts now include executable `expected.units`
 standards, so template parsing is checked at the unit, element, policy, and
 style-field level before later stages can claim acceptance.
+The real-school template gate also treats `generated_template.docx` as a tested
+Word input: it writes `generated_template_tree.json` from OOXML and
+`template_gap_report.json` / `.md` / `.docx` before e2e can claim template
+acceptance.
 
 The current `real-core-v0` coverage gate returns `FAIL` for the existing
-generated outputs because deterministic product-quality checks find template,
-content, placement, and render problems. Product-level layout review is tracked
-in `docs/human/real-core-v0-product-quality-review.md`; the four-stage gate is
+generated outputs because generated-template gap checks and deterministic
+product-quality checks find template, content, placement, and render problems.
+Product-level layout review is tracked in
+`docs/human/real-core-v0-product-quality-review.md`; the four-stage gate is
 tracked in `docs/human/real-core-v0-four-stage-problem-checks.md`.
 
 Run the bootstrap checks with:
@@ -42,4 +47,10 @@ Check the real-school baseline gate with:
 
 ```bash
 uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage
+```
+
+Run one generated-template gap check with:
+
+```bash
+uv run docfit eval template-gap --school hunannongye --generated-template inputs/school-hunannongye-requirement.docx --out /tmp/docfit_template_gap_hunannongye
 ```

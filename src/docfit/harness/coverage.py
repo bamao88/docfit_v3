@@ -5,7 +5,7 @@ from typing import Any
 
 from docx import Document
 
-from docfit.core.io import read_json
+from docfit.core.io import read_json, sha256_file
 from docfit.core.models import Finding, make_finding
 from docfit.core.status import Status, merge_statuses
 from docfit.ooxml.package import is_valid_docx, read_document_xml
@@ -331,6 +331,14 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
         findings.extend(baseline_findings)
         next_index += len(baseline_findings)
 
+        gap_findings = _real_core_template_gap_findings(
+            root,
+            school_id,
+            start_index=next_index,
+        )
+        findings.extend(gap_findings)
+        next_index += len(gap_findings)
+
     expected_root = root / REAL_CORE_PROFILE.expected_dir
     for student in REAL_CORE_STUDENTS:
         student_id = str(student["student_id"])
@@ -464,6 +472,14 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
     missing_types = sorted({finding.type for finding in findings})
     if not findings:
         baseline_status = "signed_business_accepted"
+    elif any(
+        finding_type in missing_types
+        for finding_type in {
+            "missing_generated_template_gap_evidence",
+            "generated_template_gap_blocking",
+        }
+    ):
+        baseline_status = "generated_template_gap_pending"
     elif set(missing_types) == {"missing_word_image_evidence"}:
         baseline_status = "source_facts_signed_word_evidence_pending"
     elif product_quality_report["failing_cases"] or product_quality_report["missing_cases"]:
@@ -497,3 +513,116 @@ def _real_core_source_files() -> list[Path]:
         paths.append(student["student_docx"])
         paths.append(student["review_source"])
     return paths
+
+
+def _real_core_template_gap_findings(
+    root: Path,
+    school_id: str,
+    *,
+    start_index: int,
+) -> list[Finding]:
+    case_id = f"real_core_v0_template_{school_id}"
+    artifacts = root / "reports/real-core-v0" / case_id / "artifacts"
+    required = [
+        artifacts / "generated_template.docx",
+        artifacts / "generated_template_tree.json",
+        artifacts / "template_gap_report.json",
+        artifacts / "template_gap_report.md",
+        artifacts / "template_gap_report.docx",
+    ]
+    missing = [path for path in required if not path.exists()]
+    if missing:
+        return [
+            make_finding(
+                start_index,
+                "coverage",
+                Status.UNKNOWN,
+                "missing_generated_template_gap_evidence",
+                "real-core-v0 coverage requires generated template gap evidence",
+                "generated_template.docx, generated_template_tree.json, and template_gap_report.*",
+                ", ".join(str(path) for path in missing),
+                affected_ids=[school_id, case_id],
+                root_cause_bucket="template_generation_gap",
+            )
+        ]
+
+    report_path = artifacts / "template_gap_report.json"
+    try:
+        report = read_json(report_path)
+    except Exception as exc:  # pragma: no cover - defensive branch
+        return [
+            make_finding(
+                start_index,
+                "coverage",
+                Status.UNKNOWN,
+                "invalid_generated_template_gap_report",
+                "template_gap_report.json must be valid JSON",
+                "valid JSON report",
+                repr(exc),
+                affected_ids=[school_id, case_id],
+                root_cause_bucket="template_generation_gap",
+            )
+        ]
+
+    findings: list[Finding] = []
+    next_index = start_index
+    bound_hash = report.get("generated_template", {}).get("sha256")
+    actual_hash = sha256_file(artifacts / "generated_template.docx")
+    if bound_hash != actual_hash:
+        findings.append(
+            make_finding(
+                next_index,
+                "coverage",
+                Status.FAIL,
+                "generated_template_gap_hash_mismatch",
+                "template_gap_report.json must bind the generated_template.docx hash",
+                actual_hash,
+                str(bound_hash),
+                affected_ids=[school_id, case_id],
+                root_cause_bucket="template_generation_gap",
+            )
+        )
+        next_index += 1
+
+    summary = report.get("summary", {})
+    required_summary_fields = {
+        "known_status",
+        "display_status",
+        "passed_count",
+        "failed_count",
+        "unknown_count",
+        "blocking_status",
+    }
+    missing_summary = sorted(required_summary_fields - set(summary))
+    if missing_summary:
+        findings.append(
+            make_finding(
+                next_index,
+                "coverage",
+                Status.UNKNOWN,
+                "generated_template_gap_summary_incomplete",
+                "template_gap_report.json must include the status summary fields",
+                ", ".join(sorted(required_summary_fields)),
+                ", ".join(missing_summary),
+                affected_ids=[school_id, case_id],
+                root_cause_bucket="template_generation_gap",
+            )
+        )
+        next_index += 1
+
+    blocking_status = summary.get("blocking_status")
+    if blocking_status in {Status.FAIL.value, Status.UNKNOWN.value}:
+        findings.append(
+            make_finding(
+                next_index,
+                "coverage",
+                Status(blocking_status),
+                "generated_template_gap_blocking",
+                "生成模板 Word 差距报告仍然阻断 real-core-v0 coverage",
+                "template gap blocking_status = PASS",
+                str(summary.get("display_status") or blocking_status),
+                affected_ids=[school_id, case_id],
+                root_cause_bucket="template_generation_gap",
+            )
+        )
+    return findings

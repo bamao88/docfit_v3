@@ -59,5 +59,5 @@ def test_real_core_problem_check_reports_all_four_stages(tmp_path) -> None:
     assert "word/document.xml:p[" in by_type["render_append_only_insertion"].actual
     assert "模板解析结果有" in by_type["render_append_only_insertion"].actual
 
-    assert result.blocked_at == "content"
+    assert result.blocked_at == "template"
     assert result.status.value == "FAIL"

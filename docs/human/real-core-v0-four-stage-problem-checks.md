@@ -15,6 +15,9 @@
 
 - `src/docfit/harness/product_quality.py`：读取一次真实转换产生的中间 JSON 和
   `final.docx`，整理四个环节各自暴露出来的问题，并提供业务验收 coverage flags。
+- `src/docfit/harness/generated_template_gap.py`：把 `generated_template.docx`
+  当成被测 Word，从 OOXML 解析 `generated_template_tree.json`，再按
+  `template_unit_contract.yaml` 输出 `template_gap_report.json/.md/.docx`。
 - `src/docfit/convert/orchestrator.py`：real-core e2e 在 render 后合并这些 findings，
   并把对应阶段状态改成 `FAIL` 或 `UNKNOWN`。
 - `src/docfit/harness/coverage.py`：profile coverage 在 Word evidence 存在后继续检查
@@ -30,8 +33,9 @@
 uv run pytest tests/contract/test_real_core_four_stage_problem_checks.py -q
 ```
 
-当前结果：测试通过。它证明模板解析问题已经在新临时 e2e 输出中被清除，
-后续内容抽取、内容放置、Word 生成问题仍会阻塞当前坏输出。
+当前结果：测试通过。它证明模板 source-fact 解析已经有结构化标准，但生成模板
+Word 的差距检查现在会把 template 阶段阻断；即使如此，e2e 仍会继续生成后续
+内容抽取、内容放置、Word 生成诊断，方便一次看到完整问题清单。
 
 ## 为什么先做这层检查
 
@@ -73,6 +77,9 @@ uv run pytest tests/contract/test_real_core_four_stage_problem_checks.py -q
 - 看懂学校模板里哪些部分是封面、声明、目录、题名、摘要、正文、参考文献、
   附录、致谢、手工表单；
 - 看懂哪些文字只是模板说明或示例，不能进入最终成品。
+- 把当前生成出来或作为夹具提供的 `generated_template.docx` 当成被测 Word，
+  从 OOXML 解析实际结构，并按学校 `template_unit_contract.yaml` 报告一致、
+  不一致和无法证明之处。
 
 旧报告中曾经能指出的具体问题：
 
@@ -100,6 +107,11 @@ uv run pytest tests/contract/test_real_core_four_stage_problem_checks.py -q
   都要和 `template_artifact.data.units` 对齐。
 - 如果某个元素的样式、策略或位置不一致，验收会报到具体路径，例如
   `template_element_style_mismatch` + `cover.e_001.style`，而不是只说“模板有问题”。
+- `docfit eval template-gap` 会写出 `generated_template.docx`、
+  `generated_template_tree.json`、`template_gap_report.json`、
+  `template_gap_report.md` 和 `template_gap_report.docx`。报告有
+  `known_status`、`display_status`、`passed_count`、`failed_count`、
+  `unknown_count`、`blocking_status`，所以 `FAIL + UNKNOWN` 不会丢掉未知项。
 
 最新临时验证：
 
@@ -107,8 +119,9 @@ uv run pytest tests/contract/test_real_core_four_stage_problem_checks.py -q
 uv run docfit eval e2e --school hunannongye --student inputs/real-student-003-source.docx --out /tmp/docfit_real_core_template_probe
 ```
 
-结果中 `stage_statuses.template = PASS`，`business.template_acceptance = true`，
-`blocked_at = content`。这说明当前代码的模板解析切片已经推进完成；旧
+当前结果是 `stage_statuses.template = FAIL`，`blocked_at = template`。
+`artifacts/template_gap_report.json` 展示为 `FAIL + UNKNOWN`：当前生成模板已经
+有确定性缺失项，同时样式、分页、页眉页脚和字段还有未证明项。旧
 `reports/real-core-v0/**` 里的历史 artifacts 在重新生成前仍可能显示旧模板问题。
 
 ### 2. 内容抽取
@@ -213,11 +226,13 @@ uv run docfit eval e2e --school hunannongye --student inputs/real-student-003-so
 
 建议按这个顺序继续做：
 
-1. 修内容抽取：继续识别学生文档里的摘要、关键词、参考文献、附录、致谢，
+1. 先修模板生成差距：补齐 `generated_template.docx` 的真实生成路径和 OOXML
+   检查能力，消除当前 `template_gap_report` 中的 `FAIL` 和关键 `UNKNOWN`。
+2. 修内容抽取：继续识别学生文档里的摘要、关键词、参考文献、附录、致谢，
    也能识别旧封面、旧目录这类源文档格式内容。
-2. 再修内容放置：让每段学生内容有目标学校位置，不能继续全部放到
+3. 再修内容放置：让每段学生内容有目标学校位置，不能继续全部放到
    `slot_body_start`。
-3. 最后修 Word 生成：清掉模板说明文字，把学生内容写到目标位置，然后重新生成
+4. 最后修 Word 生成：清掉模板说明文字，把学生内容写到目标位置，然后重新生成
    9 个 Word 成品和页面图像证据。
 
 这四步完成后，测试就不只是“能说出当前问题”，而是能在对应环节直接阻止同类

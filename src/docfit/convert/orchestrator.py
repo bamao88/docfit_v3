@@ -8,6 +8,7 @@ from docfit.core.io import read_json
 from docfit.core.models import Finding, StageResult
 from docfit.core.status import StageRunState, Status, merge_statuses
 from docfit.harness.coverage import coverage_gate_findings
+from docfit.harness.generated_template_gap import evaluate_generated_template_gap
 from docfit.harness.profiles import BOOTSTRAP_PROFILE
 from docfit.harness.product_quality import (
     BUSINESS_ACCEPTANCE_STAGES,
@@ -76,6 +77,23 @@ def _renumber_findings(findings: list[Finding], *, start_index: int) -> list[Fin
     return findings
 
 
+def _merge_generated_template_gap(
+    template_result: StageResult,
+    gap_result: StageResult,
+) -> None:
+    gap_findings = _renumber_findings(
+        gap_result.findings,
+        start_index=len(template_result.findings) + 1,
+    )
+    template_result.findings.extend(gap_findings)
+    template_result.status = merge_statuses([template_result.status, gap_result.status])
+    template_result.artifacts.update(gap_result.artifacts)
+    template_result.artifact_paths.update(gap_result.artifact_paths)
+    template_result.coverage.update(gap_result.coverage)
+    if template_result.blocked_at is None and gap_result.blocked_at is not None:
+        template_result.blocked_at = gap_result.blocked_at
+
+
 def _merge_findings_into_stage_statuses(
     stage_statuses: dict[str, str],
     findings: list[Finding],
@@ -112,6 +130,9 @@ def run_template_eval(root: Path, school_id: str, template_docx: Path, out_dir: 
         result.findings = standard_findings + result.findings
         if standard_findings and result.status == Status.PASS:
             result.status = Status.UNKNOWN
+        if is_real_core_bundle(bundle):
+            gap_result = evaluate_generated_template_gap(bundle, template_docx, out_dir)
+            _merge_generated_template_gap(result, gap_result)
         _apply_coverage_gate(
             result,
             _required_capabilities(
@@ -121,6 +142,36 @@ def run_template_eval(root: Path, school_id: str, template_docx: Path, out_dir: 
             ),
         )
     write_template_outputs(out_dir, result)
+    _write_stage_report(out_dir, result)
+    return result
+
+
+def run_template_gap_eval(
+    root: Path,
+    school_id: str,
+    generated_template_docx: Path,
+    out_dir: Path,
+) -> StageResult:
+    bundle, standard_findings = load_standard_bundle(root, school_id, finding_stage="template")
+    if bundle is None:
+        result = StageResult("template", Status.UNKNOWN, findings=standard_findings)
+    else:
+        result = evaluate_generated_template_gap(bundle, generated_template_docx, out_dir)
+        result.findings = standard_findings + _renumber_findings(
+            result.findings,
+            start_index=len(standard_findings) + 1,
+        )
+        result.status = merge_statuses(
+            [result.status] + [finding.status for finding in standard_findings]
+        )
+        _apply_coverage_gate(
+            result,
+            _required_capabilities(
+                bundle,
+                "template_contract",
+                BOOTSTRAP_PROFILE.capabilities_for_stage("template"),
+            ),
+        )
     _write_stage_report(out_dir, result)
     return result
 
@@ -272,7 +323,12 @@ def run_e2e_eval(
 
     template_result = parse_template(bundle.template_docx, bundle)
     template_result.findings = standard_findings + template_result.findings
+    if standard_findings and template_result.status == Status.PASS:
+        template_result.status = Status.UNKNOWN
     write_template_outputs(out_dir, template_result)
+    if real_core_run:
+        gap_result = evaluate_generated_template_gap(bundle, bundle.template_docx, out_dir)
+        _merge_generated_template_gap(template_result, gap_result)
     _apply_coverage_gate(
         template_result,
         _required_capabilities(
@@ -287,7 +343,7 @@ def run_e2e_eval(
     artifacts.update(template_result.artifacts)
     artifact_paths.update(template_result.artifact_paths)
     coverage.update(template_result.coverage)
-    if template_result.status != Status.PASS:
+    if template_result.status != Status.PASS and not real_core_run:
         return _finish_e2e(
             out_dir,
             stage_statuses,
@@ -443,8 +499,8 @@ def _finish_e2e(
         blocked_at=blocked_at,
     )
     artifact_refs = {key: f"artifacts/{key}.json" for key in artifacts}
-    if "final_docx" in artifact_paths:
-        artifact_refs["final_docx"] = str(artifact_paths["final_docx"])
+    for key, path in artifact_paths.items():
+        artifact_refs[key] = str(path)
     write_report_bundle(
         out_dir,
         stage="e2e",

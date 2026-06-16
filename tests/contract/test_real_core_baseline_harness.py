@@ -52,11 +52,18 @@ def test_real_core_coverage_is_unknown_until_word_image_evidence_exists(tmp_path
     assert report["case_counts"] == {"template": 3, "content": 3, "e2e": 9}
     assert report["source_files"]["missing"] == []
     assert "missing_profile_case_registry" not in report["missing"]
-    assert report["baseline_status"] == "source_facts_signed_word_evidence_pending"
-    assert report["missing"] == ["missing_word_image_evidence"]
+    assert report["baseline_status"] == "generated_template_gap_pending"
+    assert report["missing"] == [
+        "missing_generated_template_gap_evidence",
+        "missing_word_image_evidence",
+    ]
     assert not any(finding.type == "missing_signed_standard" for finding in findings)
     assert not any(finding.type == "missing_profile_baseline" for finding in findings)
     assert sum(finding.type == "missing_word_image_evidence" for finding in findings) == 9
+    assert (
+        sum(finding.type == "missing_generated_template_gap_evidence" for finding in findings)
+        == 3
+    )
 
 
 def test_real_core_coverage_does_not_pass_with_only_bound_word_image_evidence(tmp_path) -> None:
@@ -89,12 +96,19 @@ def test_real_core_coverage_does_not_pass_with_only_bound_word_image_evidence(tm
     report, findings = evaluate_profile_coverage(tmp_path, "real-core-v0")
 
     assert report["status"] == Status.UNKNOWN.value
-    assert report["baseline_status"] == "business_acceptance_blocked"
-    assert report["missing"] == ["missing_product_quality_evidence"]
+    assert report["baseline_status"] == "generated_template_gap_pending"
+    assert report["missing"] == [
+        "missing_generated_template_gap_evidence",
+        "missing_product_quality_evidence",
+    ]
     assert report["product_quality"]["missing_cases"] == [
         case.case_id for case in cases
     ]
     assert sum(finding.type == "missing_product_quality_evidence" for finding in findings) == 9
+    assert (
+        sum(finding.type == "missing_generated_template_gap_evidence" for finding in findings)
+        == 3
+    )
 
 
 def test_real_core_coverage_requires_checked_in_case_registry(tmp_path) -> None:
@@ -114,13 +128,19 @@ def test_real_core_template_parse_outputs_reviewed_unit_tree_for_all_schools(tmp
             tmp_path / school_id,
         )
 
-        assert result.status == Status.PASS
+        assert result.status == Status.FAIL
         artifact = read_json(tmp_path / school_id / "artifacts/template_artifact.json")
+        gap_report = read_json(tmp_path / school_id / "artifacts/template_gap_report.json")
         units = artifact["data"]["units"]
         slots = artifact["data"]["slots"]
         paragraphs = artifact["data"]["paragraphs"]
         instruction_paragraphs = artifact["data"]["instruction_paragraphs"]
 
+        assert gap_report["summary"]["blocking_status"] == Status.FAIL.value
+        assert (tmp_path / school_id / "artifacts/generated_template.docx").exists()
+        assert (tmp_path / school_id / "artifacts/generated_template_tree.json").exists()
+        assert (tmp_path / school_id / "artifacts/template_gap_report.md").exists()
+        assert (tmp_path / school_id / "artifacts/template_gap_report.docx").exists()
         assert len(units) >= 10
         assert all(unit["unit_id"] for unit in units)
         assert all(unit["elements"] for unit in units)
@@ -161,7 +181,7 @@ def test_real_core_template_contract_verifier_reports_element_style_mismatch(
         ROOT / "inputs/school-hunannongye-requirement.docx",
         tmp_path / "hunannongye",
     )
-    assert result.status == Status.PASS
+    assert result.status == Status.FAIL
     artifact = read_json(tmp_path / "hunannongye/artifacts/template_artifact.json")
 
     artifact["data"]["units"][0]["elements"][0]["style"] = "宋体；12pt；左对齐。"
@@ -186,7 +206,7 @@ def test_real_core_template_contract_requires_structured_expected_units(
         ROOT / "inputs/school-hunannongye-requirement.docx",
         tmp_path / "hunannongye",
     )
-    assert result.status == Status.PASS
+    assert result.status == Status.FAIL
     artifact = read_json(tmp_path / "hunannongye/artifacts/template_artifact.json")
     artifact["real_core_source_facts"].pop("units")
 
@@ -208,11 +228,11 @@ def test_real_core_e2e_reaches_render_and_writes_bound_final_docx(tmp_path) -> N
     )
 
     assert result.status == Status.FAIL
-    assert result.blocked_at == "content"
+    assert result.blocked_at == "template"
     assert (tmp_path / "real_core_case/final.docx").exists()
     summary = read_json(tmp_path / "real_core_case/summary.json")
     assert summary["stage_statuses"] == {
-        "template": "PASS",
+        "template": "FAIL",
         "content": "UNKNOWN",
         "placement": "UNKNOWN",
         "render": "FAIL",
@@ -222,7 +242,15 @@ def test_real_core_e2e_reaches_render_and_writes_bound_final_docx(tmp_path) -> N
         finding.type for finding in result.findings
     ]
     assert "render_append_only_insertion" in [finding.type for finding in result.findings]
-    assert result.findings[0].affected_ids == ["render.word_image_evidence"]
+    assert any(
+        finding.type == "template_generation_element_missing"
+        for finding in result.findings
+    )
+    assert any(
+        finding.type == "coverage_insufficient"
+        and finding.affected_ids == ["render.word_image_evidence"]
+        for finding in result.findings
+    )
 
 
 def test_required_dimension_without_comparator_policy_is_unknown() -> None:

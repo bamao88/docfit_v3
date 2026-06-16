@@ -21,7 +21,8 @@ generated outputs fail deterministic business acceptance.
 
 | Blocker | What it means | Owner |
 | --- | --- | --- |
-| `template_unit_tree_missing` / `template_instruction_paragraph_unclassified` | Template parse still does not produce target school units, elements, and output policies. | Engineering fixes template parsing against reviewed school facts. |
+| `missing_generated_template_gap_evidence` / `generated_template_gap_blocking` / `template_generation_element_missing` | The gate now requires `generated_template.docx`, `generated_template_tree.json`, and `template_gap_report.*`; current generated-template checks find deterministic gaps or missing evidence. | Engineering fixes template generation and OOXML gap checking against reviewed school facts. |
+| historical `template_unit_tree_missing` / `template_instruction_paragraph_unclassified` | Existing checked-in reports were produced before the current source-fact parser and generated-template gap gate. They remain useful evidence of old failures but are not current pass proof. | Engineering regenerates reports after template/content/placement/render fixes. |
 | `content_heading_semantics_unclassified` / `content_donor_front_matter_not_disposed` | Student content extraction still lacks enough semantic classification and source-format disposal. | Engineering fixes content extraction against reviewed student facts. |
 | `placement_actions_collapsed_to_virtual_body_slot` | Placement still maps most content to the fallback body slot instead of target units/elements. | Engineering fixes placement against reviewed case expectations. |
 | `render_template_instruction_text_leaked` / `render_append_only_insertion` | Rendered Word still leaks template instructions and appends student content after copied templates. | Engineering fixes rendering after template/content/placement gates are meaningful. |

@@ -10,7 +10,15 @@
     "template.element_order",
     "template.style_dimensions",
     "template.review_metadata",
-    "template.comparator_policy"
+    "template.comparator_policy",
+    "template_generation.output_docx",
+    "template_generation.actual_tree",
+    "template_generation.unit_match",
+    "template_generation.element_match",
+    "template_generation.style_match",
+    "template_generation.header_footer_match",
+    "template_generation.page_rule_match",
+    "template_generation.report"
   ],
   "required_invariants": [
     "template unit tree preserves units, elements, sub-elements, order, policies, styles, and layout constraints"
@@ -20,6 +28,7 @@
     "unknown_is_blocking": true
   },
   "verifier_refs": [
-    "docfit.stages.template_parse.verify_template_artifact"
+    "docfit.stages.template_parse.verify_template_artifact",
+    "docfit.harness.generated_template_gap.evaluate_generated_template_gap"
   ]
 }

@@ -142,12 +142,16 @@ docs/human/real-core-v0-four-stage-problem-checks.md
 结构化标准，再逐 unit、element、policy、type/fill、content、style、
 position/relationship 比对 `template_artifact.data.units`。例如元素样式改错会报
 `template_element_style_mismatch` 并指出 `cover.e_001.style` 这类具体路径。
-新的临时 e2e 结果已经从 `blocked_at: template` 推进到 `blocked_at: content`，
-说明当前代码层面的下一处业务阻塞是学生内容树。
+本轮之后又新增了生成模板 Word 差距检查：临时 e2e 会写出
+`generated_template.docx`、`generated_template_tree.json` 和
+`template_gap_report.json/.md/.docx`。新的临时 e2e 结果回到
+`blocked_at: template`，不是因为 source-fact 解析回退，而是因为现在能直接检查
+生成模板 Word 本身；当前报告为 `FAIL + UNKNOWN`，说明已经发现确定性差距，
+同时样式/分页/页眉页脚/字段仍有未证明项。
 
 注意：既有 `reports/real-core-v0/**` 仍是旧成品和旧证据，未在本轮重生。因此 coverage
-读取旧报告时仍会看到旧的模板问题；这不代表模板 parser 代码回退，而是后续需要在
-内容、放置、渲染能力修复后统一重生 9 个真实成品。
+读取旧报告时仍会看到旧的模板问题；这不代表 source-fact parser 代码回退，而是后续需要
+在生成模板、内容、放置、渲染能力修复后统一重生 9 个真实成品。
 
 ## 下一步开发任务
 

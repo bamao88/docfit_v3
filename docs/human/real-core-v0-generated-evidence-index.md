@@ -5,7 +5,13 @@
 本机已生成 `real-core-v0` 的 9 个 school/student 组合输出。生成物位于
 `reports/real-core-v0/**`，该目录按仓库规则属于本地 generated evidence，不随代码提交。
 
-Coverage proof:
+注意：下面的 PASS 记录是旧的证据闭环口径。当前代码已经新增生成模板 Word
+差距检查和业务质量 gate；同一批历史证据不能再证明 `real-core-v0` 通过。
+现在运行 `uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage`
+会返回 `FAIL`，因为缺少 checked-in 的模板差距证据，且历史成品仍有模板、
+内容、放置、渲染问题。
+
+Historical coverage proof:
 
 ```bash
 uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage_after_reconcile
@@ -45,9 +51,11 @@ Each case directory also contains `summary.json`, `findings.json`,
 ## Review Boundary
 
 This evidence proves the deterministic source-fact coverage and Microsoft
-Word-open/page-image export gate. It does not replace product review of final
-layout quality. The next review surface is the generated `final.docx` and page
-images listed above.
+Word-open/page-image export gate under the old evidence-binding check. It does
+not replace product review of final layout quality, and it does not prove that
+`generated_template.docx` matches the school template contracts. The next
+review surface is the generated `final.docx`, page images, and the
+generated-template gap reports.
 
 Product QA review has started here:
 
