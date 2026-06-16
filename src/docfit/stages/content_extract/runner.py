@@ -30,6 +30,9 @@ from docfit.ooxml.package import (
 )
 
 
+_MAX_HEADING_CANDIDATE_CHARS = 80
+
+
 def iter_block_items(parent: DocumentType) -> Iterable[Paragraph | Table]:
     body = parent.element.body
     for child in body.iterchildren():
@@ -74,11 +77,65 @@ def _paragraph_kind(paragraph: Paragraph) -> tuple[str, list[dict[str, Any]]]:
                 "evidence": ["bold", "short_text"],
             }
         )
+    numbered_candidate = _numbered_heading_candidate(paragraph.text)
+    if numbered_candidate is not None:
+        candidates.append(numbered_candidate)
     return "paragraph", candidates
 
 
 def _is_source_toc_style(style_name: str) -> bool:
     return bool(re.fullmatch(r"toc\s+\d+", style_name.strip().lower()))
+
+
+def _numbered_heading_candidate(text: str) -> dict[str, Any] | None:
+    normalized = " ".join(text.strip().split())
+    if not normalized or len(normalized) > _MAX_HEADING_CANDIDATE_CHARS:
+        return None
+
+    if re.match(r"^第[一二三四五六七八九十百千万零〇两]+[章节篇]\s*\S+", normalized):
+        return {
+            "kind": "heading",
+            "level_candidate": 1,
+            "confidence": 0.8,
+            "evidence": ["chinese_chapter_number", "short_text"],
+        }
+
+    match = re.match(r"^(?P<number>\d+(?:[.．]\d+)+)\s*\S+", normalized)
+    if match:
+        number = match.group("number")
+        return {
+            "kind": "heading",
+            "level_candidate": min(number.count(".") + number.count("．") + 2, 6),
+            "confidence": 0.75,
+            "evidence": ["arabic_dotted_numbered_heading", "short_text"],
+        }
+
+    match = re.match(r"^(?P<number>\d+)(?:\s+|[、.．]\s+)\S+", normalized)
+    if match:
+        return {
+            "kind": "heading",
+            "level_candidate": 2,
+            "confidence": 0.75,
+            "evidence": ["arabic_numbered_heading", "short_text"],
+        }
+
+    if re.match(r"^[（(][一二三四五六七八九十]+[）)]\s*\S+", normalized):
+        return {
+            "kind": "heading",
+            "level_candidate": 2,
+            "confidence": 0.7,
+            "evidence": ["parenthesized_chinese_number", "short_text"],
+        }
+
+    if re.match(r"^[一二三四五六七八九十]+[、.．]\s*\S+", normalized):
+        return {
+            "kind": "heading",
+            "level_candidate": 2,
+            "confidence": 0.7,
+            "evidence": ["chinese_numbered_heading", "short_text"],
+        }
+
+    return None
 
 
 def _style_signals(paragraph: Paragraph) -> dict[str, Any]:

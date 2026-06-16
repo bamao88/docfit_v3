@@ -35,7 +35,8 @@ def test_real_core_problem_check_reports_all_four_stages(tmp_path) -> None:
     assert by_type["content_heading_semantics_unclassified"].stage == "content"
     assert "content_id" not in by_type["content_heading_semantics_unclassified"].actual
     assert "c_" in by_type["content_heading_semantics_unclassified"].actual
-    assert "1 前言" in by_type["content_heading_semantics_unclassified"].actual
+    assert "1 前言" not in by_type["content_heading_semantics_unclassified"].actual
+    assert "参考文献" in by_type["content_heading_semantics_unclassified"].actual
 
     assert "content_donor_front_matter_not_disposed" in by_type
     assert by_type["content_donor_front_matter_not_disposed"].stage == "content"

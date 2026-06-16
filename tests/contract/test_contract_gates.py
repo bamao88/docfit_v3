@@ -111,6 +111,27 @@ def test_unknown_when_content_coverage_insufficient(tmp_path) -> None:
     assert any(finding.type == "coverage_insufficient" for finding in result.findings)
 
 
+def test_numbered_body_headings_get_semantic_candidates(tmp_path) -> None:
+    student = tmp_path / "student-with-numbered-headings.docx"
+    doc = Document()
+    doc.add_paragraph("第一章文献综述")
+    doc.add_paragraph("3 PGP6菌株的IAA合成路径及促生功能研究现状")
+    doc.add_paragraph("3.1IAA合成候选基因分析")
+    doc.save(student)
+
+    result = extract_student_content(student)
+    ledger = result.artifacts["student_content_artifact"]["data"]["visible_content_ledger"]
+
+    assert [
+        item["semantic_candidates"][0]["level_candidate"]
+        for item in ledger
+    ] == [1, 2, 3]
+    assert all(
+        item["semantic_candidates"][0]["kind"] == "heading"
+        for item in ledger
+    )
+
+
 def test_bootstrap_coverage_checks_fixture_content_not_just_paths(tmp_path) -> None:
     template = tmp_path / "inputs/bootstrap-demo-school-template.docx"
     student = tmp_path / "inputs/bootstrap-demo-student-pass.docx"
