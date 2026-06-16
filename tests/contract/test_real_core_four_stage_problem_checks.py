@@ -13,7 +13,7 @@ def _by_type(findings):
     return {finding.type: finding for finding in findings}
 
 
-def test_real_core_product_quality_audit_exposes_all_four_stage_gaps(tmp_path) -> None:
+def test_real_core_problem_check_reports_all_four_stages(tmp_path) -> None:
     result = run_e2e_eval(
         ROOT,
         "hunannongye",
@@ -28,7 +28,7 @@ def test_real_core_product_quality_audit_exposes_all_four_stage_gaps(tmp_path) -
     assert "template_unit_tree_missing" in by_type
     assert by_type["template_unit_tree_missing"].stage == "template"
     assert "slot_body_start" in by_type["template_unit_tree_missing"].actual
-    assert "first paragraph" in by_type["template_unit_tree_missing"].actual
+    assert "第一个段落" in by_type["template_unit_tree_missing"].actual
 
     assert "template_instruction_paragraph_unclassified" in by_type
     assert by_type["template_instruction_paragraph_unclassified"].stage == "template"
@@ -59,7 +59,7 @@ def test_real_core_product_quality_audit_exposes_all_four_stage_gaps(tmp_path) -
     assert "render_append_only_insertion" in by_type
     assert by_type["render_append_only_insertion"].stage == "render"
     assert "word/document.xml:p[" in by_type["render_append_only_insertion"].actual
-    assert "template artifact has" in by_type["render_append_only_insertion"].actual
+    assert "模板解析结果有" in by_type["render_append_only_insertion"].actual
 
     assert result.blocked_at == "render"
     assert result.status.value == "UNKNOWN"

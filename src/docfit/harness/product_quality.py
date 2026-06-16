@@ -34,7 +34,7 @@ DONOR_FRONT_MATTER_MARKERS = (
 
 
 def audit_e2e_case(case_dir: Path) -> list[Finding]:
-    """Return product-quality findings without mutating deterministic gates."""
+    """Return product-quality problem records without changing existing status."""
 
     artifacts = case_dir / "artifacts"
     template_artifact = read_json(artifacts / "template_artifact.json")
@@ -70,17 +70,17 @@ def audit_template_artifact(template_artifact: dict[str, Any]) -> list[Finding]:
                 "template",
                 Status.UNKNOWN,
                 "template_unit_tree_missing",
-                "Template parsing does not expose target-school units and fill policies",
+                "模板解析没有列出目标学校模板的主要位置",
                 (
-                    "separate template units for cover, statements, TOC, title, abstracts, "
-                    "body, references, appendix/acknowledgement, and manual-only forms"
+                    "应能分出封面、声明、目录、题名、摘要、正文、参考文献、"
+                    "附录/致谢、手工表单，并说明哪些位置需要填写"
                 ),
                 (
                     f"{template_artifact.get('school_id')}/{template_artifact.get('template_version')} "
-                    f"has {len(paragraphs)} nonempty template paragraphs, "
-                    f"{len(slots)} slot(s)={_slot_ids(slots)}, "
-                    f"{len(protected_zones)} protected zone(s), "
-                    f"{len(required_fields)} required field(s); first paragraph: "
+                    f"有 {len(paragraphs)} 个非空模板段落，但只有 "
+                    f"{len(slots)} 个位置={_slot_ids(slots)}，"
+                    f"{len(protected_zones)} 个受保护区域，"
+                    f"{len(required_fields)} 个必填字段；第一个段落："
                     f"{_preview(paragraphs[0].get('text', ''))}"
                 ),
                 evidence_refs=[template_artifact.get("provenance", {}).get("template_docx", "")],
@@ -102,8 +102,8 @@ def audit_template_artifact(template_artifact: dict[str, Any]) -> list[Finding]:
                 "template",
                 Status.UNKNOWN,
                 "template_instruction_paragraph_unclassified",
-                "Template parser inventories instruction/example text without a non-output policy",
-                "instruction/example paragraphs classified as fixed evidence, stripped instruction, or non-output template notes",
+                "模板说明/示例文字仍被当成普通模板段落",
+                "说明/示例段落应标成固定保留、需要填写，或不能写入最终成品",
                 "; ".join(
                     f"p[{item.get('index')}]: {_preview(item.get('text', ''))}"
                     for item in instruction_examples
@@ -137,8 +137,8 @@ def audit_content_artifact(content_artifact: dict[str, Any]) -> list[Finding]:
                 "content",
                 Status.UNKNOWN,
                 "content_heading_semantics_unclassified",
-                "Content extraction leaves section-like text as plain paragraphs",
-                "heading/abstract/reference/appendix candidates with content_id, level, and evidence",
+                "内容抽取把正文标题当成普通段落",
+                "标题、摘要、参考文献、附录、致谢等内容应有可检查的类型标记",
                 "; ".join(_content_example(item) for item in heading_like),
                 evidence_refs=[item.get("source_ref", "") for item in heading_like],
                 affected_ids=[item.get("content_id", "") for item in heading_like],
@@ -160,8 +160,8 @@ def audit_content_artifact(content_artifact: dict[str, Any]) -> list[Finding]:
                 "content",
                 Status.UNKNOWN,
                 "content_donor_front_matter_not_disposed",
-                "Content extraction keeps donor/source front matter as normal student content",
-                "donor-school cover and source-template lead-ins marked source_format or ignored by reviewed policy",
+                "内容抽取把旧封面/源文档前置页当成学生正文",
+                "旧学校封面和源模板前置页应标为源文档格式内容，或按已 review 规则忽略",
                 "; ".join(_content_example(item) for item in donor_front_matter),
                 evidence_refs=[item.get("source_ref", "") for item in donor_front_matter],
                 affected_ids=[item.get("content_id", "") for item in donor_front_matter],
@@ -201,14 +201,14 @@ def audit_placement_plan(
             "placement",
             Status.UNKNOWN,
             "placement_actions_collapsed_to_virtual_body_slot",
-            "Placement collapses student content into one virtual body slot",
+            "内容放置把学生内容都放到同一个兜底位置",
             (
-                "each content node mapped to a target-school unit/sub-element "
-                "such as title block, abstract, body heading, reference entry, appendix, or acknowledgement"
+                "每段内容应写到目标学校的具体位置，例如题名区、摘要区、"
+                "正文标题、参考文献、附录或致谢"
             ),
             (
-                f"{dominant_count}/{len(place_actions)} place action(s) target "
-                f"{dominant_target}; examples: {'; '.join(examples)}"
+                f"{dominant_count}/{len(place_actions)} 个写入动作都指向 "
+                f"{dominant_target}；例子：{'；'.join(examples)}"
             ),
             affected_ids=[
                 content_id
@@ -233,9 +233,9 @@ def audit_render_output(
                 "render",
                 Status.UNKNOWN,
                 "render_output_missing_for_product_audit",
-                "Product-quality render audit requires the generated DOCX",
+                "成品质量检查需要生成的 final.docx",
                 str(final_docx),
-                "missing",
+                "文件不存在",
                 root_cause_bucket="render_output_missing",
             )
         ]
@@ -261,8 +261,8 @@ def audit_render_output(
                 "render",
                 Status.FAIL,
                 "render_template_instruction_text_leaked",
-                "Rendered DOCX contains target-template instruction/example text",
-                "final DOCX contains only fixed school content, generated fields, and accepted student content",
+                "最终 Word 仍包含目标模板说明/示例文字",
+                "最终 Word 应只包含目标学校固定内容、生成字段和已接受的学生内容",
                 "; ".join(
                     f"docx paragraph {item['index']}: {_preview(item['text'])}"
                     for item in leaked
@@ -323,12 +323,12 @@ def _append_only_finding(
         "render",
         Status.FAIL,
         "render_append_only_insertion",
-        "Renderer appends placement output after copied template content",
-        "first writing placement action inserted into its target unit/slot, not after the copied template body",
+        "Word 生成把学生内容追加到复制模板之后",
+        "第一个写入动作应进入目标位置，而不是整份模板正文之后",
         (
-            f"first writing action ref={first_ref}; template artifact has "
-            f"{template_paragraph_count} nonempty paragraph(s); output first nonempty "
-            f"paragraph remains {_preview(first_output)}"
+            f"第一个写入位置={first_ref}；模板解析结果有 "
+            f"{template_paragraph_count} 个非空段落；输出第一个非空段落仍是 "
+            f"{_preview(first_output)}"
         ),
         evidence_refs=[first_ref],
         root_cause_bucket="render_append_only",

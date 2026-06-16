@@ -5,9 +5,9 @@ Eval-harness-first prototype for verifiable DOCX conversion.
 The first implementation target is the Bootstrap Profile from `SPEC.md`:
 
 - four independent stages,
-- `PASS` / `FAIL` / `UNKNOWN` gate semantics,
+- `PASS` / `FAIL` / `UNKNOWN` result states,
 - visible content ledger,
-- no silent drop verifier,
+- checks that visible content is not silently dropped,
 - signed standards and anti-drift checks,
 - PM reports, issue clusters, and AI diagnosis packets.
 
@@ -18,15 +18,17 @@ source evidence. Bootstrap expected artifacts live under
 
 Current work on the real-school baseline harness is tracked in `STATUS.md`.
 `real-core-v0` is registered as a fixed three-school, three-student profile.
-Its deterministic coverage gate now returns `PASS` on this machine after the
-reviewed baselines and nine Microsoft Word page-image evidence packages were
-bound under `reports/real-core-v0/**`.
+On this machine, its fixed evidence check returns `PASS` after the reviewed
+baselines and nine Microsoft Word page-image evidence packages were bound under
+`reports/real-core-v0/**`.
 
-That PASS proves the evidence loop; it is not a claim that the generated DOCX
-files are product-quality school submissions. Product-level layout review is
-tracked in `docs/human/real-core-v0-product-quality-review.md`; the four-stage
-test exposure matrix is tracked in
-`docs/human/real-core-v0-stage-test-exposure.md`.
+That `PASS` proves the evidence loop only: the inputs, generated files, Word
+open result, and page images are all accounted for. It is not a claim that the
+generated DOCX files are product-quality school submissions. Product-level
+layout review is tracked in
+`docs/human/real-core-v0-product-quality-review.md`; the check that each of the
+four conversion steps can point to a concrete current problem is tracked in
+`docs/human/real-core-v0-four-stage-problem-checks.md`.
 
 Run the bootstrap checks with:
 
