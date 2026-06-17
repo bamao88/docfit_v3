@@ -6,12 +6,15 @@ source_evidence:
 schools:
   - school_id: hunannongye
     template_docx: inputs/school-hunannongye-requirement.docx
+    generated_template_docx: inputs/simulated-generated-templates/real-core-v0/hunannongye/generated_template.docx
     review_source: inputs/school-hunannongye-template-review.txt
   - school_id: nannong-undergraduate
     template_docx: inputs/school-nannong-undergraduate-template.docx
+    generated_template_docx: inputs/simulated-generated-templates/real-core-v0/nannong-undergraduate/generated_template.docx
     review_source: inputs/school-nannong-undergraduate-template-review.txt
   - school_id: pku-graduate
     template_docx: inputs/school-pku-graduate-template.docx
+    generated_template_docx: inputs/simulated-generated-templates/real-core-v0/pku-graduate/generated_template.docx
     review_source: inputs/school-pku-graduate-template-review.txt
 students:
   - student_id: real-student-001

@@ -9,7 +9,7 @@ from docfit.core.models import Finding, StageResult
 from docfit.core.status import StageRunState, Status, merge_statuses
 from docfit.harness.coverage import coverage_gate_findings
 from docfit.harness.generated_template_gap import evaluate_generated_template_gap
-from docfit.harness.profiles import BOOTSTRAP_PROFILE
+from docfit.harness.profiles import BOOTSTRAP_PROFILE, REAL_CORE_SCHOOLS
 from docfit.harness.product_quality import (
     BUSINESS_ACCEPTANCE_STAGES,
     audit_e2e_case,
@@ -54,7 +54,9 @@ def _required_capabilities(bundle: Any, contract_key: str, fallback: list[str]) 
     if bundle is None:
         return fallback
     contract = bundle.contracts.get(contract_key, {})
-    return list(contract.get("required_capabilities") or fallback)
+    if "required_capabilities" in contract:
+        return list(contract.get("required_capabilities") or [])
+    return fallback
 
 
 def _apply_coverage_gate(result: StageResult, required_capabilities: list[str]) -> StageResult:
@@ -94,6 +96,16 @@ def _merge_generated_template_gap(
         template_result.blocked_at = gap_result.blocked_at
 
 
+def _generated_template_docx_for_school(root: Path, school_id: str) -> Path | None:
+    for school in REAL_CORE_SCHOOLS:
+        if str(school.get("school_id")) == school_id:
+            configured = school.get("generated_template_docx")
+            if configured is None:
+                return None
+            return root / configured
+    return None
+
+
 def _merge_findings_into_stage_statuses(
     stage_statuses: dict[str, str],
     findings: list[Finding],
@@ -131,7 +143,15 @@ def run_template_eval(root: Path, school_id: str, template_docx: Path, out_dir: 
         if standard_findings and result.status == Status.PASS:
             result.status = Status.UNKNOWN
         if is_real_core_bundle(bundle):
-            gap_result = evaluate_generated_template_gap(bundle, template_docx, out_dir)
+            generated_template_docx = _generated_template_docx_for_school(
+                root,
+                school_id,
+            )
+            gap_result = evaluate_generated_template_gap(
+                bundle,
+                generated_template_docx or root / "inputs/generated_template.docx",
+                out_dir,
+            )
             _merge_generated_template_gap(result, gap_result)
         _apply_coverage_gate(
             result,
@@ -327,7 +347,12 @@ def run_e2e_eval(
         template_result.status = Status.UNKNOWN
     write_template_outputs(out_dir, template_result)
     if real_core_run:
-        gap_result = evaluate_generated_template_gap(bundle, bundle.template_docx, out_dir)
+        generated_template_docx = _generated_template_docx_for_school(root, school_id)
+        gap_result = evaluate_generated_template_gap(
+            bundle,
+            generated_template_docx or root / "inputs/generated_template.docx",
+            out_dir,
+        )
         _merge_generated_template_gap(template_result, gap_result)
     _apply_coverage_gate(
         template_result,

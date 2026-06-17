@@ -39,6 +39,7 @@ class EvalCase:
     profile_id: str
     stage: str = "e2e"
     template_docx: Path | None = None
+    generated_template_docx: Path | None = None
     student_id: str | None = None
     template_version: str = "v1"
 
@@ -139,16 +140,28 @@ REAL_CORE_SCHOOLS = (
     {
         "school_id": "hunannongye",
         "template_docx": Path("inputs/school-hunannongye-requirement.docx"),
+        "generated_template_docx": Path(
+            "inputs/simulated-generated-templates/real-core-v0/"
+            "hunannongye/generated_template.docx"
+        ),
         "review_source": Path("inputs/school-hunannongye-template-review.txt"),
     },
     {
         "school_id": "nannong-undergraduate",
         "template_docx": Path("inputs/school-nannong-undergraduate-template.docx"),
+        "generated_template_docx": Path(
+            "inputs/simulated-generated-templates/real-core-v0/"
+            "nannong-undergraduate/generated_template.docx"
+        ),
         "review_source": Path("inputs/school-nannong-undergraduate-template-review.txt"),
     },
     {
         "school_id": "pku-graduate",
         "template_docx": Path("inputs/school-pku-graduate-template.docx"),
+        "generated_template_docx": Path(
+            "inputs/simulated-generated-templates/real-core-v0/"
+            "pku-graduate/generated_template.docx"
+        ),
         "review_source": Path("inputs/school-pku-graduate-template-review.txt"),
     },
 )
@@ -182,6 +195,7 @@ def _real_core_template_cases() -> tuple[EvalCase, ...]:
             profile_id=REAL_CORE_PROFILE.profile_id,
             stage="template",
             template_docx=school["template_docx"],
+            generated_template_docx=school["generated_template_docx"],
         )
         for school in REAL_CORE_SCHOOLS
     )
@@ -216,6 +230,7 @@ def _real_core_e2e_cases() -> tuple[EvalCase, ...]:
                 profile_id=REAL_CORE_PROFILE.profile_id,
                 stage="e2e",
                 template_docx=school["template_docx"],
+                generated_template_docx=school["generated_template_docx"],
                 student_id=str(student["student_id"]),
             )
         )

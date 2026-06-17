@@ -1,13 +1,13 @@
 # DocFit Status
 
-Last updated: 2026-06-16
+Last updated: 2026-06-17
 
 Current focus:
 
 - `real-core-v0` 已从“证据绑定通过”推进到“业务验收 gate 会阻塞当前坏输出”；
-  模板 source-fact 解析已经升级为结构化标准逐项验收，但新的生成模板 Word
-  差距检查会把当前 template 阶段判为 `FAIL`，因为它能确定性指出
-  `generated_template.docx` 和学校模板标准之间的差距。
+  模板 source-fact 解析已经升级为结构化标准逐项验收，生成模板 Word 差距检查
+  现在固定检查 `inputs/simulated-generated-templates/real-core-v0/<school_id>/generated_template.docx`
+  或 CLI 显式传入的 `generated_template.docx`，不再把学校源模板路径混成被测生成物。
 - 新的 `PASS` 语义必须同时满足四层业务验收：模板解析、内容抽取、内容放置、
   Word 生成。只有 source-fact baseline 和 Word 页面图像证据不再足够。
 - 接下来重点不是继续准备材料，而是按 gate 暴露的问题修真实工程链路。
@@ -28,8 +28,9 @@ Current state:
   阻塞 findings。
 - 最新 product-run 输出到 `/tmp/docfit_real_core_coverage`，结果为 `FAIL`：
   该 run 不再把 source-fact binding 或 Word 页面证据当成模板正确性证明。
-  当前缺少 checked-in 的模板差距证据，并且历史 `reports/real-core-v0/**`
-  成品仍显示模板、内容、放置、渲染问题。
+  生成模板差距报告已经改为 v2 分层树并包含 `summary.per_unit`；当前阻断来自
+  真实模板差距、检查能力不足和历史 `reports/real-core-v0/**` 成品中的模板、
+  内容、放置、渲染问题。
 - 9 个成品的产品审查记录在
   `docs/human/real-core-v0-product-quality-review.md`。当前结论是：
   这些 Word 文件还不能算学校格式转换合格，因为它们仍保留目标模板说明/示例，
@@ -54,10 +55,12 @@ Current state:
 - real-core 模板合同现在还要求生成模板差距检查：`docfit eval template-gap`
   明确接收 `--generated-template`，把被测 Word 复制为 `generated_template.docx`，
   从 OOXML 解析 `generated_template_tree.json`，再输出三种
-  `template_gap_report`。报告保留 `known_status`、`display_status`、
-  `passed_count`、`failed_count`、`unknown_count` 和 `blocking_status`。
+  `template_gap_report`。JSON 报告现在以 `input`、`units`、
+  `unmodeled_objects` 和 `summary.per_unit` 为主结构，不再公开平铺
+  `check_items`。
   字段和 Word 自动编号现在也有显式检查：Word complex field / fldSimple 会合并成
-  完整指令并绑定到单元范围；缺 Word 生成字段会报
+  完整指令并绑定到单元范围；如果单元不能可靠定位，下级字段、编号和元素会保持
+  `UNKNOWN`，不会靠全文搜索冒充 PASS。缺 Word 生成字段会报
   `template_generation_field_missing`，字段在错误单元会报
   `template_generation_field_out_of_unit`。自动编号会解析 `word/numbering.xml`、
   样式 `numPr`、段落直接 `numPr` 和段落样式引用；北大正文标题这类要求可以报

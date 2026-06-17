@@ -47,7 +47,7 @@ def inspect_generated_template_docx(generated_template: Path) -> dict[str, Any]:
     paragraph_styles = _paragraph_style_details_by_index(generated_template)
     table_details = _table_details_by_index(generated_template)
     tree["data"]["paragraphs"] = _paragraphs(doc, paragraph_styles)
-    tree["data"]["tables"] = _tables(doc, table_details)
+    tree["data"]["tables"] = _tables(doc, table_details, paragraph_styles)
     tree["data"].update(_inspect_ooxml_parts(generated_template))
     tree["data"]["unknown_visible_objects"] = detect_unsupported_visible_objects(
         generated_template
@@ -79,6 +79,7 @@ def iter_visible_text_entries(tree: dict[str, Any]) -> list[dict[str, Any]]:
                         "kind": "table_cell",
                         "text": cell.get("text", ""),
                         "style": table.get("style", ""),
+                        "style_details": cell.get("style_details", {}),
                         "source_ref": cell.get("source_ref", ""),
                         "order": cell.get("first_paragraph_index")
                         or 10_000 + cell.get("global_index", 0),
@@ -141,6 +142,7 @@ def _paragraphs(
 def _tables(
     doc: Document,
     table_details: dict[int, dict[str, Any]],
+    paragraph_styles: dict[int, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     tables: list[dict[str, Any]] = []
     global_cell_index = 0
@@ -152,6 +154,7 @@ def _tables(
             for cell_index, cell in enumerate(row.cells, start=1):
                 global_cell_index += 1
                 cell_detail = cell_details.get((row_index, cell_index), {})
+                first_paragraph_index = cell_detail.get("first_paragraph_index")
                 text = "\n".join(
                     paragraph.text.strip()
                     for paragraph in cell.paragraphs
@@ -163,10 +166,11 @@ def _tables(
                         "column": cell_index,
                         "global_index": global_cell_index,
                         "text": text,
+                        "style_details": paragraph_styles.get(first_paragraph_index, {})
+                        if first_paragraph_index
+                        else {},
                         "paragraph_indices": cell_detail.get("paragraph_indices", []),
-                        "first_paragraph_index": cell_detail.get(
-                            "first_paragraph_index"
-                        ),
+                        "first_paragraph_index": first_paragraph_index,
                         "last_paragraph_index": cell_detail.get("last_paragraph_index"),
                         "keep_refs": cell_detail.get("keep_refs", []),
                         "row_cant_split": bool(cell_detail.get("row_cant_split")),
@@ -316,7 +320,10 @@ def _paragraph_style_details_by_index(path: Path) -> dict[int, dict[str, Any]]:
             "paragraph_run_properties": paragraph_run_properties,
             "runs": runs,
             "dominant_run": _dominant_run_style(runs),
-            "style_inheritance": inherited.get("inheritance", {}),
+            "style_inheritance": {
+                **inherited.get("inheritance", {}),
+                "run": inherited_run,
+            },
         }
     return details
 

@@ -49,6 +49,22 @@ fixture，因为当前 bootstrap profile 会把图片、文本框、脚注等未
 | `school-pku-graduate-template-review.txt` | 人工 review | 北大研究生模板识别证据 | source evidence only |
 | `shared-template-recognition-alignment-review.txt` | 人工 review | 跨学校模板识别对齐证据 | 多学校未来标准参考 |
 
+## 虚拟业务生成模板输入
+
+这些文件是当前阶段给 `template-gap` 使用的被测 `generated_template.docx`。
+真正的模板生成器尚未跑通，所以这里先从仓库内已登记的学校 Word 输入确定性复制出
+一份“虚拟业务生成模板”，用来测试验收尺子本身是否会定位、分组和判断。
+
+它们不是 signed standard、golden 或 expected snapshot；不能因为这些文件变化就自动更新
+`standards/schools/**`。未来真正的模板生成逻辑可产出同名
+`generated_template.docx`，eval 链路仍检查这个业务生成模板入口。
+
+| 文件 | 类型 | 用途 | 来源 |
+| --- | --- | --- | --- |
+| `simulated-generated-templates/real-core-v0/hunannongye/generated_template.docx` | 虚拟业务生成模板 | 湖南农业 `template-gap` 被测 Word | `school-hunannongye-requirement.docx` |
+| `simulated-generated-templates/real-core-v0/nannong-undergraduate/generated_template.docx` | 虚拟业务生成模板 | 南农本科 `template-gap` 被测 Word | `school-nannong-undergraduate-template.docx` |
+| `simulated-generated-templates/real-core-v0/pku-graduate/generated_template.docx` | 虚拟业务生成模板 | 北大研究生 `template-gap` 被测 Word | `school-pku-graduate-template.docx` |
+
 ## 当前 runnable standards
 
 当前只有 `demo-school/v1` 是 runnable signed standard。真实学校 source

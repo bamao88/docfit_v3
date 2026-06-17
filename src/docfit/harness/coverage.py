@@ -508,6 +508,9 @@ def _real_core_source_files() -> list[Path]:
     paths = [Path("inputs/shared-template-recognition-alignment-review.txt")]
     for school in REAL_CORE_SCHOOLS:
         paths.append(school["template_docx"])
+        generated_template_docx = school.get("generated_template_docx")
+        if generated_template_docx is not None:
+            paths.append(generated_template_docx)
         paths.append(school["review_source"])
     for student in REAL_CORE_STUDENTS:
         paths.append(student["student_docx"])
@@ -592,6 +595,7 @@ def _real_core_template_gap_findings(
         "failed_count",
         "unknown_count",
         "blocking_status",
+        "per_unit",
     }
     missing_summary = sorted(required_summary_fields - set(summary))
     if missing_summary:

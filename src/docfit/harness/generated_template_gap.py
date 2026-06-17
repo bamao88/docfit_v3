@@ -119,10 +119,13 @@ def build_template_gap_report(
     expected_units: list[dict[str, Any]],
     tree: dict[str, Any],
 ) -> dict[str, Any]:
-    check_items: list[dict[str, Any]] = []
-
+    checks: list[dict[str, Any]] = []
+    units: list[dict[str, Any]] = []
+    global_checks: list[dict[str, Any]] = []
+    unmodeled_objects: list[dict[str, Any]] = []
+    unit_locations: dict[str, dict[str, Any]] = {}
     if not tree.get("input_exists"):
-        check_items.append(
+        input_check = (
             _check(
                 "template_generation.output_docx",
                 Status.UNKNOWN,
@@ -131,10 +134,11 @@ def build_template_gap_report(
                 str(generated_template_source),
                 "missing",
                 affected_ids=[bundle.school_id],
+                path=["input"],
             )
         )
     elif not tree.get("input_valid_docx"):
-        check_items.append(
+        input_check = (
             _check(
                 "template_generation.output_docx",
                 Status.FAIL,
@@ -144,10 +148,11 @@ def build_template_gap_report(
                 str(generated_template),
                 evidence_refs=[str(generated_template)],
                 affected_ids=[bundle.school_id],
+                path=["input"],
             )
         )
     else:
-        check_items.append(
+        input_check = (
             _check(
                 "template_generation.output_docx",
                 Status.PASS,
@@ -157,31 +162,43 @@ def build_template_gap_report(
                 tree.get("input_hashes", {}).get("generated_template_docx", ""),
                 evidence_refs=[str(generated_template)],
                 affected_ids=[bundle.school_id],
+                path=["input"],
             )
         )
+    checks.append(input_check)
 
     if not expected_units:
-        check_items.append(
-            _check(
-                "template_generation.unit_match",
-                Status.UNKNOWN,
-                "template_generation_expected_units_missing",
-                "模板差距检查缺少 template_unit_contract.yaml 中的 expected.units",
-                "expected.units",
-                "missing",
-                evidence_refs=[str(standard_path)],
-                affected_ids=[bundle.school_id],
-            )
+        expected_check = _check(
+            "template_generation.unit_match",
+            Status.UNKNOWN,
+            "template_generation_expected_units_missing",
+            "模板差距检查缺少 template_unit_contract.yaml 中的 expected.units",
+            "expected.units",
+            "missing",
+            evidence_refs=[str(standard_path)],
+            affected_ids=[bundle.school_id],
+            path=["global", "expected_units"],
         )
+        global_checks.append(expected_check)
+        checks.append(expected_check)
     elif tree.get("input_valid_docx"):
-        check_items.extend(_compare_units(expected_units, tree))
-        check_items.extend(_unknown_visible_object_checks(tree))
+        unit_checks, unit_locations = _compare_units(expected_units, tree)
+        checks.extend(unit_checks)
+        unmodeled_objects = _unknown_visible_object_checks(tree)
+        checks.extend(unmodeled_objects)
+        units = _build_unit_results(expected_units, unit_locations, checks)
+        global_checks.extend(
+            check
+            for check in unit_checks
+            if (check.get("path") or [""])[0] == "global"
+        )
+    else:
+        units = _build_unit_results(expected_units, unit_locations, checks)
 
-    summary = summarize_check_items(check_items)
-    return {
+    report = {
         "artifact_type": "template_gap_report",
-        "artifact_version": "1.0",
-        "producer": {"name": "docfit-generated-template-gap", "version": "0.1.0"},
+        "artifact_version": "2.0",
+        "producer": {"name": "docfit-generated-template-gap", "version": "0.2.0"},
         "created_at": now_iso(),
         "school_id": bundle.school_id,
         "template_version": bundle.template_version,
@@ -189,16 +206,116 @@ def build_template_gap_report(
             "path": str(generated_template),
             "source_path": str(generated_template_source),
             "sha256": tree.get("input_hashes", {}).get("generated_template_docx"),
+            "input_role": "generated_template",
         },
         "standard": {
             "path": str(standard_path),
             "sha256": sha256_file(standard_path) if standard_path.exists() else None,
         },
         "generated_template_tree": "generated_template_tree.json",
-        "summary": summary,
-        "coverage": template_generation_coverage_from_items(check_items, tree),
-        "check_items": check_items,
+        "input": input_check,
+        "units": units,
+        "global_checks": global_checks,
+        "unmodeled_objects": unmodeled_objects,
     }
+    report["summary"] = summarize_template_gap_report(report)
+    report["coverage"] = template_generation_coverage_from_report(report, tree)
+    return report
+
+
+def _build_unit_results(
+    expected_units: list[dict[str, Any]],
+    unit_locations: dict[str, dict[str, Any]],
+    checks: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for unit in expected_units:
+        unit_id = str(unit.get("unit_id") or "unknown_unit")
+        unit_checks = [
+            check
+            for check in checks
+            if (check.get("path") or [])[:2] == ["units", unit_id]
+        ]
+        presence = _first_check_at(checks, ["units", unit_id, "presence"])
+        location = unit_locations.get(unit_id, {"found": False})
+        element_results: list[dict[str, Any]] = []
+        for element in unit.get("elements", []):
+            element_id = str(element.get("element_id") or "unknown_element")
+            presence_path = ["units", unit_id, "elements", element_id, "presence"]
+            style_path = ["units", unit_id, "elements", element_id, "style"]
+            element_presence = _first_check_at(checks, presence_path)
+            style = _first_check_at(checks, style_path)
+            element_checks = [
+                check for check in (element_presence, style) if check is not None
+            ]
+            counts = _status_counts(element_checks)
+            element_results.append(
+                {
+                    "element_id": element_id,
+                    "name": element.get("name", ""),
+                    "policy": element.get("policy", ""),
+                    "order": element.get("order") or element.get("element_order"),
+                    "presence": element_presence,
+                    "style": style,
+                    "counts": counts,
+                    "verdict": _verdict_from_counts(counts),
+                }
+            )
+        dimensions = {
+            "page": _dimension_checks(unit_checks, "page"),
+            "header_footer": _dimension_checks(unit_checks, "header_footer"),
+            "fields": _dimension_checks(unit_checks, "fields"),
+            "numbering": _dimension_checks(unit_checks, "numbering"),
+        }
+        counted = [presence] if presence else []
+        for element in element_results:
+            counted.extend(
+                check
+                for check in (element.get("presence"), element.get("style"))
+                if check is not None
+            )
+        for items in dimensions.values():
+            counted.extend(items)
+        counts = _status_counts(counted)
+        located = {
+            "found": bool(location.get("found")),
+            "source_ref": location.get("source_ref"),
+            "order_range": location.get("order_range"),
+        }
+        results.append(
+            {
+                "unit_id": unit_id,
+                "name": unit.get("name", ""),
+                "order": unit.get("order"),
+                "status": unit.get("status", ""),
+                "located": located,
+                "presence": presence,
+                "elements": element_results,
+                "dimensions": dimensions,
+                "counts": counts,
+                "verdict": _verdict_from_counts(counts),
+            }
+        )
+    return results
+
+
+def _first_check_at(
+    checks: list[dict[str, Any]],
+    path: list[Any],
+) -> dict[str, Any] | None:
+    return next((check for check in checks if check.get("path") == path), None)
+
+
+def _dimension_checks(
+    unit_checks: list[dict[str, Any]],
+    dimension: str,
+) -> list[dict[str, Any]]:
+    prefix = ["units", unit_checks[0]["path"][1], "dimensions", dimension] if unit_checks else []
+    return [
+        check
+        for check in unit_checks
+        if prefix and (check.get("path") or [])[:4] == prefix
+    ]
 
 
 def summarize_check_items(check_items: list[dict[str, Any]]) -> dict[str, Any]:
@@ -238,6 +355,75 @@ def summarize_check_items(check_items: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def collect_template_gap_checks(report: dict[str, Any]) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    input_check = report.get("input")
+    if isinstance(input_check, dict):
+        checks.append(input_check)
+    checks.extend(
+        check
+        for check in report.get("global_checks", [])
+        if isinstance(check, dict)
+    )
+    for unit in report.get("units", []):
+        presence = unit.get("presence")
+        if isinstance(presence, dict):
+            checks.append(presence)
+        for element in unit.get("elements", []):
+            for key in ("presence", "style"):
+                check = element.get(key)
+                if isinstance(check, dict):
+                    checks.append(check)
+        dimensions = unit.get("dimensions", {})
+        if isinstance(dimensions, dict):
+            for dimension_checks in dimensions.values():
+                checks.extend(
+                    check
+                    for check in dimension_checks
+                    if isinstance(check, dict)
+                )
+    checks.extend(
+        check
+        for check in report.get("unmodeled_objects", [])
+        if isinstance(check, dict)
+    )
+    return checks
+
+
+def summarize_template_gap_report(report: dict[str, Any]) -> dict[str, Any]:
+    checks = collect_template_gap_checks(report)
+    summary = summarize_check_items(checks)
+    summary["per_unit"] = [
+        {
+            "unit_id": unit.get("unit_id"),
+            "verdict": unit.get("verdict"),
+            "counts": unit.get("counts", {}),
+        }
+        for unit in report.get("units", [])
+    ]
+    return summary
+
+
+def _status_counts(checks: list[dict[str, Any]]) -> dict[str, int]:
+    return {
+        "passed": sum(1 for check in checks if check.get("status") == Status.PASS.value),
+        "failed": sum(1 for check in checks if check.get("status") == Status.FAIL.value),
+        "unknown": sum(
+            1 for check in checks if check.get("status") == Status.UNKNOWN.value
+        ),
+    }
+
+
+def _verdict_from_counts(counts: dict[str, int]) -> str:
+    if counts.get("failed", 0) > 0:
+        return Status.FAIL.value
+    if counts.get("unknown", 0) > 0:
+        return Status.UNKNOWN.value
+    if counts.get("passed", 0) > 0:
+        return Status.PASS.value
+    return Status.UNKNOWN.value
+
+
 def findings_from_template_gap_report(
     report: dict[str, Any],
     *,
@@ -246,7 +432,7 @@ def findings_from_template_gap_report(
 ) -> list[Finding]:
     findings: list[Finding] = []
     next_index = start_index
-    for item in report.get("check_items", []):
+    for item in collect_template_gap_checks(report):
         status = Status(item["status"])
         if status == Status.PASS:
             continue
@@ -260,7 +446,7 @@ def findings_from_template_gap_report(
                 str(item.get("expected", "")),
                 str(item.get("actual", "")),
                 evidence_refs=list(item.get("evidence_refs", [])),
-                affected_ids=list(item.get("affected_ids", [])),
+                affected_ids=_affected_ids_from_check(item),
                 root_cause_bucket=str(
                     item.get("root_cause_bucket", "template_generation_gap")
                 ),
@@ -276,33 +462,54 @@ def template_generation_coverage(
 ) -> dict[str, bool]:
     return {
         f"template_generation.{key}": value
-        for key, value in template_generation_coverage_from_items(
-            report.get("check_items", []),
+        for key, value in template_generation_coverage_from_report(
+            report,
             tree,
         ).items()
     }
 
 
-def template_generation_coverage_from_items(
-    check_items: list[dict[str, Any]],
+def template_generation_coverage_from_report(
+    report: dict[str, Any],
     tree: dict[str, Any],
 ) -> dict[str, bool]:
+    check_items = collect_template_gap_checks(report)
     categories = {str(item.get("category", "")) for item in check_items}
     valid_tree = bool(tree.get("input_valid_docx"))
     has_source_refs = any(
         entry.get("source_ref") for entry in iter_visible_text_entries(tree)
     )
+    input_check = report.get("input") or {}
+    units = report.get("units") or []
     return {
-        "output_docx": bool(tree.get("input_exists") and tree.get("input_valid_docx")),
+        "output_docx": input_check.get("status") == Status.PASS.value,
         "actual_tree": valid_tree and has_source_refs,
-        "unit_match": "unit" in categories,
-        "element_match": "element" in categories,
-        "style_match": "style" in categories,
-        "header_footer_match": "header_footer" in categories,
-        "page_rule_match": "page_rule" in categories,
-        "field_match": "field" in categories,
-        "numbering_match": "numbering" in categories,
-        "report": bool(check_items),
+        "unit_match": any(unit.get("presence") for unit in units),
+        "element_match": any(
+            element.get("presence")
+            for unit in units
+            for element in unit.get("elements", [])
+        ),
+        "style_match": any(
+            element.get("style")
+            for unit in units
+            for element in unit.get("elements", [])
+        ),
+        "header_footer_match": any(
+            unit.get("dimensions", {}).get("header_footer") for unit in units
+        )
+        or "header_footer" in categories,
+        "page_rule_match": any(
+            unit.get("dimensions", {}).get("page") for unit in units
+        )
+        or "page_rule" in categories,
+        "field_match": any(unit.get("dimensions", {}).get("fields") for unit in units)
+        or "field" in categories,
+        "numbering_match": any(
+            unit.get("dimensions", {}).get("numbering") for unit in units
+        )
+        or "numbering" in categories,
+        "report": bool(report.get("summary") and units),
     }
 
 
@@ -324,22 +531,63 @@ def render_template_gap_markdown(report: dict[str, Any]) -> str:
         f"- 生成模板 hash：{report['generated_template'].get('sha256') or 'missing'}",
         f"- 标准文件：{report['standard']['path']}",
         "",
-        "## 差距清单",
+        "## 输入检查",
+        "",
+        _check_markdown_line(report["input"]),
     ]
-    for item in report.get("check_items", []):
+    if report.get("global_checks"):
+        lines.extend(["", "## 全局检查"])
+        for item in report.get("global_checks", []):
+            lines.extend(_check_markdown_block(item))
+    for unit in report.get("units", []):
         lines.extend(
             [
                 "",
-                f"### [{item['status']}] {item['check_id']}",
+                (
+                    f"## 单元：{unit.get('name') or unit.get('unit_id')}"
+                    f"（{unit.get('unit_id')}）"
+                ),
                 "",
-                item["message"],
-                "",
-                f"- 标准期望：{item['expected']}",
-                f"- 实际结果：{item['actual']}",
-                f"- 来源位置：{', '.join(item.get('evidence_refs', [])) or 'missing'}",
-                f"- 下一步：{item.get('next_step', '')}",
+                (
+                    f"- 单元状态：{unit.get('verdict')}；"
+                    f"PASS {unit.get('counts', {}).get('passed', 0)} / "
+                    f"FAIL {unit.get('counts', {}).get('failed', 0)} / "
+                    f"UNKNOWN {unit.get('counts', {}).get('unknown', 0)}"
+                ),
+                f"- 定位：{unit.get('located', {}).get('source_ref') or 'missing'}",
             ]
         )
+        if unit.get("presence"):
+            lines.extend(_check_markdown_block(unit["presence"], level=3))
+        for element in unit.get("elements", []):
+            lines.extend(
+                [
+                    "",
+                    (
+                        f"### 元素：{element.get('name') or element.get('element_id')}"
+                        f"（{element.get('element_id')}）"
+                    ),
+                ]
+            )
+            for item in (element.get("presence"), element.get("style")):
+                if item:
+                    lines.extend(_check_markdown_block(item, level=4))
+        for label, key in (
+            ("分页", "page"),
+            ("页眉页脚", "header_footer"),
+            ("字段", "fields"),
+            ("编号", "numbering"),
+        ):
+            items = unit.get("dimensions", {}).get(key, [])
+            if not items:
+                continue
+            lines.extend(["", f"### {label}"])
+            for item in items:
+                lines.extend(_check_markdown_block(item, level=4))
+    if report.get("unmodeled_objects"):
+        lines.extend(["", "## 未建模可见对象"])
+        for item in report.get("unmodeled_objects", []):
+            lines.extend(_check_markdown_block(item, level=3))
     lines.append("")
     return "\n".join(lines)
 
@@ -366,34 +614,98 @@ def write_template_gap_docx(path: Path, report: dict[str, Any]) -> None:
         ("标准文件", report["standard"]["path"]),
     ):
         doc.add_paragraph(f"{label}：{value}")
-    doc.add_heading("差距清单", level=2)
-    for item in report.get("check_items", []):
-        doc.add_heading(f"[{item['status']}] {item['check_id']}", level=3)
-        doc.add_paragraph(item["message"])
-        doc.add_paragraph(f"标准期望：{item['expected']}")
-        doc.add_paragraph(f"实际结果：{item['actual']}")
-        doc.add_paragraph(
-            "来源位置：" + (", ".join(item.get("evidence_refs", [])) or "missing")
+    doc.add_heading("输入检查", level=2)
+    _add_check_to_docx(doc, report["input"])
+    if report.get("global_checks"):
+        doc.add_heading("全局检查", level=2)
+        for item in report.get("global_checks", []):
+            _add_check_to_docx(doc, item)
+    for unit in report.get("units", []):
+        doc.add_heading(
+            f"单元：{unit.get('name') or unit.get('unit_id')}（{unit.get('unit_id')}）",
+            level=2,
         )
-        doc.add_paragraph(f"下一步：{item.get('next_step', '')}")
+        counts = unit.get("counts", {})
+        doc.add_paragraph(
+            f"单元状态：{unit.get('verdict')}；"
+            f"PASS {counts.get('passed', 0)} / "
+            f"FAIL {counts.get('failed', 0)} / UNKNOWN {counts.get('unknown', 0)}"
+        )
+        doc.add_paragraph(f"定位：{unit.get('located', {}).get('source_ref') or 'missing'}")
+        if unit.get("presence"):
+            _add_check_to_docx(doc, unit["presence"], level=3)
+        for element in unit.get("elements", []):
+            doc.add_heading(
+                f"元素：{element.get('name') or element.get('element_id')}"
+                f"（{element.get('element_id')}）",
+                level=3,
+            )
+            for item in (element.get("presence"), element.get("style")):
+                if item:
+                    _add_check_to_docx(doc, item, level=4)
+        for label, key in (
+            ("分页", "page"),
+            ("页眉页脚", "header_footer"),
+            ("字段", "fields"),
+            ("编号", "numbering"),
+        ):
+            items = unit.get("dimensions", {}).get(key, [])
+            if not items:
+                continue
+            doc.add_heading(label, level=3)
+            for item in items:
+                _add_check_to_docx(doc, item, level=4)
+    if report.get("unmodeled_objects"):
+        doc.add_heading("未建模可见对象", level=2)
+        for item in report.get("unmodeled_objects", []):
+            _add_check_to_docx(doc, item)
     doc.save(path)
+
+
+def _check_markdown_line(item: dict[str, Any]) -> str:
+    return f"[{item['status']}] {item['check_id']}：{item['message']}"
+
+
+def _check_markdown_block(item: dict[str, Any], *, level: int = 3) -> list[str]:
+    heading = "#" * level
+    return [
+        "",
+        f"{heading} [{item['status']}] {item['check_id']}",
+        "",
+        item["message"],
+        "",
+        f"- 标准期望：{item['expected']}",
+        f"- 实际结果：{item['actual']}",
+        f"- 来源位置：{', '.join(item.get('evidence_refs', [])) or 'missing'}",
+        f"- 下一步：{item.get('next_step', '')}",
+    ]
+
+
+def _add_check_to_docx(doc: Document, item: dict[str, Any], *, level: int = 3) -> None:
+    doc.add_heading(f"[{item['status']}] {item['check_id']}", level=level)
+    doc.add_paragraph(item["message"])
+    doc.add_paragraph(f"标准期望：{item['expected']}")
+    doc.add_paragraph(f"实际结果：{item['actual']}")
+    doc.add_paragraph(
+        "来源位置：" + (", ".join(item.get("evidence_refs", [])) or "missing")
+    )
+    doc.add_paragraph(f"下一步：{item.get('next_step', '')}")
 
 
 def _compare_units(
     expected_units: list[dict[str, Any]],
     tree: dict[str, Any],
-) -> list[dict[str, Any]]:
-    entries = iter_visible_text_entries(tree)
+) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    entries = _visible_entries_by_order(tree)
+    unit_locations = _locate_units(expected_units, entries)
     checks: list[dict[str, Any]] = []
     unit_first_orders: list[tuple[str, int]] = []
     unit_matched_orders: dict[str, list[int]] = {}
     for unit in expected_units:
         unit_id = str(unit.get("unit_id") or "unknown_unit")
-        element_checks, matched_orders = _compare_elements(unit, entries, tree)
-        checks.extend(element_checks)
-        unit_matched_orders[unit_id] = matched_orders
-        if matched_orders:
-            first_order = min(matched_orders)
+        location = unit_locations.get(unit_id, {"found": False})
+        if location.get("found"):
+            first_order = int(location["anchor_order"])
             unit_first_orders.append((unit_id, first_order))
             checks.append(
                 _check(
@@ -404,10 +716,20 @@ def _compare_units(
                     unit_id,
                     f"first_source_order={first_order}",
                     category="unit",
-                    evidence_refs=_matched_evidence(element_checks),
+                    evidence_refs=[str(location.get("source_ref", ""))],
                     affected_ids=[unit_id],
+                    path=["units", unit_id, "presence"],
                 )
             )
+            scoped_entries = _entries_in_range(entries, location.get("order_range"))
+            element_checks, matched_orders = _compare_elements(
+                unit,
+                scoped_entries,
+                tree,
+                unit_located=True,
+            )
+            checks.extend(element_checks)
+            unit_matched_orders[unit_id] = matched_orders or [first_order]
         else:
             status = (
                 Status.UNKNOWN
@@ -424,9 +746,18 @@ def _compare_units(
                     "missing",
                     category="unit",
                     affected_ids=[unit_id],
+                    path=["units", unit_id, "presence"],
                     next_step="如果生成逻辑应输出该单元，修模板生成；如果解析器无法识别，补生成模板解析器。",
                 )
             )
+            element_checks, matched_orders = _compare_elements(
+                unit,
+                [],
+                tree,
+                unit_located=False,
+            )
+            checks.extend(element_checks)
+            unit_matched_orders[unit_id] = matched_orders
     for unit in expected_units:
         unit_id = str(unit.get("unit_id") or "unknown_unit")
         matched_orders = unit_matched_orders.get(unit_id, [])
@@ -459,16 +790,19 @@ def _compare_units(
                 repr([unit_id for unit_id, _order in ordered]),
                 category="unit",
                 affected_ids=[unit_id for unit_id, _order in unit_first_orders],
+                path=["global", "unit_order"],
                 next_step="若顺序不一致，修模板生成的单元输出顺序。",
             )
         )
-    return checks
+    return checks, unit_locations
 
 
 def _compare_elements(
     unit: dict[str, Any],
     entries: list[dict[str, Any]],
     tree: dict[str, Any],
+    *,
+    unit_located: bool,
 ) -> tuple[list[dict[str, Any]], list[int]]:
     unit_id = str(unit.get("unit_id") or "unknown_unit")
     checks: list[dict[str, Any]] = []
@@ -476,28 +810,62 @@ def _compare_elements(
     for element in unit.get("elements", []):
         element_id = str(element.get("element_id") or "unknown_element")
         affected_id = f"{unit_id}.{element_id}"
-        needles = _candidate_needles(element)
-        matches = _find_matches(entries, needles)
+        presence_path = ["units", unit_id, "elements", element_id, "presence"]
+        query = _match_query_for_element(element)
         policy = str(element.get("policy") or "")
-        if matches:
-            matched_orders.extend(int(match.get("order", 0)) for match in matches)
+        if not unit_located:
+            checks.append(
+                _check(
+                    "template_generation.element_match",
+                    Status.UNKNOWN,
+                    "template_generation_element_unit_unlocated",
+                    f"单元 {unit_id} 未定位，不能全文搜索元素 {affected_id}",
+                    element.get("content") or element.get("name") or affected_id,
+                    "unit not located",
+                    category="element",
+                    affected_ids=[affected_id],
+                    path=presence_path,
+                    next_step="先修单元定位，再在单元范围内检查元素。",
+                )
+            )
+            continue
+        match = _find_best_match(entries, query)
+        if match:
+            matched_orders.append(int(match.get("order", 0)))
             checks.append(
                 _check(
                     "template_generation.element_match",
                     Status.PASS,
                     "template_generation_element_found",
                     f"生成模板 Word 中找到元素 {affected_id} 的可见文本来源",
-                    " / ".join(needles),
-                    _preview(matches[0].get("text", "")),
+                    _query_summary(query),
+                    _preview(match.get("text", "")),
                     category="element",
-                    evidence_refs=[match.get("source_ref", "") for match in matches[:3]],
+                    evidence_refs=[match.get("source_ref", "")],
                     affected_ids=[affected_id],
+                    path=presence_path,
                 )
             )
-            checks.append(_style_check(unit_id, element, matches[0]))
+            checks.append(_style_check(unit_id, element, match))
             continue
 
         if policy in {"fixed", "manual_only"}:
+            if not _query_has_needles(query):
+                checks.append(
+                    _check(
+                        "template_generation.element_match",
+                        Status.UNKNOWN,
+                        "template_generation_element_uncheckable",
+                        f"元素 {affected_id} 没有可可靠搜索的固定文本，当前无法证明是否存在",
+                        element.get("content") or element.get("name") or affected_id,
+                        "no searchable text",
+                        category="element",
+                        affected_ids=[affected_id],
+                        path=presence_path,
+                        next_step="补标准里的可搜索锚点，或补解析器对表单/占位符的结构化识别。",
+                    )
+                )
+                continue
             checks.append(
                 _check(
                     "template_generation.element_match",
@@ -508,6 +876,7 @@ def _compare_elements(
                     "missing",
                     category="element",
                     affected_ids=[affected_id],
+                    path=presence_path,
                     next_step="修模板生成逻辑，保留该固定内容或手工填写位置。",
                 )
             )
@@ -527,6 +896,7 @@ def _compare_elements(
                     field_status,
                     category="element",
                     affected_ids=[affected_id],
+                    path=presence_path,
                     next_step="补字段到单元/元素的绑定检查，或修模板生成逻辑输出字段。",
                 )
             )
@@ -541,6 +911,7 @@ def _compare_elements(
                     "no matched Word source",
                     category="element",
                     affected_ids=[affected_id],
+                    path=presence_path,
                     next_step="补解析器对可写位置、content control、字段或占位符的识别。",
                 )
             )
@@ -1448,8 +1819,10 @@ def _style_check(
             category="style",
             affected_ids=[f"{unit_id}.{element_id}.style"],
         )
-    actual_style = _style_actual_summary(match)
     style_result = _compare_style_details(expected_style, match)
+    actual_style = _style_actual_summary(match)
+    if style_result["mismatches"]:
+        actual_style = actual_style + "; " + "; ".join(style_result["mismatches"])
     if _style_matches(expected_style, _normalize_text(match.get("style"))):
         status = Status.PASS
         type_ = "template_generation_style_match"
@@ -2108,19 +2481,76 @@ def _unknown_visible_object_checks(tree: dict[str, Any]) -> list[dict[str, Any]]
     return checks
 
 
-def _candidate_needles(element: dict[str, Any]) -> list[str]:
-    candidates: list[str] = []
+def _visible_entries_by_order(tree: dict[str, Any]) -> list[dict[str, Any]]:
+    return sorted(
+        iter_visible_text_entries(tree),
+        key=lambda entry: int(entry.get("order") or 0),
+    )
+
+
+def _match_query_for_element(element: dict[str, Any]) -> dict[str, Any]:
+    full: list[str] = []
+    tokens: list[str] = []
     content = _normalize_text(element.get("content"))
     if content and not _looks_like_descriptor(content):
-        candidates.append(content)
+        full.append(content)
         if len(content) > 80:
-            candidates.append(content[:80])
+            full.append(content[:80])
+        tokens.extend(_split_match_tokens(content))
     name = _normalize_text(element.get("name"))
     label = re.sub(r"(标签|内容|正文|结果|机制)$", "", name).strip()
     if label and not _looks_like_descriptor(label) and len(label) >= 2:
-        candidates.append(label)
-    candidates.extend(_fixed_visible_field_needles(element))
-    return _dedupe(candidates)
+        full.append(label)
+        tokens.extend(_split_match_tokens(label))
+    for needle in _fixed_visible_field_needles(element):
+        full.append(needle)
+        tokens.extend(_split_match_tokens(needle))
+    normalized_tokens = _dedupe(
+        [_normalize_for_match(token) for token in tokens if _normalize_for_match(token)]
+    )
+    min_tokens = min(2, len(normalized_tokens)) if normalized_tokens else 0
+    return {
+        "full": _dedupe(
+            [
+                _normalize_for_match(candidate)
+                for candidate in full
+                if _normalize_for_match(candidate)
+            ]
+        ),
+        "tokens": normalized_tokens,
+        "min_tokens": min_tokens,
+    }
+
+
+def _match_query_for_unit(unit: dict[str, Any]) -> dict[str, Any]:
+    name = _normalize_text(unit.get("name") or unit.get("unit_id"))
+    if not name:
+        return {"full": [], "tokens": [], "min_tokens": 0}
+    tokens = _split_match_tokens(name)
+    return {
+        "full": [_normalize_for_match(name)] if _normalize_for_match(name) else [],
+        "tokens": _dedupe(
+            [_normalize_for_match(token) for token in tokens if _normalize_for_match(token)]
+        ),
+        "min_tokens": 1 if tokens else 0,
+    }
+
+
+def _query_has_needles(query: dict[str, Any]) -> bool:
+    return bool(query.get("full") or query.get("tokens"))
+
+
+def _query_summary(query: dict[str, Any]) -> str:
+    parts = []
+    if query.get("full"):
+        parts.append("full=" + " / ".join(query["full"]))
+    if query.get("tokens"):
+        parts.append(
+            "tokens="
+            + " / ".join(query["tokens"])
+            + f" min={query.get('min_tokens', 0)}"
+        )
+    return "; ".join(parts) or "no searchable text"
 
 
 def _fixed_visible_field_needles(element: dict[str, Any]) -> list[str]:
@@ -2138,18 +2568,104 @@ def _fixed_visible_field_needles(element: dict[str, Any]) -> list[str]:
     ]
 
 
-def _find_matches(
+def _find_best_match(
     entries: list[dict[str, Any]],
-    needles: list[str],
+    query: dict[str, Any],
+    order_range: list[int | None] | tuple[int | None, int | None] | None = None,
+) -> dict[str, Any] | None:
+    if not _query_has_needles(query):
+        return None
+    scoped = _entries_in_range(entries, order_range)
+    for entry in scoped:
+        text = _normalize_for_match(entry.get("text"))
+        if not text:
+            continue
+        if any(needle and needle in text for needle in query.get("full", [])):
+            return entry
+        tokens = [token for token in query.get("tokens", []) if token and token in text]
+        if tokens and len(tokens) >= int(query.get("min_tokens") or 1):
+            return entry
+    return None
+
+
+def _locate_units(
+    expected_units: list[dict[str, Any]],
+    entries: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    locations: dict[str, dict[str, Any]] = {}
+    cursor_order = 0
+    for unit in expected_units:
+        unit_id = str(unit.get("unit_id") or "unknown_unit")
+        queries = _unit_anchor_queries(unit)
+        match = None
+        for query in queries:
+            match = _find_best_match(
+                entries,
+                query,
+                [cursor_order + 1, None],
+            )
+            if match:
+                break
+        if match:
+            anchor_order = int(match.get("order") or 0)
+            cursor_order = max(cursor_order, anchor_order)
+            locations[unit_id] = {
+                "found": True,
+                "anchor_order": anchor_order,
+                "source_ref": match.get("source_ref", ""),
+                "order_range": [anchor_order, None],
+            }
+        else:
+            locations[unit_id] = {
+                "found": False,
+                "source_ref": None,
+                "order_range": None,
+            }
+    located_units = [
+        (unit_id, location)
+        for unit_id, location in locations.items()
+        if location.get("found")
+    ]
+    for index, (unit_id, location) in enumerate(located_units):
+        next_start = (
+            int(located_units[index + 1][1]["anchor_order"])
+            if index + 1 < len(located_units)
+            else None
+        )
+        start = int(location["anchor_order"])
+        location["order_range"] = [start, next_start - 1 if next_start else None]
+    return locations
+
+
+def _unit_anchor_queries(unit: dict[str, Any]) -> list[dict[str, Any]]:
+    queries: list[dict[str, Any]] = []
+    for element in unit.get("elements", []):
+        if str(element.get("policy") or "") not in {"fixed", "manual_only"}:
+            continue
+        query = _match_query_for_element(element)
+        if _query_has_needles(query):
+            queries.append(query)
+        if len(queries) >= 3:
+            break
+    unit_query = _match_query_for_unit(unit)
+    if _query_has_needles(unit_query):
+        queries.append(unit_query)
+    return queries
+
+
+def _entries_in_range(
+    entries: list[dict[str, Any]],
+    order_range: list[int | None] | tuple[int | None, int | None] | None,
 ) -> list[dict[str, Any]]:
-    if not needles:
-        return []
-    matches: list[dict[str, Any]] = []
-    for entry in entries:
-        text = _normalize_text(entry.get("text"))
-        if any(_normalize_text(needle) in text for needle in needles):
-            matches.append(entry)
-    return sorted(matches, key=lambda entry: int(entry.get("order") or 0))
+    if not order_range:
+        return entries
+    start, end = order_range
+    return [
+        entry
+        for entry in entries
+        if (start is None or int(entry.get("order") or 0) >= int(start))
+        and (end is None or int(entry.get("order") or 0) <= int(end))
+    ]
 
 
 def _has_generated_field(tree: dict[str, Any], element: dict[str, Any]) -> bool:
@@ -2244,11 +2760,11 @@ def _compare_style_details(
 
 def _expected_style_requirements(expected_style: str) -> dict[str, Any]:
     normalized = _normalize_text(expected_style)
-    fonts = [
-        font
-        for font in ("华文行楷", "黑体", "宋体", "Times New Roman")
-        if font in normalized
-    ]
+    font_candidates = re.findall(
+        r"(?:[\u4e00-\u9fffA-Za-z ]{1,30}(?:黑体|宋体|楷体|仿宋|行楷)|Times New Roman)",
+        normalized,
+    )
+    fonts = _dedupe([font.strip(" ；;，,。") for font in font_candidates if font.strip()])
     size_match = re.search(r"(?P<size>\d+(?:\.\d+)?)\s*pt", normalized)
     bold: bool | None = None
     if "不加粗" in normalized:
@@ -2292,20 +2808,27 @@ def _actual_style_properties(match: dict[str, Any]) -> dict[str, Any]:
     details = match.get("style_details") or {}
     dominant = details.get("dominant_run") or {}
     paragraph_run = details.get("paragraph_run_properties") or {}
+    inherited_run = (details.get("style_inheritance") or {}).get("run") or {}
     paragraph = details.get("paragraph") or {}
     font_names = list(
         dict.fromkeys(
             [
                 *dominant.get("font_names", []),
                 *paragraph_run.get("font_names", []),
+                *inherited_run.get("font_names", []),
             ]
         )
     )
     return {
         "font_names": font_names,
         "font_size_pt": dominant.get("font_size_pt")
-        or paragraph_run.get("font_size_pt"),
-        "bold": _first_known(dominant.get("bold"), paragraph_run.get("bold")),
+        or paragraph_run.get("font_size_pt")
+        or inherited_run.get("font_size_pt"),
+        "bold": _first_known(
+            dominant.get("bold"),
+            paragraph_run.get("bold"),
+            inherited_run.get("bold"),
+        ),
         "alignment": paragraph.get("alignment"),
         "line_spacing": (paragraph.get("spacing") or {}).get("line_spacing"),
     }
@@ -2431,28 +2954,140 @@ def _check(
     category: str | None = None,
     evidence_refs: list[str] | None = None,
     affected_ids: list[str] | None = None,
+    path: list[Any] | None = None,
     next_step: str = "none",
     root_cause_bucket: str = "template_generation_gap",
 ) -> dict[str, Any]:
+    category_name = category or check_id.split(".")[-1]
+    identifiers = [identifier for identifier in (affected_ids or []) if identifier]
     return {
         "check_id": check_id,
-        "category": category or check_id.split(".")[-1],
+        "category": category_name,
         "status": status.value,
         "type": type_,
         "message": message,
         "expected": _preview(expected),
         "actual": _preview(actual),
+        "path": path or _path_from_affected_ids(category_name, identifiers, type_),
         "evidence_refs": [ref for ref in (evidence_refs or []) if ref],
-        "affected_ids": [identifier for identifier in (affected_ids or []) if identifier],
+        "affected_ids": identifiers,
         "next_step": next_step,
         "root_cause_bucket": root_cause_bucket,
     }
+
+
+def _path_from_affected_ids(
+    category: str,
+    affected_ids: list[str],
+    type_: str,
+) -> list[Any]:
+    if category == "actual_tree":
+        return ["unmodeled_objects", affected_ids[0] if affected_ids else type_]
+    if not affected_ids:
+        return ["global", category, type_]
+    parts = affected_ids[0].split(".")
+    unit_id = parts[0]
+    if category == "unit":
+        if "order" in type_:
+            return ["global", "unit_order"]
+        return ["units", unit_id, "presence"]
+    if category == "element" and len(parts) >= 2:
+        return ["units", unit_id, "elements", parts[1], "presence"]
+    if category == "style" and len(parts) >= 2:
+        return ["units", unit_id, "elements", parts[1], "style"]
+    if category == "page_rule":
+        return ["units", unit_id, "dimensions", "page", parts[-1]]
+    if category == "header_footer":
+        return ["units", unit_id, "dimensions", "header_footer", parts[-1]]
+    if category == "field":
+        suffix = ".".join(parts[1:]) if len(parts) > 1 else "field"
+        return ["units", unit_id, "dimensions", "fields", suffix]
+    if category == "numbering":
+        suffix = ".".join(parts[1:]) if len(parts) > 1 else "numbering"
+        return ["units", unit_id, "dimensions", "numbering", suffix]
+    return ["global", category, affected_ids[0]]
+
+
+def _affected_ids_from_check(item: dict[str, Any]) -> list[str]:
+    path = item.get("path") or []
+    if path[:1] == ["input"]:
+        return item.get("affected_ids", [])
+    if path[:1] == ["unmodeled_objects"]:
+        return [str(path[1])] if len(path) > 1 else item.get("affected_ids", [])
+    if path[:1] == ["global"]:
+        return item.get("affected_ids", [str(path[-1])])
+    if len(path) >= 3 and path[0] == "units":
+        unit_id = str(path[1])
+        if path[2] == "presence":
+            return [unit_id]
+        if len(path) >= 5 and path[2] == "elements":
+            element_id = str(path[3])
+            if path[4] == "presence":
+                return [f"{unit_id}.{element_id}"]
+            return [f"{unit_id}.{element_id}.{path[4]}"]
+        if len(path) >= 5 and path[2] == "dimensions":
+            dimension = str(path[3])
+            suffix = str(path[4])
+            dimension_name = "page" if dimension == "page" else dimension
+            return [f"{unit_id}.{dimension_name}.{suffix}"]
+    return item.get("affected_ids", [])
 
 
 def _normalize_text(value: Any) -> str:
     if value is None:
         return ""
     return re.sub(r"\s+", " ", str(value)).strip()
+
+
+def _normalize_for_match(value: Any) -> str:
+    text = _strip_format_annotations(_normalize_text(value))
+    text = re.sub(r"[□×Xx_＿]+", "", text)
+    text = re.sub(r"[…·•.。．]{2,}", "", text)
+    text = re.sub(r"[\s:：;；,，.。!！?？、（）()《》<>“”\"'‘’\[\]【】]", "", text)
+    return text.strip().lower()
+
+
+def _strip_format_annotations(text: str) -> str:
+    format_markers = (
+        "号",
+        "黑体",
+        "宋体",
+        "楷体",
+        "仿宋",
+        "Times",
+        "居中",
+        "加粗",
+        "行距",
+        "字号",
+        "字体",
+        "页边距",
+        "厘米",
+        "空格",
+        "格式",
+        "pt",
+        "表示",
+    )
+
+    def replace_annotation(match: re.Match[str]) -> str:
+        content = match.group(1)
+        if any(marker in content for marker in format_markers):
+            return ""
+        return match.group(0)
+
+    text = re.sub(r"（([^（）]*)）", replace_annotation, text)
+    text = re.sub(r"\(([^()]*)\)", replace_annotation, text)
+    return text
+
+
+def _split_match_tokens(text: str) -> list[str]:
+    stripped = _strip_format_annotations(_normalize_text(text))
+    raw_tokens = re.split(r"[:：;；,，.。、\s/]+", stripped)
+    tokens: list[str] = []
+    for token in raw_tokens:
+        normalized = _normalize_for_match(token)
+        if len(normalized) >= 2 and not _looks_like_descriptor(normalized):
+            tokens.append(normalized)
+    return _dedupe(tokens)
 
 
 def _preview(value: Any, limit: int = 320) -> str:
