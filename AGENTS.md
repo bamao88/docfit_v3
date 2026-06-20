@@ -20,6 +20,13 @@ satisfies signed contracts.
 
 - `README.md` for the short orientation and bootstrap command.
 - `SPEC.md` for product semantics, stage boundaries, and gate rules.
+- `docs/human/template-generation-artifact-field-dictionary.md` before changing
+  template-generation artifact fields, JSON shapes, manifests, gap reports, or
+  producer/consumer wiring. First define the field meaning, producer, consumer,
+  gate effect, missing-field result, default rule, and AI edit boundary. Do not
+  add undocumented fields, guess defaults for signed meaning, or use
+  `template_artifact` / `template_generation_manifest` as proof of what
+  `generated_template.docx` actually contains.
 - `docs/agents/**` for agent-only runbooks that are too long for this file.
 - Relevant standards under `standards/schools/**` and tests under `tests/**`.
 
