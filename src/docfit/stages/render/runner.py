@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -271,8 +272,18 @@ def verify_render_input_hashes(
 
 def _remove_slot_markers(doc: Document) -> None:
     for paragraph in doc.paragraphs:
-        if "[[DOCFIT_SLOT:body]]" in paragraph.text:
-            paragraph.text = ""
+        _remove_docfit_markers_from_paragraph(paragraph)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    _remove_docfit_markers_from_paragraph(paragraph)
+
+
+def _remove_docfit_markers_from_paragraph(paragraph: Any) -> None:
+    cleaned = re.sub(r"\[\[DOCFIT_(?:SLOT|GENERATED):[^\]]+\]\]", "", paragraph.text)
+    if cleaned != paragraph.text:
+        paragraph.text = cleaned.strip()
 
 
 def _materialize_image_payload(payload: dict[str, Any], out_dir: Path, action_id: str) -> Path:

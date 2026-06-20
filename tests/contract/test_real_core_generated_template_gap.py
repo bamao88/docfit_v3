@@ -797,7 +797,7 @@ def test_template_gap_unsearchable_fixed_element_is_unknown_not_fail(tmp_path) -
     assert uncheckable[0]["status"] == Status.UNKNOWN.value
 
 
-def test_template_gap_treats_page_rule_text_as_uncheckable_not_missing(
+def test_template_gap_checks_page_rule_text_against_ooxml(
     tmp_path,
 ) -> None:
     school_id = "nonvisible-rule-school"
@@ -838,9 +838,9 @@ def test_template_gap_treats_page_rule_text_as_uncheckable_not_missing(
     report = read_json(tmp_path / "nonvisible_rule_gap/artifacts/template_gap_report.json")
     paper_rule = element_by_id(unit_by_id(report, "cover"), "e_002")["presence"]
 
-    assert result.status == Status.UNKNOWN
-    assert paper_rule["status"] == Status.UNKNOWN.value
-    assert paper_rule["type"] == "template_generation_element_uncheckable"
+    assert result.status == Status.FAIL
+    assert paper_rule["status"] == Status.FAIL.value
+    assert paper_rule["type"] == "template_generation_page_setup_mismatch"
 
 
 def test_template_gap_treats_word_paragraph_options_as_uncheckable(
@@ -1372,6 +1372,33 @@ def test_generated_template_inspector_models_footnotes_in_generated_tree() -> No
     assert tree["data"]["footnotes"]
     assert all(
         item.get("object_type") != "footnote"
+        for item in tree["data"]["unknown_visible_objects"]
+    )
+
+
+def test_generated_template_inspector_models_text_boxes_in_generated_tree() -> None:
+    tree = inspect_generated_template_docx(
+        ROOT / "inputs/school-nannong-undergraduate-template.docx"
+    )
+
+    assert any("规范化要求" in item["text"] for item in tree["data"]["text_boxes"])
+    assert all(
+        item.get("object_type") != "text_box"
+        for item in tree["data"]["unknown_visible_objects"]
+    )
+
+
+def test_generated_template_inspector_models_images_in_generated_tree() -> None:
+    tree = inspect_generated_template_docx(
+        ROOT / "inputs/school-nannong-undergraduate-template.docx"
+    )
+
+    assert {
+        item["target"] for item in tree["data"]["images"]
+    } >= {"word/media/image1.jpeg", "word/media/image2.png"}
+    assert all(item.get("sha256") for item in tree["data"]["images"])
+    assert all(
+        item.get("object_type") != "image"
         for item in tree["data"]["unknown_visible_objects"]
     )
 

@@ -7,7 +7,7 @@ from zipfile import ZipFile
 
 from docx import Document
 
-from docfit.core.io import now_iso, sha256_file
+from docfit.core.io import now_iso, sha256_bytes, sha256_file
 from docfit.ooxml.package import detect_unsupported_visible_objects, is_valid_docx
 
 
@@ -33,6 +33,8 @@ def inspect_generated_template_docx(generated_template: Path) -> dict[str, Any]:
             "headers_footers": [],
             "fields": [],
             "footnotes": [],
+            "text_boxes": [],
+            "images": [],
             "breaks": [],
             "sections": [],
             "numbering_refs": [],
@@ -54,6 +56,14 @@ def inspect_generated_template_docx(generated_template: Path) -> dict[str, Any]:
     if tree["data"].get("footnotes"):
         unsupported = [
             item for item in unsupported if item.get("object_type") != "footnote"
+        ]
+    if tree["data"].get("text_boxes"):
+        unsupported = [
+            item for item in unsupported if item.get("object_type") != "text_box"
+        ]
+    if tree["data"].get("images"):
+        unsupported = [
+            item for item in unsupported if item.get("object_type") != "image"
         ]
     tree["data"]["unknown_visible_objects"] = unsupported
     return tree
@@ -675,6 +685,8 @@ def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, A
     headers_footers: list[dict[str, Any]] = []
     fields: list[dict[str, Any]] = []
     footnotes: list[dict[str, Any]] = []
+    text_boxes: list[dict[str, Any]] = []
+    images: list[dict[str, Any]] = []
     breaks: list[dict[str, Any]] = []
     sections: list[dict[str, Any]] = []
     numbering_refs: list[dict[str, Any]] = []
@@ -712,6 +724,8 @@ def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, A
             fields.extend(_fields(root, part_name))
             breaks.extend(_breaks(root, part_name))
             if part_name == "word/document.xml":
+                text_boxes.extend(_text_boxes(root, part_name))
+                images.extend(_images(root, part_name, relationships, package))
                 sections.extend(_sections(root, relationships))
                 numbering_refs.extend(_numbering_refs(root, numbering_catalog))
 
@@ -719,6 +733,8 @@ def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, A
         "headers_footers": headers_footers,
         "fields": fields,
         "footnotes": footnotes,
+        "text_boxes": text_boxes,
+        "images": images,
         "breaks": breaks,
         "sections": sections,
         "numbering_refs": numbering_refs,
@@ -784,6 +800,7 @@ def _sections(
                     key=lambda item: (item["kind"], item["type"], item["part_name"]),
                 ),
                 "page_numbering": _page_numbering(section_properties),
+                "page_size": _page_size(section_properties),
                 "page_margins": _page_margins(section_properties),
             }
         )
@@ -845,12 +862,24 @@ def _page_margins(section_properties: ET.Element) -> dict[str, Any]:
     if node is None:
         return {}
     return {
+        "gutter_pt": _twips_to_points(_attr(node, "gutter")),
         "header_pt": _twips_to_points(_attr(node, "header")),
         "footer_pt": _twips_to_points(_attr(node, "footer")),
         "top_pt": _twips_to_points(_attr(node, "top")),
         "bottom_pt": _twips_to_points(_attr(node, "bottom")),
         "left_pt": _twips_to_points(_attr(node, "left")),
         "right_pt": _twips_to_points(_attr(node, "right")),
+    }
+
+
+def _page_size(section_properties: ET.Element) -> dict[str, Any]:
+    node = section_properties.find(f"{W_NS}pgSz")
+    if node is None:
+        return {}
+    return {
+        "width_pt": _twips_to_points(_attr(node, "w")),
+        "height_pt": _twips_to_points(_attr(node, "h")),
+        "orientation": _attr(node, "orient") or "portrait",
     }
 
 
@@ -959,6 +988,66 @@ def _footnotes(package: ZipFile) -> list[dict[str, Any]]:
             }
         )
     return footnotes
+
+
+def _text_boxes(root: ET.Element, part_name: str) -> list[dict[str, Any]]:
+    text_boxes: list[dict[str, Any]] = []
+    for paragraph_index, paragraph in enumerate(root.iter(f"{W_NS}p"), start=1):
+        for node in paragraph.iter():
+            if node.tag.rsplit("}", 1)[-1] != "txbxContent":
+                continue
+            text = _visible_text(node)
+            if not text:
+                continue
+            text_boxes.append(
+                {
+                    "index": len(text_boxes) + 1,
+                    "paragraph_index": paragraph_index,
+                    "text": text,
+                    "source_ref": (
+                        f"{part_name}:p[{paragraph_index}]"
+                        f"/textbox[{len(text_boxes) + 1}]"
+                    ),
+                }
+            )
+    return text_boxes
+
+
+def _images(
+    root: ET.Element,
+    part_name: str,
+    relationships: dict[str, str],
+    package: ZipFile,
+) -> list[dict[str, Any]]:
+    images: list[dict[str, Any]] = []
+    for paragraph_index, paragraph in enumerate(root.iter(f"{W_NS}p"), start=1):
+        for node in paragraph.iter():
+            if node.tag.rsplit("}", 1)[-1] != "blip":
+                continue
+            relationship_id = (
+                node.attrib.get(f"{R_NS}embed") or node.attrib.get(f"{R_NS}link") or ""
+            )
+            target = relationships.get(relationship_id, "")
+            item: dict[str, Any] = {
+                "index": len(images) + 1,
+                "paragraph_index": paragraph_index,
+                "relationship_id": relationship_id,
+                "target": target,
+                "source_ref": (
+                    f"{part_name}:p[{paragraph_index}]"
+                    f"/image[{len(images) + 1}]"
+                ),
+            }
+            if target:
+                try:
+                    payload = package.read(target)
+                except KeyError:
+                    payload = b""
+                if payload:
+                    item["sha256"] = sha256_bytes(payload)
+                    item["byte_count"] = len(payload)
+            images.append(item)
+    return images
 
 
 def _normalize_instruction(instruction: str) -> str:

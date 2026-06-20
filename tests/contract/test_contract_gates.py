@@ -7,7 +7,7 @@ from docx import Document
 from docx.enum.style import WD_STYLE_TYPE
 
 from docfit.convert.orchestrator import run_content_eval
-from docfit.core.io import write_json
+from docfit.core.io import sha256_json, write_json
 from docfit.core.status import Status
 from docfit.harness.profiles import BOOTSTRAP_PROFILE
 from docfit.harness.coverage import evaluate_bootstrap_coverage
@@ -219,6 +219,42 @@ def test_source_toc_entry_is_discarded_as_source_format(tmp_path) -> None:
     assert first_item["text_hash"] not in render.artifacts["feature_snapshot"][
         "expected_content_hashes"
     ]
+
+
+def test_render_removes_all_internal_docfit_markers(tmp_path) -> None:
+    template = tmp_path / "template-with-markers.docx"
+    doc = Document()
+    doc.add_paragraph("[[DOCFIT_SLOT:cover.e_001]]")
+    table = doc.add_table(rows=1, cols=1)
+    table.cell(0, 0).text = "prefix [[DOCFIT_GENERATED:toc.e_003]] suffix"
+    doc.save(template)
+
+    template_artifact = {"provenance": {"template_docx": str(template)}, "data": {}}
+    placement_plan = {
+        "data": {"actions": []},
+        "input_hashes": {"template_artifact": sha256_json(template_artifact)},
+    }
+
+    render = render_docx(
+        template_artifact,
+        placement_plan,
+        _bundle(),
+        tmp_path / "rendered_markers",
+    )
+    rendered_doc = Document(render.artifact_paths["final_docx"])
+    visible_text = "\n".join(
+        [paragraph.text for paragraph in rendered_doc.paragraphs]
+        + [
+            cell.text
+            for table in rendered_doc.tables
+            for row in table.rows
+            for cell in row.cells
+        ]
+    )
+
+    assert "[[DOCFIT_" not in visible_text
+    assert "prefix" in visible_text
+    assert "suffix" in visible_text
 
 
 def test_unknown_when_golden_missing(tmp_path) -> None:

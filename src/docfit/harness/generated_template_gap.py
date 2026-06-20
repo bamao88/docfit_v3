@@ -837,6 +837,14 @@ def _compare_elements(
                 )
             )
             continue
+        structured_check = _structured_element_presence_check(
+            unit_id,
+            element,
+            tree,
+        )
+        if structured_check:
+            checks.append(structured_check)
+            continue
         if not unit_located:
             checks.append(
                 _check(
@@ -960,6 +968,344 @@ def _compare_elements(
                 )
             )
     return checks, matched_orders
+
+
+def _structured_element_presence_check(
+    unit_id: str,
+    element: dict[str, Any],
+    tree: dict[str, Any],
+) -> dict[str, Any] | None:
+    element_id = str(element.get("element_id") or "unknown_element")
+    text = _structured_element_text(element)
+    page_setup = _evaluate_page_setup_element(text, tree)
+    if not page_setup:
+        return None
+    return _check(
+        "template_generation.element_match",
+        page_setup["status"],
+        page_setup["type"],
+        f"元素 {unit_id}.{element_id} 是页面设置规则，已按 Word section 检查",
+        element.get("content") or element.get("name") or element_id,
+        page_setup["actual"],
+        category="element",
+        evidence_refs=page_setup["evidence_refs"],
+        affected_ids=[f"{unit_id}.{element_id}"],
+        path=["units", unit_id, "elements", element_id, "presence"],
+        next_step=page_setup["next_step"],
+    )
+
+
+def _structured_element_text(element: dict[str, Any]) -> str:
+    primary = _normalize_text(
+        " ".join(str(element.get(field, "")) for field in ("name", "content"))
+    )
+    if primary:
+        return primary
+    return _normalize_text(
+        " ".join(
+            str(element.get(field, ""))
+            for field in ("raw", "position", "relationship")
+        )
+    )
+
+
+def _evaluate_page_setup_element(
+    text: str,
+    tree: dict[str, Any],
+) -> dict[str, Any] | None:
+    if _is_reference_context_rule(text):
+        return {
+            "status": Status.PASS,
+            "type": "template_generation_rule_context_recorded",
+            "actual": "review context only; not a generated-template visible element",
+            "evidence_refs": [],
+            "next_step": "none",
+        }
+    sections = tree.get("data", {}).get("sections", [])
+    if "纸张" in text and "A4" in text:
+        return _evaluate_a4_page_size(text, sections)
+    expected_margins = _expected_page_margins_mm(text)
+    if expected_margins:
+        return _evaluate_page_margins(text, sections, expected_margins)
+    gutter_mm = _expected_gutter_mm(text)
+    if gutter_mm is not None:
+        return _evaluate_gutter(text, sections, gutter_mm)
+    header_footer = _expected_header_footer_distance_mm(text)
+    if header_footer:
+        return _evaluate_header_footer_distance(text, sections, header_footer)
+    return None
+
+
+def _is_reference_context_rule(text: str) -> bool:
+    normalized = _normalize_for_match(text)
+    if not normalized:
+        return False
+    return normalized.startswith(
+        (
+            "源模板",
+            "源文档",
+            "源文件",
+            "原始",
+            "审查口径",
+            "全局只记录",
+            "单元记录",
+        )
+    ) or any(
+        marker in normalized
+        for marker in (
+            "不是天然等于wordsection",
+            "渲染层",
+        )
+    )
+
+
+def _evaluate_a4_page_size(
+    text: str,
+    sections: list[dict[str, Any]],
+) -> dict[str, Any]:
+    page_sizes = [
+        section.get("page_size", {})
+        for section in sections
+        if section.get("page_size")
+    ]
+    if not page_sizes:
+        return _page_setup_unknown("no section page size parsed")
+    mismatches = [
+        size
+        for size in page_sizes
+        if not _page_size_is_a4(size)
+    ]
+    status = Status.FAIL if mismatches else Status.PASS
+    return {
+        "status": status,
+        "type": (
+            "template_generation_page_setup_mismatch"
+            if status == Status.FAIL
+            else "template_generation_page_setup_match"
+        ),
+        "actual": _page_size_summary(page_sizes),
+        "evidence_refs": _section_refs(sections),
+        "next_step": (
+            "修模板生成逻辑，确保所有 section 使用 A4 纸张。"
+            if status == Status.FAIL
+            else "none"
+        ),
+    }
+
+
+def _page_size_is_a4(size: dict[str, Any]) -> bool:
+    width_mm = _points_to_mm(size.get("width_pt"))
+    height_mm = _points_to_mm(size.get("height_pt"))
+    if width_mm is None or height_mm is None:
+        return False
+    return (
+        _close_mm(width_mm, 210.0, tolerance=0.6)
+        and _close_mm(height_mm, 297.0, tolerance=0.6)
+    ) or (
+        _close_mm(width_mm, 297.0, tolerance=0.6)
+        and _close_mm(height_mm, 210.0, tolerance=0.6)
+    )
+
+
+def _expected_page_margins_mm(text: str) -> dict[str, float]:
+    if "页边距" not in text and "边距" not in text:
+        return {}
+    if "上/下/左/右边距" in text:
+        match = re.search(r"上/下/左/右边距[:：]\s*(\d+(?:\.\d+)?)\s*mm", text)
+        if match:
+            value = float(match.group(1))
+            return {"top": value, "bottom": value, "left": value, "right": value}
+    values: dict[str, float] = {}
+    labels = {
+        "上": "top",
+        "下": "bottom",
+        "左": "left",
+        "右": "right",
+    }
+    for label, key in labels.items():
+        match = re.search(rf"{label}\s*[=＝]\s*(\d+(?:\.\d+)?)\s*mm", text)
+        if match:
+            values[key] = float(match.group(1))
+    return values
+
+
+def _evaluate_page_margins(
+    text: str,
+    sections: list[dict[str, Any]],
+    expected: dict[str, float],
+) -> dict[str, Any]:
+    margins = _portrait_section_margins(sections)
+    if not margins:
+        return _page_setup_unknown("no portrait section margins parsed")
+    mismatches: list[str] = []
+    for key, expected_mm in expected.items():
+        actual_mm = _points_to_mm(margins.get(f"{key}_pt"))
+        if actual_mm is None:
+            mismatches.append(f"{key} missing")
+        elif not _close_mm(actual_mm, expected_mm):
+            mismatches.append(f"{key} expected {expected_mm:g}mm, actual {actual_mm:g}mm")
+    status = Status.FAIL if mismatches else Status.PASS
+    return {
+        "status": status,
+        "type": (
+            "template_generation_page_setup_mismatch"
+            if status == Status.FAIL
+            else "template_generation_page_setup_match"
+        ),
+        "actual": _page_margin_summary(margins, mismatches),
+        "evidence_refs": _section_refs(sections),
+        "next_step": (
+            "修模板生成逻辑，确保常规 section 页边距符合标准。"
+            if status == Status.FAIL
+            else "none"
+        ),
+    }
+
+
+def _expected_gutter_mm(text: str) -> float | None:
+    match = re.search(r"装订线[:：=＝]\s*(\d+(?:\.\d+)?)\s*mm", text)
+    return float(match.group(1)) if match else None
+
+
+def _evaluate_gutter(
+    text: str,
+    sections: list[dict[str, Any]],
+    expected_mm: float,
+) -> dict[str, Any]:
+    margins = _portrait_section_margins(sections)
+    if not margins:
+        return _page_setup_unknown("no section gutter parsed")
+    actual_mm = _points_to_mm(margins.get("gutter_pt")) or 0.0
+    status = Status.PASS if _close_mm(actual_mm, expected_mm) else Status.FAIL
+    return {
+        "status": status,
+        "type": (
+            "template_generation_page_setup_match"
+            if status == Status.PASS
+            else "template_generation_page_setup_mismatch"
+        ),
+        "actual": f"gutter={actual_mm:g}mm",
+        "evidence_refs": _section_refs(sections),
+        "next_step": (
+            "none"
+            if status == Status.PASS
+            else "修模板生成逻辑，设置 section 装订线。"
+        ),
+    }
+
+
+def _expected_header_footer_distance_mm(text: str) -> dict[str, float]:
+    if "页眉" not in text or "页脚" not in text:
+        return {}
+    header = re.search(r"页眉\s*[=＝]?\s*(\d+(?:\.\d+)?)\s*mm", text)
+    footer = re.search(r"页脚\s*[=＝]?\s*(\d+(?:\.\d+)?)\s*mm", text)
+    values: dict[str, float] = {}
+    if header:
+        values["header"] = float(header.group(1))
+    if footer:
+        values["footer"] = float(footer.group(1))
+    return values
+
+
+def _evaluate_header_footer_distance(
+    text: str,
+    sections: list[dict[str, Any]],
+    expected: dict[str, float],
+) -> dict[str, Any]:
+    margins = _portrait_section_margins(sections)
+    if not margins:
+        return _page_setup_unknown("no section header/footer distance parsed")
+    mismatches: list[str] = []
+    for key, expected_mm in expected.items():
+        actual_mm = _points_to_mm(margins.get(f"{key}_pt"))
+        if actual_mm is None:
+            mismatches.append(f"{key} missing")
+        elif not _close_mm(actual_mm, expected_mm):
+            mismatches.append(f"{key} expected {expected_mm:g}mm, actual {actual_mm:g}mm")
+    status = Status.FAIL if mismatches else Status.PASS
+    return {
+        "status": status,
+        "type": (
+            "template_generation_page_setup_mismatch"
+            if status == Status.FAIL
+            else "template_generation_page_setup_match"
+        ),
+        "actual": _page_margin_summary(margins, mismatches),
+        "evidence_refs": _section_refs(sections),
+        "next_step": (
+            "修模板生成逻辑，确保 section 页眉/页脚距离符合标准。"
+            if status == Status.FAIL
+            else "none"
+        ),
+    }
+
+
+def _portrait_section_margins(sections: list[dict[str, Any]]) -> dict[str, Any]:
+    candidates = [
+        section
+        for section in sections
+        if (section.get("page_size", {}) or {}).get("orientation", "portrait")
+        != "landscape"
+        and section.get("page_margins")
+    ]
+    if not candidates:
+        candidates = [section for section in sections if section.get("page_margins")]
+    if not candidates:
+        return {}
+    return candidates[0].get("page_margins", {})
+
+
+def _page_setup_unknown(actual: str) -> dict[str, Any]:
+    return {
+        "status": Status.UNKNOWN,
+        "type": "template_generation_page_setup_unverified",
+        "actual": actual,
+        "evidence_refs": [],
+        "next_step": "补 generated_template_tree 的 section 页面设置解析。",
+    }
+
+
+def _page_size_summary(page_sizes: list[dict[str, Any]]) -> str:
+    return "; ".join(
+        (
+            f"{_points_to_mm(size.get('width_pt')):g}mm"
+            f"x{_points_to_mm(size.get('height_pt')):g}mm"
+            f" {size.get('orientation', 'portrait')}"
+        )
+        for size in page_sizes[:5]
+        if _points_to_mm(size.get("width_pt")) is not None
+        and _points_to_mm(size.get("height_pt")) is not None
+    )
+
+
+def _page_margin_summary(margins: dict[str, Any], mismatches: list[str]) -> str:
+    keys = ("top", "bottom", "left", "right", "gutter", "header", "footer")
+    parts = []
+    for key in keys:
+        actual_mm = _points_to_mm(margins.get(f"{key}_pt"))
+        if actual_mm is not None:
+            parts.append(f"{key}={actual_mm:g}mm")
+    if mismatches:
+        parts.extend(mismatches)
+    return "; ".join(parts) or "no section margins parsed"
+
+
+def _section_refs(sections: list[dict[str, Any]]) -> list[str]:
+    return [
+        str(section.get("source_ref", ""))
+        for section in sections[:5]
+        if section.get("source_ref")
+    ]
+
+
+def _points_to_mm(value: Any) -> float | None:
+    if value is None:
+        return None
+    return round(float(value) * 25.4 / 72, 2)
+
+
+def _close_mm(actual: float, expected: float, *, tolerance: float = 0.35) -> bool:
+    return abs(actual - expected) <= tolerance
 
 
 def _field_checks(
