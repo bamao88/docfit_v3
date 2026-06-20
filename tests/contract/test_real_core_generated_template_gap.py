@@ -640,6 +640,52 @@ def test_template_gap_treats_page_rule_text_as_uncheckable_not_missing(
     assert paper_rule["type"] == "template_generation_element_uncheckable"
 
 
+def test_template_gap_treats_word_paragraph_options_as_uncheckable(
+    tmp_path,
+) -> None:
+    school_id = "word-option-school"
+    expected = [
+        {
+            "unit_id": "cover",
+            "name": "封面",
+            "order": 10,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "学校名称",
+                    "policy": "fixed",
+                    "content": "测试大学",
+                    "style": "",
+                },
+                {
+                    "element_id": "e_002",
+                    "name": "孤行控制",
+                    "policy": "manual_only",
+                    "content": "孤行控制",
+                    "style": "",
+                },
+            ],
+        }
+    ]
+    write_minimal_gap_standard(tmp_path, school_id, expected)
+    generated_template = tmp_path / "inputs/generated_template.docx"
+    write_docx(generated_template, ["测试大学"])
+
+    result = run_template_gap_eval(
+        tmp_path,
+        school_id,
+        generated_template,
+        tmp_path / "word_option_gap",
+    )
+    report = read_json(tmp_path / "word_option_gap/artifacts/template_gap_report.json")
+    option = element_by_id(unit_by_id(report, "cover"), "e_002")["presence"]
+
+    assert result.status == Status.UNKNOWN
+    assert option["status"] == Status.UNKNOWN.value
+    assert option["type"] == "template_generation_element_uncheckable"
+
+
 def test_template_gap_still_fails_missing_visible_fixed_text(tmp_path) -> None:
     school_id = "visible-missing-school"
     expected = [

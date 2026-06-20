@@ -380,6 +380,7 @@ def build_template_unit_decisions(template_artifact: dict[str, Any]) -> dict[str
     units: list[dict[str, Any]] = []
     for unit in template_artifact.get("data", {}).get("units", []):
         unit_id = str(unit.get("unit_id"))
+        unit_anchor_ref = _first_source_ref(unit)
         decisions: list[dict[str, Any]] = []
         if any(
             element.get("policy") in {"fixed", "manual_only"}
@@ -405,6 +406,12 @@ def build_template_unit_decisions(template_artifact: dict[str, Any]) -> dict[str
                 decision_type = "create_fillable_slot"
             elif policy == "generated":
                 decision_type = "create_generated_field_placeholder"
+            elif policy in {"fixed", "manual_only"} and (
+                source_ref is None
+                and _should_synthesize_visible_text(element)
+            ):
+                decision_type = "insert_fixed_text"
+                source_ref = unit_anchor_ref
             elif policy == "manual_only":
                 decision_type = "create_manual_placeholder"
             else:
@@ -416,6 +423,7 @@ def build_template_unit_decisions(template_artifact: dict[str, Any]) -> dict[str
                     "unit_id": unit_id,
                     "element_id": element_id,
                     "element_name": element.get("name"),
+                    "content": element.get("content") or element.get("name") or "",
                     "source_ref": source_ref,
                     "reason": _decision_reason(decision_type),
                 }
@@ -586,6 +594,15 @@ def execute_template_generation_plan(
             executed.append(_executed(action, output_ref=output_ref))
         elif action_type == "create_manual_placeholder":
             executed.append(_executed(action, output_ref=action.get("source_ref")))
+        elif action_type == "insert_fixed_text":
+            text = str(action.get("target_ref") or "")
+            output_ref = _insert_marker(
+                doc,
+                paragraph_map,
+                action.get("source_ref"),
+                text,
+            )
+            executed.append(_executed(action, output_ref=output_ref))
         elif action_type == "protect_block":
             executed.append(_executed(action, output_ref=action.get("source_ref")))
         elif action_type == "ensure_body_slot":
@@ -615,6 +632,16 @@ def execute_template_generation_plan(
         "actions_requiring_review": review,
         "slots": _dedupe_by_key(slots, "slot_id"),
         "generated_fields": generated_fields,
+        "synthesized_texts": [
+            {
+                "unit_id": action.get("unit_id"),
+                "element_id": action.get("element_id"),
+                "text": action.get("target_ref"),
+                "output_ref": action.get("output_ref"),
+            }
+            for action in executed
+            if action.get("action_type") == "insert_fixed_text"
+        ],
     }
 
 
@@ -649,6 +676,7 @@ def build_template_generation_manifest(
         },
         "slots": execution.get("slots", []),
         "generated_fields": execution.get("generated_fields", []),
+        "synthesized_texts": execution.get("synthesized_texts", []),
         "actions_executed": execution.get("actions_executed", []),
         "actions_requiring_review": execution.get("actions_requiring_review", []),
     }
@@ -851,6 +879,9 @@ def _aligned_target_unit(
 ) -> dict[str, Any]:
     aligned_elements: list[dict[str, Any]] = []
     source_refs: list[str] = []
+    unit_anchor = _find_source_entry_for_target_unit(entries, target_unit)
+    if unit_anchor and unit_anchor.get("source_ref"):
+        source_refs.append(str(unit_anchor["source_ref"]))
     for fallback_element_order, element in enumerate(
         target_unit.get("elements", []),
         start=1,
@@ -885,6 +916,35 @@ def _aligned_target_unit(
         or _unit_policy(str(target_unit.get("unit_id") or "")),
         "source_refs": unit_source_refs,
         "elements": aligned_elements,
+    }
+
+
+def _find_source_entry_for_target_unit(
+    entries: list[dict[str, Any]],
+    target_unit: dict[str, Any],
+) -> dict[str, Any] | None:
+    query = _target_unit_query(target_unit)
+    if not _query_has_needles(query):
+        return None
+    return _find_entry_by_query(entries, query)
+
+
+def _target_unit_query(target_unit: dict[str, Any]) -> dict[str, Any]:
+    text = _normalize_text(str(target_unit.get("name") or target_unit.get("unit_id") or ""))
+    if not text or _looks_like_descriptor(text):
+        return {"full": [], "tokens": [], "min_tokens": 0}
+    normalized = _normalize_for_match(text)
+    tokens = _dedupe(
+        [
+            _normalize_for_match(token)
+            for token in _split_match_tokens(text)
+            if _normalize_for_match(token)
+        ]
+    )
+    return {
+        "full": [normalized] if normalized else [],
+        "tokens": tokens,
+        "min_tokens": 1 if tokens else 0,
     }
 
 
@@ -1040,6 +1100,7 @@ def _decision_reason(decision_type: str) -> str:
         "create_fillable_slot": "fillable source element needs a stable marker for later placement",
         "create_generated_field_placeholder": "generated element needs a marker for later field generation",
         "create_manual_placeholder": "manual-only content is preserved but not automatically filled",
+        "insert_fixed_text": "visible standard text is missing from the aligned source region and should be present in the generated template",
     }.get(decision_type, "template generation decision")
 
 
@@ -1050,6 +1111,7 @@ def _action_type_for_decision(decision_type: str) -> str:
         "create_fillable_slot": "create_fillable_slot",
         "create_generated_field_placeholder": "create_generated_field_placeholder",
         "create_manual_placeholder": "create_manual_placeholder",
+        "insert_fixed_text": "insert_fixed_text",
     }[decision_type]
 
 
@@ -1059,6 +1121,8 @@ def _target_ref_for_decision(decision: dict[str, Any]) -> str:
         return f"[[DOCFIT_SLOT:{decision.get('unit_id')}.{decision.get('element_id')}]]"
     if decision_type == "create_generated_field_placeholder":
         return f"[[DOCFIT_GENERATED:{decision.get('unit_id')}.{decision.get('element_id')}]]"
+    if decision_type == "insert_fixed_text":
+        return str(decision.get("content") or "")
     return str(decision.get("source_ref") or "")
 
 
@@ -1109,6 +1173,55 @@ def _looks_like_instruction(text: str) -> bool:
     if any(marker in text for marker in INSTRUCTION_MARKERS):
         return True
     return bool(re.search(r"[（(].*(宋体|黑体|楷体|居中|行距|字号|号字|pt).*[）)]", text))
+
+
+def _should_synthesize_visible_text(element: dict[str, Any]) -> bool:
+    order = element.get("order") or element.get("element_order")
+    if order not in {1, "1"}:
+        return False
+    text = str(element.get("content") or element.get("name") or "").strip()
+    if not text:
+        return False
+    if len(text) > 120:
+        return False
+    normalized = _normalize_for_match(text)
+    if not normalized or _looks_like_nonvisible_requirement(normalized):
+        return False
+    return True
+
+
+def _looks_like_nonvisible_requirement(normalized: str) -> bool:
+    markers = (
+        "页眉",
+        "页脚",
+        "页码",
+        "页边距",
+        "装订线",
+        "纸张",
+        "section",
+        "schoolyaml",
+        "ooxml",
+        "审查口径",
+        "全局规则",
+        "源模板",
+        "源文件",
+        "当前阶段",
+        "目标输出",
+        "生成机制",
+        "标题编号体系",
+        "样式",
+        "字体",
+        "字号",
+        "行距",
+        "大纲级别",
+        "保留学校封面本体",
+        "不属于模板的说明文字",
+        "markdown",
+        "自动化测试",
+        "渲染测试",
+        "验收",
+    )
+    return any(marker in normalized for marker in markers)
 
 
 def _has_substantive_template_text(text: str) -> bool:

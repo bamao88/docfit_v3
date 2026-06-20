@@ -181,3 +181,25 @@ def test_template_generate_can_use_signed_school_units(tmp_path) -> None:
     assert "[[DOCFIT_SLOT:cover.e_003]]" in docx_texts(
         tmp_path / "template_generate/generated_template.docx"
     )
+
+
+def test_template_generate_synthesizes_missing_visible_unit_title(tmp_path) -> None:
+    out_dir = tmp_path / "template_generate"
+
+    result = run_template_generate_eval(
+        ROOT,
+        ROOT / "inputs/school-hunannongye-requirement.docx",
+        out_dir,
+        school_id="hunannongye",
+    )
+    manifest = read_json(out_dir / "artifacts/template_generation_manifest.json")
+    expected_title = "湖南农业大学全日制普通本科生毕业论文（设计）；成绩评定表"
+
+    assert result.status == Status.PASS
+    assert expected_title in docx_texts(out_dir / "generated_template.docx")
+    assert any(
+        item["unit_id"] == "grade_form"
+        and item["element_id"] == "e_001"
+        and item["text"] == expected_title
+        for item in manifest["synthesized_texts"]
+    )
