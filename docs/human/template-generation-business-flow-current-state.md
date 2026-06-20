@@ -25,7 +25,7 @@
 
 | 事项 | 当前状态 | 证据位置 |
 | --- | --- | --- |
-| 生成模板 CLI | 已有完整阶段入口 | `src/docfit/cli/main.py` 现在有 `docfit eval template-generate --template ... --out ...` |
+| 生成模板 CLI | 已有完整阶段入口 | `src/docfit/cli/main.py` 现在有 `docfit eval template-generate --template ... --out ...`；开发期可加 `--school <school_id>`，用签名标准里的 `expected.units` 对齐生成 |
 | 模板生成阶段 | 已有完整证据链 | `src/docfit/stages/template_generate/runner.py` 会写出 `source_template_tree.json`、`discovered_template_rules.json`、`template_artifact.json`、`template_unit_decisions.json`、`template_generation_plan.json`、`generated_template.docx` 和 `template_generation_manifest.json` |
 | 学校原始模板解析 | 已有一部分 | `src/docfit/stages/template_parse/runner.py` 能读取段落、样式，并为真实学校结合人工整理样本生成 `template_artifact` |
 | 生成模板差距检查 | 已有一部分 | `src/docfit/harness/generated_template_inspector.py` 解析传入的 Word；`src/docfit/harness/generated_template_gap.py` 写出 `generated_template_tree.json` 和 `template_gap_report.*` |
@@ -46,6 +46,22 @@
 
 它证明系统已经有真实生成入口、核心 Word 产物和阶段证据链，但还不能说明生成模板符合学校标准。
 正式质量判断仍要把输出交给 `template-gap` 和后续四阶段 gate。
+
+当前开发期还有一条带学校标准的路径：
+
+```text
+学校原始模板 Word + --school <school_id>
+-> 读取该学校签名标准里的 expected.units
+-> 把标准里的 fixed / fill / generated / manual_only 元素对齐到源 Word
+-> 生成带 DocFit 槽位和生成标记的 generated_template.docx
+-> 交给 template-gap 检查真实 Word 是否符合签名标准
+```
+
+这条路径不是最终产品要求用户提供额外文件；它使用仓库里已签收的开发期标准，
+目的是让生成器按真实学校验收口径暴露差距。最新三校 probe 仍是 `FAIL`：
+湖南农业大学 `PASS/FAIL/UNKNOWN = 140/59/91`，南农 `79/50/76`，
+北大 `86/40/26`。这说明当前生成器已经能产出可检查 Word 和明确证据，
+但还没有达到学校模板质量。
 
 ## 读文档前先分清四类东西
 
@@ -207,6 +223,12 @@ standards/schools/<school_id>/v1/template_unit_contract.yaml
 ```text
 学校原始模板 Word                              # [用户文件]
 + 人工整理的 template_unit_contract.yaml       # [磁盘产物·可选·开发期] 参照样本，不是生产输入
+```
+
+在 CLI 上，这对应：
+
+```bash
+uv run docfit eval template-generate --school hunannongye --template inputs/school-hunannongye-requirement.docx --out /tmp/docfit_template_generate_hunannongye
 ```
 
 生产目标必须收敛成：

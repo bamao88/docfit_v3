@@ -104,9 +104,15 @@ def _merge_generated_template_gap(
 def _run_template_generation_for_pipeline(
     template_docx: Path,
     out_dir: Path,
+    *,
+    target_units: list[dict[str, Any]] | None = None,
 ) -> StageResult:
     generation_out_dir = out_dir / "template_generation"
-    result = generate_template(template_docx, generation_out_dir)
+    result = generate_template(
+        template_docx,
+        generation_out_dir,
+        target_units=target_units,
+    )
     write_template_generation_outputs(generation_out_dir, result)
     _write_stage_report(generation_out_dir, result)
     return result
@@ -196,6 +202,9 @@ def run_template_eval(root: Path, school_id: str, template_docx: Path, out_dir: 
             generation_result = _run_template_generation_for_pipeline(
                 template_docx,
                 out_dir,
+                target_units=result.artifacts["template_artifact"]
+                .get("data", {})
+                .get("units", []),
             )
             _merge_template_generation_result(result, generation_result)
             generated_template_docx = generation_result.artifact_paths.get(
@@ -260,8 +269,36 @@ def run_template_generate_eval(
     root: Path,
     template_docx: Path,
     out_dir: Path,
+    *,
+    school_id: str | None = None,
 ) -> StageResult:
-    result = generate_template(template_docx, out_dir)
+    standard_findings: list[Finding] = []
+    target_units: list[dict[str, Any]] | None = None
+    if school_id is not None:
+        bundle, standard_findings = load_standard_bundle(
+            root,
+            school_id,
+            finding_stage="template_generate",
+        )
+        if bundle is None:
+            result = StageResult(
+                "template_generate",
+                Status.UNKNOWN,
+                findings=standard_findings,
+                blocked_at="standards",
+            )
+            _write_stage_report(out_dir, result)
+            return result
+        template_context = parse_template(template_docx, bundle)
+        target_units = (
+            template_context.artifacts.get("template_artifact", {})
+            .get("data", {})
+            .get("units", [])
+        )
+    result = generate_template(template_docx, out_dir, target_units=target_units)
+    result.findings = standard_findings + result.findings
+    if standard_findings and result.status == Status.PASS:
+        result.status = Status.UNKNOWN
     write_template_generation_outputs(out_dir, result)
     _write_stage_report(out_dir, result)
     return result
@@ -420,6 +457,9 @@ def run_e2e_eval(
         generation_result = _run_template_generation_for_pipeline(
             bundle.template_docx,
             out_dir,
+            target_units=template_result.artifacts["template_artifact"]
+            .get("data", {})
+            .get("units", []),
         )
         _merge_template_generation_result(template_result, generation_result)
         generated_template_docx = generation_result.artifact_paths.get(

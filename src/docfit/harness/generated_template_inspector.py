@@ -81,8 +81,12 @@ def iter_visible_text_entries(tree: dict[str, Any]) -> list[dict[str, Any]]:
                         "style": table.get("style", ""),
                         "style_details": cell.get("style_details", {}),
                         "source_ref": cell.get("source_ref", ""),
-                        "order": cell.get("first_paragraph_index")
-                        or 10_000 + cell.get("global_index", 0),
+                        "order": (
+                            cell.get("first_paragraph_index")
+                            or cell.get("row_first_paragraph_index")
+                            or table.get("first_paragraph_index")
+                            or 10_000 + cell.get("global_index", 0)
+                        ),
                         "paragraph_index": cell.get("first_paragraph_index"),
                         "end_paragraph_index": cell.get("last_paragraph_index"),
                         "table_index": table.get("index"),
@@ -149,12 +153,20 @@ def _tables(
     for table_index, table in enumerate(doc.tables, start=1):
         table_detail = table_details.get(table_index, {})
         cell_details = table_detail.get("cells", {})
+        row_details = table_detail.get("rows", {})
         cells: list[dict[str, Any]] = []
         for row_index, row in enumerate(table.rows, start=1):
+            row_detail = row_details.get(row_index, {})
             for cell_index, cell in enumerate(row.cells, start=1):
                 global_cell_index += 1
                 cell_detail = cell_details.get((row_index, cell_index), {})
                 first_paragraph_index = cell_detail.get("first_paragraph_index")
+                row_first_paragraph_index = cell_detail.get(
+                    "row_first_paragraph_index"
+                ) or row_detail.get("row_first_paragraph_index")
+                row_last_paragraph_index = cell_detail.get(
+                    "row_last_paragraph_index"
+                ) or row_detail.get("row_last_paragraph_index")
                 text = "\n".join(
                     paragraph.text.strip()
                     for paragraph in cell.paragraphs
@@ -166,15 +178,22 @@ def _tables(
                         "column": cell_index,
                         "global_index": global_cell_index,
                         "text": text,
-                        "style_details": paragraph_styles.get(first_paragraph_index, {})
-                        if first_paragraph_index
-                        else {},
+                        "style_details": paragraph_styles.get(
+                            first_paragraph_index or row_first_paragraph_index,
+                            {},
+                        ),
                         "paragraph_indices": cell_detail.get("paragraph_indices", []),
                         "first_paragraph_index": first_paragraph_index,
                         "last_paragraph_index": cell_detail.get("last_paragraph_index"),
+                        "row_first_paragraph_index": row_first_paragraph_index,
+                        "row_last_paragraph_index": row_last_paragraph_index,
                         "keep_refs": cell_detail.get("keep_refs", []),
-                        "row_cant_split": bool(cell_detail.get("row_cant_split")),
-                        "row_source_ref": cell_detail.get("row_source_ref", ""),
+                        "row_cant_split": bool(
+                            cell_detail.get("row_cant_split")
+                            or row_detail.get("row_cant_split")
+                        ),
+                        "row_source_ref": cell_detail.get("row_source_ref")
+                        or row_detail.get("row_source_ref", ""),
                         "source_ref": cell_detail.get("source_ref")
                         or (
                             f"word/document.xml:tbl[{table_index}]"
@@ -220,13 +239,27 @@ def _table_details_by_index(path: Path) -> dict[int, dict[str, Any]]:
         table_keep_refs: list[str] = []
         cant_split_refs: list[str] = []
         cell_details: dict[tuple[int, int], dict[str, Any]] = {}
+        row_details: dict[int, dict[str, Any]] = {}
         for row_index, row in enumerate(table.findall(f"{W_NS}tr"), start=1):
             row_source_ref = f"word/document.xml:tbl[{table_index}]/tr[{row_index}]"
+            row_paragraphs = [
+                paragraph_indices[id(paragraph)]
+                for paragraph in row.iter(f"{W_NS}p")
+                if id(paragraph) in paragraph_indices
+            ]
+            row_first_paragraph_index = min(row_paragraphs) if row_paragraphs else None
+            row_last_paragraph_index = max(row_paragraphs) if row_paragraphs else None
             row_cant_split = (
                 row.find(f"{W_NS}trPr/{W_NS}cantSplit") is not None
             )
             if row_cant_split:
                 cant_split_refs.append(f"{row_source_ref}/cantSplit")
+            row_details[row_index] = {
+                "row_first_paragraph_index": row_first_paragraph_index,
+                "row_last_paragraph_index": row_last_paragraph_index,
+                "row_cant_split": row_cant_split,
+                "row_source_ref": row_source_ref,
+            }
             for cell_index, cell in enumerate(row.findall(f"{W_NS}tc"), start=1):
                 cell_paragraphs = [
                     paragraph_indices[id(paragraph)]
@@ -258,6 +291,8 @@ def _table_details_by_index(path: Path) -> dict[int, dict[str, Any]]:
                     "last_paragraph_index": max(cell_paragraphs)
                     if cell_paragraphs
                     else None,
+                    "row_first_paragraph_index": row_first_paragraph_index,
+                    "row_last_paragraph_index": row_last_paragraph_index,
                     "keep_refs": cell_keep_refs,
                     "row_cant_split": row_cant_split,
                     "row_source_ref": row_source_ref,
@@ -274,6 +309,7 @@ def _table_details_by_index(path: Path) -> dict[int, dict[str, Any]]:
             else None,
             "cant_split_row_refs": cant_split_refs,
             "keep_refs": _dedupe(table_keep_refs),
+            "rows": row_details,
             "cells": cell_details,
         }
     return details

@@ -12,6 +12,9 @@ from docfit.core.status import Status
 from docfit.stages.template_generate.runner import BODY_SLOT_MARKER
 
 
+ROOT = Path.cwd()
+
+
 def write_source_docx(path: Path, paragraphs: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     doc = Document()
@@ -157,3 +160,24 @@ def test_template_generate_cli_writes_public_outputs(tmp_path) -> None:
     assert (out_dir / "generated_template.docx").exists()
     assert (out_dir / "artifacts/template_generation_manifest.json").exists()
     assert (out_dir / "summary.json").exists()
+
+
+def test_template_generate_can_use_signed_school_units(tmp_path) -> None:
+    source = tmp_path / "inputs/school-template.docx"
+    write_source_docx(source, ["测试大学", "学生姓名：×××"])
+
+    result = run_template_generate_eval(
+        ROOT,
+        source,
+        tmp_path / "template_generate",
+        school_id="hunannongye",
+    )
+    manifest = read_json(
+        tmp_path / "template_generate/artifacts/template_generation_manifest.json"
+    )
+
+    assert result.status == Status.PASS
+    assert any(slot["slot_id"] == "cover.e_003" for slot in manifest["slots"])
+    assert "[[DOCFIT_SLOT:cover.e_003]]" in docx_texts(
+        tmp_path / "template_generate/generated_template.docx"
+    )

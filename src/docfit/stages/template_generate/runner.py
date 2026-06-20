@@ -72,6 +72,7 @@ def generate_template(
     out_dir: Path,
     *,
     strategy: str = DEFAULT_TEMPLATE_GENERATION_STRATEGY,
+    target_units: list[dict[str, Any]] | None = None,
 ) -> StageResult:
     if not source_template_docx.exists():
         return StageResult(
@@ -120,6 +121,12 @@ def generate_template(
     )
     source_tree = inspect_source_template_docx(source_template_docx)
     discovered_rules = infer_template_rules(source_tree)
+    if target_units:
+        discovered_rules = align_target_units_to_source_tree(
+            source_tree,
+            target_units,
+            discovered_rules=discovered_rules,
+        )
     template_artifact = build_template_artifact(request, source_tree, discovered_rules)
     decisions = build_template_unit_decisions(template_artifact)
     plan = build_template_generation_plan(
@@ -252,6 +259,44 @@ def infer_template_rules(source_tree: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def align_target_units_to_source_tree(
+    source_tree: dict[str, Any],
+    target_units: list[dict[str, Any]],
+    *,
+    discovered_rules: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    entries = _body_entries(source_tree)
+    aligned_units: list[dict[str, Any]] = []
+    for index, target_unit in enumerate(target_units):
+        aligned_units.append(
+            _aligned_target_unit(
+                target_unit,
+                entries,
+                fallback_order=(index + 1) * 10,
+            )
+        )
+    return {
+        "artifact_type": "discovered_template_rules",
+        "artifact_version": "1.0",
+        "producer": {"name": "docfit-template-generate", "version": "0.2.0"},
+        "created_at": now_iso(),
+        "source_template_hash": source_tree.get("metadata", {}).get(
+            "source_template_hash"
+        ),
+        "discovery_method": "signed_target_units_aligned_to_source_tree",
+        "units": aligned_units,
+        "unknowns": [
+            {
+                "source_ref": item.get("source_ref"),
+                "reason": item.get("reason", "unknown visible object"),
+                "recommended_disposition": "preserve_or_review",
+            }
+            for item in source_tree.get("layers", {}).get("unknown_objects", [])
+        ],
+        "source_discovery": discovered_rules,
+    }
+
+
 def build_template_artifact(
     request: dict[str, Any],
     source_tree: dict[str, Any],
@@ -259,7 +304,13 @@ def build_template_artifact(
 ) -> dict[str, Any]:
     units = discovered_rules.get("units", [])
     paragraphs = source_tree.get("data", {}).get("paragraphs", [])
-    instruction_paragraphs = _instruction_paragraphs_from_units(units)
+    instruction_paragraphs = _dedupe_by_key(
+        [
+            *_instruction_paragraphs_from_units(units),
+            *_instruction_paragraphs_from_source_tree(source_tree),
+        ],
+        "source_ref",
+    )
     template_units.apply_instruction_policy(paragraphs, instruction_paragraphs)
     slots: list[dict[str, Any]] = []
     regions: list[dict[str, Any]] = []
@@ -424,6 +475,35 @@ def build_template_generation_plan(
                 }
             )
             next_id += 1
+    planned_instruction_refs = {
+        action.get("source_ref")
+        for action in actions
+        if action.get("action_type") == "remove_instruction_text"
+    }
+    for instruction in template_artifact.get("data", {}).get(
+        "instruction_paragraphs",
+        [],
+    ):
+        source_ref = instruction.get("source_ref")
+        if not source_ref or source_ref in planned_instruction_refs:
+            continue
+        actions.append(
+            {
+                "action_id": f"a_{next_id:03d}",
+                "action_type": "remove_instruction_text",
+                "unit_id": "template_instructions",
+                "element_id": None,
+                "source_ref": source_ref,
+                "target_ref": source_ref,
+                "status": "planned",
+                "reason": instruction.get(
+                    "reason",
+                    "detected template instruction text should not appear in the generated fillable template",
+                ),
+            }
+        )
+        planned_instruction_refs.add(source_ref)
+        next_id += 1
     if not any(action.get("action_type") == "ensure_body_slot" for action in actions):
         actions.append(
             {
@@ -763,6 +843,121 @@ def _infer_elements(anchor: dict[str, Any], entries: list[dict[str, Any]]) -> li
     return elements
 
 
+def _aligned_target_unit(
+    target_unit: dict[str, Any],
+    entries: list[dict[str, Any]],
+    *,
+    fallback_order: int,
+) -> dict[str, Any]:
+    aligned_elements: list[dict[str, Any]] = []
+    source_refs: list[str] = []
+    for fallback_element_order, element in enumerate(
+        target_unit.get("elements", []),
+        start=1,
+    ):
+        match = _find_source_entry_for_target_element(entries, element)
+        policy = _normalize_target_policy(str(element.get("policy") or ""))
+        refs = [match["source_ref"]] if match and match.get("source_ref") else []
+        source_refs.extend(refs)
+        aligned = {
+            **element,
+            "element_id": str(
+                element.get("element_id") or f"e_{fallback_element_order:03d}"
+            ),
+            "order": element.get("order")
+            or element.get("element_order")
+            or fallback_element_order,
+            "policy": policy,
+            "source_refs": refs,
+        }
+        if match is not None:
+            aligned["source_text"] = match.get("text", "")
+            aligned["position"] = match.get("source_ref", "")
+        aligned_elements.append(aligned)
+    unit_source_refs = _dedupe(source_refs) or list(target_unit.get("source_refs", []))
+    return {
+        **target_unit,
+        "unit_id": str(target_unit.get("unit_id") or "unknown_unit"),
+        "name": target_unit.get("name") or target_unit.get("unit_id") or "未知单元",
+        "order": target_unit.get("order") or fallback_order,
+        "status": target_unit.get("status") or "required",
+        "policy": target_unit.get("policy")
+        or _unit_policy(str(target_unit.get("unit_id") or "")),
+        "source_refs": unit_source_refs,
+        "elements": aligned_elements,
+    }
+
+
+def _find_source_entry_for_target_element(
+    entries: list[dict[str, Any]],
+    element: dict[str, Any],
+) -> dict[str, Any] | None:
+    query = _target_element_query(element)
+    if not _query_has_needles(query):
+        return None
+    return _find_entry_by_query(entries, query)
+
+
+def _target_element_query(element: dict[str, Any]) -> dict[str, Any]:
+    full: list[str] = []
+    tokens: list[str] = []
+    for value in (
+        element.get("content"),
+        element.get("name"),
+        element.get("raw"),
+    ):
+        text = _normalize_text(str(value or ""))
+        if not text or _looks_like_descriptor(text):
+            continue
+        full.append(text)
+        tokens.extend(_split_match_tokens(text))
+    normalized_tokens = _dedupe(
+        [_normalize_for_match(token) for token in tokens if _normalize_for_match(token)]
+    )
+    return {
+        "full": _dedupe(
+            [
+                _normalize_for_match(candidate)
+                for candidate in full
+                if _normalize_for_match(candidate)
+            ]
+        ),
+        "tokens": normalized_tokens,
+        "min_tokens": min(2, len(normalized_tokens)) if normalized_tokens else 0,
+    }
+
+
+def _find_entry_by_query(
+    entries: list[dict[str, Any]],
+    query: dict[str, Any],
+) -> dict[str, Any] | None:
+    for entry in entries:
+        text = _normalize_for_match(entry.get("text", ""))
+        if not text:
+            continue
+        if any(needle and needle in text for needle in query.get("full", [])):
+            return entry
+        tokens = [token for token in query.get("tokens", []) if token and token in text]
+        if tokens and len(tokens) >= int(query.get("min_tokens") or 1):
+            return entry
+    return None
+
+
+def _query_has_needles(query: dict[str, Any]) -> bool:
+    return bool(query.get("full") or query.get("tokens"))
+
+
+def _normalize_target_policy(policy: str) -> str:
+    return {
+        "fillable": "fill",
+        "fill": "fill",
+        "fixed": "fixed",
+        "manual_only": "manual_only",
+        "generated": "generated",
+        "template_default_optional": "template_default_optional",
+    }.get(policy, policy or "fixed")
+
+
 def _rule_unknowns(source_tree: dict[str, Any], units: list[dict[str, Any]]) -> list[dict[str, Any]]:
     unknowns = [
         {
@@ -803,6 +998,28 @@ def _instruction_paragraphs_from_units(units: list[dict[str, Any]]) -> list[dict
                     "reason": "detected template instruction text should not appear in the generated fillable template",
                 }
             )
+    return paragraphs
+
+
+def _instruction_paragraphs_from_source_tree(source_tree: dict[str, Any]) -> list[dict[str, Any]]:
+    paragraphs: list[dict[str, Any]] = []
+    for entry in _body_entries(source_tree):
+        text = str(entry.get("text", ""))
+        if not _looks_like_instruction(text):
+            continue
+        source_ref = entry.get("source_ref")
+        if not source_ref:
+            continue
+        paragraphs.append(
+            {
+                "source_ref": source_ref,
+                "paragraph_index": _paragraph_index(source_ref),
+                "text": text,
+                "policy": "strip",
+                "final_disposition": "omit_from_final",
+                "reason": "detected template instruction text should not appear in the generated fillable template",
+            }
+        )
     return paragraphs
 
 
@@ -882,11 +1099,36 @@ def _element_policy(unit_id: str, text: str, entry: dict[str, Any]) -> str:
 
 
 def _looks_like_instruction(text: str) -> bool:
+    if _has_substantive_template_text(text) and re.search(
+        r"[（(].*(宋体|黑体|楷体|居中|行距|字号|号字|pt).*[）)]",
+        text,
+    ):
+        return False
     if template_units.contains_instruction_marker(text):
         return True
     if any(marker in text for marker in INSTRUCTION_MARKERS):
         return True
     return bool(re.search(r"[（(].*(宋体|黑体|楷体|居中|行距|字号|号字|pt).*[）)]", text))
+
+
+def _has_substantive_template_text(text: str) -> bool:
+    cleaned = _normalize_for_match(text)
+    if not cleaned:
+        return False
+    if cleaned in {
+        "目录",
+        "摘要",
+        "abstract",
+        "keywords",
+        "keyword",
+        "论文题目",
+        "毕业论文设计中文题目",
+        "titleofgraduationpaper",
+    }:
+        return True
+    if any(marker in cleaned for marker in ("目录", "摘要", "论文", "题目")):
+        return len(cleaned) <= 24
+    return False
 
 
 def _element_name(unit_id: str, text: str, policy: str) -> str:
@@ -1137,6 +1379,84 @@ def _part_name(source_ref: str | None) -> str:
 
 def _normalize_text(text: str) -> str:
     return re.sub(r"\s+", "", text).lower()
+
+
+def _normalize_for_match(value: Any) -> str:
+    text = _strip_format_annotations(str(value or ""))
+    text = re.sub(r"[□×Xx_＿]+", "", text)
+    text = re.sub(r"[…·•.。．]{2,}", "", text)
+    text = re.sub(r"[\s:：;；,，.。!！?？、（）()《》<>“”\"'‘’\[\]【】]", "", text)
+    return text.strip().lower()
+
+
+def _strip_format_annotations(text: str) -> str:
+    format_markers = (
+        "号",
+        "黑体",
+        "宋体",
+        "楷体",
+        "仿宋",
+        "Times",
+        "居中",
+        "加粗",
+        "行距",
+        "字号",
+        "字体",
+        "页边距",
+        "厘米",
+        "空格",
+        "格式",
+        "pt",
+        "表示",
+    )
+
+    def replace_annotation(match: re.Match[str]) -> str:
+        content = match.group(1)
+        if any(marker in content for marker in format_markers):
+            return ""
+        return match.group(0)
+
+    text = re.sub(r"（([^（）]*)）", replace_annotation, text)
+    text = re.sub(r"\(([^()]*)\)", replace_annotation, text)
+    return text
+
+
+def _split_match_tokens(text: str) -> list[str]:
+    stripped = _strip_format_annotations(str(text or ""))
+    raw_tokens = re.split(r"[:：;；,，.。、\s/]+", stripped)
+    tokens: list[str] = []
+    for token in raw_tokens:
+        normalized = _normalize_for_match(token)
+        if len(normalized) >= 2 and not _looks_like_descriptor(normalized):
+            tokens.append(normalized)
+    return _dedupe(tokens)
+
+
+def _looks_like_descriptor(value: str) -> bool:
+    descriptor_markers = (
+        "当前阶段",
+        "目标输出",
+        "系统生成",
+        "××",
+        "模板",
+        "正文",
+        "标题",
+        "内容流",
+    )
+    if value in {"固定", "填充", "生成", "手工", "学生"}:
+        return True
+    return any(marker in value for marker in descriptor_markers) and "：" not in value
+
+
+def _dedupe(items: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if item in seen:
+            continue
+        deduped.append(item)
+        seen.add(item)
+    return deduped
 
 
 def _coverage(

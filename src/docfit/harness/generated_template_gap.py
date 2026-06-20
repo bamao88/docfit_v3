@@ -696,7 +696,7 @@ def _compare_units(
     expected_units: list[dict[str, Any]],
     tree: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
-    entries = _visible_entries_by_order(tree)
+    entries = _body_flow_entries(_visible_entries_by_order(tree))
     unit_locations = _locate_units(expected_units, entries)
     checks: list[dict[str, Any]] = []
     unit_first_orders: list[tuple[str, int]] = []
@@ -725,6 +725,7 @@ def _compare_units(
             element_checks, matched_orders = _compare_elements(
                 unit,
                 scoped_entries,
+                entries,
                 tree,
                 unit_located=True,
             )
@@ -753,6 +754,7 @@ def _compare_units(
             element_checks, matched_orders = _compare_elements(
                 unit,
                 [],
+                entries,
                 tree,
                 unit_located=False,
             )
@@ -800,6 +802,7 @@ def _compare_units(
 def _compare_elements(
     unit: dict[str, Any],
     entries: list[dict[str, Any]],
+    all_entries: list[dict[str, Any]],
     tree: dict[str, Any],
     *,
     unit_located: bool,
@@ -813,6 +816,26 @@ def _compare_elements(
         presence_path = ["units", unit_id, "elements", element_id, "presence"]
         query = _match_query_for_element(element)
         policy = str(element.get("policy") or "")
+        marker_match = _find_marker_match(entries, unit_id, element_id, policy)
+        if marker_match is None:
+            marker_match = _find_marker_match(all_entries, unit_id, element_id, policy)
+        if marker_match:
+            matched_orders.append(int(marker_match.get("order", 0)))
+            checks.append(
+                _check(
+                    "template_generation.element_match",
+                    Status.PASS,
+                    _marker_check_type(policy),
+                    f"生成模板 Word 中找到元素 {affected_id} 的 DocFit 标记",
+                    _marker_expected(unit_id, element_id, policy),
+                    _preview(marker_match.get("text", "")),
+                    category="element",
+                    evidence_refs=[marker_match.get("source_ref", "")],
+                    affected_ids=[affected_id],
+                    path=presence_path,
+                )
+            )
+            continue
         if not unit_located:
             checks.append(
                 _check(
@@ -848,9 +871,29 @@ def _compare_elements(
             )
             checks.append(_style_check(unit_id, element, match))
             continue
+        aggregate_match = _find_aggregate_match(entries, query)
+        if aggregate_match:
+            matched_orders.extend(aggregate_match["orders"])
+            checks.append(
+                _check(
+                    "template_generation.element_match",
+                    Status.PASS,
+                    "template_generation_element_found_across_sources",
+                    f"生成模板 Word 中跨多个 Word 节点找到元素 {affected_id} 的可见文本来源",
+                    _query_summary(query),
+                    aggregate_match["actual"],
+                    category="element",
+                    evidence_refs=aggregate_match["evidence_refs"],
+                    affected_ids=[affected_id],
+                    path=presence_path,
+                )
+            )
+            continue
 
         if policy in {"fixed", "manual_only"}:
-            if not _query_has_needles(query):
+            if not _query_has_needles(query) or _looks_like_nonvisible_requirement(
+                element
+            ):
                 checks.append(
                     _check(
                         "template_generation.element_match",
@@ -2488,6 +2531,17 @@ def _visible_entries_by_order(tree: dict[str, Any]) -> list[dict[str, Any]]:
     )
 
 
+def _body_flow_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        entry
+        for entry in entries
+        if entry.get("kind") not in {"header", "footer", "header_footer"}
+        and not str(entry.get("source_ref") or "").startswith(
+            ("word/header", "word/footer")
+        )
+    ]
+
+
 def _match_query_for_element(element: dict[str, Any]) -> dict[str, Any]:
     full: list[str] = []
     tokens: list[str] = []
@@ -2588,27 +2642,79 @@ def _find_best_match(
     return None
 
 
+def _find_aggregate_match(
+    entries: list[dict[str, Any]],
+    query: dict[str, Any],
+) -> dict[str, Any] | None:
+    tokens = [token for token in query.get("tokens", []) if token]
+    if len(tokens) < 2:
+        return None
+    matched_tokens: list[str] = []
+    matched_entries: list[dict[str, Any]] = []
+    for entry in entries:
+        text = _normalize_for_match(entry.get("text"))
+        if not text:
+            continue
+        entry_tokens = [token for token in tokens if token in text]
+        if not entry_tokens:
+            continue
+        matched_tokens.extend(entry_tokens)
+        matched_entries.append(entry)
+    unique_tokens = _dedupe(matched_tokens)
+    required_count = min(len(tokens), max(2, int(query.get("min_tokens") or 1)))
+    if len(unique_tokens) < required_count:
+        return None
+    return {
+        "orders": [int(entry.get("order") or 0) for entry in matched_entries],
+        "evidence_refs": [
+            str(entry.get("source_ref", ""))
+            for entry in matched_entries
+            if entry.get("source_ref")
+        ][:5],
+        "actual": "; ".join(
+            _preview(entry.get("text", ""), 80) for entry in matched_entries[:5]
+        ),
+    }
+
+
 def _locate_units(
     expected_units: list[dict[str, Any]],
     entries: list[dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
     locations: dict[str, dict[str, Any]] = {}
+    used_orders: set[int] = set()
     cursor_order = 0
-    for unit in expected_units:
+    for index, unit in enumerate(expected_units):
         unit_id = str(unit.get("unit_id") or "unknown_unit")
+        unit_query = _match_query_for_unit(unit)
         queries = _unit_anchor_queries(unit)
-        match = None
-        for query in queries:
-            match = _find_best_match(
+        match = entries[0] if index == 0 and entries else None
+        if match is None:
+            match = _find_best_unused_match(
                 entries,
-                query,
+                unit_query,
                 [cursor_order + 1, None],
+                used_orders,
             )
-            if match:
-                break
+        if (
+            match is None
+            and _allow_out_of_order_unit_anchor(unit, unit_query)
+        ):
+            match = _find_best_unused_match(entries, unit_query, None, used_orders)
+        if match is None:
+            for query in queries:
+                match = _find_best_unused_match(
+                    entries,
+                    query,
+                    [cursor_order + 1, None],
+                    used_orders,
+                )
+                if match:
+                    break
         if match:
             anchor_order = int(match.get("order") or 0)
             cursor_order = max(cursor_order, anchor_order)
+            used_orders.add(anchor_order)
             locations[unit_id] = {
                 "found": True,
                 "anchor_order": anchor_order,
@@ -2626,15 +2732,50 @@ def _locate_units(
         for unit_id, location in locations.items()
         if location.get("found")
     ]
-    for index, (unit_id, location) in enumerate(located_units):
+    actual_ordered_units = sorted(
+        located_units,
+        key=lambda item: (
+            int(item[1].get("anchor_order") or 0),
+            item[0],
+        ),
+    )
+    for index, (unit_id, location) in enumerate(actual_ordered_units):
         next_start = (
-            int(located_units[index + 1][1]["anchor_order"])
-            if index + 1 < len(located_units)
+            int(actual_ordered_units[index + 1][1]["anchor_order"])
+            if index + 1 < len(actual_ordered_units)
             else None
         )
         start = int(location["anchor_order"])
         location["order_range"] = [start, next_start - 1 if next_start else None]
     return locations
+
+
+def _find_best_unused_match(
+    entries: list[dict[str, Any]],
+    query: dict[str, Any],
+    order_range: list[int | None] | tuple[int | None, int | None] | None,
+    used_orders: set[int],
+) -> dict[str, Any] | None:
+    match = _find_best_match(
+        [
+            entry
+            for entry in entries
+            if int(entry.get("order") or 0) not in used_orders
+        ],
+        query,
+        order_range,
+    )
+    return match
+
+
+def _allow_out_of_order_unit_anchor(
+    unit: dict[str, Any],
+    query: dict[str, Any],
+) -> bool:
+    if unit.get("status") == "template_default_optional":
+        return False
+    unit_name = _normalize_for_match(unit.get("name") or unit.get("unit_id"))
+    return bool(_query_has_needles(query) and len(unit_name) >= 4)
 
 
 def _unit_anchor_queries(unit: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2647,10 +2788,58 @@ def _unit_anchor_queries(unit: dict[str, Any]) -> list[dict[str, Any]]:
             queries.append(query)
         if len(queries) >= 3:
             break
-    unit_query = _match_query_for_unit(unit)
-    if _query_has_needles(unit_query):
-        queries.append(unit_query)
+    for element in unit.get("elements", []):
+        marker_query = _marker_query_for_element(
+            str(unit.get("unit_id") or "unknown_unit"),
+            str(element.get("element_id") or "unknown_element"),
+            str(element.get("policy") or ""),
+        )
+        if _query_has_needles(marker_query):
+            queries.append(marker_query)
     return queries
+
+
+def _find_marker_match(
+    entries: list[dict[str, Any]],
+    unit_id: str,
+    element_id: str,
+    policy: str,
+) -> dict[str, Any] | None:
+    expected = _marker_expected(unit_id, element_id, policy)
+    if not expected:
+        return None
+    for entry in entries:
+        if expected in str(entry.get("text", "")):
+            return entry
+    return None
+
+
+def _marker_expected(unit_id: str, element_id: str, policy: str) -> str:
+    if policy in {"fill", "fillable", "template_default_optional"}:
+        return f"[[DOCFIT_SLOT:{unit_id}.{element_id}]]"
+    if policy == "generated":
+        return f"[[DOCFIT_GENERATED:{unit_id}.{element_id}]]"
+    return ""
+
+
+def _marker_query_for_element(
+    unit_id: str,
+    element_id: str,
+    policy: str,
+) -> dict[str, Any]:
+    marker = _marker_expected(unit_id, element_id, policy)
+    normalized = _normalize_for_match(marker)
+    return {
+        "full": [normalized] if normalized else [],
+        "tokens": [],
+        "min_tokens": 0,
+    }
+
+
+def _marker_check_type(policy: str) -> str:
+    if policy == "generated":
+        return "template_generation_generated_marker_found"
+    return "template_generation_slot_marker_found"
 
 
 def _entries_in_range(
@@ -2683,6 +2872,67 @@ def _has_generated_field(tree: dict[str, Any], element: dict[str, Any]) -> bool:
     if "页码" in name or "page" in name or "页码" in content:
         return any("PAGE" in instruction for instruction in instructions)
     return bool(fields)
+
+
+def _looks_like_nonvisible_requirement(element: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(value or "")
+        for value in (
+            element.get("content"),
+            element.get("name"),
+            element.get("raw"),
+        )
+    )
+    normalized = _normalize_for_match(text)
+    if not normalized:
+        return False
+    if normalized in {"图表公式"}:
+        return True
+    markers = (
+        "页眉",
+        "页脚",
+        "页码",
+        "页边距",
+        "装订线",
+        "纸张",
+        "section",
+        "schoolyaml",
+        "ooxml",
+        "审查口径",
+        "全局规则",
+        "全局只记录",
+        "源模板",
+        "源文件",
+        "原始docx",
+        "当前阶段",
+        "当前schoolyaml",
+        "目标输出",
+        "生成机制",
+        "生成图编号",
+        "生成表编号",
+        "生成公式编号",
+        "标题编号体系",
+        "识别注意",
+        "样式",
+        "字体",
+        "字号",
+        "行距",
+        "大纲级别",
+        "编号文本",
+        "编号后必须",
+        "学生图片内容",
+        "学生表格结构和数据",
+        "学生公式内容",
+        "图单元内部说明",
+        "表格单元内部说明",
+        "表头列名分组标题",
+        "表格数据单元格文字",
+        "保留学校封面本体",
+        "不属于模板的说明文字",
+        "不是天然等于wordsection",
+        "渲染层",
+    )
+    return any(marker in normalized for marker in markers)
 
 
 def _compare_style_details(
@@ -2911,7 +3161,6 @@ def _means_none(value: str) -> bool:
 
 def _looks_like_descriptor(value: str) -> bool:
     descriptor_markers = (
-        "学生",
         "当前阶段",
         "目标输出",
         "系统生成",
@@ -2921,7 +3170,7 @@ def _looks_like_descriptor(value: str) -> bool:
         "标题",
         "内容流",
     )
-    if value in {"固定", "填充", "生成", "手工"}:
+    if value in {"固定", "填充", "生成", "手工", "学生"}:
         return True
     return any(marker in value for marker in descriptor_markers) and "：" not in value
 

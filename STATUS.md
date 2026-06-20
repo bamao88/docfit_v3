@@ -21,6 +21,9 @@ Current state:
   `template_generation_plan.json`、顶层 `generated_template.docx` 和
   `template_generation_manifest.json`。这证明生成阶段证据链已经存在；
   学校格式质量仍要交给 `template-gap` 和 real-core gate 判定。
+  如果传入 `--school <school_id>`，当前开发链路会读取该学校签名标准里的
+  `expected.units`，把可填写项和自动生成项对齐到源 Word，并在输出 Word 中写入
+  `[[DOCFIT_SLOT:...]]` / `[[DOCFIT_GENERATED:...]]` 标记。
 - real-core 的 template/e2e 编排已经接入模板生成阶段：每次 run 会先写出
   `template_generation/generated_template.docx`，再把这份 Word 交给
   `template-gap` 检查，并让后续 render 以它作为底稿。已签入的
@@ -91,6 +94,13 @@ Current state:
   `keepNext` / `keepLines`、表格真实段落范围和表格行 `cantSplit`；南农封面这类
   固定表格可以报 `template_generation_page_rule_match`。页面溢出和签名区掉页
   仍需要 Word evidence 或更细页面级检查。
+  生成模板 gap 的区域定位也已收敛一层：页眉页脚不再参与正文单元定位；首单元从
+  正文第一个可见块开始；显式 DocFit 标记可以作为元素存在证据；合并表格单元格
+  继承所在行坐标；单元顺序错误会作为单独 FAIL 报告，而不会级联成大量元素误报。
+  最新三校 probe 写在 `/tmp/docfit_stage_realcore_audit9`，仍全部为 `FAIL`：
+  湖南农业大学 PASS/FAIL/UNKNOWN 为 `140/59/91`，南农为 `79/50/76`，
+  北大为 `86/40/26`。主要阻断仍是真实可见元素缺失、分页/页眉页脚/样式不匹配、
+  单元顺序不一致，以及页面/样式/生成机制类要求还缺更精确检查证据。
 - 学生源文档中的旧目录已经有一个通用修复：`toc 1` / `toc 2` / `toc 3`
   样式段落会被识别为源文档格式内容，内容放置时标为不写入成品，Word 生成记录
   会说明该动作已处理但不会把旧目录文字写进后续新输出。
@@ -108,9 +118,9 @@ Current state:
 
 Next action:
 
-- 下一步先把 `template-generate` 产物推进到真实模板生成质量：提升自动识别模板规则、
-  按模板单元复制/清理说明文字、补齐等价生成机制、复杂样式/section/页码规则和
-  页面级版面证据，直到模板差距报告不再阻断。
+- 下一步先把 `template-generate` 产物推进到真实模板生成质量：按签名标准顺序重组
+  可填写模板，保留固定表单和真实可见固定内容，补齐等价生成机制、复杂
+  样式/section/页码规则和页面级版面证据，直到模板差距报告不再阻断。
 - 然后继续修内容抽取：识别摘要、关键词、参考文献、附录、致谢这类章节角色，
   以及旧封面、旧目录这类不该进目标正文的源文档格式内容。
 - 再修内容放置：确认每段学生内容进入目标学校模板的具体位置，不能全部放到

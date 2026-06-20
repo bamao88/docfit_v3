@@ -11,6 +11,10 @@ from docfit.convert.orchestrator import run_template_gap_eval
 from docfit.core.io import read_json, sha256_file
 from docfit.core.status import Status
 from docfit.harness.generated_template_gap import summarize_template_gap_report
+from docfit.harness.generated_template_inspector import (
+    inspect_generated_template_docx,
+    iter_visible_text_entries,
+)
 from docfit.harness.profiles import REAL_CORE_PROFILE, REAL_CORE_SCHOOLS
 
 
@@ -145,6 +149,15 @@ def write_docx(path: Path, paragraphs: list[dict | str]) -> None:
     doc.save(path)
 
 
+def write_docx_with_header(path: Path, paragraphs: list[str], header_text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = Document()
+    doc.sections[0].header.paragraphs[0].text = header_text
+    for text in paragraphs:
+        doc.add_paragraph(text)
+    doc.save(path)
+
+
 def _simple_yaml(value, indent: int = 0) -> str:
     if isinstance(value, dict):
         lines = []
@@ -233,6 +246,251 @@ def test_template_gap_minimal_fixture_can_pass_cleanly(tmp_path) -> None:
     assert report["summary"]["failed_count"] == 0
     assert report["summary"]["unknown_count"] == 0
     assert unit_by_id(report, "cover")["verdict"] == Status.PASS.value
+
+
+def test_template_gap_accepts_docfit_slot_and_generated_markers(tmp_path) -> None:
+    school_id = "marker-school"
+    expected = [
+        {
+            "unit_id": "cover",
+            "name": "封面",
+            "order": 10,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "学校名称",
+                    "policy": "fixed",
+                    "content": "测试大学",
+                    "style": "",
+                },
+                {
+                    "element_id": "e_002",
+                    "name": "学生姓名",
+                    "policy": "fill",
+                    "content": "学生姓名",
+                    "style": "",
+                },
+            ],
+        },
+        {
+            "unit_id": "auto_block",
+            "name": "自动内容块",
+            "order": 20,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "系统生成内容",
+                    "policy": "generated",
+                    "content": "系统生成内容",
+                    "style": "",
+                }
+            ],
+        },
+    ]
+    write_minimal_gap_standard(tmp_path, school_id, expected)
+    generated_template = tmp_path / "inputs/generated_template.docx"
+    write_docx(
+        generated_template,
+        [
+            "测试大学",
+            "[[DOCFIT_SLOT:cover.e_002]]",
+            "[[DOCFIT_GENERATED:auto_block.e_001]]",
+        ],
+    )
+
+    result = run_template_gap_eval(
+        tmp_path,
+        school_id,
+        generated_template,
+        tmp_path / "marker_gap",
+    )
+    report = read_json(tmp_path / "marker_gap/artifacts/template_gap_report.json")
+    cover_slot = element_by_id(unit_by_id(report, "cover"), "e_002")["presence"]
+    generated = element_by_id(unit_by_id(report, "auto_block"), "e_001")["presence"]
+
+    assert result.status == Status.PASS
+    assert cover_slot["type"] == "template_generation_slot_marker_found"
+    assert generated["type"] == "template_generation_generated_marker_found"
+
+
+def test_template_gap_accepts_explicit_marker_outside_located_unit_range(
+    tmp_path,
+) -> None:
+    school_id = "marker-range-school"
+    expected = [
+        {
+            "unit_id": "cover",
+            "name": "封面",
+            "order": 10,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "学校名称",
+                    "policy": "fixed",
+                    "content": "测试大学",
+                    "style": "",
+                }
+            ],
+        },
+        {
+            "unit_id": "auto_block",
+            "name": "自动内容块",
+            "order": 20,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "系统生成内容",
+                    "policy": "generated",
+                    "content": "系统生成内容",
+                    "style": "",
+                }
+            ],
+        },
+    ]
+    write_minimal_gap_standard(tmp_path, school_id, expected)
+    generated_template = tmp_path / "inputs/generated_template.docx"
+    write_docx(
+        generated_template,
+        [
+            "测试大学",
+            "[[DOCFIT_GENERATED:auto_block.e_001]]",
+            "自动内容块",
+        ],
+    )
+
+    result = run_template_gap_eval(
+        tmp_path,
+        school_id,
+        generated_template,
+        tmp_path / "marker_range_gap",
+    )
+    report = read_json(tmp_path / "marker_range_gap/artifacts/template_gap_report.json")
+    generated = element_by_id(unit_by_id(report, "auto_block"), "e_001")[
+        "presence"
+    ]
+
+    assert result.status == Status.PASS
+    assert generated["type"] == "template_generation_generated_marker_found"
+    assert generated["evidence_refs"] == ["word/document.xml:p[2]"]
+
+
+def test_template_gap_starts_first_unit_at_first_body_entry_when_anchor_is_ambiguous(
+    tmp_path,
+) -> None:
+    school_id = "first-unit-school"
+    expected = [
+        {
+            "unit_id": "cover",
+            "name": "封面",
+            "order": 10,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "封面本体",
+                    "policy": "fixed",
+                    "content": "保留学校封面本体",
+                    "style": "",
+                }
+            ],
+        },
+        {
+            "unit_id": "copyright_notice",
+            "name": "版权声明",
+            "order": 20,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "版权声明",
+                    "policy": "fixed",
+                    "content": "版权声明",
+                    "style": "",
+                }
+            ],
+        },
+    ]
+    write_minimal_gap_standard(tmp_path, school_id, expected)
+    generated_template = tmp_path / "inputs/generated_template.docx"
+    write_docx(
+        generated_template,
+        [
+            "博士研究生学位论文",
+            "版权声明",
+            "论文打印装订时的注意事项",
+            "封面—实名评审专家名单—版权声明—论文本体—原创性声明—封底",
+        ],
+    )
+
+    run_template_gap_eval(
+        tmp_path,
+        school_id,
+        generated_template,
+        tmp_path / "first_unit_gap",
+    )
+    report = read_json(tmp_path / "first_unit_gap/artifacts/template_gap_report.json")
+
+    assert unit_by_id(report, "cover")["located"]["source_ref"] == "word/document.xml:p[1]"
+    assert (
+        unit_by_id(report, "copyright_notice")["located"]["source_ref"]
+        == "word/document.xml:p[2]"
+    )
+
+
+def test_template_gap_does_not_use_header_footer_as_unit_anchor(tmp_path) -> None:
+    school_id = "header-anchor-school"
+    expected = [
+        {
+            "unit_id": "cover",
+            "name": "封面",
+            "order": 10,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "学校名称",
+                    "policy": "fixed",
+                    "content": "测试大学",
+                    "style": "",
+                }
+            ],
+        },
+        {
+            "unit_id": "acknowledgement",
+            "name": "致谢",
+            "order": 20,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "致谢标题",
+                    "policy": "fixed",
+                    "content": "致谢",
+                    "style": "",
+                }
+            ],
+        },
+    ]
+    write_minimal_gap_standard(tmp_path, school_id, expected)
+    generated_template = tmp_path / "inputs/generated_template.docx"
+    write_docx_with_header(generated_template, ["测试大学"], "致谢")
+
+    result = run_template_gap_eval(
+        tmp_path,
+        school_id,
+        generated_template,
+        tmp_path / "header_anchor_gap",
+    )
+    report = read_json(tmp_path / "header_anchor_gap/artifacts/template_gap_report.json")
+    acknowledgement = unit_by_id(report, "acknowledgement")
+
+    assert result.status == Status.FAIL
+    assert acknowledgement["located"]["found"] is False
+    assert acknowledgement["presence"]["type"] == "template_generation_unit_missing"
 
 
 def test_template_gap_single_style_mutation_fails_only_that_element(tmp_path) -> None:
@@ -336,6 +594,96 @@ def test_template_gap_unsearchable_fixed_element_is_unknown_not_fail(tmp_path) -
     assert uncheckable[0]["status"] == Status.UNKNOWN.value
 
 
+def test_template_gap_treats_page_rule_text_as_uncheckable_not_missing(
+    tmp_path,
+) -> None:
+    school_id = "nonvisible-rule-school"
+    expected = [
+        {
+            "unit_id": "cover",
+            "name": "封面",
+            "order": 10,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "学校名称",
+                    "policy": "fixed",
+                    "content": "测试大学",
+                    "style": "",
+                },
+                {
+                    "element_id": "e_002",
+                    "name": "纸张：A4。",
+                    "policy": "fixed",
+                    "content": "纸张：A4。",
+                    "style": "",
+                },
+            ],
+        }
+    ]
+    write_minimal_gap_standard(tmp_path, school_id, expected)
+    generated_template = tmp_path / "inputs/generated_template.docx"
+    write_docx(generated_template, ["测试大学"])
+
+    result = run_template_gap_eval(
+        tmp_path,
+        school_id,
+        generated_template,
+        tmp_path / "nonvisible_rule_gap",
+    )
+    report = read_json(tmp_path / "nonvisible_rule_gap/artifacts/template_gap_report.json")
+    paper_rule = element_by_id(unit_by_id(report, "cover"), "e_002")["presence"]
+
+    assert result.status == Status.UNKNOWN
+    assert paper_rule["status"] == Status.UNKNOWN.value
+    assert paper_rule["type"] == "template_generation_element_uncheckable"
+
+
+def test_template_gap_still_fails_missing_visible_fixed_text(tmp_path) -> None:
+    school_id = "visible-missing-school"
+    expected = [
+        {
+            "unit_id": "cover",
+            "name": "封面",
+            "order": 10,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "学校名称",
+                    "policy": "fixed",
+                    "content": "测试大学",
+                    "style": "",
+                },
+                {
+                    "element_id": "e_002",
+                    "name": "地点",
+                    "policy": "fixed",
+                    "content": "湖南·长沙",
+                    "style": "",
+                },
+            ],
+        }
+    ]
+    write_minimal_gap_standard(tmp_path, school_id, expected)
+    generated_template = tmp_path / "inputs/generated_template.docx"
+    write_docx(generated_template, ["测试大学"])
+
+    result = run_template_gap_eval(
+        tmp_path,
+        school_id,
+        generated_template,
+        tmp_path / "visible_missing_gap",
+    )
+    report = read_json(tmp_path / "visible_missing_gap/artifacts/template_gap_report.json")
+    place = element_by_id(unit_by_id(report, "cover"), "e_002")["presence"]
+
+    assert result.status == Status.FAIL
+    assert place["status"] == Status.FAIL.value
+    assert place["type"] == "template_generation_element_missing"
+
+
 def test_template_gap_normalizes_template_noise(tmp_path) -> None:
     school_id = "noise-school"
     expected = [
@@ -428,6 +776,112 @@ def test_template_gap_matches_repeated_text_inside_unit_range(tmp_path) -> None:
     assert result.status == Status.PASS
     assert first_repeat["evidence_refs"] == ["word/document.xml:p[2]"]
     assert second_repeat["evidence_refs"] == ["word/document.xml:p[4]"]
+
+
+def test_template_gap_checks_out_of_order_units_in_their_actual_regions(
+    tmp_path,
+) -> None:
+    school_id = "out-of-order-school"
+    expected = [
+        {
+            "unit_id": "first",
+            "name": "第一单元",
+            "order": 10,
+            "status": "required",
+            "elements": [
+                {"element_id": "e_001", "name": "第一锚点", "policy": "fixed", "content": "第一单元", "style": ""},
+            ],
+        },
+        {
+            "unit_id": "second",
+            "name": "第二单元",
+            "order": 20,
+            "status": "required",
+            "elements": [
+                {"element_id": "e_001", "name": "第二锚点", "policy": "fixed", "content": "第二单元", "style": ""},
+            ],
+        },
+        {
+            "unit_id": "third",
+            "name": "第三单元",
+            "order": 30,
+            "status": "required",
+            "elements": [
+                {"element_id": "e_001", "name": "第三锚点", "policy": "fixed", "content": "第三单元", "style": ""},
+            ],
+        },
+    ]
+    write_minimal_gap_standard(tmp_path, school_id, expected)
+    generated_template = tmp_path / "inputs/generated_template.docx"
+    write_docx(generated_template, ["第一单元", "第三单元", "第二单元"])
+
+    result = run_template_gap_eval(
+        tmp_path,
+        school_id,
+        generated_template,
+        tmp_path / "out_of_order_gap",
+    )
+    report = read_json(tmp_path / "out_of_order_gap/artifacts/template_gap_report.json")
+    third_anchor = element_by_id(unit_by_id(report, "third"), "e_001")["presence"]
+
+    assert result.status == Status.FAIL
+    assert unit_by_id(report, "third")["located"]["source_ref"] == "word/document.xml:p[2]"
+    assert third_anchor["evidence_refs"] == ["word/document.xml:p[2]"]
+    assert any(
+        item["type"] == "template_generation_unit_order_mismatch"
+        for item in collect_checks(report)
+    )
+
+
+def test_template_gap_matches_form_element_across_multiple_nodes(tmp_path) -> None:
+    school_id = "form-school"
+    expected = [
+        {
+            "unit_id": "cover",
+            "name": "封面",
+            "order": 10,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "学校名称",
+                    "policy": "fixed",
+                    "content": "测试大学",
+                    "style": "",
+                },
+                {
+                    "element_id": "e_002",
+                    "name": "学生基本信息",
+                    "policy": "manual_only",
+                    "content": "学生姓名；学号；年级专业及班级",
+                    "style": "",
+                },
+            ],
+        }
+    ]
+    write_minimal_gap_standard(tmp_path, school_id, expected)
+    generated_template = tmp_path / "inputs/generated_template.docx"
+    write_docx(
+        generated_template,
+        ["测试大学", "学生姓名：", "学号：", "年级专业及班级："],
+    )
+
+    result = run_template_gap_eval(
+        tmp_path,
+        school_id,
+        generated_template,
+        tmp_path / "form_gap",
+    )
+    report = read_json(tmp_path / "form_gap/artifacts/template_gap_report.json")
+    form_presence = element_by_id(unit_by_id(report, "cover"), "e_002")["presence"]
+
+    assert result.status == Status.PASS
+    assert form_presence["type"] == "template_generation_element_found_across_sources"
+    assert form_presence["evidence_refs"] == [
+        "word/document.xml:p[2]",
+        "word/document.xml:p[3]",
+        "word/document.xml:p[4]",
+    ]
 
 
 def test_real_core_template_gap_outputs_tree_and_reports_for_all_schools(
@@ -631,6 +1085,35 @@ def test_generated_template_gap_binds_keep_together_to_table_sources(tmp_path) -
     )
 
 
+def test_generated_template_inspector_keeps_merged_cell_copies_in_row_order(
+    tmp_path,
+) -> None:
+    path = tmp_path / "merged-table.docx"
+    doc = Document()
+    table = doc.add_table(rows=2, cols=3)
+    table.cell(0, 0).merge(table.cell(0, 2)).text = "合并标题"
+    table.cell(1, 0).text = "下一行"
+    doc.save(path)
+
+    tree = inspect_generated_template_docx(path)
+    entries = [
+        entry
+        for entry in iter_visible_text_entries(tree)
+        if entry["kind"] == "table_cell" and entry["text"] == "合并标题"
+    ]
+
+    assert len(entries) == 3
+    assert {entry["order"] for entry in entries} == {1}
+    assert all(entry["order"] < 10_000 for entry in entries)
+    merged_cells = [
+        cell
+        for cell in tree["data"]["tables"][0]["cells"]
+        if cell["text"] == "合并标题"
+    ]
+    assert any(cell["first_paragraph_index"] is None for cell in merged_cells)
+    assert all(cell["row_first_paragraph_index"] == 1 for cell in merged_cells)
+
+
 def test_generated_template_gap_binds_header_footer_rules_to_sections(tmp_path) -> None:
     result = run_template_gap_eval(
         ROOT,
@@ -740,7 +1223,7 @@ def test_generated_template_gap_binds_word_fields_to_units(tmp_path) -> None:
         "SEQ 公式 \\* ARABIC \\s 1",
     } <= pku_seq_instructions
     assert any(
-        item["type"] == "template_generation_field_out_of_unit"
+        item["type"] == "template_generation_field_match"
         and item["affected_ids"] == ["toc.field"]
         and 'TOC \\o "3-3" \\h \\z \\t "标题 1,1,标题 2,2,PKU正文前标题,9,PKU正文尾标题,9"' in item["actual"]
         for item in pku_field_items
@@ -752,9 +1235,9 @@ def test_generated_template_gap_binds_word_fields_to_units(tmp_path) -> None:
         for item in pku_field_items
     )
     assert any(
-        item["type"] == "template_generation_field_unverified"
+        item["type"] == "template_generation_field_match"
         and item["affected_ids"] == ["table_list.field"]
-        and item["status"] == Status.UNKNOWN.value
+        and item["actual"] == 'TOC \\h \\z \\t "PKU表题" \\c'
         for item in pku_field_items
     )
     assert any(

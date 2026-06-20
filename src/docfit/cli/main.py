@@ -62,10 +62,11 @@ def eval_template_gap(
 
 @eval_app.command("template-generate")
 def eval_template_generate(
+    school: str | None = typer.Option(None, "--school"),
     template: Path = typer.Option(..., "--template", exists=True),
     out: Path = typer.Option(..., "--out"),
 ) -> None:
-    result = run_template_generate_eval(_root(), template, out)
+    result = run_template_generate_eval(_root(), template, out, school_id=school)
     _echo_status(result.status)
 
 

@@ -32,6 +32,9 @@ stage: it parses the source Word into `source_template_tree.json`, infers
 `discovered_template_rules.json`, builds `template_artifact.json`,
 `template_unit_decisions.json`, `template_generation_plan.json`, writes
 `generated_template.docx`, and records `template_generation_manifest.json`.
+When `--school <school_id>` is supplied, the generator also loads that school's
+signed `expected.units` standard and uses it to align fillable/generated
+markers to the source Word.
 For `real-core-v0`, template and e2e runs now generate
 `template_generation/generated_template.docx` during the run and gap-check that
 file. The checked-in simulated business-template inputs under
@@ -67,7 +70,7 @@ uv run docfit eval template-gap --school hunannongye --generated-template inputs
 Run the template-generation stage with:
 
 ```bash
-uv run docfit eval template-generate --template inputs/school-hunannongye-requirement.docx --out /tmp/docfit_template_generate_hunannongye
+uv run docfit eval template-generate --school hunannongye --template inputs/school-hunannongye-requirement.docx --out /tmp/docfit_template_generate_hunannongye
 ```
 
 Check that generated output against the signed template standard with:
