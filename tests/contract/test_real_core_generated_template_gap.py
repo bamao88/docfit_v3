@@ -138,6 +138,8 @@ def write_docx(path: Path, paragraphs: list[dict | str]) -> None:
             continue
         paragraph = doc.add_paragraph()
         run = paragraph.add_run(str(item["text"]))
+        if item.get("style"):
+            paragraph.style = str(item["style"])
         if item.get("font"):
             run.font.name = str(item["font"])
         if item.get("size"):
@@ -522,6 +524,176 @@ def test_template_gap_does_not_use_header_footer_as_unit_anchor(tmp_path) -> Non
     assert result.status == Status.FAIL
     assert acknowledgement["located"]["found"] is False
     assert acknowledgement["presence"]["type"] == "template_generation_unit_missing"
+
+
+def test_template_gap_keeps_body_anchor_at_earlier_slot_before_placeholder_chapter(
+    tmp_path,
+) -> None:
+    school_id = "body-anchor-school"
+    expected = [
+        {
+            "unit_id": "toc",
+            "name": "目录",
+            "order": 10,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "目录",
+                    "policy": "fixed",
+                    "content": "目录",
+                    "style": "",
+                }
+            ],
+        },
+        {
+            "unit_id": "body_main",
+            "name": "正文主体",
+            "order": 20,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "正文章标题",
+                    "policy": "fill",
+                    "content": "学生章节标题",
+                    "style": "",
+                },
+                {
+                    "element_id": "e_002",
+                    "name": "固定类型结尾章",
+                    "policy": "fill",
+                    "content": "第X章 结论与展望",
+                    "style": "",
+                },
+            ],
+        },
+    ]
+    write_minimal_gap_standard(tmp_path, school_id, expected)
+    generated_template = tmp_path / "inputs/generated_template.docx"
+    write_docx(
+        generated_template,
+        [
+            "目录",
+            "[[DOCFIT_SLOT:body_main.e_001]]",
+            {"text": "第X章 结论与展望", "style": "Heading 1"},
+        ],
+    )
+
+    result = run_template_gap_eval(
+        tmp_path,
+        school_id,
+        generated_template,
+        tmp_path / "body_anchor_gap",
+    )
+    report = read_json(tmp_path / "body_anchor_gap/artifacts/template_gap_report.json")
+    body_main = unit_by_id(report, "body_main")
+
+    assert result.status == Status.PASS
+    assert body_main["located"]["source_ref"] == "word/document.xml:p[2]"
+
+
+def test_template_gap_reports_out_of_order_toc_marker_instead_of_missing(
+    tmp_path,
+) -> None:
+    school_id = "toc-marker-school"
+    expected = [
+        {
+            "unit_id": "cover",
+            "name": "封面",
+            "order": 10,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "封面",
+                    "policy": "fixed",
+                    "content": "封面",
+                    "style": "",
+                }
+            ],
+        },
+        {
+            "unit_id": "abstract_en",
+            "name": "英文摘要",
+            "order": 20,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "ABSTRACT",
+                    "policy": "fixed",
+                    "content": "ABSTRACT",
+                    "style": "",
+                }
+            ],
+        },
+        {
+            "unit_id": "toc",
+            "name": "目录",
+            "order": 30,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "目录标题",
+                    "policy": "generated",
+                    "content": "目录",
+                    "style": "",
+                },
+                {
+                    "element_id": "e_003",
+                    "name": "目录结果条目",
+                    "policy": "generated",
+                    "content": "一级标题文字、点引导线、页码。",
+                    "style": "",
+                },
+            ],
+        },
+        {
+            "unit_id": "figure_list",
+            "name": "图目录",
+            "order": 40,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "图目录",
+                    "policy": "fixed",
+                    "content": "图目录",
+                    "style": "",
+                }
+            ],
+        },
+    ]
+    write_minimal_gap_standard(tmp_path, school_id, expected)
+    generated_template = tmp_path / "inputs/generated_template.docx"
+    write_docx(
+        generated_template,
+        [
+            "封面",
+            "[[DOCFIT_GENERATED:toc.e_001]]",
+            "ABSTRACT",
+            "图目录",
+            "[[DOCFIT_GENERATED:toc.e_003]]",
+        ],
+    )
+
+    result = run_template_gap_eval(
+        tmp_path,
+        school_id,
+        generated_template,
+        tmp_path / "toc_marker_gap",
+    )
+    report = read_json(tmp_path / "toc_marker_gap/artifacts/template_gap_report.json")
+    toc = unit_by_id(report, "toc")
+
+    assert result.status == Status.FAIL
+    assert toc["located"]["source_ref"] == "word/document.xml:p[2]"
+    assert any(
+        item["type"] == "template_generation_unit_order_mismatch"
+        for item in collect_checks(report)
+    )
 
 
 def test_template_gap_single_style_mutation_fails_only_that_element(tmp_path) -> None:
@@ -1300,10 +1472,25 @@ def test_generated_template_gap_binds_word_fields_to_units(tmp_path) -> None:
         "SEQ 表 \\* ARABIC \\s 1",
         "SEQ 公式 \\* ARABIC \\s 1",
     } <= pku_seq_instructions
+    assert unit_by_id(pku_report, "figure_list")["located"]["source_ref"] == (
+        "word/document.xml:p[47]"
+    )
+    assert unit_by_id(pku_report, "table_list")["located"]["source_ref"] == (
+        "word/document.xml:p[64]"
+    )
+    assert unit_by_id(pku_report, "body_main")["located"]["source_ref"] == (
+        "word/document.xml:p[70]"
+    )
+    assert unit_by_id(pku_report, "references")["located"]["source_ref"] == (
+        "word/document.xml:p[206]"
+    )
+    assert unit_by_id(pku_report, "acknowledgement")["located"]["source_ref"] == (
+        "word/document.xml:p[228]"
+    )
     assert any(
-        item["type"] == "template_generation_field_match"
+        item["type"] == "template_generation_field_unverified"
         and item["affected_ids"] == ["toc.field"]
-        and 'TOC \\o "3-3" \\h \\z \\t "标题 1,1,标题 2,2,PKU正文前标题,9,PKU正文尾标题,9"' in item["actual"]
+        and item["status"] == Status.UNKNOWN.value
         for item in pku_field_items
     )
     assert any(
@@ -1319,21 +1506,21 @@ def test_generated_template_gap_binds_word_fields_to_units(tmp_path) -> None:
         for item in pku_field_items
     )
     assert any(
-        item["type"] == "template_generation_field_unverified"
+        item["type"] == "template_generation_field_match"
         and item["affected_ids"] == ["body_main.e_014.field"]
-        and item["status"] == Status.UNKNOWN.value
+        and "SEQ 图" in item["actual"]
         for item in pku_field_items
     )
     assert any(
-        item["type"] == "template_generation_field_unverified"
+        item["type"] == "template_generation_field_match"
         and item["affected_ids"] == ["body_main.e_017.field"]
-        and item["status"] == Status.UNKNOWN.value
+        and "SEQ 表" in item["actual"]
         for item in pku_field_items
     )
     assert any(
-        item["type"] == "template_generation_field_unverified"
+        item["type"] == "template_generation_field_match"
         and item["affected_ids"] == ["body_main.e_024.field"]
-        and item["status"] == Status.UNKNOWN.value
+        and "SEQ 公式" in item["actual"]
         for item in pku_field_items
     )
 
@@ -1381,17 +1568,17 @@ def test_generated_template_gap_binds_numbering_rules_to_units(tmp_path) -> None
         if item["category"] == "numbering"
     ]
     assert any(
-        item["type"] == "template_generation_numbering_unverified"
+        item["type"] == "template_generation_numbering_match"
         and item["affected_ids"] == ["body_main.e_001.numbering"]
         and "text=第%1章" in item["actual"]
         and "word/document.xml:p[127]/pStyle" in item["evidence_refs"]
         for item in numbering_items
     )
     assert any(
-        item["type"] == "template_generation_numbering_unverified"
+        item["type"] == "template_generation_numbering_match"
         and item["affected_ids"] == ["body_main.e_004.numbering"]
-        and "%1.%2.%3.%4.%5" in item["expected"]
-        and "word/document.xml:p[128]/pStyle" in item["evidence_refs"]
+        and "%1.%2.%3.%4.%5" in item["actual"]
+        and "word/document.xml:p[165]/numPr" in item["evidence_refs"]
         for item in numbering_items
     )
 

@@ -394,7 +394,7 @@ def build_template_unit_decisions(template_artifact: dict[str, Any]) -> dict[str
                     "decision_type": "copy_fixed_block",
                     "unit_id": unit_id,
                     "element_id": None,
-                    "source_ref": unit.get("source_refs", [None])[0],
+                    "source_ref": unit_anchor_ref,
                     "reason": "preserve fixed or manual-only source template content",
                 }
             )
@@ -1010,6 +1010,10 @@ def _find_source_entry_for_target_unit(
     entries: list[dict[str, Any]],
     target_unit: dict[str, Any],
 ) -> dict[str, Any] | None:
+    if str(target_unit.get("unit_id") or "") == "body_main":
+        body_anchor = _find_body_main_source_entry(entries)
+        if body_anchor is not None:
+            return body_anchor
     query = _target_unit_query(target_unit)
     if not _query_has_needles(query):
         return None
@@ -1042,7 +1046,7 @@ def _find_source_entry_for_target_element(
     query = _target_element_query(element)
     if not _query_has_needles(query):
         return None
-    return _find_entry_by_query(entries, query)
+    return _find_first_entry_by_query(entries, query)
 
 
 def _target_element_query(element: dict[str, Any]) -> dict[str, Any]:
@@ -1078,6 +1082,24 @@ def _find_entry_by_query(
     entries: list[dict[str, Any]],
     query: dict[str, Any],
 ) -> dict[str, Any] | None:
+    candidates: list[tuple[int, int, dict[str, Any]]] = []
+    for entry in entries:
+        text = _normalize_for_match(entry.get("text", ""))
+        if not text:
+            continue
+        score = _query_entry_score(entry, query, text)
+        if score <= 0:
+            continue
+        candidates.append((score, -int(entry.get("order") or 0), entry))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: (item[0], item[1]))[2]
+
+
+def _find_first_entry_by_query(
+    entries: list[dict[str, Any]],
+    query: dict[str, Any],
+) -> dict[str, Any] | None:
     for entry in entries:
         text = _normalize_for_match(entry.get("text", ""))
         if not text:
@@ -1088,6 +1110,131 @@ def _find_entry_by_query(
         if tokens and len(tokens) >= int(query.get("min_tokens") or 1):
             return entry
     return None
+
+
+def _query_entry_score(
+    entry: dict[str, Any],
+    query: dict[str, Any],
+    normalized_text: str,
+) -> int:
+    score = 0
+    for needle in query.get("full", []):
+        if not needle:
+            continue
+        if normalized_text == needle:
+            score = max(score, 120)
+        elif _allow_partial_query_match(needle, normalized_text):
+            score = max(score, 70)
+    tokens = [
+        token
+        for token in query.get("tokens", [])
+        if token and _allow_partial_query_match(token, normalized_text)
+    ]
+    if tokens and len(tokens) >= int(query.get("min_tokens") or 1):
+        score = max(score, 35 + 8 * len(tokens))
+    if score <= 0:
+        return 0
+    text = str(entry.get("text") or "").strip()
+    style = str(entry.get("style") or "").lower()
+    signals = entry.get("structural_signals") or {}
+    if signals.get("short_text"):
+        score += 30
+    if signals.get("centered"):
+        score += 20
+    if signals.get("large_font"):
+        score += 15
+    if "heading" in style or "标题" in style:
+        score += 20
+    if "正文前标题" in style or "正文尾标题" in style:
+        score += 25
+    if signals.get("looks_like_instruction_text"):
+        score -= 90
+    if len(text) > 80:
+        score -= 35
+    if len(text) > 140:
+        score -= 45
+    if "\t" in text:
+        score -= 20
+    return score
+
+
+def _allow_partial_query_match(needle: str, normalized_text: str) -> bool:
+    if needle == normalized_text:
+        return True
+    if len(needle) <= 2 and len(normalized_text) <= 6:
+        return False
+    return needle in normalized_text
+
+
+def _find_body_main_source_entry(
+    entries: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    candidates: list[tuple[int, int, dict[str, Any]]] = []
+    for entry in entries:
+        text = str(entry.get("text") or "").strip()
+        normalized = _normalize_for_match(text)
+        style = str(entry.get("style") or "").lower()
+        signals = entry.get("structural_signals") or {}
+        chapter_heading = _looks_like_body_chapter_heading(normalized)
+        if _body_main_anchor_excluded(text) and not chapter_heading:
+            continue
+        score = 0
+        if style in {"heading 1", "标题 1"} or "heading 1" in style:
+            score += 100
+        if chapter_heading:
+            score += 80
+        if score <= 0:
+            continue
+        if signals.get("short_text"):
+            score += 20
+        if _has_placeholder_chapter_number(text):
+            score -= 70
+        if signals.get("looks_like_instruction_text") and not chapter_heading:
+            score -= 80
+        elif signals.get("looks_like_instruction_text"):
+            score -= 15
+        if len(text) > 60:
+            score -= 40
+        if score <= 0:
+            continue
+        candidates.append((score, -int(entry.get("order") or 0), entry))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: (item[0], item[1]))[2]
+
+
+def _looks_like_body_chapter_heading(normalized_text: str) -> bool:
+    return bool(re.match(r"^第[一二三四五六七八九十0-9]+章", normalized_text))
+
+
+def _has_placeholder_chapter_number(text: str) -> bool:
+    return bool(re.search(r"第\s*[Xx]\s*章", text))
+
+
+def _body_main_anchor_excluded(text: str) -> bool:
+    normalized = _normalize_for_match(text)
+    if not normalized:
+        return True
+    excluded = (
+        "目录",
+        "摘要",
+        "abstract",
+        "参考文献",
+        "致谢",
+        "附录",
+        "声明",
+        "封面",
+        "图目录",
+        "表目录",
+        "正文基本格式",
+        "正文标题",
+        "格式",
+        "说明",
+        "黑体",
+        "三号",
+        "第x章",
+    )
+    return any(marker in normalized for marker in excluded)
 
 
 def _query_has_needles(query: dict[str, Any]) -> bool:

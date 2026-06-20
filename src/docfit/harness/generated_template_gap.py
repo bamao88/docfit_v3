@@ -2735,6 +2735,25 @@ def _locate_units(
         unit_query = _match_query_for_unit(unit)
         queries = _unit_anchor_queries(unit)
         match = entries[0] if index == 0 and entries else None
+        if match is None and unit_id == "body_main":
+            marker_match = _find_first_unit_marker_match(
+                entries,
+                unit_id,
+                [cursor_order + 1, None],
+                used_orders,
+            )
+            heading_match = _find_body_main_unit_match(
+                entries,
+                [cursor_order + 1, None],
+                used_orders,
+            )
+            if heading_match is not None and marker_match is not None:
+                match = min(
+                    (heading_match, marker_match),
+                    key=lambda item: int(item.get("order") or 0),
+                )
+            else:
+                match = heading_match or marker_match
         if match is None:
             match = _find_best_unused_match(
                 entries,
@@ -2755,6 +2774,11 @@ def _locate_units(
                     [cursor_order + 1, None],
                     used_orders,
                 )
+                if match:
+                    break
+        if match is None and unit_id == "toc":
+            for query in queries:
+                match = _find_best_unused_match(entries, query, None, used_orders)
                 if match:
                     break
         if match:
@@ -2802,16 +2826,213 @@ def _find_best_unused_match(
     order_range: list[int | None] | tuple[int | None, int | None] | None,
     used_orders: set[int],
 ) -> dict[str, Any] | None:
-    match = _find_best_match(
-        [
-            entry
-            for entry in entries
-            if int(entry.get("order") or 0) not in used_orders
-        ],
+    candidates = [
+        entry
+        for entry in entries
+        if int(entry.get("order") or 0) not in used_orders
+    ]
+    return _find_best_unit_anchor_match(candidates, query, order_range)
+
+
+def _find_best_unit_anchor_match(
+    entries: list[dict[str, Any]],
+    query: dict[str, Any],
+    order_range: list[int | None] | tuple[int | None, int | None] | None,
+) -> dict[str, Any] | None:
+    if not _query_has_needles(query):
+        return None
+    scoped = _entries_in_range(entries, order_range)
+    paragraph_match = _find_scored_unit_anchor_match(
+        [entry for entry in scoped if entry.get("kind") == "paragraph"],
         query,
-        order_range,
     )
-    return match
+    if paragraph_match is not None:
+        return paragraph_match
+    return _find_scored_unit_anchor_match(scoped, query)
+
+
+def _find_scored_unit_anchor_match(
+    entries: list[dict[str, Any]],
+    query: dict[str, Any],
+) -> dict[str, Any] | None:
+    candidates: list[tuple[int, int, dict[str, Any]]] = []
+    for entry in entries:
+        text = _normalize_for_match(entry.get("text"))
+        if not text:
+            continue
+        score = _unit_anchor_query_score(entry, query, text)
+        if score <= 0:
+            continue
+        candidates.append((score, -int(entry.get("order") or 0), entry))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: (item[0], item[1]))[2]
+
+
+def _unit_anchor_query_score(
+    entry: dict[str, Any],
+    query: dict[str, Any],
+    normalized_text: str,
+) -> int:
+    score = 0
+    for needle in query.get("full", []):
+        if not needle:
+            continue
+        if normalized_text == needle:
+            score = max(score, 120)
+        elif _allow_unit_anchor_partial_match(needle, normalized_text):
+            score = max(score, 70)
+    tokens = [
+        token
+        for token in query.get("tokens", [])
+        if token and _allow_unit_anchor_partial_match(token, normalized_text)
+    ]
+    if tokens and len(tokens) >= int(query.get("min_tokens") or 1):
+        score = max(score, 35 + 8 * len(tokens))
+    if score <= 0:
+        return 0
+    text = str(entry.get("text") or "").strip()
+    style = str(entry.get("style") or "").lower()
+    paragraph_style = (entry.get("style_details") or {}).get("paragraph") or {}
+    dominant_run = (entry.get("style_details") or {}).get("dominant_run") or {}
+    if len(text) <= 24:
+        score += 30
+    if paragraph_style.get("alignment") == "center":
+        score += 20
+    if (dominant_run.get("font_size_pt") or 0) >= 15:
+        score += 15
+    if "heading" in style or "标题" in style:
+        score += 20
+    if "正文前标题" in style or "正文尾标题" in style:
+        score += 25
+    if _looks_like_unit_anchor_instruction(text):
+        score -= 90
+    if len(text) > 80:
+        score -= 35
+    if len(text) > 140:
+        score -= 45
+    if "\t" in text:
+        score -= 20
+    return score
+
+
+def _allow_unit_anchor_partial_match(needle: str, normalized_text: str) -> bool:
+    if needle == normalized_text:
+        return True
+    if len(needle) <= 2:
+        return normalized_text.startswith(needle)
+    return needle in normalized_text
+
+
+def _looks_like_unit_anchor_instruction(text: str) -> bool:
+    markers = (
+        "如果",
+        "点击",
+        "建议",
+        "选择",
+        "插入",
+        "模板",
+        "说明",
+        "格式",
+        "更新",
+        "使用",
+        "可以",
+        "不建议",
+    )
+    return any(marker in text for marker in markers)
+
+
+def _find_body_main_unit_match(
+    entries: list[dict[str, Any]],
+    order_range: list[int | None] | tuple[int | None, int | None] | None,
+    used_orders: set[int],
+) -> dict[str, Any] | None:
+    candidates: list[tuple[int, int, dict[str, Any]]] = []
+    for entry in _entries_in_range(entries, order_range):
+        if entry.get("kind") != "paragraph":
+            continue
+        if int(entry.get("order") or 0) in used_orders:
+            continue
+        text = str(entry.get("text") or "").strip()
+        normalized = _normalize_for_match(text)
+        style = str(entry.get("style") or "").lower()
+        chapter_heading = _looks_like_body_chapter_heading(normalized)
+        if _body_main_anchor_excluded(text) and not chapter_heading:
+            continue
+        score = 0
+        if style in {"heading 1", "标题 1"} or "heading 1" in style:
+            score += 100
+        if chapter_heading:
+            score += 80
+        if score <= 0:
+            continue
+        if len(text) <= 24:
+            score += 20
+        if _has_placeholder_chapter_number(text):
+            score -= 70
+        if _looks_like_unit_anchor_instruction(text) and not chapter_heading:
+            score -= 80
+        elif _looks_like_unit_anchor_instruction(text):
+            score -= 15
+        if len(text) > 60:
+            score -= 40
+        if score <= 0:
+            continue
+        candidates.append((score, -int(entry.get("order") or 0), entry))
+    if not candidates:
+        return None
+    return max(candidates, key=lambda item: (item[0], item[1]))[2]
+
+
+def _find_first_unit_marker_match(
+    entries: list[dict[str, Any]],
+    unit_id: str,
+    order_range: list[int | None] | tuple[int | None, int | None] | None,
+    used_orders: set[int],
+) -> dict[str, Any] | None:
+    slot_prefix = f"[[DOCFIT_SLOT:{unit_id}."
+    generated_prefix = f"[[DOCFIT_GENERATED:{unit_id}."
+    for entry in _entries_in_range(entries, order_range):
+        if int(entry.get("order") or 0) in used_orders:
+            continue
+        text = str(entry.get("text") or "")
+        if slot_prefix in text or generated_prefix in text:
+            return entry
+    return None
+
+
+def _looks_like_body_chapter_heading(normalized_text: str) -> bool:
+    return bool(re.match(r"^第[一二三四五六七八九十0-9]+章", normalized_text))
+
+
+def _has_placeholder_chapter_number(text: str) -> bool:
+    return bool(re.search(r"第\s*[Xx]\s*章", text))
+
+
+def _body_main_anchor_excluded(text: str) -> bool:
+    normalized = _normalize_for_match(text)
+    if not normalized:
+        return True
+    excluded = (
+        "目录",
+        "摘要",
+        "abstract",
+        "参考文献",
+        "致谢",
+        "附录",
+        "声明",
+        "封面",
+        "图目录",
+        "表目录",
+        "正文基本格式",
+        "正文标题",
+        "格式",
+        "说明",
+        "黑体",
+        "三号",
+        "第x章",
+    )
+    return any(marker in normalized for marker in excluded)
 
 
 def _allow_out_of_order_unit_anchor(
@@ -2834,6 +3055,19 @@ def _unit_anchor_queries(unit: dict[str, Any]) -> list[dict[str, Any]]:
             queries.append(query)
         if len(queries) >= 3:
             break
+    if str(unit.get("unit_id") or "") == "toc":
+        unit_id = str(unit.get("unit_id") or "unknown_unit")
+        for element in unit.get("elements", []):
+            if str(element.get("element_id") or "") not in {"e_001", "e_002"}:
+                continue
+            marker_query = _marker_query_for_element(
+                unit_id,
+                str(element.get("element_id") or "unknown_element"),
+                str(element.get("policy") or ""),
+            )
+            if _query_has_needles(marker_query):
+                queries.append(marker_query)
+        return queries
     for element in unit.get("elements", []):
         marker_query = _marker_query_for_element(
             str(unit.get("unit_id") or "unknown_unit"),
