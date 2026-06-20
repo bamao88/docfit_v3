@@ -1364,6 +1364,18 @@ def test_generated_template_inspector_keeps_merged_cell_copies_in_row_order(
     assert all(cell["row_first_paragraph_index"] == 1 for cell in merged_cells)
 
 
+def test_generated_template_inspector_models_footnotes_in_generated_tree() -> None:
+    tree = inspect_generated_template_docx(
+        ROOT / "inputs/school-pku-graduate-template.docx"
+    )
+
+    assert tree["data"]["footnotes"]
+    assert all(
+        item.get("object_type") != "footnote"
+        for item in tree["data"]["unknown_visible_objects"]
+    )
+
+
 def test_generated_template_gap_binds_header_footer_rules_to_sections(tmp_path) -> None:
     result = run_template_gap_eval(
         ROOT,

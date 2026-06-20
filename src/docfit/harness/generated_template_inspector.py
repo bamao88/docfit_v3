@@ -32,6 +32,7 @@ def inspect_generated_template_docx(generated_template: Path) -> dict[str, Any]:
             "tables": [],
             "headers_footers": [],
             "fields": [],
+            "footnotes": [],
             "breaks": [],
             "sections": [],
             "numbering_refs": [],
@@ -49,9 +50,12 @@ def inspect_generated_template_docx(generated_template: Path) -> dict[str, Any]:
     tree["data"]["paragraphs"] = _paragraphs(doc, paragraph_styles)
     tree["data"]["tables"] = _tables(doc, table_details, paragraph_styles)
     tree["data"].update(_inspect_ooxml_parts(generated_template))
-    tree["data"]["unknown_visible_objects"] = detect_unsupported_visible_objects(
-        generated_template
-    )
+    unsupported = detect_unsupported_visible_objects(generated_template)
+    if tree["data"].get("footnotes"):
+        unsupported = [
+            item for item in unsupported if item.get("object_type") != "footnote"
+        ]
+    tree["data"]["unknown_visible_objects"] = unsupported
     return tree
 
 
@@ -670,6 +674,7 @@ def _int_or_none(value: str | None) -> int | None:
 def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, Any]]]:
     headers_footers: list[dict[str, Any]] = []
     fields: list[dict[str, Any]] = []
+    footnotes: list[dict[str, Any]] = []
     breaks: list[dict[str, Any]] = []
     sections: list[dict[str, Any]] = []
     numbering_refs: list[dict[str, Any]] = []
@@ -679,6 +684,7 @@ def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, A
         relationships = _document_relationships(package)
         numbering_catalog = _numbering_catalog(package)
         numbering_definitions = numbering_catalog["definitions"]
+        footnotes = _footnotes(package)
         part_names = [
             name
             for name in package.namelist()
@@ -712,6 +718,7 @@ def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, A
     return {
         "headers_footers": headers_footers,
         "fields": fields,
+        "footnotes": footnotes,
         "breaks": breaks,
         "sections": sections,
         "numbering_refs": numbering_refs,
@@ -928,6 +935,30 @@ def _fields(root: ET.Element, part_name: str) -> list[dict[str, Any]]:
             paragraph_index=field["paragraph_index"],
         )
     return fields
+
+
+def _footnotes(package: ZipFile) -> list[dict[str, Any]]:
+    try:
+        root = ET.fromstring(package.read("word/footnotes.xml"))
+    except (KeyError, ET.ParseError):
+        return []
+    footnotes: list[dict[str, Any]] = []
+    for index, node in enumerate(root.findall(f"{W_NS}footnote"), start=1):
+        footnote_id = _attr(node, "id")
+        if footnote_id in {"-1", "0"}:
+            continue
+        text = _visible_text(node)
+        if not text:
+            continue
+        footnotes.append(
+            {
+                "index": len(footnotes) + 1,
+                "footnote_id": footnote_id,
+                "text": text,
+                "source_ref": f"word/footnotes.xml:footnote[{footnote_id}]",
+            }
+        )
+    return footnotes
 
 
 def _normalize_instruction(instruction: str) -> str:
