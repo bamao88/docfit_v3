@@ -35,6 +35,9 @@ stage: it parses the source Word into `source_template_tree.json`, infers
 When `--school <school_id>` is supplied, the generator also loads that school's
 signed `expected.units` standard and uses it to align fillable/generated
 markers to the source Word.
+The field-level meanings, producers, consumers, gate effects, and missing-field
+rules for these artifacts are defined in
+`docs/human/template-generation-artifact-field-dictionary.md`.
 For `real-core-v0`, template and e2e runs now generate
 `template_generation/generated_template.docx` during the run and gap-check that
 file. The checked-in simulated business-template inputs under
