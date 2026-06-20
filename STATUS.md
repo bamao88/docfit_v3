@@ -1,6 +1,6 @@
 # DocFit Status
 
-Last updated: 2026-06-17
+Last updated: 2026-06-20
 
 Current focus:
 
@@ -15,6 +15,12 @@ Current focus:
 Current state:
 
 - `real-core-v0` 已注册三所学校、三份学生文档、九个学校/学生组合。
+- 第一版 `docfit eval template-generate --template ... --out ...` 已经存在：
+  它把学校源 Word 复制为顶层 `generated_template.docx`，写出
+  `artifacts/template_generation_plan.json` 和
+  `artifacts/template_generation_manifest.json`，并创建或保留
+  `slot_body_start`。这只是生成脚手架，不代表学校格式已经合格；
+  质量判断仍要交给 `template-gap` 和 real-core gate。
 - 用户验收所需的真实输入材料、基线和 Word 页面图像证据要求记录在
   `docs/human/real-core-v0-acceptance.md`。
 - 用户已 review 的 `docs/human/real-core-v0-review-packet.md` 作为
@@ -97,9 +103,9 @@ Current state:
 
 Next action:
 
-- 下一步先修生成模板差距报告暴露的 template 阶段问题：补齐生成模板实际输出、
-  等价生成机制、复杂样式/section/页码规则和页面级版面证据，或修模板生成逻辑，
-  直到模板差距报告不再阻断。
+- 下一步先把 `template-generate` 从脚手架推进到真实模板生成质量：自动识别模板规则、
+  按模板单元复制/清理说明文字、补齐等价生成机制、复杂样式/section/页码规则和
+  页面级版面证据，直到模板差距报告不再阻断。
 - 然后继续修内容抽取：识别摘要、关键词、参考文献、附录、致谢这类章节角色，
   以及旧封面、旧目录这类不该进目标正文的源文档格式内容。
 - 再修内容放置：确认每段学生内容进入目标学校模板的具体位置，不能全部放到

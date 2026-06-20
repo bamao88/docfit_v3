@@ -25,16 +25,21 @@
 
 | 事项 | 当前状态 | 证据位置 |
 | --- | --- | --- |
-| 生成模板 CLI | 还没有 | `src/docfit/cli/main.py` 只有 `template`、`template-gap`、`content`、`placement`、`render`、`e2e`、`coverage` 等入口，没有 `template-generate` |
-| 真正模板生成阶段 | 还没有 | `src/docfit/stages/` 下没有 `template_generate/`，当前没有 `template_generation_plan` 或 `template_generation_manifest` 写出逻辑 |
+| 生成模板 CLI | 已有第一版脚手架入口 | `src/docfit/cli/main.py` 现在有 `docfit eval template-generate --template ... --out ...` |
+| 真正模板生成阶段 | 已有第一版 `source_copy_scaffold` | `src/docfit/stages/template_generate/runner.py` 会写出 `generated_template.docx`、`template_generation_plan.json` 和 `template_generation_manifest.json`；自动识别规则、按单元复制和说明文字清理仍记录为 deferred |
 | 学校原始模板解析 | 已有一部分 | `src/docfit/stages/template_parse/runner.py` 能读取段落、样式，并为真实学校结合人工整理样本生成 `template_artifact` |
 | 生成模板差距检查 | 已有一部分 | `src/docfit/harness/generated_template_inspector.py` 解析传入的 Word；`src/docfit/harness/generated_template_gap.py` 写出 `generated_template_tree.json` 和 `template_gap_report.*` |
-| 当前三校被测生成模板 | 是模拟输入，不是真生成器输出 | `standards/eval_profiles/real-core-v0/cases.yaml` 把三校绑定到 `inputs/simulated-generated-templates/real-core-v0/<school_id>/generated_template.docx` |
+| 当前三校被测生成模板 | 仍是模拟输入，不是已验收的生成器输出 | `standards/eval_profiles/real-core-v0/cases.yaml` 把三校绑定到 `inputs/simulated-generated-templates/real-core-v0/<school_id>/generated_template.docx`；新脚手架还没有接入 real-core profile |
 | 后续 placement/render 使用生成模板 | 还没接通 | `src/docfit/convert/orchestrator.py` 当前 e2e 仍是 `parse_template -> extract_student_content -> build_placement_plan -> render_docx`，没有 `generate_template` 环节 |
 
-所以，本文档里的“目标流程”“建议新增”“第一版可以”都是**下一步要实现的模板生成主线**。
-当前已经能运行的是“解析学校模板”和“检查某个传入的 `generated_template.docx` 是否符合标准”，
-不是“从学校原始模板自动生成 `generated_template.docx`”。
+所以，本文档里的“目标流程”仍然是完整模板生成主线；当前代码只跑通了第一版脚手架：
+
+```text
+学校原始模板 Word -> 复制为 generated_template.docx -> 写入/保留 slot_body_start -> 写 manifest
+```
+
+它证明系统已经有真实生成入口和核心产物，但还不能说明生成模板符合学校标准。
+正式质量判断仍要把输出交给 `template-gap` 和后续四阶段 gate。
 
 ## 读文档前先分清四类东西
 
@@ -451,7 +456,8 @@ template_generation_request           # [内存对象] 系统内部任务单；�
 docfit eval template-generate --template /path/to/school-template.docx --out /tmp/docfit_template_generate
 ```
 
-这个 CLI 目前还没有，需要新增。
+这个 CLI 现在已有第一版。当前它创建的是 `source_copy_scaffold` 脚手架任务，
+不是完整的自动模板规则识别任务。
 
 ## 阶段 1：解析 Word 原始结构
 
@@ -1838,7 +1844,7 @@ inspect_template_docx
 -> render_docx
 ```
 
-当前编排里还没有 `generate_template` 这一环。
+当前单独 CLI 已有 `generate_template` 第一版；完整 e2e 编排里还没有接入这一环。
 
 ## 阶段 7：检查生成模板是否可用
 
@@ -1896,12 +1902,12 @@ evaluate_generated_template_gap(...)
 
 | 目标阶段 | 当前代码状态 | 说明 |
 | --- | --- | --- |
-| 阶段 0：接收任务 | 缺少专门入口 | 现在有 `template` 和 `template-gap`，还没有只接收源 Word 的 `template-generate` |
-| 阶段 1：解析 Word 原始结构 | 已有一部分 | `generated_template_inspector.py` 和 `template_parse/runner.py` 有 DOCX 结构读取能力，但还没有统一成生产入口 |
+| 阶段 0：接收任务 | 已有第一版入口 | `docfit eval template-generate --template ... --out ...` 能只接收源 Word 和输出目录 |
+| 阶段 1：解析 Word 原始结构 | 已有一部分 | `generated_template_inspector.py` 和 `template_parse/runner.py` 有 DOCX 结构读取能力；`template-generate` 第一版暂时不做完整结构树，只做有效 DOCX 检查和复制脚手架 |
 | 阶段 2：自动识别模板规则 | 缺少核心能力 | 当前真实学校主要依赖人工整理的 `template_unit_contract.yaml`，还不能只靠源 Word 自动识别完整规则 |
 | 阶段 3：生成决策 | 缺少 | 还没有把 unit policy 转成生成决策的独立逻辑 |
-| 阶段 4：生成构建计划 | 缺少 | 还没有 `template_generation_plan` |
-| 阶段 5：执行模板生成 | 缺少 | 还没有真正由代码生成 `generated_template.docx` |
+| 阶段 4：生成构建计划 | 已有第一版脚手架计划 | `template_generation_plan.json` 会记录复制源 Word、创建/保留 `slot_body_start`，并把自动识别、说明文字清理、按单元复制记为 deferred |
+| 阶段 5：执行模板生成 | 已有第一版脚手架 | `template-generate` 会写出顶层 `generated_template.docx` 和 `artifacts/template_generation_manifest.json` |
 | 阶段 6：交给后续流程 | 未接通 | placement/render 还没有消费生成模板 |
 | 阶段 7：检查生成模板 | 已有一部分 | gap 检查能检查传入的 `generated_template.docx`，但它不生成 Word |
 
@@ -1912,7 +1918,8 @@ evaluate_generated_template_gap(...)
 - `generation_options` 是 `[系统运行参数]`，不是学校规则文件；
 - `generated_template_gap` 会复制一份传入的 `generated_template.docx` 到报告目录，但这是检查输入复制，不是业务生成；
 - `render_docx` 当前会把源模板整份复制成 `final.docx`，再追加学生内容，但这是最终渲染阶段，不是模板生成阶段；
-- `inputs/simulated-generated-templates/**/generated_template.docx` 当前是模拟生成模板输入，不是真正生成器跑出来的结果。
+- `inputs/simulated-generated-templates/**/generated_template.docx` 当前仍是 real-core profile 的模拟生成模板输入，不是已验收的 `template-generate` 输出；
+- `template-generate` 当前只证明能生成脚手架 Word 和 manifest，不证明学校格式质量；
 - `template_unit_contract.yaml` 是 `[磁盘产物·可选·开发期]` 三校人工整理样本，不是生产目标里的用户输入。
 
 ## 第一版要跑通的最小闭环
@@ -1948,9 +1955,9 @@ flowchart TD
 - 目录、页码、编号全部刷新；
 - 封面字段全部准确填好。
 
-## 建议新增的代码入口
+## 已新增的第一版代码入口
 
-建议新增目录：
+已新增目录：
 
 ```text
 src/docfit/stages/template_generate/
@@ -1958,7 +1965,7 @@ src/docfit/stages/template_generate/
   runner.py
 ```
 
-建议新增函数：
+已新增函数：
 
 ```text
 build_template_generation_plan(...)
@@ -1966,26 +1973,32 @@ generate_template(...)
 write_template_generation_outputs(...)
 ```
 
-建议新增编排入口：
+已新增编排入口：
 
 ```text
 run_template_generate_eval(root, template_docx, out_dir)
 ```
 
-建议新增 CLI：
+已新增 CLI：
 
 ```text
 docfit eval template-generate --template /path/to/school-template.docx --out /tmp/docfit_template_generate
 ```
 
-这个阶段补上以后，模板生成主线才会从：
+这个阶段补上以后，模板生成主线已经从：
 
 ```text
 解析模板 + 检查模拟生成物
 ```
 
-变成：
+前进到：
 
 ```text
-解析模板 -> 生成模板 -> 检查生成模板 -> 交给后续填写
+生成脚手架模板 -> 检查生成模板
+```
+
+完整目标仍然是：
+
+```text
+解析源 Word -> 自动识别模板规则 -> 按规则生成模板 -> 检查生成模板 -> 交给后续填写
 ```

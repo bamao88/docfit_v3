@@ -27,9 +27,13 @@ style-field level before later stages can claim acceptance.
 The real-school template gate also treats `generated_template.docx` as a tested
 Word input: it writes `generated_template_tree.json` from OOXML and
 `template_gap_report.json` / `.md` / `.docx` before e2e can claim template
-acceptance. For `real-core-v0`, the checked-in simulated business-template
-inputs under `inputs/simulated-generated-templates/**` stand in for the future
-template generator output.
+acceptance. A first `template-generate` scaffold now exists: it copies a school
+source Word to `generated_template.docx`, ensures a body slot marker, and writes
+`template_generation_manifest.json` so later stages have a real generated
+template artifact to inspect. For `real-core-v0`, the checked-in simulated
+business-template inputs under `inputs/simulated-generated-templates/**` still
+stand in for accepted generator output until the generator quality is good
+enough for the profile gate.
 
 The current `real-core-v0` coverage gate returns `FAIL` for the existing
 generated outputs because generated-template gap checks and deterministic
@@ -55,4 +59,10 @@ Run one generated-template gap check with:
 
 ```bash
 uv run docfit eval template-gap --school hunannongye --generated-template inputs/simulated-generated-templates/real-core-v0/hunannongye/generated_template.docx --out /tmp/docfit_template_gap_hunannongye
+```
+
+Run the first template-generation scaffold with:
+
+```bash
+uv run docfit eval template-generate --template inputs/school-hunannongye-requirement.docx --out /tmp/docfit_template_generate_hunannongye
 ```

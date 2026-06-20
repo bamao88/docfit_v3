@@ -25,6 +25,10 @@ from docfit.harness.standards import load_standard_bundle
 from docfit.stages.content_extract.runner import extract_student_content, write_content_outputs
 from docfit.stages.placement.runner import build_placement_plan, write_placement_outputs
 from docfit.stages.render.runner import render_docx, write_render_outputs
+from docfit.stages.template_generate.runner import (
+    generate_template,
+    write_template_generation_outputs,
+)
 from docfit.stages.template_parse.runner import parse_template, write_template_outputs
 
 
@@ -192,6 +196,17 @@ def run_template_gap_eval(
                 BOOTSTRAP_PROFILE.capabilities_for_stage("template"),
             ),
         )
+    _write_stage_report(out_dir, result)
+    return result
+
+
+def run_template_generate_eval(
+    root: Path,
+    template_docx: Path,
+    out_dir: Path,
+) -> StageResult:
+    result = generate_template(template_docx, out_dir)
+    write_template_generation_outputs(out_dir, result)
     _write_stage_report(out_dir, result)
     return result
 

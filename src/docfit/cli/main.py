@@ -8,6 +8,7 @@ from docfit.convert.orchestrator import (
     run_e2e_eval,
     run_placement_eval,
     run_render_eval,
+    run_template_generate_eval,
     run_template_eval,
     run_template_gap_eval,
 )
@@ -56,6 +57,15 @@ def eval_template_gap(
     out: Path = typer.Option(..., "--out"),
 ) -> None:
     result = run_template_gap_eval(_root(), school, generated_template, out)
+    _echo_status(result.status)
+
+
+@eval_app.command("template-generate")
+def eval_template_generate(
+    template: Path = typer.Option(..., "--template", exists=True),
+    out: Path = typer.Option(..., "--out"),
+) -> None:
+    result = run_template_generate_eval(_root(), template, out)
     _echo_status(result.status)
 
 
