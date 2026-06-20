@@ -9,7 +9,8 @@ from docfit.cli.main import app
 from docfit.convert.orchestrator import run_template_generate_eval
 from docfit.core.io import read_json, sha256_file
 from docfit.core.status import Status
-from docfit.stages.template_generate.runner import BODY_SLOT_MARKER
+from docfit.harness.generated_template_inspector import inspect_generated_template_docx
+from docfit.stages.template_generate.runner import BODY_SLOT_MARKER, generate_template
 
 
 ROOT = Path.cwd()
@@ -202,4 +203,96 @@ def test_template_generate_synthesizes_missing_visible_unit_title(tmp_path) -> N
         and item["element_id"] == "e_001"
         and item["text"] == expected_title
         for item in manifest["synthesized_texts"]
+    )
+
+
+def test_template_generate_inserts_page_and_section_break_before_later_unit(
+    tmp_path,
+) -> None:
+    source = tmp_path / "inputs/school-template.docx"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    doc = Document()
+    table = doc.add_table(rows=1, cols=1)
+    table.cell(0, 0).text = "封面标题"
+    doc.add_paragraph("原创性声明")
+    doc.add_paragraph("正文开始")
+    doc.save(source)
+    out_dir = tmp_path / "template_generate"
+    target_units = [
+        {
+            "unit_id": "cover",
+            "name": "封面",
+            "order": 10,
+            "status": "required",
+            "page": {"page_break": "是"},
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "封面标题",
+                    "policy": "fixed",
+                    "content": "封面标题",
+                }
+            ],
+        },
+        {
+            "unit_id": "integrity_statement",
+            "name": "原创性声明",
+            "order": 20,
+            "status": "required",
+            "page": {"page_break": "是", "section_isolation": "是"},
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "原创性声明",
+                    "policy": "fixed",
+                    "content": "原创性声明",
+                }
+            ],
+        },
+    ]
+
+    result = generate_template(source, out_dir, target_units=target_units)
+    generated = out_dir / "generated_template.docx"
+    manifest = result.artifacts["template_generation_manifest"]
+    plan = result.artifacts["template_generation_plan"]
+    tree = inspect_generated_template_docx(generated)
+    statement = next(
+        item
+        for item in tree["data"]["paragraphs"]
+        if item["text"] == "原创性声明"
+    )
+    statement_index = int(statement["index"])
+
+    assert result.status == Status.PASS
+    assert any(
+        action["action_type"] == "insert_page_break_before_unit"
+        and action["unit_id"] == "integrity_statement"
+        for action in plan["actions"]
+    )
+    assert any(
+        action["action_type"] == "insert_section_break_before_unit"
+        and action["unit_id"] == "integrity_statement"
+        for action in plan["actions"]
+    )
+    assert manifest["page_breaks"] == [
+        {
+            "unit_id": "integrity_statement",
+            "source_ref": "word/document.xml:p[1]",
+            "output_ref": "word/document.xml:p[1]/pageBreakBefore",
+        }
+    ]
+    assert manifest["section_breaks"] == [
+        {
+            "unit_id": "integrity_statement",
+            "source_ref": "word/document.xml:p[1]",
+            "output_ref": "word/document.xml:p[1]/before:sectPr",
+        }
+    ]
+    assert statement_index == 2
+    assert statement["style_details"]["paragraph"]["page_break_before"] is True
+    assert any(
+        item["kind"] == "section"
+        and int(item["paragraph_index"]) < int(statement["xml_index"])
+        and int(item["paragraph_index"]) >= int(statement["xml_index"]) - 2
+        for item in tree["data"]["breaks"]
     )

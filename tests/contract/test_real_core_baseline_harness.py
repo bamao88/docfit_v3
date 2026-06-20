@@ -276,7 +276,7 @@ def test_real_core_e2e_reaches_render_and_writes_bound_final_docx(tmp_path) -> N
     ]
     assert "render_append_only_insertion" in [finding.type for finding in result.findings]
     assert any(
-        finding.type == "template_generation_page_rule_mismatch"
+        finding.type == "template_generation_page_rule_unverified"
         for finding in result.findings
     )
     assert any(

@@ -30,6 +30,7 @@ TEMPLATE_GENERATION_CAPABILITIES = (
     "template_generation.numbering_match",
     "template_generation.report",
 )
+PAGE_BOUNDARY_LOOKBACK = 5
 
 
 def evaluate_generated_template_gap(
@@ -2238,8 +2239,12 @@ def _evaluate_page_rule(
         }
 
     bounded_orders = _unit_bounded_orders(unit_id, matched_orders, unit_first_orders)
-    first_order = min(bounded_orders or matched_orders)
-    context = _page_context(tree, first_order, bounded_orders or matched_orders)
+    anchor_order = _unit_anchor_order(unit_id, unit_first_orders)
+    first_order = anchor_order or min(bounded_orders or matched_orders)
+    context_orders = bounded_orders or matched_orders
+    if anchor_order is not None and anchor_order not in context_orders:
+        context_orders = [anchor_order, *context_orders]
+    context = _page_context(tree, first_order, context_orders)
     if field == "page_break":
         if _page_rule_is_document_start(rule):
             status = Status.PASS if first_order <= 5 else Status.FAIL
@@ -2260,8 +2265,17 @@ def _evaluate_page_rule(
                 ),
             }
         if _page_rule_requires_yes(rule):
-            has_break = bool(context["page_break_refs"] or context["section_refs"])
-            status = Status.PASS if has_break else Status.FAIL
+            is_document_start = _is_document_start_order(tree, first_order)
+            break_refs = context["page_break_refs"] + context["section_refs"]
+            has_break = bool(break_refs)
+            status = Status.PASS if is_document_start or has_break else Status.FAIL
+            actual = (
+                f"document starts at p[{first_order}]"
+                if is_document_start
+                else ", ".join(break_refs)
+                or f"no explicit page/section break before p[{first_order}]"
+            )
+            evidence_refs = [context["paragraph_ref"]] if is_document_start else break_refs
             return {
                 "status": status,
                 "type": (
@@ -2270,11 +2284,8 @@ def _evaluate_page_rule(
                     else "template_generation_page_rule_mismatch"
                 ),
                 "message": f"单元 {unit_id} 要求另起页",
-                "actual": (
-                    ", ".join(context["page_break_refs"] + context["section_refs"])
-                    or f"no explicit page/section break before p[{first_order}]"
-                ),
-                "evidence_refs": context["page_break_refs"] + context["section_refs"],
+                "actual": actual,
+                "evidence_refs": evidence_refs,
                 "next_step": (
                     "none"
                     if status == Status.PASS
@@ -2389,13 +2400,19 @@ def _page_context(
         if paragraph.get("index") is not None
     }
     paragraph = paragraphs.get(first_order, {})
-    style = (paragraph.get("style_details") or {}).get("paragraph") or {}
+    xml_first_order = int(paragraph.get("xml_index") or first_order)
+    first_paragraph_style = (
+        (paragraph.get("style_details") or {}).get("paragraph")
+        or {}
+    )
     breaks = tree.get("data", {}).get("breaks", [])
     nearby_breaks = [
         item
         for item in breaks
         if item.get("paragraph_index") is not None
-        and first_order - 2 <= int(item.get("paragraph_index")) <= first_order
+        and xml_first_order - PAGE_BOUNDARY_LOOKBACK
+        <= int(item.get("paragraph_index"))
+        <= xml_first_order
     ]
     page_break_refs = [
         item.get("source_ref", "")
@@ -2407,8 +2424,20 @@ def _page_context(
         for item in nearby_breaks
         if item.get("kind") == "section"
     ]
-    if style.get("page_break_before"):
-        page_break_refs.append(f"word/document.xml:p[{first_order}]/pageBreakBefore")
+    for paragraph_index in range(
+        max(1, first_order - PAGE_BOUNDARY_LOOKBACK),
+        first_order + 1,
+    ):
+        paragraph_style = (
+            (paragraphs.get(paragraph_index, {}).get("style_details") or {}).get(
+                "paragraph"
+            )
+            or {}
+        )
+        if paragraph_style.get("page_break_before"):
+            page_break_refs.append(
+                f"word/document.xml:p[{paragraph_index}]/pageBreakBefore"
+            )
     keep_refs: list[str] = []
     for paragraph_index in range(range_start, range_end + 1):
         paragraph_style = (
@@ -2422,9 +2451,9 @@ def _page_context(
         if paragraph_style.get("keep_lines"):
             keep_refs.append(f"word/document.xml:p[{paragraph_index}]/keepLines")
     if not keep_refs:
-        if style.get("keep_next"):
+        if first_paragraph_style.get("keep_next"):
             keep_refs.append(f"word/document.xml:p[{first_order}]/keepNext")
-        if style.get("keep_lines"):
+        if first_paragraph_style.get("keep_lines"):
             keep_refs.append(f"word/document.xml:p[{first_order}]/keepLines")
 
     table_refs: list[str] = []
@@ -2473,6 +2502,16 @@ def _unit_bounded_orders(
     ]
 
 
+def _unit_anchor_order(
+    unit_id: str,
+    unit_first_orders: list[tuple[str, int]],
+) -> int | None:
+    for candidate_unit_id, order in unit_first_orders:
+        if candidate_unit_id == unit_id:
+            return int(order)
+    return None
+
+
 def _ranges_overlap(
     left_start: int,
     left_end: int,
@@ -2484,6 +2523,13 @@ def _ranges_overlap(
 
 def _page_rule_is_document_start(rule: str) -> bool:
     return "文档首页" in rule
+
+
+def _is_document_start_order(tree: dict[str, Any], first_order: int) -> bool:
+    entries = _body_flow_entries(_visible_entries_by_order(tree))
+    if not entries:
+        return False
+    return first_order == min(int(entry.get("order") or 0) for entry in entries)
 
 
 def _page_rule_requires_yes(rule: str) -> bool:

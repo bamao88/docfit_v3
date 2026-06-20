@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import re
 import shutil
 from pathlib import Path
@@ -7,6 +8,7 @@ from typing import Any
 
 from docx import Document
 from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.table import _Cell
 from docx.text.paragraph import Paragraph
 
@@ -467,6 +469,51 @@ def build_template_generation_plan(
         }
     ]
     next_id = 2
+    page_boundary_refs: set[str] = set()
+    section_boundary_refs: set[str] = set()
+    for index, unit in enumerate(template_artifact.get("data", {}).get("units", [])):
+        if index == 0:
+            continue
+        page = unit.get("page") or {}
+        page_break_rule = str(page.get("page_break") or "")
+        source_ref = _first_source_ref(unit)
+        if not source_ref:
+            continue
+        if _page_break_rule_requires_break(page_break_rule) and (
+            source_ref not in page_boundary_refs
+        ):
+            actions.append(
+                {
+                    "action_id": f"a_{next_id:03d}",
+                    "action_type": "insert_page_break_before_unit",
+                    "unit_id": unit.get("unit_id"),
+                    "element_id": None,
+                    "source_ref": source_ref,
+                    "target_ref": source_ref,
+                    "status": "planned",
+                    "reason": "unit page rule requires a deterministic page break before this unit",
+                }
+            )
+            page_boundary_refs.add(source_ref)
+            next_id += 1
+        section_isolation_rule = str(page.get("section_isolation") or "")
+        if _page_break_rule_requires_break(section_isolation_rule) and (
+            source_ref not in section_boundary_refs
+        ):
+            actions.append(
+                {
+                    "action_id": f"a_{next_id:03d}",
+                    "action_type": "insert_section_break_before_unit",
+                    "unit_id": unit.get("unit_id"),
+                    "element_id": None,
+                    "source_ref": source_ref,
+                    "target_ref": source_ref,
+                    "status": "planned",
+                    "reason": "unit page rule requires a deterministic section boundary before this unit",
+                }
+            )
+            section_boundary_refs.add(source_ref)
+            next_id += 1
     for unit in decisions.get("units", []):
         for decision in unit.get("decisions", []):
             action_type = _action_type_for_decision(decision["decision_type"])
@@ -562,6 +609,26 @@ def execute_template_generation_plan(
         action_type = action.get("action_type")
         if action_type == "copy_source_docx":
             executed.append(_executed(action, output_ref=str(generated_template_docx)))
+        elif action_type == "insert_page_break_before_unit":
+            output_ref = _insert_page_break_before(
+                doc,
+                paragraph_map,
+                action.get("source_ref"),
+            )
+            if output_ref is None:
+                review.append(_needs_review(action, "source node not found"))
+                continue
+            executed.append(_executed(action, output_ref=output_ref))
+        elif action_type == "insert_section_break_before_unit":
+            output_ref = _insert_section_break_before(
+                doc,
+                paragraph_map,
+                action.get("source_ref"),
+            )
+            if output_ref is None:
+                review.append(_needs_review(action, "source node not found"))
+                continue
+            executed.append(_executed(action, output_ref=output_ref))
         elif action_type == "remove_instruction_text":
             target = _paragraph_for_ref(paragraph_map, action.get("source_ref"))
             target_cell = _cell_for_ref(doc, action.get("source_ref"))
@@ -632,6 +699,24 @@ def execute_template_generation_plan(
         "actions_requiring_review": review,
         "slots": _dedupe_by_key(slots, "slot_id"),
         "generated_fields": generated_fields,
+        "page_breaks": [
+            {
+                "unit_id": action.get("unit_id"),
+                "source_ref": action.get("source_ref"),
+                "output_ref": action.get("output_ref"),
+            }
+            for action in executed
+            if action.get("action_type") == "insert_page_break_before_unit"
+        ],
+        "section_breaks": [
+            {
+                "unit_id": action.get("unit_id"),
+                "source_ref": action.get("source_ref"),
+                "output_ref": action.get("output_ref"),
+            }
+            for action in executed
+            if action.get("action_type") == "insert_section_break_before_unit"
+        ],
         "synthesized_texts": [
             {
                 "unit_id": action.get("unit_id"),
@@ -676,6 +761,8 @@ def build_template_generation_manifest(
         },
         "slots": execution.get("slots", []),
         "generated_fields": execution.get("generated_fields", []),
+        "page_breaks": execution.get("page_breaks", []),
+        "section_breaks": execution.get("section_breaks", []),
         "synthesized_texts": execution.get("synthesized_texts", []),
         "actions_executed": execution.get("actions_executed", []),
         "actions_requiring_review": execution.get("actions_requiring_review", []),
@@ -1175,6 +1262,11 @@ def _looks_like_instruction(text: str) -> bool:
     return bool(re.search(r"[（(].*(宋体|黑体|楷体|居中|行距|字号|号字|pt).*[）)]", text))
 
 
+def _page_break_rule_requires_break(rule: str) -> bool:
+    normalized = _normalize_text(rule)
+    return normalized == "是" or normalized.startswith("是；")
+
+
 def _should_synthesize_visible_text(element: dict[str, Any]) -> bool:
     order = element.get("order") or element.get("element_order")
     if order not in {1, "1"}:
@@ -1402,6 +1494,56 @@ def _insert_marker(
         target_cell.add_paragraph(marker)
         return f"{source_ref}/p[last]:{marker}"
     return _append_marker(doc, marker)
+
+
+def _insert_page_break_before(
+    doc: Document,
+    paragraph_map: dict[int, Paragraph],
+    source_ref: str | None,
+) -> str | None:
+    target = _paragraph_for_ref(paragraph_map, source_ref)
+    if target is not None:
+        target.paragraph_format.page_break_before = True
+        return f"{source_ref}/pageBreakBefore"
+    target_cell = _cell_for_ref(doc, source_ref)
+    if target_cell is not None and target_cell.paragraphs:
+        target_cell.paragraphs[0].paragraph_format.page_break_before = True
+        return f"{source_ref}/p[1]/pageBreakBefore"
+    return None
+
+
+def _insert_section_break_before(
+    doc: Document,
+    paragraph_map: dict[int, Paragraph],
+    source_ref: str | None,
+) -> str | None:
+    target = _paragraph_for_ref(paragraph_map, source_ref)
+    if target is None:
+        return None
+    boundary = _insert_paragraph_before(target, "")
+    paragraph_properties = boundary._p.get_or_add_pPr()
+    paragraph_properties.append(_next_page_section_properties(doc))
+    return f"{source_ref}/before:sectPr"
+
+
+def _next_page_section_properties(doc: Document) -> Any:
+    section_properties = deepcopy(doc.sections[0]._sectPr)
+    for child in list(section_properties):
+        if child.tag == qn("w:type"):
+            section_properties.remove(child)
+    section_type = OxmlElement("w:type")
+    section_type.set(qn("w:val"), "nextPage")
+    section_properties.insert(0, section_type)
+    return section_properties
+
+
+def _insert_paragraph_before(paragraph: Paragraph, text: str) -> Paragraph:
+    new_element = OxmlElement("w:p")
+    paragraph._p.addprevious(new_element)
+    new_paragraph = Paragraph(new_element, paragraph._parent)
+    if text:
+        new_paragraph.add_run(text)
+    return new_paragraph
 
 
 def _insert_paragraph_after(paragraph: Paragraph, text: str) -> Paragraph:

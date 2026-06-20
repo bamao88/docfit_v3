@@ -248,6 +248,37 @@ def test_template_gap_minimal_fixture_can_pass_cleanly(tmp_path) -> None:
     assert unit_by_id(report, "cover")["verdict"] == Status.PASS.value
 
 
+def test_template_gap_treats_document_start_as_first_page_break(tmp_path) -> None:
+    school_id = "document-start-page-school"
+    expected = minimal_expected_units()
+    expected[0]["page"] = {"page_break": "是"}
+    write_minimal_gap_standard(tmp_path, school_id, expected)
+    generated_template = tmp_path / "inputs/generated_template.docx"
+    write_docx(
+        generated_template,
+        ["测试大学", "学生姓名：", "第一章 绪论"],
+    )
+
+    result = run_template_gap_eval(
+        tmp_path,
+        school_id,
+        generated_template,
+        tmp_path / "document_start_page_gap",
+    )
+    report = read_json(
+        tmp_path / "document_start_page_gap/artifacts/template_gap_report.json"
+    )
+    page_items = collect_checks(report, category="page_rule")
+
+    assert result.status == Status.PASS
+    assert any(
+        item["type"] == "template_generation_page_rule_match"
+        and item["affected_ids"] == ["cover.page.page_break"]
+        and item["actual"] == "document starts at p[1]"
+        for item in page_items
+    )
+
+
 def test_template_gap_accepts_docfit_slot_and_generated_markers(tmp_path) -> None:
     school_id = "marker-school"
     expected = [
@@ -1056,13 +1087,14 @@ def test_generated_template_gap_resolves_ooxml_style_inheritance(tmp_path) -> No
         for item in tree["data"]["paragraphs"]
         if item["text"].startswith("论文作者签名：")
     )
+    assert signature_line["xml_index"] == 29
     assert signature_line["style_details"]["paragraph"]["spacing"][
         "line_spacing"
-    ] == "exact:35pt"
+    ] == "exact:20pt"
     assert signature_line["style_details"]["style_inheritance"]["source_refs"] == [
         "word/styles.xml:style[a]"
     ]
-    assert any(
+    assert not any(
         item["type"] == "template_generation_style_mismatch"
         and "line_spacing expected exact:20pt, actual exact:35pt" in item["actual"]
         for item in collect_checks(report)

@@ -112,11 +112,13 @@ def _paragraphs(
     paragraph_styles: dict[int, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     paragraphs: list[dict[str, Any]] = []
+    xml_indices = _xml_paragraph_indices(doc)
     for index, paragraph in enumerate(doc.paragraphs, start=1):
         text = paragraph.text.strip()
         if not text:
             continue
-        style_details = paragraph_styles.get(index, {})
+        xml_index = xml_indices.get(paragraph._p, index)
+        style_details = paragraph_styles.get(xml_index, paragraph_styles.get(index, {}))
         runs = style_details.get("runs") or [
             {
                 "text": run.text,
@@ -133,6 +135,7 @@ def _paragraphs(
         paragraphs.append(
             {
                 "index": index,
+                "xml_index": xml_index,
                 "text": text,
                 "style": paragraph.style.name if paragraph.style is not None else "",
                 "style_details": style_details,
@@ -141,6 +144,13 @@ def _paragraphs(
             }
         )
     return paragraphs
+
+
+def _xml_paragraph_indices(doc: Document) -> dict[Any, int]:
+    return {
+        paragraph: index
+        for index, paragraph in enumerate(doc.element.body.iter(f"{W_NS}p"), start=1)
+    }
 
 
 def _tables(
