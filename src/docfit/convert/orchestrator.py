@@ -1,15 +1,16 @@
 from __future__ import annotations
 
+from copy import deepcopy
 import shutil
 from pathlib import Path
 from typing import Any
 
-from docfit.core.io import read_json
+from docfit.core.io import read_json, sha256_file
 from docfit.core.models import Finding, StageResult
 from docfit.core.status import StageRunState, Status, merge_statuses
 from docfit.harness.coverage import coverage_gate_findings
 from docfit.harness.generated_template_gap import evaluate_generated_template_gap
-from docfit.harness.profiles import BOOTSTRAP_PROFILE, REAL_CORE_SCHOOLS
+from docfit.harness.profiles import BOOTSTRAP_PROFILE
 from docfit.harness.product_quality import (
     BUSINESS_ACCEPTANCE_STAGES,
     audit_e2e_case,
@@ -100,14 +101,59 @@ def _merge_generated_template_gap(
         template_result.blocked_at = gap_result.blocked_at
 
 
-def _generated_template_docx_for_school(root: Path, school_id: str) -> Path | None:
-    for school in REAL_CORE_SCHOOLS:
-        if str(school.get("school_id")) == school_id:
-            configured = school.get("generated_template_docx")
-            if configured is None:
-                return None
-            return root / configured
-    return None
+def _run_template_generation_for_pipeline(
+    template_docx: Path,
+    out_dir: Path,
+) -> StageResult:
+    generation_out_dir = out_dir / "template_generation"
+    result = generate_template(template_docx, generation_out_dir)
+    write_template_generation_outputs(generation_out_dir, result)
+    _write_stage_report(generation_out_dir, result)
+    return result
+
+
+def _merge_template_generation_result(
+    template_result: StageResult,
+    generation_result: StageResult,
+) -> None:
+    generation_findings = _renumber_findings(
+        generation_result.findings,
+        start_index=len(template_result.findings) + 1,
+    )
+    template_result.findings.extend(generation_findings)
+    template_result.status = merge_statuses(
+        [template_result.status, generation_result.status]
+    )
+    template_result.coverage.update(generation_result.coverage)
+    for key, path in generation_result.artifact_paths.items():
+        template_result.artifact_paths[f"template_generate.{key}"] = path
+    if template_result.blocked_at is None and generation_result.blocked_at is not None:
+        template_result.blocked_at = generation_result.blocked_at
+
+
+def _bind_generated_template_to_artifact(
+    template_artifact: dict[str, Any],
+    generated_template_docx: Path,
+    generation_result: StageResult,
+) -> dict[str, Any]:
+    bound = deepcopy(template_artifact)
+    provenance = bound.setdefault("provenance", {})
+    source_template_docx = provenance.get("template_docx")
+    if source_template_docx is not None:
+        provenance["source_template_docx"] = source_template_docx
+    provenance["template_docx"] = str(generated_template_docx)
+    provenance["generated_template_docx"] = str(generated_template_docx)
+    manifest_path = generation_result.artifact_paths.get("template_generation_manifest")
+    if manifest_path is not None:
+        provenance["template_generation_manifest"] = str(manifest_path)
+    input_hashes = bound.setdefault("input_hashes", {})
+    if generated_template_docx.exists():
+        input_hashes["generated_template_docx"] = sha256_file(generated_template_docx)
+    status_notes = bound.setdefault("status_notes", [])
+    status_notes.append(
+        "e2e/render use generated_template.docx from the template generation stage"
+    )
+    return bound
 
 
 def _merge_findings_into_stage_statuses(
@@ -147,10 +193,20 @@ def run_template_eval(root: Path, school_id: str, template_docx: Path, out_dir: 
         if standard_findings and result.status == Status.PASS:
             result.status = Status.UNKNOWN
         if is_real_core_bundle(bundle):
-            generated_template_docx = _generated_template_docx_for_school(
-                root,
-                school_id,
+            generation_result = _run_template_generation_for_pipeline(
+                template_docx,
+                out_dir,
             )
+            _merge_template_generation_result(result, generation_result)
+            generated_template_docx = generation_result.artifact_paths.get(
+                "generated_template_docx"
+            )
+            if generated_template_docx is not None and generated_template_docx.exists():
+                result.artifacts["template_artifact"] = _bind_generated_template_to_artifact(
+                    result.artifacts["template_artifact"],
+                    generated_template_docx,
+                    generation_result,
+                )
             gap_result = evaluate_generated_template_gap(
                 bundle,
                 generated_template_docx or root / "inputs/generated_template.docx",
@@ -360,9 +416,23 @@ def run_e2e_eval(
     template_result.findings = standard_findings + template_result.findings
     if standard_findings and template_result.status == Status.PASS:
         template_result.status = Status.UNKNOWN
-    write_template_outputs(out_dir, template_result)
     if real_core_run:
-        generated_template_docx = _generated_template_docx_for_school(root, school_id)
+        generation_result = _run_template_generation_for_pipeline(
+            bundle.template_docx,
+            out_dir,
+        )
+        _merge_template_generation_result(template_result, generation_result)
+        generated_template_docx = generation_result.artifact_paths.get(
+            "generated_template_docx"
+        )
+        if generated_template_docx is not None and generated_template_docx.exists():
+            template_result.artifacts["template_artifact"] = (
+                _bind_generated_template_to_artifact(
+                    template_result.artifacts["template_artifact"],
+                    generated_template_docx,
+                    generation_result,
+                )
+            )
         gap_result = evaluate_generated_template_gap(
             bundle,
             generated_template_docx or root / "inputs/generated_template.docx",
@@ -377,6 +447,7 @@ def run_e2e_eval(
             BOOTSTRAP_PROFILE.capabilities_for_stage("template"),
         ),
     )
+    write_template_outputs(out_dir, template_result)
     stage_statuses["template"] = template_result.status.value
     stage_run_states["template"] = StageRunState.RAN.value
     all_findings = template_result.findings

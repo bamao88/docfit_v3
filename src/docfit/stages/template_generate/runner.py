@@ -1,19 +1,70 @@
 from __future__ import annotations
 
+import re
 import shutil
 from pathlib import Path
 from typing import Any
 
 from docx import Document
+from docx.oxml import OxmlElement
+from docx.table import _Cell
+from docx.text.paragraph import Paragraph
 
 from docfit.core.io import now_iso, sha256_file, sha256_json, write_json
 from docfit.core.models import StageResult, make_finding
 from docfit.core.status import Status
+from docfit.harness import template_units
+from docfit.harness.generated_template_inspector import (
+    inspect_generated_template_docx,
+    iter_visible_text_entries,
+)
 from docfit.ooxml.package import is_valid_docx
 
 
 DEFAULT_TEMPLATE_GENERATION_STRATEGY = "source_copy_scaffold"
 BODY_SLOT_MARKER = "[[DOCFIT_SLOT:body]]"
+
+UNIT_DEFINITIONS = (
+    ("cover", "封面", ("封面", "题名", "论文题目", "学校", "学号", "指导教师")),
+    ("integrity_statement", "诚信声明", ("诚信声明", "原创性声明", "授权书")),
+    ("toc", "目录", ("目录", "目 录")),
+    ("abstract_cn", "中文摘要", ("摘要", "摘 要", "关键词")),
+    ("abstract_en", "英文摘要", ("abstract", "key words", "keywords")),
+    ("body_main", "正文", ("正文", "绪论", "第一章", "1 ")),
+    ("references", "参考文献", ("参考文献", "references")),
+    ("acknowledgement", "致谢", ("致谢", "acknowledgement")),
+    ("appendix", "附录", ("附录", "appendix")),
+    ("post_forms", "后置固定表单", ("任务书", "开题", "评审", "答辩", "成绩评定")),
+)
+
+FILLABLE_MARKERS = ("××", "□□", "____", "——", "：", ":")
+FILLABLE_LABELS = (
+    "题名",
+    "题目",
+    "姓名",
+    "学号",
+    "学院",
+    "专业",
+    "班级",
+    "教师",
+    "日期",
+    "摘要正文",
+    "关键词",
+)
+MANUAL_ONLY_MARKERS = ("签名", "年月日", "年  月  日", "意见", "成绩", "评定")
+GENERATED_MARKERS = ("目录", "页码", "编号", "图目录", "表目录", "公式")
+INSTRUCTION_MARKERS = (
+    "格式",
+    "要求",
+    "说明",
+    "模板",
+    "几号",
+    "号字",
+    "空一行",
+    "倍行距",
+    "页边距",
+    "附件",
+)
 
 
 def generate_template(
@@ -62,69 +113,46 @@ def generate_template(
             blocked_at="template_generate",
         )
 
-    generated_template_docx = out_dir / "generated_template.docx"
-    generated_template_docx.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(source_template_docx, generated_template_docx)
-
-    actions_executed: list[dict[str, Any]] = [
-        {
-            "action_id": "a_001",
-            "action_type": "copy_source_docx",
-            "unit_id": None,
-            "element_id": None,
-            "source_ref": str(source_template_docx),
-            "output_ref": str(generated_template_docx),
-            "status": "executed",
-            "reason": "source_copy_scaffold first copies the whole source Word as the generation base",
-        }
-    ]
-    slots: list[dict[str, Any]] = []
-    slot_action, slot = _ensure_body_slot(generated_template_docx)
-    actions_executed.append(slot_action)
-    slots.append(slot)
-
-    actions_deferred = _deferred_actions()
-    plan = build_template_generation_plan(
+    request = build_template_generation_request(
         source_template_docx,
+        out_dir,
         strategy=strategy,
-        actions=[
-            {
-                "action_id": "a_001",
-                "action_type": "copy_source_docx",
-                "unit_id": None,
-                "element_id": None,
-                "source_ref": str(source_template_docx),
-                "target_ref": str(generated_template_docx),
-                "status": "planned",
-                "reason": "create a real generated_template.docx scaffold",
-            },
-            {
-                "action_id": "a_002",
-                "action_type": "create_or_preserve_body_slot",
-                "unit_id": "body_main",
-                "element_id": "slot_body_start",
-                "source_ref": None,
-                "target_ref": slot["output_ref"],
-                "status": "planned",
-                "reason": "make the first scaffold usable by later placement/render work",
-            },
-            *actions_deferred,
-        ],
+    )
+    source_tree = inspect_source_template_docx(source_template_docx)
+    discovered_rules = infer_template_rules(source_tree)
+    template_artifact = build_template_artifact(request, source_tree, discovered_rules)
+    decisions = build_template_unit_decisions(template_artifact)
+    plan = build_template_generation_plan(
+        request,
+        template_artifact=template_artifact,
+        decisions=decisions,
+    )
+    generated_template_docx = out_dir / "generated_template.docx"
+    execution = execute_template_generation_plan(
+        source_template_docx,
+        generated_template_docx,
+        plan,
     )
     manifest = build_template_generation_manifest(
-        source_template_docx=source_template_docx,
-        generated_template_docx=generated_template_docx,
-        strategy=strategy,
+        request=request,
+        source_tree=source_tree,
+        discovered_rules=discovered_rules,
+        template_artifact=template_artifact,
+        decisions=decisions,
         plan=plan,
-        slots=slots,
-        actions_executed=actions_executed,
-        actions_deferred=actions_deferred,
+        generated_template_docx=generated_template_docx,
+        execution=execution,
     )
 
     return StageResult(
         "template_generate",
         Status.PASS,
         artifacts={
+            "template_generation_request": request,
+            "source_template_tree": source_tree,
+            "discovered_template_rules": discovered_rules,
+            "template_artifact": template_artifact,
+            "template_unit_decisions": decisions,
             "template_generation_plan": plan,
             "template_generation_manifest": manifest,
         },
@@ -132,72 +160,430 @@ def generate_template(
         coverage=_coverage(
             input_exists=True,
             input_valid_docx=True,
-            output_docx=True,
+            source_tree=bool(source_tree.get("layers", {}).get("body_flow")),
+            discovered_rules=bool(discovered_rules.get("units")),
+            template_artifact=bool(template_artifact.get("data", {}).get("units")),
+            decisions=bool(decisions.get("units")),
+            generation_plan=bool(plan.get("actions")),
+            output_docx=generated_template_docx.exists(),
             manifest=True,
-            body_slot=True,
-            deferred_actions_recorded=True,
+            body_slot=bool(manifest.get("slots")),
         ),
         user_message=(
-            "template_generate wrote a source-copy scaffold only; run template-gap "
-            "before using the generated template as quality evidence."
+            "template_generate produced a complete stage artifact chain; "
+            "template quality still belongs to template-gap and real-core gates."
         ),
     )
 
 
-def build_template_generation_plan(
+def build_template_generation_request(
     source_template_docx: Path,
+    out_dir: Path,
     *,
     strategy: str = DEFAULT_TEMPLATE_GENERATION_STRATEGY,
-    actions: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
+    return {
+        "artifact_type": "template_generation_request",
+        "artifact_version": "1.0",
+        "created_at": now_iso(),
+        "source_template_docx": str(source_template_docx),
+        "source_template_hash": sha256_file(source_template_docx),
+        "out_dir": str(out_dir),
+        "strategy": strategy,
+        "optional_labels": {},
+    }
+
+
+def inspect_source_template_docx(source_template_docx: Path) -> dict[str, Any]:
+    inspected = inspect_generated_template_docx(source_template_docx)
+    body_flow = _body_flow_from_inspection(inspected)
+    return {
+        "artifact_type": "source_template_tree",
+        "artifact_version": "1.0",
+        "producer": {"name": "docfit-template-generate", "version": "0.2.0"},
+        "created_at": now_iso(),
+        "metadata": {
+            "source_template_docx": str(source_template_docx),
+            "source_template_hash": sha256_file(source_template_docx),
+            "input_exists": inspected.get("input_exists"),
+            "input_valid_docx": inspected.get("input_valid_docx"),
+        },
+        "layers": {
+            "package_global": {
+                "numbering_definitions": inspected.get("data", {}).get(
+                    "numbering_definitions", []
+                ),
+            },
+            "section_rules": inspected.get("data", {}).get("sections", []),
+            "header_footer": inspected.get("data", {}).get("headers_footers", []),
+            "body_flow": body_flow,
+            "embedded_resources": [],
+            "unknown_objects": inspected.get("data", {}).get(
+                "unknown_visible_objects", []
+            ),
+        },
+        "indexes": {
+            "by_source_ref": {
+                item.get("source_ref"): item.get("node_id")
+                for item in body_flow
+                if item.get("source_ref")
+            },
+            "body_order": [item.get("node_id") for item in body_flow],
+        },
+        "warnings": _source_tree_warnings(inspected),
+        "data": inspected.get("data", {}),
+    }
+
+
+def infer_template_rules(source_tree: dict[str, Any]) -> dict[str, Any]:
+    entries = _body_entries(source_tree)
+    units = _infer_units(entries)
+    return {
+        "artifact_type": "discovered_template_rules",
+        "artifact_version": "1.0",
+        "producer": {"name": "docfit-template-generate", "version": "0.2.0"},
+        "created_at": now_iso(),
+        "source_template_hash": source_tree.get("metadata", {}).get(
+            "source_template_hash"
+        ),
+        "discovery_method": "deterministic_keyword_and_structure_heuristics",
+        "units": units,
+        "unknowns": _rule_unknowns(source_tree, units),
+    }
+
+
+def build_template_artifact(
+    request: dict[str, Any],
+    source_tree: dict[str, Any],
+    discovered_rules: dict[str, Any],
+) -> dict[str, Any]:
+    units = discovered_rules.get("units", [])
+    paragraphs = source_tree.get("data", {}).get("paragraphs", [])
+    instruction_paragraphs = _instruction_paragraphs_from_units(units)
+    template_units.apply_instruction_policy(paragraphs, instruction_paragraphs)
+    slots: list[dict[str, Any]] = []
+    regions: list[dict[str, Any]] = []
+    template_units.extend_slots_and_regions_from_units(slots, regions, units)
+    if not any(slot.get("slot_id") == "slot_body_start" for slot in slots):
+        slots.append(
+            {
+                "slot_id": "slot_body_start",
+                "unit_id": "body_main",
+                "element_id": "slot_body_start",
+                "kind": "body_content",
+                "writable": True,
+                "required": True,
+                "accepted_content_kinds": ["heading", "paragraph", "table", "image"],
+                "source_ref": "template-generate:body-slot",
+                "policy": "fill",
+            }
+        )
+    if not any(region.get("region_id") == "body_main" for region in regions):
+        regions.append(
+            {
+                "region_id": "body_main",
+                "kind": "body",
+                "required": True,
+                "anchors": ["slot_body_start"],
+                "source_ref": "template-generate:body-slot",
+                "policy": "fill",
+            }
+        )
+    return {
+        "artifact_type": "template_artifact",
+        "artifact_version": "1.0",
+        "producer": {"name": "docfit-template-generate", "version": "0.2.0"},
+        "created_at": now_iso(),
+        "input_hashes": {
+            "template_docx": request.get("source_template_hash"),
+            "source_template_tree": sha256_json(source_tree),
+            "discovered_template_rules": sha256_json(discovered_rules),
+        },
+        "provenance": {"template_docx": request.get("source_template_docx")},
+        "status_notes": [
+            "units are inferred from source Word structure and deterministic keywords",
+            "formal quality still requires template-gap against accepted standards",
+        ],
+        "data": {
+            "source_template_tree": "source_template_tree.json",
+            "discovered_template_rules": "discovered_template_rules.json",
+            "page_setup": {
+                "sections": source_tree.get("layers", {}).get("section_rules", [])
+            },
+            "styles": _style_inventory(source_tree),
+            "paragraphs": paragraphs,
+            "units": units,
+            "instruction_paragraphs": instruction_paragraphs,
+            "regions": regions,
+            "slots": slots,
+            "protected_zones": template_units.protected_zones_from_units(units),
+            "numbering": source_tree.get("data", {}).get("numbering_definitions", []),
+            "headers_footers": source_tree.get("layers", {}).get("header_footer", []),
+            "required_fields": template_units.required_fields_from_units(units),
+            "unsupported": source_tree.get("layers", {}).get("unknown_objects", []),
+        },
+    }
+
+
+def build_template_unit_decisions(template_artifact: dict[str, Any]) -> dict[str, Any]:
+    units: list[dict[str, Any]] = []
+    for unit in template_artifact.get("data", {}).get("units", []):
+        unit_id = str(unit.get("unit_id"))
+        decisions: list[dict[str, Any]] = []
+        if any(
+            element.get("policy") in {"fixed", "manual_only"}
+            for element in unit.get("elements", [])
+        ):
+            decisions.append(
+                {
+                    "decision_id": f"{unit_id}.copy_fixed_block",
+                    "decision_type": "copy_fixed_block",
+                    "unit_id": unit_id,
+                    "element_id": None,
+                    "source_ref": unit.get("source_refs", [None])[0],
+                    "reason": "preserve fixed or manual-only source template content",
+                }
+            )
+        for element in unit.get("elements", []):
+            policy = element.get("policy")
+            element_id = element.get("element_id")
+            source_ref = _first_source_ref(element)
+            if policy == "remove_instruction":
+                decision_type = "remove_instruction_text"
+            elif policy == "fill":
+                decision_type = "create_fillable_slot"
+            elif policy == "generated":
+                decision_type = "create_generated_field_placeholder"
+            elif policy == "manual_only":
+                decision_type = "create_manual_placeholder"
+            else:
+                continue
+            decisions.append(
+                {
+                    "decision_id": f"{unit_id}.{element_id}.{decision_type}",
+                    "decision_type": decision_type,
+                    "unit_id": unit_id,
+                    "element_id": element_id,
+                    "element_name": element.get("name"),
+                    "source_ref": source_ref,
+                    "reason": _decision_reason(decision_type),
+                }
+            )
+        units.append(
+            {
+                "unit_id": unit_id,
+                "unit_name": unit.get("name"),
+                "source_policy": unit.get("policy"),
+                "generation_policy": "unit_actions",
+                "decisions": decisions,
+                "unresolved_questions": [],
+            }
+        )
+    return {
+        "artifact_type": "template_unit_decisions",
+        "artifact_version": "1.0",
+        "producer": {"name": "docfit-template-generate", "version": "0.2.0"},
+        "created_at": now_iso(),
+        "input_hashes": {"template_artifact": sha256_json(template_artifact)},
+        "units": units,
+    }
+
+
+def build_template_generation_plan(
+    request: dict[str, Any],
+    *,
+    template_artifact: dict[str, Any],
+    decisions: dict[str, Any],
+) -> dict[str, Any]:
+    actions: list[dict[str, Any]] = [
+        {
+            "action_id": "a_001",
+            "action_type": "copy_source_docx",
+            "unit_id": None,
+            "element_id": None,
+            "source_ref": request.get("source_template_docx"),
+            "target_ref": "generated_template.docx",
+            "status": "planned",
+            "reason": "create the generated Word from the source template package",
+        }
+    ]
+    next_id = 2
+    for unit in decisions.get("units", []):
+        for decision in unit.get("decisions", []):
+            action_type = _action_type_for_decision(decision["decision_type"])
+            actions.append(
+                {
+                    "action_id": f"a_{next_id:03d}",
+                    "action_type": action_type,
+                    "unit_id": decision.get("unit_id"),
+                    "element_id": decision.get("element_id"),
+                    "source_ref": decision.get("source_ref"),
+                    "target_ref": _target_ref_for_decision(decision),
+                    "status": "planned",
+                    "reason": decision.get("reason"),
+                }
+            )
+            next_id += 1
+    if not any(action.get("action_type") == "ensure_body_slot" for action in actions):
+        actions.append(
+            {
+                "action_id": f"a_{next_id:03d}",
+                "action_type": "ensure_body_slot",
+                "unit_id": "body_main",
+                "element_id": "slot_body_start",
+                "source_ref": None,
+                "target_ref": BODY_SLOT_MARKER,
+                "status": "planned",
+                "reason": "guarantee a stable write position for later content placement",
+            }
+        )
     return {
         "artifact_type": "template_generation_plan",
         "artifact_version": "1.0",
-        "producer": {"name": "docfit-template-generate", "version": "0.1.0"},
+        "producer": {"name": "docfit-template-generate", "version": "0.2.0"},
         "created_at": now_iso(),
-        "strategy": strategy,
-        "source_template_docx": str(source_template_docx),
+        "strategy": request.get("strategy"),
+        "source_template_docx": request.get("source_template_docx"),
         "input_hashes": {
-            "source_template_docx": sha256_file(source_template_docx)
-            if source_template_docx.exists()
-            else None
+            "source_template_docx": request.get("source_template_hash"),
+            "template_artifact": sha256_json(template_artifact),
+            "template_unit_decisions": sha256_json(decisions),
         },
-        "actions": actions or [],
+        "actions": actions,
+    }
+
+
+def execute_template_generation_plan(
+    source_template_docx: Path,
+    generated_template_docx: Path,
+    plan: dict[str, Any],
+) -> dict[str, Any]:
+    generated_template_docx.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source_template_docx, generated_template_docx)
+    doc = Document(generated_template_docx)
+    paragraph_map = {
+        index: paragraph for index, paragraph in enumerate(doc.paragraphs, start=1)
+    }
+    executed: list[dict[str, Any]] = []
+    review: list[dict[str, Any]] = []
+    slots: list[dict[str, Any]] = []
+    generated_fields: list[dict[str, Any]] = []
+    paragraphs_to_remove: list[Paragraph] = []
+
+    for action in plan.get("actions", []):
+        action_type = action.get("action_type")
+        if action_type == "copy_source_docx":
+            executed.append(_executed(action, output_ref=str(generated_template_docx)))
+        elif action_type == "remove_instruction_text":
+            target = _paragraph_for_ref(paragraph_map, action.get("source_ref"))
+            target_cell = _cell_for_ref(doc, action.get("source_ref"))
+            if target is None and target_cell is None:
+                review.append(_needs_review(action, "source node not found"))
+                continue
+            if target is not None:
+                paragraphs_to_remove.append(target)
+            if target_cell is not None:
+                _clear_cell(target_cell)
+            executed.append(_executed(action, output_ref=action.get("source_ref")))
+        elif action_type == "create_fillable_slot":
+            marker = _slot_marker(action)
+            output_ref = _insert_marker(doc, paragraph_map, action.get("source_ref"), marker)
+            slot = _slot_from_action(action, marker=marker, output_ref=output_ref)
+            slots.append(slot)
+            executed.append(_executed(action, output_ref=output_ref))
+        elif action_type == "create_generated_field_placeholder":
+            marker = _generated_marker(action)
+            output_ref = _insert_marker(doc, paragraph_map, action.get("source_ref"), marker)
+            generated_fields.append(
+                {
+                    "field_id": marker.strip("[]"),
+                    "unit_id": action.get("unit_id"),
+                    "element_id": action.get("element_id"),
+                    "marker": marker,
+                    "output_ref": output_ref,
+                }
+            )
+            executed.append(_executed(action, output_ref=output_ref))
+        elif action_type == "create_manual_placeholder":
+            executed.append(_executed(action, output_ref=action.get("source_ref")))
+        elif action_type == "protect_block":
+            executed.append(_executed(action, output_ref=action.get("source_ref")))
+        elif action_type == "ensure_body_slot":
+            marker = BODY_SLOT_MARKER
+            existing_ref = _find_marker_ref(doc, marker)
+            output_ref = existing_ref or _append_marker(doc, marker)
+            slots.append(
+                {
+                    "slot_id": "slot_body_start",
+                    "unit_id": "body_main",
+                    "element_id": "slot_body_start",
+                    "kind": "body_content",
+                    "marker": marker,
+                    "output_ref": output_ref,
+                    "required": True,
+                }
+            )
+            executed.append(_executed(action, output_ref=output_ref))
+        else:
+            review.append(_needs_review(action, f"unsupported action type: {action_type}"))
+
+    for paragraph in dict.fromkeys(paragraphs_to_remove):
+        _remove_paragraph(paragraph)
+    doc.save(generated_template_docx)
+    return {
+        "actions_executed": executed,
+        "actions_requiring_review": review,
+        "slots": _dedupe_by_key(slots, "slot_id"),
+        "generated_fields": generated_fields,
     }
 
 
 def build_template_generation_manifest(
     *,
-    source_template_docx: Path,
-    generated_template_docx: Path,
-    strategy: str,
+    request: dict[str, Any],
+    source_tree: dict[str, Any],
+    discovered_rules: dict[str, Any],
+    template_artifact: dict[str, Any],
+    decisions: dict[str, Any],
     plan: dict[str, Any],
-    slots: list[dict[str, Any]],
-    actions_executed: list[dict[str, Any]],
-    actions_deferred: list[dict[str, Any]],
+    generated_template_docx: Path,
+    execution: dict[str, Any],
 ) -> dict[str, Any]:
     return {
         "artifact_type": "template_generation_manifest",
         "artifact_version": "1.0",
-        "producer": {"name": "docfit-template-generate", "version": "0.1.0"},
+        "producer": {"name": "docfit-template-generate", "version": "0.2.0"},
         "created_at": now_iso(),
-        "strategy": strategy,
+        "strategy": request.get("strategy"),
         "input_hashes": {
-            "source_template_docx": sha256_file(source_template_docx),
+            "source_template_docx": request.get("source_template_hash"),
+            "source_template_tree": sha256_json(source_tree),
+            "discovered_template_rules": sha256_json(discovered_rules),
+            "template_artifact": sha256_json(template_artifact),
+            "template_unit_decisions": sha256_json(decisions),
             "template_generation_plan": sha256_json(plan),
         },
         "output": {
             "generated_template_docx": str(generated_template_docx),
             "generated_template_docx_hash": sha256_file(generated_template_docx),
         },
-        "slots": slots,
-        "actions_executed": actions_executed,
-        "actions_deferred": actions_deferred,
+        "slots": execution.get("slots", []),
+        "generated_fields": execution.get("generated_fields", []),
+        "actions_executed": execution.get("actions_executed", []),
+        "actions_requiring_review": execution.get("actions_requiring_review", []),
     }
 
 
 def write_template_generation_outputs(out_dir: Path, result: StageResult) -> None:
-    for key in ["template_generation_plan", "template_generation_manifest"]:
+    for key in [
+        "template_generation_request",
+        "source_template_tree",
+        "discovered_template_rules",
+        "template_artifact",
+        "template_unit_decisions",
+        "template_generation_plan",
+        "template_generation_manifest",
+    ]:
         artifact = result.artifacts.get(key)
         if artifact is None:
             continue
@@ -206,105 +592,575 @@ def write_template_generation_outputs(out_dir: Path, result: StageResult) -> Non
         result.artifact_paths[key] = path
 
 
-def _ensure_body_slot(generated_template_docx: Path) -> tuple[dict[str, Any], dict[str, Any]]:
-    doc = Document(generated_template_docx)
-    for index, paragraph in enumerate(doc.paragraphs, start=1):
-        if BODY_SLOT_MARKER in paragraph.text:
-            output_ref = f"word/document.xml:p[{index}]"
-            return (
-                {
-                    "action_id": "a_002",
-                    "action_type": "preserve_existing_body_slot",
-                    "unit_id": "body_main",
-                    "element_id": "slot_body_start",
-                    "source_ref": output_ref,
-                    "output_ref": output_ref,
-                    "status": "executed",
-                    "reason": "source Word already contained the DocFit body slot marker",
-                },
-                _body_slot(output_ref=output_ref, source="source_template"),
-            )
+def _body_flow_from_inspection(tree: dict[str, Any]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for entry in iter_visible_text_entries(tree):
+        order = entry.get("order") or 0
+        node_id = f"body_{len(items) + 1:04d}"
+        items.append(
+            {
+                "node_id": node_id,
+                "structure_layer": "header_footer"
+                if entry.get("kind") in {"header", "footer"}
+                else "body_flow",
+                "flow_item_type": entry.get("kind"),
+                "kind": entry.get("kind"),
+                "source_ref": entry.get("source_ref"),
+                "part_name": _part_name(entry.get("source_ref")),
+                "order": order,
+                "parent_ref": None,
+                "container_ref": entry.get("table_source_ref"),
+                "visible": bool(entry.get("text")),
+                "text": entry.get("text", ""),
+                "style": entry.get("style", ""),
+                "style_details": entry.get("style_details", {}),
+                "structural_signals": _structural_signals(entry),
+            }
+        )
+    return sorted(items, key=lambda item: (float(item.get("order") or 0), item["node_id"]))
 
-    doc.add_paragraph(BODY_SLOT_MARKER)
-    doc.save(generated_template_docx)
-    output_ref = f"word/document.xml:p[{len(doc.paragraphs)}]"
-    return (
-        {
-            "action_id": "a_002",
-            "action_type": "append_body_slot_marker",
-            "unit_id": "body_main",
-            "element_id": "slot_body_start",
-            "source_ref": None,
-            "output_ref": output_ref,
-            "status": "executed",
-            "reason": "first scaffold adds a stable body slot marker when the source Word has none",
-        },
-        _body_slot(output_ref=output_ref, source="generated_scaffold"),
+
+def _source_tree_warnings(inspected: dict[str, Any]) -> list[dict[str, Any]]:
+    warnings: list[dict[str, Any]] = []
+    for item in inspected.get("data", {}).get("unknown_visible_objects", []):
+        warnings.append(
+            {
+                "code": "unknown_visible_object",
+                "message": item.get("reason", "unknown visible object"),
+                "source_ref": item.get("source_ref"),
+                "severity": "review",
+            }
+        )
+    return warnings
+
+
+def _body_entries(source_tree: dict[str, Any]) -> list[dict[str, Any]]:
+    entries = []
+    for item in source_tree.get("layers", {}).get("body_flow", []):
+        if item.get("structure_layer") != "body_flow":
+            continue
+        if item.get("text"):
+            entries.append(item)
+    return entries
+
+
+def _infer_units(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not entries:
+        return [
+            {
+                "unit_id": "body_main",
+                "name": "正文",
+                "order": 10,
+                "status": "required",
+                "policy": "fill",
+                "source_refs": [],
+                "elements": [],
+            }
+        ]
+    anchors = _unit_anchors(entries)
+    units: list[dict[str, Any]] = []
+    for anchor_index, anchor in enumerate(anchors):
+        next_start = (
+            anchors[anchor_index + 1]["entry_index"]
+            if anchor_index + 1 < len(anchors)
+            else len(entries)
+        )
+        region_entries = entries[anchor["entry_index"] : next_start]
+        units.append(
+            {
+                "unit_id": anchor["unit_id"],
+                "name": anchor["name"],
+                "order": (anchor_index + 1) * 10,
+                "status": "required",
+                "policy": _unit_policy(anchor["unit_id"]),
+                "source_refs": [anchor["source_ref"]],
+                "page": {},
+                "elements": _infer_elements(anchor, region_entries),
+            }
+        )
+    return units
+
+
+def _unit_anchors(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    anchors: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for index, entry in enumerate(entries):
+        unit_id, name = _unit_for_text(str(entry.get("text", "")), index)
+        if unit_id is None or unit_id in seen:
+            continue
+        anchors.append(
+            {
+                "entry_index": index,
+                "unit_id": unit_id,
+                "name": name,
+                "source_ref": entry.get("source_ref"),
+                "text": entry.get("text", ""),
+            }
+        )
+        seen.add(unit_id)
+    if not anchors or anchors[0]["entry_index"] != 0:
+        anchors.insert(
+            0,
+            {
+                "entry_index": 0,
+                "unit_id": "cover",
+                "name": "封面",
+                "source_ref": entries[0].get("source_ref"),
+                "text": entries[0].get("text", ""),
+            },
+        )
+    if "body_main" not in {anchor["unit_id"] for anchor in anchors}:
+        body_index = _first_body_like_index(entries)
+        anchors.append(
+            {
+                "entry_index": body_index,
+                "unit_id": "body_main",
+                "name": "正文",
+                "source_ref": entries[body_index].get("source_ref"),
+                "text": entries[body_index].get("text", ""),
+            }
+        )
+    return sorted(
+        _dedupe_anchors(anchors),
+        key=lambda item: (int(item["entry_index"]), item["unit_id"]),
     )
 
 
-def _body_slot(*, output_ref: str, source: str) -> dict[str, Any]:
+def _infer_elements(anchor: dict[str, Any], entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    elements: list[dict[str, Any]] = []
+    for entry in entries:
+        text = str(entry.get("text", "")).strip()
+        if not text:
+            continue
+        policy = _element_policy(anchor["unit_id"], text, entry)
+        elements.append(
+            {
+                "element_id": f"e_{len(elements) + 1:03d}",
+                "name": _element_name(anchor["unit_id"], text, policy),
+                "order": len(elements) + 1,
+                "policy": policy,
+                "type": _element_type(policy),
+                "fill": "yes" if policy == "fill" else "no",
+                "content": text if policy != "remove_instruction" else "",
+                "style": _style_summary(entry),
+                "position": entry.get("source_ref", ""),
+                "relationship": "",
+                "source_refs": [entry.get("source_ref", "")],
+            }
+        )
+    if not elements:
+        elements.append(
+            {
+                "element_id": "e_001",
+                "name": anchor["name"],
+                "order": 1,
+                "policy": "fill" if anchor["unit_id"] == "body_main" else "fixed",
+                "content": anchor.get("text", ""),
+                "style": "",
+                "source_refs": [anchor.get("source_ref", "")],
+            }
+        )
+    return elements
+
+
+def _rule_unknowns(source_tree: dict[str, Any], units: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    unknowns = [
+        {
+            "source_ref": item.get("source_ref"),
+            "reason": item.get("reason", "unknown visible object"),
+            "recommended_disposition": "preserve_or_review",
+        }
+        for item in source_tree.get("layers", {}).get("unknown_objects", [])
+    ]
+    if len(units) <= 1:
+        unknowns.append(
+            {
+                "source_ref": None,
+                "reason": "template unit discovery found one or fewer units",
+                "recommended_disposition": "review_template_rule_discovery",
+            }
+        )
+    return unknowns
+
+
+def _instruction_paragraphs_from_units(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    paragraphs: list[dict[str, Any]] = []
+    for unit in units:
+        for element in unit.get("elements", []):
+            if element.get("policy") != "remove_instruction":
+                continue
+            source_ref = _first_source_ref(element)
+            paragraph_index = _paragraph_index(source_ref)
+            if paragraph_index is None:
+                continue
+            paragraphs.append(
+                {
+                    "source_ref": source_ref,
+                    "paragraph_index": paragraph_index,
+                    "text": element.get("content") or element.get("name", ""),
+                    "policy": "strip",
+                    "final_disposition": "omit_from_final",
+                    "reason": "detected template instruction text should not appear in the generated fillable template",
+                }
+            )
+    return paragraphs
+
+
+def _style_inventory(source_tree: dict[str, Any]) -> list[dict[str, Any]]:
+    styles: dict[str, dict[str, Any]] = {}
+    for paragraph in source_tree.get("data", {}).get("paragraphs", []):
+        style = paragraph.get("style")
+        if not style:
+            continue
+        styles.setdefault(str(style), {"name": style, "count": 0})
+        styles[str(style)]["count"] += 1
+    return list(styles.values())
+
+
+def _decision_reason(decision_type: str) -> str:
     return {
-        "slot_id": "slot_body_start",
-        "unit_id": "body_main",
-        "element_id": "slot_body_start",
+        "remove_instruction_text": "instruction/example text should not enter the fillable template",
+        "create_fillable_slot": "fillable source element needs a stable marker for later placement",
+        "create_generated_field_placeholder": "generated element needs a marker for later field generation",
+        "create_manual_placeholder": "manual-only content is preserved but not automatically filled",
+    }.get(decision_type, "template generation decision")
+
+
+def _action_type_for_decision(decision_type: str) -> str:
+    return {
+        "copy_fixed_block": "protect_block",
+        "remove_instruction_text": "remove_instruction_text",
+        "create_fillable_slot": "create_fillable_slot",
+        "create_generated_field_placeholder": "create_generated_field_placeholder",
+        "create_manual_placeholder": "create_manual_placeholder",
+    }[decision_type]
+
+
+def _target_ref_for_decision(decision: dict[str, Any]) -> str:
+    decision_type = decision.get("decision_type")
+    if decision_type == "create_fillable_slot":
+        return f"[[DOCFIT_SLOT:{decision.get('unit_id')}.{decision.get('element_id')}]]"
+    if decision_type == "create_generated_field_placeholder":
+        return f"[[DOCFIT_GENERATED:{decision.get('unit_id')}.{decision.get('element_id')}]]"
+    return str(decision.get("source_ref") or "")
+
+
+def _unit_for_text(text: str, index: int) -> tuple[str | None, str | None]:
+    normalized = _normalize_text(text)
+    for unit_id, name, needles in UNIT_DEFINITIONS:
+        if unit_id == "cover" and index > 12:
+            continue
+        for needle in needles:
+            if _normalize_text(needle) in normalized:
+                return unit_id, name
+    return None, None
+
+
+def _unit_policy(unit_id: str) -> str:
+    if unit_id in {"body_main", "abstract_cn", "abstract_en"}:
+        return "fill"
+    if unit_id in {"toc"}:
+        return "generated"
+    return "fixed"
+
+
+def _element_policy(unit_id: str, text: str, entry: dict[str, Any]) -> str:
+    lowered = text.lower()
+    if _looks_like_instruction(text):
+        return "remove_instruction"
+    if unit_id == "toc" or any(marker.lower() in lowered for marker in GENERATED_MARKERS):
+        return "generated"
+    if any(marker in text for marker in MANUAL_ONLY_MARKERS):
+        return "manual_only"
+    if any(marker in text for marker in FILLABLE_MARKERS) and any(
+        label in text for label in FILLABLE_LABELS
+    ):
+        return "fill"
+    if unit_id in {"abstract_cn", "abstract_en", "body_main"} and not _looks_like_heading(entry):
+        return "fill"
+    return "fixed"
+
+
+def _looks_like_instruction(text: str) -> bool:
+    if template_units.contains_instruction_marker(text):
+        return True
+    if any(marker in text for marker in INSTRUCTION_MARKERS):
+        return True
+    return bool(re.search(r"[（(].*(宋体|黑体|楷体|居中|行距|字号|号字|pt).*[）)]", text))
+
+
+def _element_name(unit_id: str, text: str, policy: str) -> str:
+    if policy == "remove_instruction":
+        return "模板说明文字"
+    if policy == "generated":
+        return "系统生成占位"
+    if policy == "fill":
+        for label in FILLABLE_LABELS:
+            if label in text:
+                return label
+        return "可填写内容"
+    if policy == "manual_only":
+        return "人工填写位置"
+    if len(text) <= 24:
+        return text
+    return f"{UNIT_DEFINITION_NAMES.get(unit_id, unit_id)}固定内容"
+
+
+UNIT_DEFINITION_NAMES = {unit_id: name for unit_id, name, _ in UNIT_DEFINITIONS}
+
+
+def _element_type(policy: str) -> str:
+    return {
+        "fill": "fillable",
+        "generated": "generated",
+        "manual_only": "manual_only",
+        "remove_instruction": "instruction_text",
+    }.get(policy, "fixed_text")
+
+
+def _style_summary(entry: dict[str, Any]) -> str:
+    details = entry.get("style_details") or {}
+    dominant = details.get("dominant_run") or {}
+    paragraph = details.get("paragraph") or {}
+    parts = []
+    if dominant.get("font_names"):
+        parts.append("/".join(str(name) for name in dominant["font_names"]))
+    if dominant.get("font_size_pt"):
+        parts.append(f"{dominant['font_size_pt']}pt")
+    if dominant.get("bold"):
+        parts.append("加粗")
+    if paragraph.get("alignment"):
+        parts.append(str(paragraph["alignment"]))
+    return "；".join(parts)
+
+
+def _structural_signals(entry: dict[str, Any]) -> dict[str, Any]:
+    text = str(entry.get("text", ""))
+    details = entry.get("style_details") or {}
+    paragraph = details.get("paragraph") or {}
+    dominant = details.get("dominant_run") or {}
+    return {
+        "centered": paragraph.get("alignment") == "center",
+        "short_text": len(text.strip()) <= 20,
+        "large_font": (dominant.get("font_size_pt") or 0) >= 16,
+        "bold": bool(dominant.get("bold")),
+        "looks_like_instruction_text": _looks_like_instruction(text),
+        "likely_unit_heading": _looks_like_heading(entry),
+    }
+
+
+def _looks_like_heading(entry: dict[str, Any]) -> bool:
+    text = str(entry.get("text", ""))
+    unit_id, _ = _unit_for_text(text, int(float(entry.get("order") or 0)))
+    details = entry.get("style_details") or {}
+    paragraph = details.get("paragraph") or {}
+    dominant = details.get("dominant_run") or {}
+    short_text = len(text.strip()) <= 20
+    centered = paragraph.get("alignment") == "center"
+    large_font = (dominant.get("font_size_pt") or 0) >= 16
+    return bool(unit_id) or (
+        short_text
+        and (centered or large_font)
+    )
+
+
+def _first_body_like_index(entries: list[dict[str, Any]]) -> int:
+    for index, entry in enumerate(entries):
+        unit_id, _ = _unit_for_text(str(entry.get("text", "")), index)
+        if unit_id == "body_main":
+            return index
+    return max(len(entries) - 1, 0)
+
+
+def _dedupe_anchors(anchors: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for anchor in anchors:
+        unit_id = str(anchor.get("unit_id"))
+        if unit_id in seen:
+            continue
+        deduped.append(anchor)
+        seen.add(unit_id)
+    return deduped
+
+
+def _first_source_ref(item: dict[str, Any]) -> str | None:
+    refs = item.get("source_refs")
+    if isinstance(refs, list) and refs:
+        return str(refs[0])
+    ref = item.get("source_ref")
+    return str(ref) if ref else None
+
+
+def _paragraph_index(source_ref: str | None) -> int | None:
+    if not source_ref:
+        return None
+    match = re.search(r"word/document\.xml:p\[(\d+)\]", source_ref)
+    return int(match.group(1)) if match else None
+
+
+def _paragraph_for_ref(
+    paragraph_map: dict[int, Paragraph],
+    source_ref: str | None,
+) -> Paragraph | None:
+    index = _paragraph_index(source_ref)
+    if index is None:
+        return None
+    return paragraph_map.get(index)
+
+
+def _cell_for_ref(doc: Document, source_ref: str | None) -> _Cell | None:
+    if not source_ref:
+        return None
+    match = re.search(
+        r"word/document\.xml:tbl\[(\d+)\]/tr\[(\d+)\]/tc\[(\d+)\]",
+        source_ref,
+    )
+    if not match:
+        return None
+    table_index, row_index, cell_index = (int(value) - 1 for value in match.groups())
+    try:
+        return doc.tables[table_index].rows[row_index].cells[cell_index]
+    except IndexError:
+        return None
+
+
+def _clear_cell(cell: _Cell) -> None:
+    for paragraph in list(cell.paragraphs):
+        _remove_paragraph(paragraph)
+    if not cell.paragraphs:
+        cell.add_paragraph("")
+
+
+def _insert_marker(
+    doc: Document,
+    paragraph_map: dict[int, Paragraph],
+    source_ref: str | None,
+    marker: str,
+) -> str:
+    target = _paragraph_for_ref(paragraph_map, source_ref)
+    if target is not None:
+        _insert_paragraph_after(target, marker)
+        return f"{source_ref}/after:{marker}"
+    target_cell = _cell_for_ref(doc, source_ref)
+    if target_cell is not None:
+        target_cell.add_paragraph(marker)
+        return f"{source_ref}/p[last]:{marker}"
+    return _append_marker(doc, marker)
+
+
+def _insert_paragraph_after(paragraph: Paragraph, text: str) -> Paragraph:
+    new_element = OxmlElement("w:p")
+    paragraph._p.addnext(new_element)
+    new_paragraph = Paragraph(new_element, paragraph._parent)
+    new_paragraph.add_run(text)
+    return new_paragraph
+
+
+def _append_marker(doc: Document, marker: str) -> str:
+    doc.add_paragraph(marker)
+    return f"word/document.xml:p[{len(doc.paragraphs)}]"
+
+
+def _find_marker_ref(doc: Document, marker: str) -> str | None:
+    for index, paragraph in enumerate(doc.paragraphs, start=1):
+        if marker in paragraph.text:
+            return f"word/document.xml:p[{index}]"
+    return None
+
+
+def _remove_paragraph(paragraph: Paragraph) -> None:
+    element = paragraph._element
+    parent = element.getparent()
+    if parent is not None:
+        parent.remove(element)
+
+
+def _slot_marker(action: dict[str, Any]) -> str:
+    return f"[[DOCFIT_SLOT:{action.get('unit_id')}.{action.get('element_id')}]]"
+
+
+def _generated_marker(action: dict[str, Any]) -> str:
+    return f"[[DOCFIT_GENERATED:{action.get('unit_id')}.{action.get('element_id')}]]"
+
+
+def _slot_from_action(
+    action: dict[str, Any],
+    *,
+    marker: str,
+    output_ref: str,
+) -> dict[str, Any]:
+    return {
+        "slot_id": f"{action.get('unit_id')}.{action.get('element_id')}",
+        "unit_id": action.get("unit_id"),
+        "element_id": action.get("element_id"),
         "kind": "body_content",
-        "marker": BODY_SLOT_MARKER,
+        "marker": marker,
         "output_ref": output_ref,
-        "source": source,
         "required": True,
     }
 
 
-def _deferred_actions() -> list[dict[str, Any]]:
-    return [
-        {
-            "action_id": "d_001",
-            "action_type": "infer_template_rules",
-            "unit_id": None,
-            "element_id": None,
-            "source_ref": None,
-            "target_ref": None,
-            "status": "deferred",
-            "reason": "automatic template rule discovery is not implemented in the first scaffold",
-        },
-        {
-            "action_id": "d_002",
-            "action_type": "remove_instruction_text",
-            "unit_id": None,
-            "element_id": None,
-            "source_ref": None,
-            "target_ref": None,
-            "status": "deferred",
-            "reason": "instruction cleanup needs unit regions before it can be done safely",
-        },
-        {
-            "action_id": "d_003",
-            "action_type": "copy_fixed_blocks_by_unit",
-            "unit_id": None,
-            "element_id": None,
-            "source_ref": None,
-            "target_ref": None,
-            "status": "deferred",
-            "reason": "unit-level copying needs automatic unit boundaries",
-        },
-    ]
+def _executed(action: dict[str, Any], *, output_ref: str | None) -> dict[str, Any]:
+    return {
+        **action,
+        "output_ref": output_ref,
+        "status": "executed",
+    }
+
+
+def _needs_review(action: dict[str, Any], reason: str) -> dict[str, Any]:
+    return {
+        **action,
+        "status": "needs_review",
+        "reason": reason,
+    }
+
+
+def _dedupe_by_key(items: list[dict[str, Any]], key: str) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in items:
+        value = str(item.get(key))
+        if value in seen:
+            continue
+        deduped.append(item)
+        seen.add(value)
+    return deduped
+
+
+def _part_name(source_ref: str | None) -> str:
+    if not source_ref:
+        return ""
+    return source_ref.split(":", 1)[0]
+
+
+def _normalize_text(text: str) -> str:
+    return re.sub(r"\s+", "", text).lower()
 
 
 def _coverage(
     *,
     input_exists: bool,
     input_valid_docx: bool | None = None,
+    source_tree: bool = False,
+    discovered_rules: bool = False,
+    template_artifact: bool = False,
+    decisions: bool = False,
+    generation_plan: bool = False,
     output_docx: bool = False,
     manifest: bool = False,
     body_slot: bool = False,
-    deferred_actions_recorded: bool = False,
 ) -> dict[str, bool]:
     return {
         "template_generation.input_exists": input_exists,
         "template_generation.input_valid_docx": bool(input_valid_docx),
+        "template_generation.source_tree": source_tree,
+        "template_generation.discovered_rules": discovered_rules,
+        "template_generation.template_artifact": template_artifact,
+        "template_generation.decisions": decisions,
+        "template_generation.plan": generation_plan,
         "template_generation.output_docx": output_docx,
         "template_generation.manifest": manifest,
         "template_generation.body_slot": body_slot,
-        "template_generation.deferred_actions_recorded": deferred_actions_recorded,
     }

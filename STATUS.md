@@ -6,8 +6,8 @@ Current focus:
 
 - `real-core-v0` 已从“证据绑定通过”推进到“业务验收 gate 会阻塞当前坏输出”；
   模板 source-fact 解析已经升级为结构化标准逐项验收，生成模板 Word 差距检查
-  现在固定检查 `inputs/simulated-generated-templates/real-core-v0/<school_id>/generated_template.docx`
-  或 CLI 显式传入的 `generated_template.docx`，不再把学校源模板路径混成被测生成物。
+  现在检查本次 `template-generate` 生成的 `generated_template.docx`，或 CLI
+  显式传入的 `generated_template.docx`，不再把学校源模板路径混成被测生成物。
 - 新的 `PASS` 语义必须同时满足四层业务验收：模板解析、内容抽取、内容放置、
   Word 生成。只有 source-fact baseline 和 Word 页面图像证据不再足够。
 - 接下来重点不是继续准备材料，而是按 gate 暴露的问题修真实工程链路。
@@ -15,12 +15,17 @@ Current focus:
 Current state:
 
 - `real-core-v0` 已注册三所学校、三份学生文档、九个学校/学生组合。
-- 第一版 `docfit eval template-generate --template ... --out ...` 已经存在：
-  它把学校源 Word 复制为顶层 `generated_template.docx`，写出
-  `artifacts/template_generation_plan.json` 和
-  `artifacts/template_generation_manifest.json`，并创建或保留
-  `slot_body_start`。这只是生成脚手架，不代表学校格式已经合格；
-  质量判断仍要交给 `template-gap` 和 real-core gate。
+- `docfit eval template-generate --template ... --out ...` 已经跑完整模板生成阶段：
+  它会写出 `source_template_tree.json`、`discovered_template_rules.json`、
+  `template_artifact.json`、`template_unit_decisions.json`、
+  `template_generation_plan.json`、顶层 `generated_template.docx` 和
+  `template_generation_manifest.json`。这证明生成阶段证据链已经存在；
+  学校格式质量仍要交给 `template-gap` 和 real-core gate 判定。
+- real-core 的 template/e2e 编排已经接入模板生成阶段：每次 run 会先写出
+  `template_generation/generated_template.docx`，再把这份 Word 交给
+  `template-gap` 检查，并让后续 render 以它作为底稿。已签入的
+  `inputs/simulated-generated-templates/**` 仍保留为显式 `template-gap` fixture，
+  但不再是 template/e2e run 的被测生成结果。
 - 用户验收所需的真实输入材料、基线和 Word 页面图像证据要求记录在
   `docs/human/real-core-v0-acceptance.md`。
 - 用户已 review 的 `docs/human/real-core-v0-review-packet.md` 作为
@@ -39,8 +44,8 @@ Current state:
   内容、放置、渲染问题。
 - 9 个成品的产品审查记录在
   `docs/human/real-core-v0-product-quality-review.md`。当前结论是：
-  这些 Word 文件还不能算学校格式转换合格，因为它们仍保留目标模板说明/示例，
-  并且大多是在复制模板后把学生内容追加到末尾。
+  历史 Word 文件还不能算学校格式转换合格；新编排已经能清理一批目标模板
+  说明/示例文字，但仍主要是在复制生成模板后把学生内容追加到末尾。
 - 四个环节的问题检查已经成为 real-core 验收 gate：
   `tests/contract/test_real_core_four_stage_problem_checks.py` 会用湖南农业大学模板
   和学生 003 源文档跑一次转换，并确认生成模板差距、内容抽取、内容放置、
@@ -103,7 +108,7 @@ Current state:
 
 Next action:
 
-- 下一步先把 `template-generate` 从脚手架推进到真实模板生成质量：自动识别模板规则、
+- 下一步先把 `template-generate` 产物推进到真实模板生成质量：提升自动识别模板规则、
   按模板单元复制/清理说明文字、补齐等价生成机制、复杂样式/section/页码规则和
   页面级版面证据，直到模板差距报告不再阻断。
 - 然后继续修内容抽取：识别摘要、关键词、参考文献、附录、致谢这类章节角色，
@@ -111,7 +116,7 @@ Next action:
 - 再修内容放置：确认每段学生内容进入目标学校模板的具体位置，不能全部放到
   `slot_body_start`。
 - 最后修 Word 生成：确认最终文件没有模板说明文字，并且学生内容不是追加到
-  整份模板后面。
+  生成模板后面。
 
 Known blockers:
 

@@ -49,10 +49,8 @@ def test_real_core_problem_check_reports_all_four_stages(tmp_path) -> None:
     ].actual
     assert "a_001" in by_type["placement_actions_collapsed_to_virtual_body_slot"].actual
 
-    assert "render_template_instruction_text_leaked" in by_type
-    assert by_type["render_template_instruction_text_leaked"].stage == "render"
-    assert "附件1" in by_type["render_template_instruction_text_leaked"].actual
-    assert "paragraph" in by_type["render_template_instruction_text_leaked"].actual
+    assert "render_template_instruction_text_leaked" not in by_type
+    assert "render_template_instruction_text_leaked" not in direct_by_type
 
     assert "render_append_only_insertion" in by_type
     assert by_type["render_append_only_insertion"].stage == "render"

@@ -24,22 +24,40 @@ def docx_texts(path: Path) -> list[str]:
     return [paragraph.text for paragraph in Document(path).paragraphs]
 
 
-def test_template_generate_writes_scaffold_docx_and_manifest(tmp_path) -> None:
+def table_texts(path: Path) -> list[str]:
+    doc = Document(path)
+    return [
+        cell.text
+        for table in doc.tables
+        for row in table.rows
+        for cell in row.cells
+    ]
+
+
+def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     source = tmp_path / "inputs/school-template.docx"
-    write_source_docx(source, ["学校固定封面", "正文开始"])
+    write_source_docx(source, ["学校固定封面", "目录", "正文开始", "格式说明：小四宋体"])
 
     result = run_template_generate_eval(tmp_path, source, tmp_path / "template_generate")
 
     generated = tmp_path / "template_generate/generated_template.docx"
-    manifest_path = (
-        tmp_path / "template_generate/artifacts/template_generation_manifest.json"
-    )
-    plan_path = tmp_path / "template_generate/artifacts/template_generation_plan.json"
+    artifacts = tmp_path / "template_generate/artifacts"
+    manifest_path = artifacts / "template_generation_manifest.json"
+    plan_path = artifacts / "template_generation_plan.json"
     summary = read_json(tmp_path / "template_generate/summary.json")
     manifest = read_json(manifest_path)
+    source_tree = read_json(artifacts / "source_template_tree.json")
+    rules = read_json(artifacts / "discovered_template_rules.json")
+    template_artifact = read_json(artifacts / "template_artifact.json")
+    decisions = read_json(artifacts / "template_unit_decisions.json")
 
     assert result.status == Status.PASS
     assert generated.exists()
+    assert (artifacts / "template_generation_request.json").exists()
+    assert source_tree["artifact_type"] == "source_template_tree"
+    assert rules["artifact_type"] == "discovered_template_rules"
+    assert template_artifact["artifact_type"] == "template_artifact"
+    assert decisions["artifact_type"] == "template_unit_decisions"
     assert manifest_path.exists()
     assert plan_path.exists()
     assert summary["status"] == Status.PASS.value
@@ -48,8 +66,14 @@ def test_template_generate_writes_scaffold_docx_and_manifest(tmp_path) -> None:
     assert manifest["strategy"] == "source_copy_scaffold"
     assert manifest["output"]["generated_template_docx"] == str(generated)
     assert manifest["output"]["generated_template_docx_hash"] == sha256_file(generated)
-    assert manifest["slots"][0]["slot_id"] == "slot_body_start"
-    assert manifest["actions_deferred"]
+    assert {slot["slot_id"] for slot in manifest["slots"]} >= {"slot_body_start"}
+    assert manifest["actions_executed"]
+    assert "actions_deferred" not in manifest
+    assert any(unit["unit_id"] == "toc" for unit in rules["units"])
+    assert any(
+        item["policy"] == "strip"
+        for item in template_artifact["data"]["instruction_paragraphs"]
+    )
 
 
 def test_template_generate_preserves_existing_body_slot(tmp_path) -> None:
@@ -64,8 +88,33 @@ def test_template_generate_preserves_existing_body_slot(tmp_path) -> None:
 
     assert result.status == Status.PASS
     assert docx_texts(generated).count(BODY_SLOT_MARKER) == 1
-    assert manifest["actions_executed"][1]["action_type"] == "preserve_existing_body_slot"
-    assert manifest["slots"][0]["source"] == "source_template"
+    assert any(
+        action["action_type"] == "ensure_body_slot"
+        for action in manifest["actions_executed"]
+    )
+    assert any(slot["slot_id"] == "slot_body_start" for slot in manifest["slots"])
+
+
+def test_template_generate_cleans_instruction_text_inside_table_cells(tmp_path) -> None:
+    source = tmp_path / "inputs/school-template-table.docx"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    doc = Document()
+    doc.add_paragraph("学校固定封面")
+    table = doc.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "学生姓名：×××"
+    table.cell(0, 1).text = "格式说明：此处用小四宋体"
+    doc.save(source)
+
+    result = run_template_generate_eval(tmp_path, source, tmp_path / "template_generate")
+    generated = tmp_path / "template_generate/generated_template.docx"
+    manifest = read_json(
+        tmp_path / "template_generate/artifacts/template_generation_manifest.json"
+    )
+
+    assert result.status == Status.PASS
+    assert not manifest["actions_requiring_review"]
+    assert not any("格式说明" in text for text in table_texts(generated))
+    assert any("[[DOCFIT_SLOT:" in text for text in table_texts(generated))
 
 
 def test_template_generate_invalid_docx_fails_without_output(tmp_path) -> None:

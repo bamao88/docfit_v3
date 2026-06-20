@@ -27,13 +27,16 @@ style-field level before later stages can claim acceptance.
 The real-school template gate also treats `generated_template.docx` as a tested
 Word input: it writes `generated_template_tree.json` from OOXML and
 `template_gap_report.json` / `.md` / `.docx` before e2e can claim template
-acceptance. A first `template-generate` scaffold now exists: it copies a school
-source Word to `generated_template.docx`, ensures a body slot marker, and writes
-`template_generation_manifest.json` so later stages have a real generated
-template artifact to inspect. For `real-core-v0`, the checked-in simulated
-business-template inputs under `inputs/simulated-generated-templates/**` still
-stand in for accepted generator output until the generator quality is good
-enough for the profile gate.
+acceptance. `docfit eval template-generate` now runs the template-generation
+stage: it parses the source Word into `source_template_tree.json`, infers
+`discovered_template_rules.json`, builds `template_artifact.json`,
+`template_unit_decisions.json`, `template_generation_plan.json`, writes
+`generated_template.docx`, and records `template_generation_manifest.json`.
+For `real-core-v0`, template and e2e runs now generate
+`template_generation/generated_template.docx` during the run and gap-check that
+file. The checked-in simulated business-template inputs under
+`inputs/simulated-generated-templates/**` remain explicit template-gap fixtures;
+they are not accepted generator output.
 
 The current `real-core-v0` coverage gate returns `FAIL` for the existing
 generated outputs because generated-template gap checks and deterministic
@@ -61,8 +64,14 @@ Run one generated-template gap check with:
 uv run docfit eval template-gap --school hunannongye --generated-template inputs/simulated-generated-templates/real-core-v0/hunannongye/generated_template.docx --out /tmp/docfit_template_gap_hunannongye
 ```
 
-Run the first template-generation scaffold with:
+Run the template-generation stage with:
 
 ```bash
 uv run docfit eval template-generate --template inputs/school-hunannongye-requirement.docx --out /tmp/docfit_template_generate_hunannongye
+```
+
+Check that generated output against the signed template standard with:
+
+```bash
+uv run docfit eval template-gap --school hunannongye --generated-template /tmp/docfit_template_generate_hunannongye/generated_template.docx --out /tmp/docfit_template_gap_hunannongye_generated
 ```

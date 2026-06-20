@@ -25,20 +25,26 @@
 
 | 事项 | 当前状态 | 证据位置 |
 | --- | --- | --- |
-| 生成模板 CLI | 已有第一版脚手架入口 | `src/docfit/cli/main.py` 现在有 `docfit eval template-generate --template ... --out ...` |
-| 真正模板生成阶段 | 已有第一版 `source_copy_scaffold` | `src/docfit/stages/template_generate/runner.py` 会写出 `generated_template.docx`、`template_generation_plan.json` 和 `template_generation_manifest.json`；自动识别规则、按单元复制和说明文字清理仍记录为 deferred |
+| 生成模板 CLI | 已有完整阶段入口 | `src/docfit/cli/main.py` 现在有 `docfit eval template-generate --template ... --out ...` |
+| 模板生成阶段 | 已有完整证据链 | `src/docfit/stages/template_generate/runner.py` 会写出 `source_template_tree.json`、`discovered_template_rules.json`、`template_artifact.json`、`template_unit_decisions.json`、`template_generation_plan.json`、`generated_template.docx` 和 `template_generation_manifest.json` |
 | 学校原始模板解析 | 已有一部分 | `src/docfit/stages/template_parse/runner.py` 能读取段落、样式，并为真实学校结合人工整理样本生成 `template_artifact` |
 | 生成模板差距检查 | 已有一部分 | `src/docfit/harness/generated_template_inspector.py` 解析传入的 Word；`src/docfit/harness/generated_template_gap.py` 写出 `generated_template_tree.json` 和 `template_gap_report.*` |
-| 当前三校被测生成模板 | 仍是模拟输入，不是已验收的生成器输出 | `standards/eval_profiles/real-core-v0/cases.yaml` 把三校绑定到 `inputs/simulated-generated-templates/real-core-v0/<school_id>/generated_template.docx`；新脚手架还没有接入 real-core profile |
-| 后续 placement/render 使用生成模板 | 还没接通 | `src/docfit/convert/orchestrator.py` 当前 e2e 仍是 `parse_template -> extract_student_content -> build_placement_plan -> render_docx`，没有 `generate_template` 环节 |
+| 当前三校被测生成模板 | template/e2e run 已测本次生成物 | `src/docfit/convert/orchestrator.py` 会先写出 `template_generation/generated_template.docx`，再把这份 Word 交给 `template-gap`；`inputs/simulated-generated-templates/**` 仍保留为显式 `template-gap` fixture，不是已验收的生成器输出 |
+| 后续 placement/render 使用生成模板 | 已接通真实学校 e2e | real-core e2e 会把 `template_artifact.provenance.template_docx` 绑定到本次生成的 `generated_template.docx`，后续 render 不再直接复制学校原始模板 |
 
-所以，本文档里的“目标流程”仍然是完整模板生成主线；当前代码只跑通了第一版脚手架：
+所以，本文档里的“目标流程”已经在独立 `template-generate` 命令里形成完整阶段产物链：
 
 ```text
-学校原始模板 Word -> 复制为 generated_template.docx -> 写入/保留 slot_body_start -> 写 manifest
+学校原始模板 Word
+-> source_template_tree
+-> discovered_template_rules
+-> template_artifact
+-> template_unit_decisions
+-> template_generation_plan
+-> generated_template.docx + template_generation_manifest
 ```
 
-它证明系统已经有真实生成入口和核心产物，但还不能说明生成模板符合学校标准。
+它证明系统已经有真实生成入口、核心 Word 产物和阶段证据链，但还不能说明生成模板符合学校标准。
 正式质量判断仍要把输出交给 `template-gap` 和后续四阶段 gate。
 
 ## 读文档前先分清四类东西
@@ -67,7 +73,7 @@ generated_template.docx          # [磁盘产物·核心] 可填写模板 Word
 template_generation_manifest     # [磁盘产物·核心] 这次怎么生成出来的记录
 ```
 
-其余如 `source_template_tree`、`template_artifact`、`template_unit_decisions`、`template_generation_plan` 等，多数是 `[内存对象]`，用于阶段间传递、调试和演进；第一版可以不全部落盘。
+其余如 `source_template_tree`、`template_artifact`、`template_unit_decisions`、`template_generation_plan` 等，业务上是阶段间传递对象；当前 CLI 会把它们落成 JSON，方便调试、回归和解释失败。
 
 阶段 7 的检查报告（如 `template_gap_report.json`）属于 `[磁盘产物·可选]`，用于验证和排查，不是模板生成主线的必需输入。
 
@@ -348,7 +354,7 @@ generated_template.docx
 
 它不是手工准备好的假输入，而应该由模板生成器根据学校原始模板和规则生成出来。
 
-第一版可以粗糙，但必须满足：
+当前启发式实现仍可粗糙，但必须满足：
 
 - 是真实可打开的 Word；
 - 来源能追溯到学校原始模板；
@@ -383,17 +389,17 @@ template_generation_manifest
 
 读各阶段细节前，可以先看这张总表：
 
-| 名字 | 类型 | 出现在哪 | 是否用户需要提供 | 第一版是否必须落盘 |
+| 名字 | 类型 | 出现在哪 | 是否用户需要提供 | 当前 CLI 是否落盘 |
 | --- | --- | --- | --- | --- |
 | 学校原始模板 Word | `[用户文件]` | 阶段 0 输入 | 是 | 否（用户自己保存） |
 | `out_dir` | `[系统运行参数]` | 阶段 0 输入 | 否 | 否 |
 | `generation_options` | `[系统运行参数]` | 阶段 0/2/3 输入 | 否 | 否 |
-| `template_generation_request` | `[内存对象]` | 阶段 0 输出 → 阶段 1 输入 | 否 | 否 |
-| `source_template_tree` | `[内存对象]` | 阶段 1 输出 → 阶段 2 输入 | 否 | 可选 |
-| `template_artifact` | `[内存对象]` | 阶段 2 输出 → 阶段 3~6 输入 | 否 | 可选 |
-| `discovered_template_rules` | `[内存对象]` | 阶段 2 输出 | 否 | 可选 |
-| `template_unit_decisions` | `[内存对象]` | 阶段 3 输出 → 阶段 4 输入 | 否 | 否 |
-| `template_generation_plan` | `[内存对象]` | 阶段 4 输出 → 阶段 5 输入 | 否 | 可选 |
+| `template_generation_request` | `[内存对象]` | 阶段 0 输出 → 阶段 1 输入 | 否 | 是 |
+| `source_template_tree` | `[内存对象]` | 阶段 1 输出 → 阶段 2 输入 | 否 | 是 |
+| `template_artifact` | `[内存对象]` | 阶段 2 输出 → 阶段 3~6 输入 | 否 | 是 |
+| `discovered_template_rules` | `[内存对象]` | 阶段 2 输出 | 否 | 是 |
+| `template_unit_decisions` | `[内存对象]` | 阶段 3 输出 → 阶段 4 输入 | 否 | 是 |
+| `template_generation_plan` | `[内存对象]` | 阶段 4 输出 → 阶段 5 输入 | 否 | 是 |
 | `generated_template.docx` | `[磁盘产物·核心]` | 阶段 5 输出 → 阶段 6/7 输入 | 否（系统生成） | 是 |
 | `template_generation_manifest` | `[磁盘产物·核心]` | 阶段 5 输出 → 阶段 6 输入 | 否（系统生成） | 是 |
 | `template_gap_report.*` 等 | `[磁盘产物·可选]` | 阶段 7 输出 | 否 | 否 |
@@ -425,7 +431,7 @@ generation_options      # [系统运行参数] 生成策略配置；告诉系统
 ```text
 source_template_docx = /uploads/school-template.docx      # [用户文件] 用户上传的学校模板 Word
 out_dir = /tmp/docfit_template_generate                   # [系统运行参数] 本次运行所有产物的基础目录
-generation_options.strategy = source_copy_scaffold        # [系统运行参数] 第一版策略：先整份复制源 Word，再做最小改造
+generation_options.strategy = source_copy_scaffold        # [系统运行参数] 当前策略：先整份复制源 Word，再做确定性改造
 ```
 
 ### 输出
@@ -450,14 +456,14 @@ template_generation_request           # [内存对象] 系统内部任务单；�
 
 ### 中间怎么实现
 
-第一版可以从 CLI 入口接收参数：
+当前可以从 CLI 入口接收参数：
 
 ```text
 docfit eval template-generate --template /path/to/school-template.docx --out /tmp/docfit_template_generate
 ```
 
-这个 CLI 现在已有第一版。当前它创建的是 `source_copy_scaffold` 脚手架任务，
-不是完整的自动模板规则识别任务。
+这个 CLI 现在会跑完整模板生成阶段。当前自动识别和清理仍是确定性启发式，
+不是人工签收标准；生成质量要继续交给 `template-gap` 检查。
 
 ## 阶段 1：解析 Word 原始结构
 
@@ -657,10 +663,10 @@ word/document.xml
 ### 输出
 
 ```text
-source_template_tree    # [内存对象] Word 结构树；默认只在内存里传给阶段 2
+source_template_tree    # [内存对象] Word 结构树；当前 CLI 也会落盘为 source_template_tree.json
 ```
 
-这是阶段 1 的加工结果，不是用户上传的文件。调试排查时可选写成 JSON 落盘（`[磁盘产物·可选]`），但第一版不强制。
+这是阶段 1 的加工结果，不是用户上传的文件。当前命令会写成 JSON，供后续排查“源 Word 里到底有哪些段落、表格、页眉页脚、字段和编号证据”。
 
 建议结构：
 
@@ -1428,7 +1434,7 @@ template_unit_decisions
 
 ### 中间怎么实现
 
-第一版可以用规则映射实现，不需要复杂 AI 判断。
+当前实现先用确定性规则映射，不需要复杂 AI 判断。
 
 大致规则：
 
@@ -1483,7 +1489,7 @@ create_fillable_slot
 create_manual_placeholder
 create_generated_field_placeholder
 protect_block
-record_deferred_action
+record_review_action
 ```
 
 动作含义：
@@ -1494,7 +1500,7 @@ record_deferred_action
 - `create_manual_placeholder`：保留人工填写位置；
 - `create_generated_field_placeholder`：放置后续由系统生成的字段位置；
 - `protect_block`：标记固定区域，后续学生正文不能写进去；
-- `record_deferred_action`：当前还做不了，但要记录下来，不能假装已经完成。
+- `record_review_action`：当前不能安全自动执行时，要记录为需要人工复核，不能假装已经完成。
 
 ### 输出
 
@@ -1558,7 +1564,7 @@ src/docfit/stages/template_generate/runner.py
 build_template_generation_plan(...)
 ```
 
-第一版可以不追求边界完全准确，但必须能把业务意图表达出来。做不到的动作要进入 `record_deferred_action`，不要静默跳过。
+当前实现不声称边界已经完全准确，但必须能把业务意图表达出来。做不到或找不到源节点的动作要进入 `actions_requiring_review`，不要静默跳过。
 
 ## 关键环节：复制到底以什么为单位
 
@@ -1631,20 +1637,20 @@ copy_page(page_number = 1)
 8. 把可填写位置改成 slot 或占位符。
 9. 把执行结果写进 `template_generation_manifest`。
 
-第一版可以先简化为：
+当前实现采用：
 
 ```text
 复制整份源 Word 作为起点
 再对已识别的单元做最小修改
 ```
 
-但即使第一版这样做，manifest 里也要明确记录：
+manifest 里必须明确记录：
 
 ```text
-copy_strategy = whole_docx_scaffold
+strategy = source_copy_scaffold
 ```
 
-而不要声称已经完成了真正的按单元复制。
+而不要声称已经完成了生产级按单元重建。
 
 ## 阶段 5：执行模板生成
 
@@ -1662,7 +1668,7 @@ template_artifact              # [内存对象] 阶段 2 的结构理解结果�
 
 ### 处理内容
 
-第一版建议采用“源模板复制脚手架”策略：
+当前采用“源模板复制并改造”策略：
 
 ```text
 source_copy_scaffold
@@ -1671,23 +1677,24 @@ source_copy_scaffold
 意思是：
 
 1. 先把学校原始 Word 复制成 `generated_template.docx`。
-2. 根据计划执行能做的最小修改。
-3. 把可写位置写成稳定 slot 标记。
-4. 对不能安全处理的动作，只记录为 deferred。
+2. 根据计划清理说明文字、创建 slot、创建 generated marker、保留人工位置并保护固定块。
+3. 确保有稳定的正文写入位置 `[[DOCFIT_SLOT:body]]`。
+4. 对不能安全处理的动作，记录到 `actions_requiring_review`。
 5. 写出生成过程记录。
 
-第一版先不要试图完美重建复杂 Word。
+当前实现先不试图完美重建复杂 Word。
 
-第一版可以执行的动作：
+当前可以执行的动作：
 
 - 整份复制学校源 Word 作为生成起点；
 - 写入或保留 `slot_body_start`；
-- 对确定的 fillable element 写入占位符；
-- 对固定块记录保护信息；
-- 对说明文字先记录待删除，后续再实现精确删除；
+- 对确定的 fillable element 写入 slot 标记；
+- 对确定的 generated element 写入生成字段标记；
+- 对正文段落和表格单元格中的说明文字做确定性清理；
+- 对固定块和人工填写位置记录保护信息；
 - 产出 manifest。
 
-第一版暂时可以不做：
+当前仍不代表已经做到：
 
 - 精确按页面复制；
 - 精确按模板单元裁剪 Word；
@@ -1749,7 +1756,7 @@ template_generation_manifest
     source_ref
     output_ref
     status
-  actions_deferred
+  actions_requiring_review
     action_id
     action_type
     unit_id
@@ -1830,9 +1837,9 @@ generation_manifest              # [磁盘产物·核心] 路径引用，指向 
 
 ### 中间怎么实现
 
-后续要改编排入口，让模板生成阶段成为 template parse 和 placement/render 之间的真实阶段。
+当前真实学校 e2e 已经把模板生成阶段接入 template parse 和 placement/render 之间。
 
-目标编排应该接近：
+当前编排接近：
 
 ```text
 inspect_template_docx
@@ -1844,7 +1851,7 @@ inspect_template_docx
 -> render_docx
 ```
 
-当前单独 CLI 已有 `generate_template` 第一版；完整 e2e 编排里还没有接入这一环。
+独立 CLI 会在指定 `out_dir` 直接写出 `generated_template.docx`。real-core template/e2e run 会在 run 目录下写出 `template_generation/generated_template.docx`，再把这份 Word 复制到主 `artifacts/generated_template.docx` 供 `template-gap` 检查，并让 render 以这份生成模板作为底稿。
 
 ## 阶段 7：检查生成模板是否可用
 
@@ -1902,13 +1909,13 @@ evaluate_generated_template_gap(...)
 
 | 目标阶段 | 当前代码状态 | 说明 |
 | --- | --- | --- |
-| 阶段 0：接收任务 | 已有第一版入口 | `docfit eval template-generate --template ... --out ...` 能只接收源 Word 和输出目录 |
-| 阶段 1：解析 Word 原始结构 | 已有一部分 | `generated_template_inspector.py` 和 `template_parse/runner.py` 有 DOCX 结构读取能力；`template-generate` 第一版暂时不做完整结构树，只做有效 DOCX 检查和复制脚手架 |
-| 阶段 2：自动识别模板规则 | 缺少核心能力 | 当前真实学校主要依赖人工整理的 `template_unit_contract.yaml`，还不能只靠源 Word 自动识别完整规则 |
-| 阶段 3：生成决策 | 缺少 | 还没有把 unit policy 转成生成决策的独立逻辑 |
-| 阶段 4：生成构建计划 | 已有第一版脚手架计划 | `template_generation_plan.json` 会记录复制源 Word、创建/保留 `slot_body_start`，并把自动识别、说明文字清理、按单元复制记为 deferred |
-| 阶段 5：执行模板生成 | 已有第一版脚手架 | `template-generate` 会写出顶层 `generated_template.docx` 和 `artifacts/template_generation_manifest.json` |
-| 阶段 6：交给后续流程 | 未接通 | placement/render 还没有消费生成模板 |
+| 阶段 0：接收任务 | 已有入口 | `docfit eval template-generate --template ... --out ...` 能只接收源 Word 和输出目录 |
+| 阶段 1：解析 Word 原始结构 | 已有源结构树 | `template-generate` 写出 `source_template_tree.json`，复用 OOXML 解析能力，包含正文流、表格、页眉页脚、字段、section、编号和未知对象 |
+| 阶段 2：自动识别模板规则 | 已有确定性启发式 | `discovered_template_rules.json` 从源 Word 识别单元、元素和处理策略；质量还需要继续用 real-core 事实改进 |
+| 阶段 3：生成决策 | 已有 | `template_unit_decisions.json` 把 fixed/fill/generated/manual/instruction 转成生成决策 |
+| 阶段 4：生成构建计划 | 已有 | `template_generation_plan.json` 记录复制源 Word、清理说明文字、创建 slot、创建 generated marker、保留人工位置和保护固定块 |
+| 阶段 5：执行模板生成 | 已有 | `template-generate` 写出顶层 `generated_template.docx` 和 `artifacts/template_generation_manifest.json`，manifest 记录实际执行动作和需要人工复核的动作 |
+| 阶段 6：交给后续流程 | 已接通真实学校 e2e | real-core run 先生成 `template_generation/generated_template.docx`，再把 `template_artifact.provenance.template_docx` 绑定到这份生成物，后续 render 以它作为底稿 |
 | 阶段 7：检查生成模板 | 已有一部分 | gap 检查能检查传入的 `generated_template.docx`，但它不生成 Word |
 
 当前最容易混淆的点：
@@ -1917,14 +1924,14 @@ evaluate_generated_template_gap(...)
 - `template_generation_request` 是 `[内存对象]` 任务单，不是用户提供的第二个 Word/YAML；
 - `generation_options` 是 `[系统运行参数]`，不是学校规则文件；
 - `generated_template_gap` 会复制一份传入的 `generated_template.docx` 到报告目录，但这是检查输入复制，不是业务生成；
-- `render_docx` 当前会把源模板整份复制成 `final.docx`，再追加学生内容，但这是最终渲染阶段，不是模板生成阶段；
-- `inputs/simulated-generated-templates/**/generated_template.docx` 当前仍是 real-core profile 的模拟生成模板输入，不是已验收的 `template-generate` 输出；
-- `template-generate` 当前只证明能生成脚手架 Word 和 manifest，不证明学校格式质量；
+- `render_docx` 当前会把生成模板整份复制成 `final.docx`，再追加学生内容；这说明阶段 6 已接通，但渲染仍没有按具体 slot 写入；
+- `inputs/simulated-generated-templates/**/generated_template.docx` 当前仍是显式 `template-gap` fixture，不是已验收的 `template-generate` 输出；
+- `template-generate` 当前证明生成阶段证据链存在，不证明学校格式质量；
 - `template_unit_contract.yaml` 是 `[磁盘产物·可选·开发期]` 三校人工整理样本，不是生产目标里的用户输入。
 
-## 第一版要跑通的最小闭环
+## 已跑通的阶段闭环
 
-为了先把框架搭起来，第一版可以按这个闭环实现：
+当前独立命令已经按这个闭环运行：
 
 ```mermaid
 flowchart TD
@@ -1933,21 +1940,20 @@ flowchart TD
   C --> D["得到 template_artifact"]
   D --> E["生成 template_generation_plan"]
   E --> F["复制源 Word 为 generated_template.docx"]
-  F --> G["写入最小 slot 或占位符"]
+  F --> G["清理说明文字并写入 slot/生成字段占位"]
   G --> H["写出 template_generation_manifest"]
+  H --> I["real-core e2e 绑定生成模板给 gap/render"]
 ```
 
-第一版验收口径：
+当前阶段验收口径：
 
 - 能从 `[用户文件]` 学校原始模板启动；
 - 能真实生成 `[磁盘产物·核心]` `generated_template.docx`；
 - 能写出 `[磁盘产物·核心]` `template_generation_manifest`；
-- manifest 能说明执行了哪些动作、哪些动作还没做；
-- 后续阶段能拿到生成模板路径和 slot 信息。
+- manifest 能说明执行了哪些动作、哪些动作还需要人工复核；
+- 后续阶段能拿到生成模板路径、slot 信息、生成字段占位和执行记录。
 
-第一版不要求把所有 `[内存对象]` 都落盘；中间对象只要在程序里能传递即可。
-
-第一版不要求：
+当前仍不代表：
 
 - 每个学校格式完全正确；
 - 每个模板单元都精确复制；
@@ -1955,7 +1961,7 @@ flowchart TD
 - 目录、页码、编号全部刷新；
 - 封面字段全部准确填好。
 
-## 已新增的第一版代码入口
+## 已新增的代码入口
 
 已新增目录：
 
@@ -1988,13 +1994,13 @@ docfit eval template-generate --template /path/to/school-template.docx --out /tm
 这个阶段补上以后，模板生成主线已经从：
 
 ```text
-解析模板 + 检查模拟生成物
+解析模板 + 检查显式 fixture
 ```
 
 前进到：
 
 ```text
-生成脚手架模板 -> 检查生成模板
+生成模板 -> 检查本次生成模板 -> 交给后续 render 底稿
 ```
 
 完整目标仍然是：
