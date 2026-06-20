@@ -514,6 +514,10 @@ def build_template_generation_plan(
             )
             section_boundary_refs.add(source_ref)
             next_id += 1
+    for action in _synthetic_unit_title_actions(template_artifact):
+        action["action_id"] = f"a_{next_id:03d}"
+        actions.append(action)
+        next_id += 1
     for unit in decisions.get("units", []):
         for decision in unit.get("decisions", []):
             action_type = _action_type_for_decision(decision["decision_type"])
@@ -586,6 +590,77 @@ def build_template_generation_plan(
         },
         "actions": actions,
     }
+
+
+def _synthetic_unit_title_actions(template_artifact: dict[str, Any]) -> list[dict[str, Any]]:
+    units = template_artifact.get("data", {}).get("units", [])
+    actions: list[dict[str, Any]] = []
+    for index, unit in enumerate(units):
+        if str(unit.get("unit_id") or "") != "toc":
+            continue
+        title = _generated_unit_title_text(unit)
+        if not title:
+            continue
+        source_ref = _first_source_ref(unit)
+        next_ref = _next_unit_source_ref(units, index)
+        if not next_ref:
+            continue
+        source_order = _paragraph_index(source_ref)
+        previous_order = _paragraph_index(_previous_unit_source_ref(units, index))
+        next_order = _paragraph_index(next_ref)
+        if next_order is None:
+            continue
+        source_is_in_expected_window = (
+            source_order is not None
+            and (previous_order is None or source_order > previous_order)
+            and source_order < next_order
+        )
+        if source_is_in_expected_window:
+            continue
+        actions.append(
+            {
+                "action_id": "",
+                "action_type": "insert_synthetic_unit_title_before",
+                "unit_id": unit.get("unit_id"),
+                "element_id": "e_001",
+                "source_ref": next_ref,
+                "target_ref": title,
+                "status": "planned",
+                "reason": (
+                    "toc has no visible title in the expected unit position; "
+                    "insert a generated title before the next unit"
+                ),
+            }
+        )
+    return actions
+
+
+def _generated_unit_title_text(unit: dict[str, Any]) -> str | None:
+    for element in unit.get("elements", []):
+        if str(element.get("element_id") or "") != "e_001":
+            continue
+        if str(element.get("policy") or "") != "generated":
+            continue
+        content = _normalize_text(str(element.get("content") or element.get("name") or ""))
+        if content and len(content) <= 12:
+            return content
+    return None
+
+
+def _previous_unit_source_ref(units: list[dict[str, Any]], index: int) -> str | None:
+    for unit in reversed(units[:index]):
+        ref = _first_source_ref(unit)
+        if ref:
+            return ref
+    return None
+
+
+def _next_unit_source_ref(units: list[dict[str, Any]], index: int) -> str | None:
+    for unit in units[index + 1 :]:
+        ref = _first_source_ref(unit)
+        if ref:
+            return ref
+    return None
 
 
 def execute_template_generation_plan(
@@ -670,6 +745,18 @@ def execute_template_generation_plan(
                 text,
             )
             executed.append(_executed(action, output_ref=output_ref))
+        elif action_type == "insert_synthetic_unit_title_before":
+            text = str(action.get("target_ref") or "")
+            output_ref = _insert_styled_paragraph_before(
+                paragraph_map,
+                action.get("source_ref"),
+                text,
+                page_break_before=True,
+            )
+            if output_ref is None:
+                review.append(_needs_review(action, "source node not found"))
+                continue
+            executed.append(_executed(action, output_ref=output_ref))
         elif action_type == "protect_block":
             executed.append(_executed(action, output_ref=action.get("source_ref")))
         elif action_type == "ensure_body_slot":
@@ -725,7 +812,8 @@ def execute_template_generation_plan(
                 "output_ref": action.get("output_ref"),
             }
             for action in executed
-            if action.get("action_type") == "insert_fixed_text"
+            if action.get("action_type")
+            in {"insert_fixed_text", "insert_synthetic_unit_title_before"}
         ],
     }
 
@@ -1671,6 +1759,23 @@ def _insert_section_break_before(
     paragraph_properties = boundary._p.get_or_add_pPr()
     paragraph_properties.append(_next_page_section_properties(doc))
     return f"{source_ref}/before:sectPr"
+
+
+def _insert_styled_paragraph_before(
+    paragraph_map: dict[int, Paragraph],
+    source_ref: str | None,
+    text: str,
+    *,
+    page_break_before: bool = False,
+) -> str | None:
+    target = _paragraph_for_ref(paragraph_map, source_ref)
+    if target is None:
+        return None
+    inserted = _insert_paragraph_before(target, text)
+    inserted.style = target.style
+    inserted.alignment = target.alignment
+    inserted.paragraph_format.page_break_before = page_break_before
+    return f"{source_ref}/before:{text}"
 
 
 def _next_page_section_properties(doc: Document) -> Any:

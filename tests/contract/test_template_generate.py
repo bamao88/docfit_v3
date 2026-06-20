@@ -206,6 +206,91 @@ def test_template_generate_synthesizes_missing_visible_unit_title(tmp_path) -> N
     )
 
 
+def test_template_generate_synthesizes_toc_title_before_next_front_unit(
+    tmp_path,
+) -> None:
+    source = tmp_path / "inputs/pku-like-template.docx"
+    write_source_docx(source, ["封面", "ABSTRACT", "图目录"])
+    out_dir = tmp_path / "template_generate"
+    target_units = [
+        {
+            "unit_id": "cover",
+            "name": "封面",
+            "order": 10,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "封面",
+                    "policy": "fixed",
+                    "content": "封面",
+                }
+            ],
+        },
+        {
+            "unit_id": "abstract_en",
+            "name": "英文摘要",
+            "order": 20,
+            "status": "required",
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "ABSTRACT",
+                    "policy": "fixed",
+                    "content": "ABSTRACT",
+                }
+            ],
+        },
+        {
+            "unit_id": "toc",
+            "name": "目录",
+            "order": 30,
+            "status": "required",
+            "page": {"page_break": "是"},
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "目录标题",
+                    "policy": "generated",
+                    "content": "目录",
+                }
+            ],
+        },
+        {
+            "unit_id": "figure_list",
+            "name": "图目录",
+            "order": 40,
+            "status": "required",
+            "page": {"page_break": "是"},
+            "elements": [
+                {
+                    "element_id": "e_001",
+                    "name": "图目录",
+                    "policy": "fixed",
+                    "content": "图目录",
+                }
+            ],
+        },
+    ]
+
+    result = generate_template(source, out_dir, target_units=target_units)
+    generated = out_dir / "generated_template.docx"
+    manifest = result.artifacts["template_generation_manifest"]
+    tree = inspect_generated_template_docx(generated)
+    texts = docx_texts(generated)
+    toc = next(item for item in tree["data"]["paragraphs"] if item["text"] == "目录")
+
+    assert result.status == Status.PASS
+    assert texts.index("目录") < texts.index("图目录")
+    assert toc["style_details"]["paragraph"]["page_break_before"] is True
+    assert any(
+        item["unit_id"] == "toc"
+        and item["element_id"] == "e_001"
+        and item["text"] == "目录"
+        for item in manifest["synthesized_texts"]
+    )
+
+
 def test_template_generate_inserts_page_and_section_break_before_later_unit(
     tmp_path,
 ) -> None:
