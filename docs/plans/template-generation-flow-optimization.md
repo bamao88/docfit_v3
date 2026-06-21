@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-21
 
-一句话结论：模板生成阶段应该从“先整包复制再局部 patch”的当前实现，升级为可解释的策略选择流程；仅复制单元只是其中一个策略点，最终应由硬编码基线、单元内容责任、学生源内容和学校标准共同决定。
+一句话结论：模板生成支撑流程应该收敛成五个逻辑步骤：源 Word 事实、候选结构识别、模板模型与策略、动作计划、执行与 manifest；其中阶段三产出模板业务地图，阶段四才把业务地图翻译成可执行 action。
 
 ## 这个文件做什么
 
@@ -29,11 +29,37 @@ Last updated: 2026-06-21
 | 执行时 Word 怎么变 | 阶段四把业务地图翻译成 action plan；`preserve_whole_unit_copy` 保留整体结构，copy-only 内部说明文字仍可产生 `remove_instruction_text` |
 | 和其他单元有什么不同 | copy-only 单元的元素处理只做清理和保护；非 copy-only 单元会按元素生成 slot、生成字段占位、删除说明文字或插入固定文本 |
 
+## 调整后的总关系
+
+一句话结论：阶段二只给识别证据，阶段三生成模板业务地图和处理策略，阶段四只生成动作计划。
+
+| 逻辑步骤 | 输出 | 回答的问题 | 不做什么 |
+| --- | --- | --- | --- |
+| 阶段一：源 Word 事实 | `source_template_tree.json` | 学校原始 Word 里实际有什么段落、表格、样式、页眉页脚、source_ref | 不判断业务单元，不决定生成策略 |
+| 阶段二：候选结构识别 | `template_structure_candidates`，当前兼容名是 `discovered_template_rules.json` | 这些事实看起来属于哪些 unit / element，有哪些 role_hint 和 evidence | 不输出 `whole_unit_copy` / `copy_then_patch`，不生成 slot 或 action |
+| 阶段三：模板模型与策略 | `template_generation_model`，当前由 `template_artifact.json` + `template_unit_decisions.json` 承载 | 这个模板在系统里是什么业务地图；每个 unit 怎么处理；哪些是 slots、protected_zones、cleanup、unresolved_questions | 不直接改 Word，不生成 python-docx 执行动作 |
+| 阶段四：动作计划 | `template_generation_plan.json` | 为了实现阶段三的业务地图，需要执行哪些 copy / preserve / slot / cleanup action | 不重新判断 unit 语义，不反推业务模型 |
+| 阶段五：执行与记录 | `generated_template.docx` + `template_generation_manifest.json` | 实际执行了哪些 action，输出 Word 和 hash 是什么，哪些 action 需要 review | 不重新决定内容应该放哪里，不决定 PASS / FAIL |
+
+阶段三是这条链路的核心分界：它把阶段二的“看起来像什么”变成系统后续稳定消费的业务地图。
+阶段四只是把这个业务地图翻译成执行器能跑的动作清单。
+
+例如封面里有 `论文题目：____` 和 `格式说明：小四宋体`：
+
+| 步骤 | 应该输出什么 |
+| --- | --- |
+| 阶段二 | `cover` 单元；`论文题目：____` 是填写信号；`格式说明` 是说明文字候选；都带 source_ref 和 evidence |
+| 阶段三 | `cover = whole_unit_copy`；不生成 cover slot；`格式说明` 进入 cleanup；固定/人工区域进入 protected_zones |
+| 阶段四 | 生成 `preserve_whole_unit_copy cover` 和 `remove_instruction_text <source_ref>` 等 action |
+| 阶段五 | 复制 Word，执行 action，写 manifest |
+
+下方各阶段的具体说明暂时保持当前文档粒度，不在本次修改里重写；后续代码拆分时，以这里的五步总关系作为新的模块边界。
+
 ## 当前真实实现
 
 当前代码第一版的 copy-only 默认规则仍按 `unit_id` 判断。这是实现现状，不是长期定义。
 
-当前代码还有一个需要修正的偏差：一旦判成 copy-only，代码会跳过单元内部元素分析，并且阶段三会排除 copy-only 单元的 `source_refs`，导致 copy-only 单元里的说明文字不会被清理。目标口径不是这样；`whole_unit_copy` 只表示“主体结构和固定内容通过整包复制保留”，不表示“内部说明文字免处理”。
+当前代码还有一个需要修正的偏差：一旦判成 copy-only，代码会跳过单元内部元素分析，并且当前 `template_artifact` 构建会排除 copy-only 单元的 `source_refs`，导致 copy-only 单元里的说明文字不会被清理。目标口径不是这样；`whole_unit_copy` 只表示“主体结构和固定内容通过整包复制保留”，不表示“内部说明文字免处理”。
 
 这些单元不走默认仅复制：
 
@@ -506,7 +532,7 @@ body_flow entries
 | 文本包含括号内样式提示，例如宋体、黑体、楷体、居中、行距、字号、号字、pt | 判为说明文字 |
 | 但如果文本本身是短的实质模板标题或字段，例如目录、摘要、关键词、论文题目等 | 不因为括号里的字体字号提示直接判为说明文字 |
 
-阶段三会继续使用阶段二结果：`policy = remove_instruction` 的元素会进入 `instruction_paragraphs`，后续生成 `remove_instruction_text` 动作。同时阶段三还会对 `source_template_tree` 再扫一遍说明文字。当前代码会排除 copy-only 单元的 `source_refs`，这会让 copy-only 内部说明文字漏删；目标应改成只保护 copy-only 内部的固定/人工内容，而不是整段 source range 全部免于说明文字处理。
+阶段三会继续使用阶段二结果：`role_hint = instruction_candidate` 的元素会进入 `cleanup[]`，后续由阶段四生成 `remove_instruction_text` 动作。同时阶段三还会结合 `source_context` 里的全局样式和结构证据复核说明文字候选。当前代码会排除 copy-only 单元的 `source_refs`，这会让 copy-only 内部说明文字漏删；目标应改成只保护 copy-only 内部的固定/人工内容，而不是整段 source range 全部免于说明文字处理。
 
 ### 待排查问题：entry 颗粒度过细会放大元素误判
 
@@ -528,108 +554,70 @@ body_flow entries
 | `source_template_tree.layers.body_flow[]` | 确认阶段二实际消费的 entry 顺序和 source_ref |
 | `discovered_template_rules.units[].elements[]` | 确认碎片最终分别变成了哪些 element、policy 是什么 |
 
-## 阶段三：构建 template_artifact
+## 阶段三：生成模板模型与策略
 
-产物：`template_artifact.json`
+目标产物：`template_generation_model.json`
 
-这个阶段不重新识别元素语义，而是把阶段二输出的 `units[]`、logical `elements[]`、`policy_hint`、`source_context` 编译成后续 placement/render 可消费的模板结构。它负责生成 artifact 层面的 `slots[]`、`required_fields[]`、`protected_zones[]`、`instruction_paragraphs[]`、`unsupported[]` 等集合。
+当前兼容产物：`template_artifact.json` + `template_unit_decisions.json`
 
-对于默认仅复制单元，当前代码和目标口径不同：
+这个阶段不重新识别元素语义，而是把阶段二输出的候选 `units[]`、logical `elements[]`、`role_hint`、`source_context`，再结合学校标准、学生内容台账和默认责任基线，生成一次模板生成的业务模型和处理策略。
 
-| 字段 | 当前代码 | 目标口径 |
-| --- | --- | --- |
-| `data.units[]` | 有这个 unit，但元素只有单元级 copy-only fixed 元素 | 保留单元级 copy 元素，同时记录内部受限元素 |
-| `data.slots[]` | 不为 copy-only 单元生成 slot | 仍不为 copy-only 单元自动生成学生内容 slot |
-| `data.required_fields[]` | 不为 copy-only 单元生成 required field | 仍不把 copy-only 内部占位符直接当 required field；冲突进入 `needs_review` 或驱动模式切换 |
-| `data.protected_zones[]` | 会把 copy-only 单元作为固定/人工保护区域的一部分 | 保护固定/人工内容，但不要保护已判定为说明文字的 source_ref |
-| `data.instruction_paragraphs[]` | 不收集 copy-only 单元内部说明文字作为删除对象 | 应收集 copy-only 内部说明文字，后续生成 `remove_instruction_text` |
+阶段三回答的问题是：
 
-这点很关键：如果封面里有 `论文题目：____` 和 `格式说明：小四宋体`，目标行为应该是：
+| 问题 | 阶段三输出 |
+| --- | --- |
+| 每个 unit 这次怎么处理 | `unit_strategies[]`，例如 `whole_unit_copy`、`copy_then_patch`、`needs_review` |
+| 哪些地方可写学生内容 | `slots[]` / `required_fields[]` |
+| 哪些内容必须保护 | `protected_zones[]` |
+| 哪些说明文字或示例要清理 | `cleanup[]` |
+| 哪些证据不足或策略冲突 | `unresolved_questions[]` |
+| 后续阶段如何追溯证据 | 每条策略、slot、cleanup 都保留 `source_refs[]` 和来自阶段二的 evidence |
+
+`template_generation_model` 至少应该包含：
+
+| 字段 | 含义 |
+| --- | --- |
+| `source_context` | 阶段二传下来的样式、编号、section、页眉页脚、unknown 等上下文 |
+| `units[]` | 阶段二候选单元加上阶段三确认后的处理策略 |
+| `unit_strategies[]` | 每个单元的 `generation_mode`、原因、证据和 unresolved question |
+| `slots[]` | 需要后续 placement 写入学生内容的槽位 |
+| `required_fields[]` | 必填或必须生成的字段 |
+| `protected_zones[]` | 固定学校内容、人工填写区、copy-only 保留区等保护区域 |
+| `cleanup[]` | 要删除或清空的说明文字、示例文字、格式提示 |
+| `unsupported[]` | 阶段一/阶段二发现但当前无法可靠处理的对象 |
+| `unresolved_questions[]` | 需要学校标准、学生内容或人工确认的问题 |
+
+阶段三和阶段二的关键差别是：阶段二只说“看起来像什么”，阶段三才说“这次怎么处理”。
+
+例如同一个封面证据：
+
+| 阶段二候选证据 | 阶段三策略 |
+| --- | --- |
+| `论文题目：____`，`role_hint = student_field_candidate` | 如果封面默认 copy-only，不生成 slot，写入保留或复核证据 |
+| `论文题目：____`，`role_hint = student_field_candidate` | 如果学校标准要求机器填写封面题目，生成 cover slot |
+| `格式说明：小四宋体`，`role_hint = instruction_candidate` | 写入 `cleanup[]`，后续阶段翻译成 `remove_instruction_text` |
+
+对于 copy-only 单元，阶段三的目标行为是：
 
 | 内容 | 目标行为 |
 | --- | --- |
-| `论文题目：____` | 不因为它在 copy-only 单元里就自动生成 cover slot；如果学校标准要求机器填写，再把该字段或单元转到 patch 路径 |
-| `格式说明：小四宋体` | 作为说明文字候选进入删除/清空动作 |
+| 固定正文、声明正文、表单结构文字 | 保留，进入 `protected_zones[]` |
+| 签名、日期、教师意见、成绩评定等人工区 | 保留，进入 `protected_zones[]` 或 manual context |
+| 说明文字、格式要求、示例文本 | 进入 `cleanup[]` |
+| 题目、姓名、学号、下划线等填写痕迹 | 默认不生成 slot；如果标准要求机器填写，再转成 slot，否则写入 `unresolved_questions[]` 或保留证据 |
 
-对于非 copy-only 单元：
+当前代码的对应关系：
 
-| 元素 policy | `template_artifact` 后果 |
+| 目标模型字段 | 当前兼容产物 |
 | --- | --- |
-| `fill` | 生成可写 slot |
-| `generated` | 生成生成字段或 slot 上下文 |
-| `remove_instruction` | 进入 `instruction_paragraphs` |
-| `fixed` / `manual_only` | 进入 protected zone，不生成可写 slot |
+| `units[]` / `unit_strategies[]` | `template_artifact.data.units[]` + `template_unit_decisions.units[]` |
+| `slots[]` | `template_artifact.data.slots[]` |
+| `required_fields[]` | `template_artifact.data.required_fields[]` |
+| `protected_zones[]` | `template_artifact.data.protected_zones[]` |
+| `cleanup[]` | `template_artifact.data.instruction_paragraphs[]` + `template_generation_plan.remove_instruction_text` |
+| `unresolved_questions[]` | 当前较弱，主要散落在 unknowns / warnings，目标需要集中表达 |
 
-## 阶段四：生成 template_unit_decisions
-
-产物：`template_unit_decisions.json`
-
-这一阶段正式决定每个单元是 `whole_unit_copy` 还是 `copy_then_patch`。
-
-当前代码判定规则：
-
-```text
-如果 unit_id 不在排除列表里，并且 unit 有 source_ref
-=> generation_mode = whole_unit_copy
-
-否则
-=> generation_mode = copy_then_patch
-```
-
-这和更早的元素策略规则不同：
-
-| 更早规则 | 当前代码第一版规则 |
-| --- | --- |
-| 看单元内部所有 element.policy 是否都是 `fixed` / `manual_only` | 先看 unit_id 是否属于默认 copy-only 单元 |
-| 如果封面里有 `fill` 文本，会变成 patch | 封面默认 copy-only，不再分析内部 `fill` |
-| 如果参考文献只有固定文本，可能被 whole copy | 参考文献在排除列表里，不默认 whole copy |
-
-目标规则要再往前走一步：先决定单元是否以 copy-only 保存主体结构，然后仍对 copy-only 内部做受限元素识别。内部 `remove_instruction` 可以生成 cleanup decision；内部 `fill` / `generated` 不直接生成 slot，而是作为模式冲突、标准覆盖或 `needs_review` 的证据。
-
-责任口径下的下一步规则应该是：
-
-| 单元情况 | 目标 generation_mode |
-| --- | --- |
-| 学生源内容或学校标准要求机器写入 | `copy_then_patch` |
-| 系统字段需要生成或更新 | `copy_then_patch` |
-| 只保留固定学校内容或线下人工填写区 | `whole_unit_copy` |
-| 当前无法判断 | 不靠猜测通过；写入 `open_questions` 或让后续 gate 输出 `UNKNOWN` |
-
-copy-only 单元的决策形状：
-
-```json
-{
-  "unit_id": "cover",
-  "generation_mode": "whole_unit_copy",
-  "generation_policy": "whole_unit_copy",
-  "copy_source_ref": "word/document.xml:p[1]",
-  "decisions": [
-    {
-      "decision_type": "keep_whole_unit_copy",
-      "copy_scope": "whole_unit"
-    },
-    {
-      "decision_type": "remove_instruction_text",
-      "element_id": "e_003",
-      "source_ref": "word/document.xml:p[4]"
-    }
-  ]
-}
-```
-
-这里的关键是：`generation_mode = whole_unit_copy` 不排斥内部 cleanup decision。它只排斥“把这个单元当学生内容写入区来 patch”。
-
-非 copy-only 单元的决策按元素展开：
-
-| 元素 policy | decision_type |
-| --- | --- |
-| `fill` | `create_fillable_slot` |
-| `generated` | `create_generated_field_placeholder` |
-| `remove_instruction` | `remove_instruction_text` |
-| `manual_only` | `create_manual_placeholder` |
-| 缺源位置但可合成的固定文本 | `insert_fixed_text` |
-
-## 阶段五：生成 action plan
+## 阶段四：生成 action plan
 
 产物：`template_generation_plan.json`
 
@@ -673,7 +661,7 @@ remove_instruction_text
 | `insert_synthetic_unit_title_before` | 在必要位置补一个合成单元标题 |
 | `ensure_body_slot` | 确保正文写入点 `[[DOCFIT_SLOT:body]]` 存在 |
 
-## 阶段六：执行 action
+## 阶段五：执行 action
 
 产物：
 
