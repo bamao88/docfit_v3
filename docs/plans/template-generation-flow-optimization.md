@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-21
 
-一句话结论：模板生成支撑流程应该收敛成五个逻辑步骤：源 Word 事实、候选结构识别、模板模型与策略、动作计划、执行与 manifest；其中阶段三产出模板业务地图，阶段四才把业务地图翻译成可执行 action。
+一句话结论：模板生成支撑流程应该收敛成五个逻辑步骤：源 Word 事实、候选结构识别、生成模板模型与策略、动作计划、执行与 manifest；其中阶段三产出系统后续要消费的模板业务地图，阶段四才把业务地图翻译成可执行 action。
 
 ## 这个文件做什么
 
@@ -23,7 +23,7 @@ Last updated: 2026-06-21
 | 模板生成要优化什么 | 从“按 unit_id 排除列表”升级为“硬编码基线 + 内容责任 + 学生源内容 + 学校标准”的策略选择 |
 | 哪些区域可以仅复制 | 学校固定正文、签名日期、教师意见、成绩评定等不由机器填写的区域 |
 | 哪些区域不能默认仅复制 | 中文摘要、英文摘要、目录族、正文、参考文献，以及有学生内容的致谢/附录 |
-| 判定发生在哪一步 | 阶段三“模板业务地图与策略”里确认 `generation_mode = whole_unit_copy` / `copy_then_patch` / `needs_review` |
+| 判定发生在哪一步 | 阶段三“生成模板模型与策略”里确认 `generation_mode = whole_unit_copy` / `copy_then_patch` / `needs_review` |
 | 判定前上游给什么 | 阶段一提供源 Word 事实；阶段二提供 unit、element、source_ref、role_hint 和证据 |
 | 判定后元素怎么处理 | 阶段三把 copy-only、slot、protected zone、cleanup 和 unresolved question 统一写进模板业务地图 |
 | 执行时 Word 怎么变 | 阶段四把业务地图翻译成 action plan；`preserve_whole_unit_copy` 保留整体结构，copy-only 内部说明文字仍可产生 `remove_instruction_text` |
@@ -37,7 +37,7 @@ Last updated: 2026-06-21
 | --- | --- | --- | --- |
 | 阶段一：源 Word 事实 | `source_template_tree.json` | 学校原始 Word 里实际有什么段落、表格、样式、页眉页脚、source_ref | 不判断业务单元，不决定生成策略 |
 | 阶段二：候选结构识别 | `template_structure_candidates`，当前兼容名是 `discovered_template_rules.json` | 这些事实看起来属于哪些 unit / element，有哪些 role_hint 和 evidence | 不输出 `whole_unit_copy` / `copy_then_patch`，不生成 slot 或 action |
-| 阶段三：模板模型与策略 | `template_generation_model`，当前由 `template_artifact.json` + `template_unit_decisions.json` 承载 | 这个模板在系统里是什么业务地图；每个 unit 怎么处理；哪些是 slots、protected_zones、cleanup、unresolved_questions | 不直接改 Word，不生成 python-docx 执行动作 |
+| 阶段三：生成模板模型与策略 | `template_generation_model`，当前由 `template_artifact.json` + `template_unit_decisions.json` 承载 | 这个模板在系统里是什么业务地图；每个 unit 怎么处理；哪些是 slots、protected_zones、cleanup、unresolved_questions | 不直接改 Word，不生成 python-docx 执行动作 |
 | 阶段四：动作计划 | `template_generation_plan.json` | 为了实现阶段三的业务地图，需要执行哪些 copy / preserve / slot / cleanup action | 不重新判断 unit 语义，不反推业务模型 |
 | 阶段五：执行与记录 | `generated_template.docx` + `template_generation_manifest.json` | 实际执行了哪些 action，输出 Word 和 hash 是什么，哪些 action 需要 review | 不重新决定内容应该放哪里，不决定 PASS / FAIL |
 
@@ -166,7 +166,7 @@ flowchart TD
   B -->|否：不是 DOCX| V["FAIL：源模板无效<br/>代码: src/docfit/stages/template_generate/runner.py"]
   B -->|是| C["解析源 Word<br/>source_template_tree<br/>代码: src/docfit/stages/template_generate/runner.py<br/>src/docfit/harness/generated_template_inspector.py"]
   C --> D["阶段二：候选结构识别<br/>unit / element / source_ref / role_hint / evidence<br/>当前产物: discovered_template_rules"]
-  D --> E["阶段三：模板业务地图与策略<br/>generation_mode / slots / protected_zones / cleanup / unresolved_questions<br/>目标产物: template_generation_model<br/>兼容产物: template_artifact + template_unit_decisions"]
+  D --> E["阶段三：生成模板模型与策略<br/>generation_mode / slots / protected_zones / cleanup / unresolved_questions<br/>目标产物: template_generation_model<br/>兼容产物: template_artifact + template_unit_decisions"]
   E --> F["阶段四：动作计划<br/>把业务地图翻译成 copy / preserve / slot / cleanup action<br/>产物: template_generation_plan"]
   F --> G["阶段五：执行动作<br/>先整包复制 DOCX，再执行 action<br/>产物: generated_template.docx + manifest"]
   G --> H["写 artifacts / summary / debug 快照<br/>代码: src/docfit/stages/template_generate/runner.py<br/>src/docfit/convert/orchestrator.py"]
@@ -182,7 +182,7 @@ flowchart TD
 | 输入存在性和 DOCX 有效性检查 | `src/docfit/stages/template_generate/runner.py`、`src/docfit/ooxml/package.py` | 已实现 |
 | 源 Word 解析 | `src/docfit/stages/template_generate/runner.py`、`src/docfit/harness/generated_template_inspector.py` | 已实现 |
 | 候选结构识别 | `src/docfit/stages/template_generate/runner.py` | 已实现第一版；仍是 entry 到 element 的启发式识别 |
-| 模板业务地图与策略 | `src/docfit/stages/template_generate/runner.py`、`src/docfit/harness/template_units.py` | 部分实现；目前分散在 `template_artifact` 和 `template_unit_decisions`，学校标准和学生内容台账尚未正式接入 |
+| 生成模板模型与策略 | `src/docfit/stages/template_generate/runner.py`、`src/docfit/harness/template_units.py` | 部分实现；目前分散在 `template_artifact` 和 `template_unit_decisions`，学校标准和学生内容台账尚未正式接入 |
 | 动作计划生成 | `src/docfit/stages/template_generate/runner.py` | 已实现第一版；应改成只消费阶段三业务地图，不重新做业务判定 |
 | Word 复制和 action 执行 | `src/docfit/stages/template_generate/runner.py` | 已实现 |
 | 产物写出和 summary/debug | `src/docfit/stages/template_generate/runner.py`、`src/docfit/convert/orchestrator.py` | 已实现 |
