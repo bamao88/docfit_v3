@@ -60,9 +60,9 @@ Last updated: 2026-06-21
 
 ## 当前真实实现
 
-当前代码第一版的 copy-only 默认规则仍按 `unit_id` 判断。这是实现现状，不是长期定义。
+当前代码的 copy-only 默认规则仍按 `unit_id` 判断。这是实现现状，不是长期定义。
 
-当前代码还有一个需要修正的偏差：一旦判成 copy-only，代码会跳过单元内部元素分析，并且当前 `template_artifact` 构建会排除 copy-only 单元的 `source_refs`，导致 copy-only 单元里的说明文字不会被清理。目标口径不是这样；`whole_unit_copy` 只表示“主体结构和固定内容通过整包复制保留”，不表示“内部说明文字免处理”。
+已修正的偏差：copy-only 单元不再完全跳过内部元素分析。阶段二会为 copy-only 单元写出单元级 `whole_unit_copy` 候选和内部受限候选元素；阶段三会把内部说明文字 materialize 成 cleanup，把内部填写/生成候选 materialize 成固定保留证据，不会自动生成学生内容 slot。`whole_unit_copy` 只表示“主体结构和固定内容通过整包复制保留”，不表示“内部说明文字免处理”。
 
 这些单元不走默认仅复制：
 
@@ -164,31 +164,29 @@ Last updated: 2026-06-21
 
 ```mermaid
 flowchart TD
-  A["输入：学校原始模板 Word<br/>代码: src/docfit/cli/main.py<br/>src/docfit/convert/orchestrator.py"] --> B{"输入存在且是有效 DOCX？<br/>代码: src/docfit/stages/template_generate/runner.py<br/>src/docfit/ooxml/package.py"}
-  B -->|否：不存在| U["UNKNOWN：缺源模板<br/>代码: src/docfit/stages/template_generate/runner.py"]
-  B -->|否：不是 DOCX| V["FAIL：源模板无效<br/>代码: src/docfit/stages/template_generate/runner.py"]
-  B -->|是| C["解析源 Word<br/>source_template_tree<br/>代码: src/docfit/stages/template_generate/runner.py<br/>src/docfit/harness/generated_template_inspector.py"]
-  C --> D["阶段二：候选结构识别<br/>unit / element / source_ref / role_hint / evidence<br/>当前产物: discovered_template_rules"]
-  D --> E["阶段三：生成模板模型与策略<br/>generation_mode / slots / protected_zones / cleanup / unresolved_questions<br/>目标产物: template_generation_model<br/>兼容产物: template_artifact + template_unit_decisions"]
-  E --> F["阶段四：动作计划<br/>把业务地图翻译成 copy / preserve / slot / cleanup action<br/>产物: template_generation_plan"]
-  F --> G["阶段五：执行动作<br/>先整包复制 DOCX，再执行 action<br/>产物: generated_template.docx + manifest"]
-  G --> H["写 artifacts / summary / debug 快照<br/>代码: src/docfit/stages/template_generate/runner.py<br/>src/docfit/convert/orchestrator.py"]
+  A["输入：学校原始模板 Word<br/>代码: src/docfit/cli/main.py<br/>src/docfit/convert/orchestrator.py"] --> B{"输入存在且是有效 DOCX？<br/>代码: template_generate/runner.py<br/>src/docfit/ooxml/package.py"}
+  B -->|否：不存在| U["UNKNOWN：缺源模板<br/>代码: template_generate/runner.py"]
+  B -->|否：不是 DOCX| V["FAIL：源模板无效<br/>代码: template_generate/runner.py"]
+  B -->|是| C["解析源 Word<br/>source_template_tree<br/>代码: template_generate/source_tree.py<br/>src/docfit/harness/generated_template_inspector.py"]
+  C --> D["阶段二：候选结构识别<br/>unit / element / source_ref / role_hint / evidence<br/>代码: template_generate/structure_candidates.py"]
+  D --> E["阶段三：生成模板模型与策略<br/>generation_mode / slots / protected_zones / cleanup / unresolved_questions<br/>代码: template_generate/generation_model.py"]
+  E --> F["阶段四：动作计划<br/>把业务地图翻译成 copy / preserve / slot / cleanup action<br/>代码: template_generate/plan.py"]
+  F --> G["阶段五：执行动作<br/>先整包复制 DOCX，再执行 action<br/>代码: template_generate/executor.py + manifest.py"]
+  G --> H["写 artifacts / summary / debug 快照<br/>代码: template_generate/outputs.py<br/>src/docfit/convert/orchestrator.py"]
 ```
 
-图里的“目标产物”是调整后的概念边界。当前代码仍把这些责任集中在
-`src/docfit/stages/template_generate/runner.py`，并且仍会写出旧产物名。
-后续重构可以先保留旧 JSON 文件名，把语义边界按上图收拢。
+图里的“目标产物”是调整后的概念边界。当前代码已经按这些边界拆成多个模块，但仍会写出旧产物名，用于兼容 summary、报告、e2e 和人工排查。
 
 | 流程节点 | 当前主要代码文件 | 当前状态 |
 | --- | --- | --- |
 | CLI 输入和 eval 包装 | `src/docfit/cli/main.py`、`src/docfit/convert/orchestrator.py` | 已实现 |
 | 输入存在性和 DOCX 有效性检查 | `src/docfit/stages/template_generate/runner.py`、`src/docfit/ooxml/package.py` | 已实现 |
-| 源 Word 解析 | `src/docfit/stages/template_generate/runner.py`、`src/docfit/harness/generated_template_inspector.py` | 已实现 |
-| 候选结构识别 | `src/docfit/stages/template_generate/runner.py` | 已实现第一版；仍是 entry 到 element 的启发式识别 |
-| 生成模板模型与策略 | `src/docfit/stages/template_generate/runner.py`、`src/docfit/harness/template_units.py` | 部分实现；目前分散在 `template_artifact` 和 `template_unit_decisions`，学校标准和学生内容台账尚未正式接入 |
-| 动作计划生成 | `src/docfit/stages/template_generate/runner.py` | 已实现第一版；应改成只消费阶段三业务地图，不重新做业务判定 |
-| Word 复制和 action 执行 | `src/docfit/stages/template_generate/runner.py` | 已实现 |
-| 产物写出和 summary/debug | `src/docfit/stages/template_generate/runner.py`、`src/docfit/convert/orchestrator.py` | 已实现 |
+| 源 Word 解析 | `src/docfit/stages/template_generate/source_tree.py`、`src/docfit/harness/generated_template_inspector.py` | 已实现 |
+| 候选结构识别 | `src/docfit/stages/template_generate/structure_candidates.py` | 已实现第一版；输出 entry 级候选元素、`role_hint` 和 evidence |
+| 生成模板模型与策略 | `src/docfit/stages/template_generate/generation_model.py`、`src/docfit/harness/template_units.py` | 已实现兼容层；materialize 最终 `policy`，学校标准和学生内容台账尚未正式接入 |
+| 动作计划生成 | `src/docfit/stages/template_generate/plan.py` | 已实现；消费阶段三 artifact 和 decisions，不重新决定 copy-only / fill / generated 语义 |
+| Word 复制和 action 执行 | `src/docfit/stages/template_generate/executor.py` | 已实现 |
+| 产物写出和 summary/debug | `src/docfit/stages/template_generate/manifest.py`、`src/docfit/stages/template_generate/outputs.py`、`src/docfit/convert/orchestrator.py` | 已实现 |
 
 ## 阶段一：解析源 Word
 
@@ -399,10 +397,10 @@ flowchart TD
 
 | 单元类型 | 当前代码 | 目标口径 |
 | --- | --- | --- |
-| 默认仅复制单元 | 不逐个元素分析；只写一个 `policy = fixed` 的单元级元素，表示整个区域靠复制保留 | 仍然逐 entry 做受限元素识别；固定/人工内容保留，说明文字可删除，填空/系统生成信号只作为冲突证据或复核证据，不直接生成 slot |
+| 默认仅复制单元 | 写出一个单元级 `whole_unit_copy` 元素，并逐 entry 做受限候选识别；说明文字可进入 cleanup，填空/系统生成信号不直接生成 slot | 后续还应把碎片 entry 合并成更稳定的 logical element，并接入学校标准/学生内容责任 |
 | 排除列表里的单元 | 逐个可见节点分析元素 policy | 继续逐 entry 做完整元素识别；可生成 slot、generated marker、删除说明文字或插入固定文本 |
 
-当前代码里，默认仅复制单元的元素形状大致是：
+当前代码里，默认仅复制单元的单元级 copy 元素形状大致是：
 
 ```json
 {
@@ -421,7 +419,7 @@ flowchart TD
 
 这个元素不是说“封面里只有一个真实元素”，而是说当前实现把整个单元作为一个复制保留区域。
 
-目标实现里，copy-only 单元应该同时有两层信息：
+当前实现里，copy-only 单元已经同时有两层信息：
 
 | 层级 | 作用 |
 | --- | --- |
@@ -440,9 +438,9 @@ flowchart TD
 
 ## 元素分析策略
 
-排除列表里的单元继续逐个元素分析。copy-only 单元也应逐 entry 扫描，但只能执行受限策略。
+排除列表里的单元继续逐个元素分析。copy-only 单元也会逐 entry 扫描，但只能执行受限策略。
 
-当前元素识别非常直接：阶段二不会理解复杂语义树，也不会做版面区域分析。它只是把当前单元范围里的每一个可见 `entry` 变成一个 element。当前代码对 copy-only 单元还没做到这一点，这是待修正项。
+当前元素识别非常直接：阶段二不会理解复杂语义树，也不会做版面区域分析。它只是把当前单元范围里的每一个可见 `entry` 变成一个 element；copy-only 单元也遵守这个限制，只是阶段三会把内部填写/生成候选 materialize 成固定保留证据。
 
 目标元素分析应该多一步：
 
@@ -479,7 +477,7 @@ body_flow entries
 | --- | --- |
 | 正文段落 | `source_template_tree.layers.body_flow[]` 中 `kind = paragraph` 且有文本 |
 | 表格单元格 | `kind = table_cell` 且 cell 有文本；当前作为一个元素，而不是拆每个 cell 内段落为多个元素 |
-| copy-only 单元 | 当前不逐 entry 识别；目标应逐 entry 做受限识别，并保留单元级 copy 元素 |
+| copy-only 单元 | 当前逐 entry 做受限识别，并保留单元级 copy 元素 |
 | 页眉页脚 | 阶段二 `_body_entries()` 会过滤 `structure_layer != body_flow`，所以不作为正文单元元素 |
 
 元素字段当前这样生成：
@@ -700,7 +698,7 @@ flowchart TD
   M --> N["写 template_generation_manifest"]
 ```
 
-当前代码对默认 copy-only 单元不会打开内部元素做任何额外处理；这是待修正偏差。目标执行行为是：先靠整包复制保留原始结构，再执行 copy-only 内部允许的 cleanup action，例如删除说明文字；其余固定内容、人工填写区和表单结构继续保留。
+当前代码对默认 copy-only 单元会打开内部元素做受限处理：先靠整包复制保留原始结构，再执行 copy-only 内部允许的 cleanup action，例如删除说明文字；其余固定内容、人工填写区和表单结构继续保留。它仍不会因为 copy-only 内部出现填空痕迹就自动生成学生内容 slot。
 
 ## 和其他单元的核心差异
 
@@ -726,7 +724,7 @@ flowchart TD
 - 图目录、表目录当前还没有独立稳定 unit_id；它们应作为目录族的生成字段要求标注，后续如拆分可使用 `figure_toc`、`table_toc` 等稳定 ID。
 - `preserve_whole_unit_copy` 不复制单元块，只记录该单元依赖初始整包复制保留。
 - copy-only 单元不会因为内部有 `____`、`××`、`姓名：` 等文字就生成 slot。
-- 当前代码不会删除 copy-only 单元内部看起来像说明文字的内容；这是与目标口径不一致的待修正项。
+- copy-only 单元内部看起来像说明文字、格式要求或示例的内容会生成 cleanup action；这仍只是生成过程策略，不证明最终 Word 符合学校标准。
 - 生成模板是否真正符合学校要求，仍然要看后续 `template-gap`。
 
 ### 已有设计意图

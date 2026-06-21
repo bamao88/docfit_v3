@@ -20,13 +20,13 @@ generated_template.docx + template_unit_contract.yaml -> template_gap_report.*
 
 ## 模板生成策略优化
 
-一句话结论：当前生成器先整包复制源 Word，再按计划局部 patch；下一步优化重点是把“仅复制、填写、生成、人工处理、待确认”做成可解释的策略选择，而不是只靠单元 ID 排除列表。
+一句话结论：当前生成器先整包复制源 Word，再按计划局部 patch；代码已经按五步证据链拆成模块，copy-only 单元会做受限内部识别，说明文字可以进入 cleanup，但填写痕迹不会自动变成学生内容 slot。
 
 完整计划、流程图、产物流转和排查入口见：
 
 - `docs/plans/template-generation-flow-optimization.md`
 
-当前代码第一版仍按 `unit_id` 排除列表实现。排除默认仅复制的单元：
+当前默认 copy-only 仍按 `unit_id` 排除列表作为全局基线。排除默认仅复制的单元：
 
 | unit_id | 中文含义 | 当前处理 |
 | --- | --- | --- |
@@ -36,7 +36,7 @@ generated_template.docx + template_unit_contract.yaml -> template_gap_report.*
 | `body_main` | 正文 | 继续逐元素分析和局部 patch |
 | `references` | 参考文献 | 继续逐元素分析和局部 patch |
 
-模板生成支撑流程整理标准时，下一层判断要看内容责任：学生源文档中有致谢或附录内容、或学校标准要求这些单元承载学生内容时，它们也不应被当成固定 copy-only 单元；签名、日期、教师意见、成绩评定等线下人工填写区域可以继续仅复制。`generation_mode = whole_unit_copy` 不是验收结论，只说明生成流程不会重建或填写该单元内部元素；真实 Word 是否合格仍由 `template-gap` 判定。
+模板生成支撑流程整理标准时，下一层判断要看内容责任：学生源文档中有致谢或附录内容、或学校标准要求这些单元承载学生内容时，它们也不应被当成固定 copy-only 单元；签名、日期、教师意见、成绩评定等线下人工填写区域可以继续仅复制。`generation_mode = whole_unit_copy` 不是验收结论，只说明生成流程不会为该单元生成学生内容 slot；内部说明文字、格式要求和示例仍可以被识别并清理。真实 Word 是否合格仍由 `template-gap` 判定。
 
 ## 模板生成流程图
 
@@ -65,7 +65,7 @@ flowchart TD
 | 项 | 当前真实实现 |
 | --- | --- |
 | 输入 | `--template` 指向的学校原始模板 Word |
-| 生产者 | `src/docfit/stages/template_generate/runner.py::inspect_source_template_docx` |
+| 生产者 | `src/docfit/stages/template_generate/source_tree.py::inspect_source_template_docx` |
 | 上游 | `generate_template` 先调用 `build_template_generation_request` 记录源文件路径、hash、输出目录和生成策略 |
 | 下游 | `infer_template_rules(source_tree)` 用它发现候选 unit / element；`build_template_artifact` 用它整理模板结构理解 |
 | 正式输出 | `--out/artifacts/source_template_tree.json` |
@@ -125,7 +125,7 @@ discovered_rules = infer_template_rules(source_tree)
 | 不做什么 | 应该看哪一步 |
 | --- | --- |
 | 不判断“这是封面、摘要、正文还是参考文献” | 下一步 `discovered_template_rules` |
-| 不决定元素是固定保留、学生填写、自动生成还是删除说明文字 | 下一步 rule discovery 和 element policy |
+| 不决定元素最终是固定保留、学生填写、自动生成还是删除说明文字 | 下一步候选识别给 `role_hint` 和证据，再由生成模型 materialize 最终策略 |
 | 不读取学校签收标准 | 生成后的 `template-gap` |
 | 不证明 `generated_template.docx` 最终真的长对了 | `generated_template_tree.json` 和 `template_gap_report.*` |
 | 不让 AI 改写事实或状态 | 只能由确定性解析和后续检查器产出证据 |
@@ -162,12 +162,12 @@ uv run pytest tests/contract/test_template_generate.py -q
 | 顺序 | 产物 | 生产者 | 消费者 | 能证明什么 |
 | --- | --- | --- | --- | --- |
 | 1 | `source_template_tree.json` | 源 Word inspector | rule discovery、artifact builder | 源 Word 里观察到了什么 |
-| 2 | `discovered_template_rules.json` | rule discovery | artifact builder、debug | 系统推断出的候选规则 |
-| 3 | `template_artifact.json` | artifact builder | decisions、plan、placement/render 上下文 | 系统如何理解源模板 |
-| 4 | `template_unit_decisions.json` | decision builder | plan builder | 每个 unit 怎么处理 |
-| 5 | `template_generation_plan.json` | plan builder | generator executor | 生成器准备执行哪些动作 |
-| 6 | `generated_template.docx` | generator executor | template-gap、后续 placement/render | 本次生成的可填写模板 Word |
-| 7 | `template_generation_manifest.json` | generator executor | 审计、debug、e2e 解释 | 生成器实际执行了什么 |
+| 2 | `discovered_template_rules.json` | `structure_candidates.py` | generation model、debug | 系统推断出的候选 unit / element、`role_hint` 和 evidence |
+| 3 | `template_artifact.json` | `generation_model.py` | decisions、plan、placement/render 上下文 | 系统如何把候选结构 materialize 成模板业务地图 |
+| 4 | `template_unit_decisions.json` | `generation_model.py` | plan builder | 每个 unit 怎么处理 |
+| 5 | `template_generation_plan.json` | `plan.py` | generator executor | 生成器准备执行哪些动作 |
+| 6 | `generated_template.docx` | `executor.py` | template-gap、后续 placement/render | 本次生成的可填写模板 Word |
+| 7 | `template_generation_manifest.json` | `manifest.py` | 审计、debug、e2e 解释 | 生成器实际执行了什么 |
 | 8 | `generated_template_tree.json` | generated-template inspector | template-gap checker | 被测生成 Word 实际结构 |
 | 9 | `template_gap_report.*` | template-gap checker | coverage、e2e、人工排查 | 生成模板差距和阻断状态 |
 
@@ -205,6 +205,14 @@ check status
 evidence_refs
 ```
 
+本轮新增或明确的模板生成字段：
+
+| 字段 | 含义 | 生产者 | 消费者 | 判定影响 | 缺失后果 | AI 边界 | 测试 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `discovered_template_rules.units[].elements[].role_hint` | 阶段二给阶段三看的候选角色，例如说明文字候选、学生填写候选、人工填写候选 | `structure_candidates.py` | `generation_model.py`、debug 排查 | 不直接决定 `PASS` / `FAIL` / `UNKNOWN`；只影响阶段三策略输入 | 可从旧 `policy` 兼容回退，但会降低排查清晰度 | AI 不能直接改运行产物，只能解释 | `tests/contract/test_template_generate.py` |
+| `discovered_template_rules.units[].elements[].evidence[]` | 支撑候选角色的 source_ref 和启发式来源 | `structure_candidates.py` | `generation_model.py`、debug 排查 | 不直接决定门禁；作为策略可追溯证据 | 缺失时策略仍可运行，但证据链不完整 | AI 不能补造证据 | `tests/contract/test_template_generate.py` |
+| `template_artifact.data.units[].elements[].candidate_policy` | 阶段三保留的阶段二候选 policy，用来说明最终 `policy` 是怎么 materialize 出来的 | `generation_model.py` | decisions、debug、人工排查 | 不直接决定门禁；最终 `policy` 才进入 slot / cleanup / protected zone | 缺失时仍可按最终 `policy` 执行，但难以解释阶段二/三差异 | AI 不能改运行产物 | `tests/contract/test_template_generate.py` |
+
 ## first_bad_stage 判断
 
 | 现象 | 先看什么 | first_bad_stage | 应该改哪里 |
@@ -212,7 +220,7 @@ evidence_refs
 | 输入文件拿错 | `00_input_source_template.docx` | input | 调用命令或 profile 绑定 |
 | 源 Word 内容没被解析出来 | `02_source_template_tree.json` | source_parse | `inspect_source_template_docx` |
 | unit 没识别或识别错 | `03_discovered_template_rules.json` | unit_detection | `infer_template_rules` |
-| 元素策略错 | `03_discovered_template_rules.json` 的 elements | element_policy | `_element_policy` 或规则发现 |
+| 候选角色或最终策略错 | `03_discovered_template_rules.json` 的 `role_hint` / `policy`，以及 `04_template_artifact.json` 的最终 `policy` | candidate_policy 或 model_materialize | `structure_candidates.py` 或 `generation_model.py` |
 | 应整体复制却变成 patch | `05_template_unit_decisions.json` | mode_selection | `build_template_unit_decisions` |
 | 决策对但 action 错 | `06_template_generation_plan.json` | plan_build | `build_template_generation_plan` |
 | `07_copy_source_docx.docx` 已经不对 | 打开 `07` | copy_execution | 整包复制和输入 DOCX |
@@ -242,7 +250,9 @@ evidence_refs
 | 日期 | 目的 | 命令 | 状态 | 结论 |
 | --- | --- | --- | --- | --- |
 | 2026-06-21 | 验证 CLI 参数边界 | `uv run docfit eval template-generate --help` | `PASS` | 只支持 `--template`、`--out`、`--help` |
-| 2026-06-21 | 验证模板生成合同测试 | `uv run pytest tests/contract/test_template_generate.py -q` | `PASS` | `9 passed in 1.02s` |
+| 2026-06-21 | 验证模板生成合同测试 | `uv run pytest tests/contract/test_template_generate.py -q` | `PASS` | `9 passed in 0.65s`；覆盖 copy-only 受限内部识别、说明文字 cleanup、填写痕迹不生成 cover slot |
+| 2026-06-21 | 验证合同测试矩阵 | `uv run pytest tests/contract -q` | `PASS` | `71 passed in 13.05s` |
+| 2026-06-21 | 验证拆分后模板生成产物链 | `uv run docfit eval template-generate --template test_inputs/template_generation/school-hunannongye-requirement.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_generate_split_check` | `PASS` | 写出 7 个 public JSON artifact 和 00-10 debug 快照；manifest 记录 84 个执行动作、31 个 slot、0 个待人工 review 动作、43 个 copy-only 内部 cleanup 动作 |
 | 2026-06-21 | 验证模板生成产物链 | `uv run docfit eval template-generate --template test_inputs/template_generation/school-hunannongye-requirement.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/doc_reorg_template_generate_hunannongye_20260621` | `PASS` | 写出 `generated_template.docx`、artifacts、manifest；manifest 记录 143 个执行动作、53 个 slot、0 个待人工 review 动作 |
 | 2026-06-21 | 验证生成 Word 进入 gap | `uv run docfit eval template-gap --school hunannongye --generated-template test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/doc_reorg_template_generate_hunannongye_20260621/generated_template.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/doc_reorg_template_gap_hunannongye_20260621` | `FAIL` | gap summary 为 `FAIL + UNKNOWN`，`passed=128`、`failed=27`、`unknown=137` |
 
@@ -250,10 +260,8 @@ evidence_refs
 
 ## 当前最小下一步
 
-补 `unit-level generation trace`，让 `template_unit_decisions.json`、`template_generation_plan.json`、`template_generation_manifest.json` 能清楚回答：
+如果继续推进模板生成质量，下一步不是再拆文件，而是把 copy-only / copy_then_patch 的策略输入从全局 `unit_id` 基线升级到学校标准和学生内容责任：
 
-- 每个 unit 是 `whole_unit_copy` 还是 `copy_then_patch`；
-- 每个 unit 的 source range 是什么；
-- 每个 unit 实际执行了哪些 action；
-- 哪些 action 被跳过，因为该 unit 是整体复制；
-- 生成后这个 unit 是否能在输出里重新定位。
+- 学校签收标准明确承载学生内容时，不能继续按默认 copy-only 保留；
+- 致谢、附录等条件单元要接入学生内容台账后再决定是否 copy-only；
+- `template-gap` 仍负责判断生成 Word 是否满足学校签收标准，不能用 manifest 或 `template_artifact` 替代。

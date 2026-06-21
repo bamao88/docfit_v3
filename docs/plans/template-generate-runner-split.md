@@ -1,8 +1,9 @@
 # template_generate/runner.py 拆分任务
 
+Status: Implemented
 Last updated: 2026-06-21
 
-一句话结论：`src/docfit/stages/template_generate/runner.py` 应按模板生成五步证据链拆分成多个小模块；第一轮只做机械拆分并保持行为不变，第二轮再把阶段二、阶段三的语义边界收拢到新流程。
+一句话结论：`src/docfit/stages/template_generate/runner.py` 已按模板生成五步证据链拆分成多个小模块；copy-only 单元现在会做受限内部识别，说明文字可以进入 cleanup，填写痕迹不会自动生成学生内容 slot。
 
 ## 这个文件做什么
 
@@ -21,19 +22,19 @@ Last updated: 2026-06-21
 
 ## 当前真实情况
 
-当前 `runner.py` 约 1900 行，把这些职责放在同一个文件里：
+当前 `runner.py` 只保留 `generate_template()` 主流程、输入失败状态、覆盖率和兼容导入。模板生成职责已经拆到 `src/docfit/stages/template_generate/` 下的专项模块：
 
 | 职责 | 当前状态 |
 | --- | --- |
-| 输入检查和主流程编排 | 已在 `generate_template()` 中实现 |
-| 源 Word 事实解析 | 已实现，产物是 `source_template_tree.json` |
-| 候选单元和元素识别 | 已实现第一版，产物是 `discovered_template_rules.json` |
-| 模板模型和策略 | 已实现第一版，但分散在 `template_artifact` 和 `template_unit_decisions` |
-| 动作计划 | 已实现第一版，产物是 `template_generation_plan.json` |
-| Word action 执行 | 已实现，产物是 `generated_template.docx` 和执行结果 |
-| manifest / debug / artifacts 写出 | 已实现 |
+| 输入检查和主流程编排 | `runner.py` |
+| 源 Word 事实解析 | `source_tree.py`，产物是 `source_template_tree.json` |
+| 候选单元和元素识别 | `structure_candidates.py`，产物是 `discovered_template_rules.json` |
+| 模板模型和策略 | `generation_model.py`，产物是 `template_artifact.json` 和 `template_unit_decisions.json` |
+| 动作计划 | `plan.py`，产物是 `template_generation_plan.json` |
+| Word action 执行 | `executor.py`，产物是 `generated_template.docx` 和执行结果 |
+| manifest / debug / artifacts 写出 | `manifest.py` 和 `outputs.py` |
 
-当前还存在一个语义偏差：候选结构识别阶段已经直接写 `policy = fill / fixed / generated / remove_instruction`，但目标流程里阶段二应该只给 `role_hint` 和证据，阶段三才统一决定 slot、protected zone、cleanup 和 `generation_mode`。
+语义边界也已收敛一层：`discovered_template_rules` 里的元素带 `role_hint` 和 `evidence`，`generation_model.py` 会把候选 `policy` materialize 成 `template_artifact` 的最终 `policy`。copy-only 内部的 `fill` / `generated` 候选会保留为证据但最终变成 `fixed`，不会生成 slot；`remove_instruction` 候选会进入 cleanup。
 
 ## 过程文件输出兼容要求
 
@@ -181,17 +182,30 @@ uv run pytest tests/contract/test_template_generate.py -q
 
 | 标准 | 结果 |
 | --- | --- |
-| `runner.py` 只保留主流程和兼容导出 | 待做 |
-| 每个模块职责能对应五步流程 | 待做 |
-| `tests/contract/test_template_generate.py` 通过 | 待做 |
-| 公开产物名和 JSON 形状不变 | 待做 |
-| 00-10 debug 快照位置和文件名不变 | 待做 |
+| `runner.py` 只保留主流程和兼容导出 | 已完成；提交 `0db2f4d` |
+| 每个模块职责能对应五步流程 | 已完成；新增 `source_tree.py`、`structure_candidates.py`、`generation_model.py`、`plan.py`、`executor.py`、`manifest.py`、`outputs.py` 等 |
+| `tests/contract/test_template_generate.py` 通过 | 已完成；`9 passed` |
+| 公开产物名和 JSON 形状不变 | 已完成；第一轮机械拆分未改 artifacts 文件名 |
+| 00-10 debug 快照位置和文件名不变 | 已完成；真实命令验证写出 `00_input_source_template.docx` 到 `10_template_generation_debug_index.json` |
 
 第二轮完成标准：
 
 | 标准 | 结果 |
 | --- | --- |
-| 阶段二只输出候选结构和证据 | 待做 |
-| 阶段三统一输出模板业务地图和处理策略 | 待做 |
-| 阶段四只翻译 action，不重新判断业务语义 | 待做 |
-| copy-only 内部说明文字清理有测试证明 | 待做 |
+| 阶段二只输出候选结构和证据 | 已完成到兼容层；`role_hint` 和 `evidence` 已进入 `discovered_template_rules`，旧 `policy` 字段保留为候选 policy 兼容字段 |
+| 阶段三统一输出模板业务地图和处理策略 | 已完成；`generation_model.py` materialize 最终 `policy`，并保留 `candidate_policy` 解释候选来源 |
+| 阶段四只翻译 action，不重新判断业务语义 | 已完成；`plan.py` 消费 `template_artifact` 和 `template_unit_decisions`，不重新决定 copy-only / fill / generated 语义 |
+| copy-only 内部说明文字清理有测试证明 | 已完成；`tests/contract/test_template_generate.py` 证明 copy-only 内部说明文字删除、填写痕迹不生成 cover slot |
+
+## 执行证据
+
+| 类型 | 证据 |
+| --- | --- |
+| 提交 | `0db2f4d refactor(template-generate): split runner modules` |
+| 提交 | `304d613 feat(template-generate): clean copy-only instructions` |
+| 提交 | `526196f refactor(template-generate): materialize candidate policies in model` |
+| 聚焦测试 | `uv run pytest tests/contract/test_template_generate.py -q` -> `9 passed` |
+| 合同测试 | `uv run pytest tests/contract -q` -> `71 passed` |
+| 真实模板生成 | `uv run docfit eval template-generate --template test_inputs/template_generation/school-hunannongye-requirement.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_generate_split_check` -> `status = PASS` |
+| 输出兼容 | 真实运行写出 7 个 public JSON artifact，以及 `00_input_source_template.docx` 到 `10_template_generation_debug_index.json` 的 debug 快照 |
+| 行为变化 | manifest 记录 43 个 copy-only 内部 cleanup action；copy-only 填写候选不生成 cover slot |

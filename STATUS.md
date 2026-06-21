@@ -21,6 +21,9 @@ Current state:
   `template_generation_plan.json`、顶层 `generated_template.docx` 和
   `template_generation_manifest.json`。这证明生成支撑流程的证据链已经存在；
   学校格式质量仍要交给 `template-gap` 和 real-core gate 判定。
+  生成器代码现在已经按源 Word 事实、候选结构、生成模型、动作计划、执行/manifest
+  拆成模块；copy-only 单元会做受限内部识别，内部说明文字可以进入 cleanup，
+  但内部填写痕迹不会自动生成学生内容 slot。
   单独的 `template-generate` 不接受 `--school`，也不读取学校签收标准；
   real-core 的 template/e2e 编排会在生成后把本次 `generated_template.docx`
   交给 `template-gap`，由签收标准里的 `expected.units` 判定学校格式质量。
