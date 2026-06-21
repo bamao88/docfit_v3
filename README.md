@@ -1,43 +1,60 @@
 # DocFit v3
 
-一句话结论：DocFit v3 是一个评测框架优先的 DOCX 转换原型；它要证明转换结果满足已签收标准，而不是只生成一个看起来能打开的 Word 文件。
+一句话结论：DocFit v3 的业务是把学生论文 Word 转成目标学校要求的 Word；业务流程只有四个阶段：模板解析、内容提取、内容放置、DOCX 渲染。
 
-## 当前项目边界
+## 这个项目做什么
 
-当前真实实现已经有可运行的 `docfit eval ...` CLI、四阶段评测骨架、模板生成阶段、generated-template gap 检查、Bootstrap profile 和 real-core-v0 基线 gate。
+DocFit 接收两类业务输入：
 
-当前没有证明 real-core-v0 已经转换合格。真实学校链路会生成 Word 和报告，但完整 gate 仍会因为模板、内容、放置、渲染问题返回 `FAIL` 或 `UNKNOWN`。
+- 目标学校的 Word 模板或模板要求；
+- 学生已经写好的 Word 论文。
 
-整个项目流程图见 `docs/current/README.md` 的“整体流程图”。
+它要输出一份目标学校格式的 Word。正确性不是“文件能打开”或“看起来差不多”，而是四个业务阶段都能说明自己做了什么、产出了什么、有没有丢内容、有没有证据不足。
 
-`docfit eval template-generate` 只负责：
+## 业务四阶段
 
-```text
-学校原始模板 Word -> generated_template.docx + 模板生成过程证据
-```
+| 阶段 | 输入 | 输出 | 失败说明什么 |
+| --- | --- | --- | --- |
+| 1. 模板解析 | 学校 Word 模板 | `template_artifact.json` | 系统还没有正确理解目标学校模板结构、样式、区域和可填写位置 |
+| 2. 内容提取 | 学生源 Word | `student_content_artifact.json` | 系统还不能证明学生可见内容被完整识别，没有静默丢弃 |
+| 3. 内容放置 | 模板理解结果 + 学生内容 | `placement_plan.json` | 系统还不知道每段学生内容应该进入模板里的哪个位置 |
+| 4. DOCX 渲染 | 放置计划 + 模板底稿 | `final.docx`、`render_manifest.json` | 系统还不能证明最终 Word 是按放置计划生成的 |
 
-它不读取学校签收标准，也不接受 `--school`。学校标准检查由 `docfit eval template-gap`、`docfit eval template` 和 real-core/e2e gate 负责。
+`docfit convert` 只是把这四个阶段串起来。任一阶段 `FAIL` 或 `UNKNOWN`，都不能宣称转换成功。
 
-## 文档怎么读
+## 评测是什么
 
-| 你要了解什么 | 入口 | 说明 |
-| --- | --- | --- |
-| 项目是什么、边界是什么、整体流程图 | `docs/current/README.md` | 当前长期维护文档入口 |
-| 当前真实状态、下一步、阻塞项 | `STATUS.md` | 当前状态，不等于长期规范 |
-| 阶段、字段、产物、判定必须怎么对齐 | `docs/current/contracts-and-gates.md` | 契约级入口，完整规范仍以 `SPEC.md` 为主 |
-| 模板生成阶段怎么跑、怎么验收 | `docs/current/template-generation.md` | 流程、字段、执行、证据、gap 合并入口 |
-| 模板生成流程怎么优化 | `docs/plans/template-generation-flow-optimization.md` | 生成策略选择、仅复制单元、填写/生成/人工区域的对齐计划 |
-| 新增输入、输出、标准、测试、文档该放哪 | `DIRECTORY_STRUCTURE.md` | 根目录短入口，完整规则见 `docs/current/project-directory-structure.md` |
+评测驱动开发是这个项目的开发和验收方式，不是业务流程本身。
+
+Eval Harness 负责检查四个业务阶段的产物，输出 `PASS` / `FAIL` / `UNKNOWN`：
+
+- `PASS`：证据足够，并且产物满足标准；
+- `FAIL`：标准明确，产物违反标准；
+- `UNKNOWN`：缺标准、缺检查器、缺证据或输入不可支持。
+
+AI 只能读报告、解释问题、建议下一步，不能裁定通过或失败。
+
+## 当前真实状态
+
+Bootstrap demo 链路能跑通。`real-core-v0` 真实学校链路现在能生成 Word 和报告，但完整业务验收仍会返回 `FAIL` / `UNKNOWN`。
+
+当前开发重点不是继续整理目录，也不是只产出一个 Word 文件，而是修真实工程链路：
+
+1. 内容提取：识别摘要、关键词、参考文献、附录、致谢等章节角色，并排除旧封面、旧目录这类源文档格式内容。
+2. 内容放置：把每段学生内容放到目标学校模板的具体位置，不能全部放到 `slot_body_start` 或追加到末尾。
+3. DOCX 渲染：最终 Word 不能带模板说明文字，学生内容也不能只是追加在生成模板后面。
+
+模板生成和 `template-gap` 是当前模板侧的支撑流程：它们帮助准备和检查可填写模板，但不改变“业务只有四阶段”这个边界。
 
 ## 常用命令
 
-安装或同步依赖：
+安装依赖：
 
 ```bash
 uv sync
 ```
 
-运行基础测试：
+运行测试：
 
 ```bash
 uv run pytest
@@ -60,36 +77,14 @@ uv run docfit eval coverage \
   --out /tmp/docfit_real_core_coverage
 ```
 
-运行模板生成阶段：
+## 继续读哪里
 
-```bash
-uv run docfit eval template-generate \
-  --template test_inputs/template_generation/school-hunannongye-requirement.docx \
-  --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_generate
-```
-
-检查生成模板是否满足学校签收标准：
-
-```bash
-uv run docfit eval template-gap \
-  --school hunannongye \
-  --generated-template test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_generate/generated_template.docx \
-  --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_gap_hunannongye
-```
-
-## 目录速记
-
-| 目录 | 用途 |
+| 你要了解什么 | 入口 |
 | --- | --- |
-| `src/docfit/cli/` | Typer CLI 和 `docfit eval ...` / `docfit convert` 入口 |
-| `src/docfit/convert/` | e2e、convert 和阶段编排 |
-| `src/docfit/stages/` | 模板生成、模板解析、内容提取、内容放置、DOCX 渲染 |
-| `src/docfit/harness/` | 评测、标准、coverage、报告、template-gap、AI 诊断包 |
-| `standards/` | 已签收标准、contracts、expected、golden、profile case |
-| `test_inputs/` | 仓库随附的可复现输入 |
-| `test_outputs/` | 本地 eval、debug、workbench 输出；默认可再生成 |
-| `docs/current/` | 长期维护的当前项目文档 |
-| `docs/human/` | 讨论、审查、历史过程和迁移指针 |
-| `docs/agents/` | 面向 coding agent 的长流程手册 |
+| 当前主线和流程图 | `docs/current/README.md` |
+| 当前状态、下一步和阻塞项 | `STATUS.md` |
+| 四阶段产物、门禁和 AI 边界 | `docs/current/contracts-and-gates.md` |
+| 模板生成支撑流程 | `docs/current/template-generation.md` |
+| 新增文件放哪里 | `DIRECTORY_STRUCTURE.md` |
 
-完整目录约定只维护在 `docs/current/project-directory-structure.md`；根目录 `DIRECTORY_STRUCTURE.md` 是短入口。
+目录规则只是新增文件时的参考，不是项目主线。

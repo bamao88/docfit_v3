@@ -94,7 +94,7 @@ JSON、DOCX、截图、manifest、临时报告等运行产物默认可再生成�
 
 ```text
 test_outputs/debug/template_generation/<验证名>/
-  <时间戳>/                    # 模板生成阶段 debug 快照，例如 00-10 步文件
+  <时间戳>/                    # 模板生成支撑流程 debug 快照，例如 00-10 步文件
   eval_runs/
     template_generate/          # 生成出来的 generated_template.docx 和报告
     template_gap_<学校或场景>/   # 同一份 generated_template 的 gap 检查报告

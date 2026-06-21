@@ -5,26 +5,26 @@ Last updated: 2026-06-21
 Current focus:
 
 - `real-core-v0` 已从“证据绑定通过”推进到“业务验收 gate 会阻塞当前坏输出”；
-  模板 source-fact 解析已经升级为结构化标准逐项验收，生成模板 Word 差距检查
+  模板解析已经升级为结构化标准逐项验收，生成模板 Word 差距检查
   现在检查本次 `template-generate` 生成的 `generated_template.docx`，或 CLI
   显式传入的 `generated_template.docx`，不再把学校源模板路径混成被测生成物。
-- 新的 `PASS` 语义必须同时满足四层业务验收：模板解析、内容抽取、内容放置、
-  Word 生成。只有 source-fact baseline 和 Word 页面图像证据不再足够。
+- 新的 `PASS` 语义必须同时满足四个业务阶段验收：模板解析、内容提取、内容放置、
+  DOCX 渲染。只有 source-fact baseline 和 Word 页面图像证据不再足够。
 - 接下来重点不是继续准备材料，而是按 gate 暴露的问题修真实工程链路。
 
 Current state:
 
 - `real-core-v0` 已注册三所学校、三份学生文档、九个学校/学生组合。
-- `docfit eval template-generate --template ... --out ...` 已经跑完整模板生成阶段：
+- `docfit eval template-generate --template ... --out ...` 已经跑通模板生成支撑流程：
   它会写出 `source_template_tree.json`、`discovered_template_rules.json`、
   `template_artifact.json`、`template_unit_decisions.json`、
   `template_generation_plan.json`、顶层 `generated_template.docx` 和
-  `template_generation_manifest.json`。这证明生成阶段证据链已经存在；
+  `template_generation_manifest.json`。这证明生成支撑流程的证据链已经存在；
   学校格式质量仍要交给 `template-gap` 和 real-core gate 判定。
   单独的 `template-generate` 不接受 `--school`，也不读取学校签收标准；
   real-core 的 template/e2e 编排会在生成后把本次 `generated_template.docx`
   交给 `template-gap`，由签收标准里的 `expected.units` 判定学校格式质量。
-- real-core 的 template/e2e 编排已经接入模板生成阶段：每次 run 会先写出
+- real-core 的 template/e2e 编排已经接入模板生成支撑流程：每次 run 会先写出
   `template_generation/generated_template.docx`，再把这份 Word 交给
   `template-gap` 检查，并让后续 render 以它作为底稿。已签入的
   `test_inputs/template_gap/**` 仍保留为显式 `template-gap` fixture，
@@ -49,10 +49,10 @@ Current state:
   `docs/human/real-core-v0-product-quality-review.md`。当前结论是：
   历史 Word 文件还不能算学校格式转换合格；新编排已经能清理一批目标模板
   说明/示例文字，但仍主要是在复制生成模板后把学生内容追加到末尾。
-- 四个环节的问题检查已经成为 real-core 验收 gate：
+- 四个业务阶段的问题检查已经成为 real-core 验收 gate：
   `tests/contract/test_real_core_four_stage_problem_checks.py` 会用湖南农业大学模板
-  和学生 003 源文档跑一次转换，并确认生成模板差距、内容抽取、内容放置、
-  Word 生成都能给出具体问题说明；当前坏输出会返回 `FAIL`，不能再因为证据绑定
+  和学生 003 源文档跑一次转换，并确认模板解析/模板质量、内容提取、内容放置、
+  DOCX 渲染都能给出具体问题说明；当前坏输出会返回 `FAIL`，不能再因为证据绑定
   存在而通过。
   最新临时 probe `/tmp/docfit_real_core_template_probe` 的结果是
   `template: FAIL`、`content: UNKNOWN`、`placement: UNKNOWN`、`render: FAIL`、
@@ -63,7 +63,7 @@ Current state:
   `docs/human/real-core-v0-four-stage-problem-checks.md`。
 - 三所学校的 `standards/schools/*/v1/template_unit_contract.yaml` 现在包含
   `expected.units`：每个 unit、element、policy、type/fill、content、style、
-  position/relationship 都是可执行标准。模板 stage 和 product-quality gate 会把
+  position/relationship 都是可执行标准。模板解析和 product-quality gate 会把
   `template_artifact.data.units` 与这些结构化标准逐项比对；例如元素样式不一致会
   报 `template_element_style_mismatch`，并指出 `cover.e_001.style` 这类具体路径。
 - real-core 模板合同现在还要求生成模板差距检查：`docfit eval template-gap`
@@ -74,7 +74,7 @@ Current state:
   `check_items`。
   字段和 Word 自动编号现在也有显式检查：Word complex field / fldSimple 会合并成
   完整指令并绑定到单元范围；如果单元不能可靠定位，下级字段、编号和元素会保持
-  `UNKNOWN`，不会靠全文搜索冒充 PASS。缺 Word 生成字段会报
+  `UNKNOWN`，不会靠全文搜索冒充 PASS。缺 Word 字段生成证据会报
   `template_generation_field_missing`，字段在错误单元会报
   `template_generation_field_out_of_unit`。自动编号会解析 `word/numbering.xml`、
   样式 `numPr`、段落直接 `numPr` 和段落样式引用；北大正文标题这类要求可以报
@@ -123,7 +123,7 @@ Current state:
   内部 `[[DOCFIT_*]]` 标记已清零。该真实样例仍按完整 gate 返回 `FAIL`，因为模板
   gap、内容语义、放置位置、追加式渲染和 Word 图片证据还没有达到完整验收。
 - 学生源文档中的旧目录已经有一个通用修复：`toc 1` / `toc 2` / `toc 3`
-  样式段落会被识别为源文档格式内容，内容放置时标为不写入成品，Word 生成记录
+  样式段落会被识别为源文档格式内容，内容放置时标为不写入成品，DOCX 渲染记录
   会说明该动作已处理但不会把旧目录文字写进后续新输出。
 - 学生正文中的常见编号标题已经有通用语义候选：例如 `3 PGP6...` 会标为
   `arabic_numbered_heading`，`5.1本研究...` 会标为
@@ -139,20 +139,20 @@ Current state:
 
 Next action:
 
-- 当前阶段如果按“60 分内容草稿”推进，下一步优先修内容抽取：识别摘要、关键词、
+- 当前阶段如果按“60 分内容草稿”推进，下一步优先修内容提取：识别摘要、关键词、
   参考文献、附录、致谢这类章节角色，
   以及旧封面、旧目录这类不该进目标正文的源文档格式内容。
 - 再修内容放置：确认每段学生内容进入目标学校模板的具体位置，不能全部放到
   `slot_body_start`。
-- 最后修 Word 生成：确认最终文件没有模板说明文字，并且学生内容不是追加到
+- 最后修 DOCX 渲染：确认最终文件没有模板说明文字，并且学生内容不是追加到
   生成模板后面。
-- 如果要恢复“模板完全合格”口径，再继续推进 `template-generate` 真实模板质量：
+- 如果要恢复“模板解析/模板质量完全合格”口径，再继续推进 `template-generate` 真实模板质量：
   按签名标准顺序重组可填写模板，保留固定表单和真实可见固定内容，补齐等价生成机制、
   复杂样式/section/页码规则和页面级版面证据，直到模板差距报告不再阻断。
 
 Known blockers:
 
 - 目前没有需要用户提供的新材料阻塞工程继续。
-- 等内容抽取、内容放置和渲染修复后，需要用户或产品 owner review 新生成的
+- 等内容提取、内容放置和 DOCX 渲染修复后，需要用户或产品 owner review 新生成的
   9 个 Word 成品，判断固定表单、缺失内容占位、北大空白页/版权页/原创性声明页
   等最终成品策略。

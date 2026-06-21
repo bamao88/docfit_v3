@@ -14,15 +14,23 @@ Last updated: 2026-06-21
 
 禁止把 `FAIL` 或 `UNKNOWN` 降成 `WARN` 来通过 gate。
 
-## 阶段契约
+## 业务四阶段契约
 
 | 阶段 | 主要产物 | 必须证明什么 | 常见阻断 |
 | --- | --- | --- | --- |
-| 模板生成 | `generated_template.docx`、`template_generation_manifest.json` | 生成阶段产物链完整、输出 Word hash 固定、过程可追溯 | 源模板缺失/无效、manifest 缺 hash、动作不可解释 |
-| 模板侧 gate | `template_artifact.json`、`generated_template_tree.json`、`template_gap_report.*` | 模板或生成模板满足学校签收标准 | required unit 缺失、样式/字段/分页不符、检查器证据不足 |
+| 模板解析 | `template_artifact.json` | 系统正确理解学校模板结构、样式、区域和可填写位置 | required unit 缺失、样式/字段/分页不符、检查器证据不足 |
 | 内容提取 | `student_content_artifact.json` | 用户可见内容完整进入 ledger | 可见内容缺 `content_id`、unsupported 可见对象未登记 |
 | 内容放置 | `placement_plan.json` | 每个可见内容有且只有一个明确去向 | silent drop、slot 不存在、学校特例未登记 |
 | DOCX 渲染 | `final.docx`、`render_manifest.json`、`feature_snapshot.json` | renderer 忠实执行 placement plan | action 未执行、feature diff 阻断、oracle 不足 |
+
+## 模板侧支撑检查
+
+模板生成和 `template-gap` 是当前模板侧的支撑流程，不是业务四阶段之外新增的业务阶段。
+
+| 支撑流程 | 主要产物 | 能证明什么 | 不能证明什么 |
+| --- | --- | --- | --- |
+| 模板生成 | `generated_template.docx`、`template_generation_manifest.json` | 生成过程可追溯，输出 Word hash 固定 | 不能自己证明学校格式合格 |
+| generated-template gap | `generated_template_tree.json`、`template_gap_report.*` | 被测生成模板和学校签收标准之间的差距 | 不能替代四阶段转换验收 |
 
 ## 产物不能互相冒充
 

@@ -2,9 +2,9 @@
 
 Last updated: 2026-06-21
 
-一句话结论：模板生成阶段只负责把学校原始模板 Word 变成 `generated_template.docx` 和过程证据；学校格式是否合格必须交给 `template-gap` 判定。
+一句话结论：模板生成是当前模板侧支撑流程，只负责把学校原始模板 Word 变成 `generated_template.docx` 和过程证据；它不是 DocFit 四个业务阶段之外新增的业务阶段，学校格式是否合格必须交给 `template-gap` 判定。
 
-## 阶段边界
+## 支撑流程边界
 
 ```text
 学校原始模板 Word -> generated_template.docx + 生成过程证据
@@ -36,19 +36,19 @@ generated_template.docx + template_unit_contract.yaml -> template_gap_report.*
 | `body_main` | 正文 | 继续逐元素分析和局部 patch |
 | `references` | 参考文献 | 继续逐元素分析和局部 patch |
 
-阶段一整理标准时，下一层判断要看内容责任：学生源文档中有致谢或附录内容、或学校标准要求这些单元承载学生内容时，它们也不应被当成固定 copy-only 单元；签名、日期、教师意见、成绩评定等线下人工填写区域可以继续仅复制。`generation_mode = whole_unit_copy` 不是验收结论，只说明生成阶段不会重建或填写该单元内部元素；真实 Word 是否合格仍由 `template-gap` 判定。
+模板生成支撑流程整理标准时，下一层判断要看内容责任：学生源文档中有致谢或附录内容、或学校标准要求这些单元承载学生内容时，它们也不应被当成固定 copy-only 单元；签名、日期、教师意见、成绩评定等线下人工填写区域可以继续仅复制。`generation_mode = whole_unit_copy` 不是验收结论，只说明生成流程不会重建或填写该单元内部元素；真实 Word 是否合格仍由 `template-gap` 判定。
 
 ## 模板生成流程图
 
 ```mermaid
 flowchart TD
-  A["输入<br/>学校原始模板 Word"] --> B["阶段 0<br/>template_generation_request"]
-  B --> C["阶段 1<br/>source_template_tree<br/>解析源 Word 事实"]
-  C --> D["阶段 2<br/>discovered_template_rules<br/>发现候选 unit / element"]
-  D --> E["阶段 3<br/>template_artifact<br/>构建模板结构理解"]
-  E --> F["阶段 4<br/>template_unit_decisions<br/>决定 whole_unit_copy / copy_then_patch"]
-  F --> G["阶段 5<br/>template_generation_plan<br/>生成 action 列表"]
-  G --> H["阶段 6<br/>执行计划"]
+  A["输入<br/>学校原始模板 Word"] --> B["步骤 0<br/>template_generation_request"]
+  B --> C["步骤 1<br/>source_template_tree<br/>解析源 Word 事实"]
+  C --> D["步骤 2<br/>discovered_template_rules<br/>发现候选 unit / element"]
+  D --> E["步骤 3<br/>template_artifact<br/>构建模板结构理解"]
+  E --> F["步骤 4<br/>template_unit_decisions<br/>决定 whole_unit_copy / copy_then_patch"]
+  F --> G["步骤 5<br/>template_generation_plan<br/>生成 action 列表"]
+  G --> H["步骤 6<br/>执行计划"]
   H --> I["07_copy_source_docx.docx<br/>整包复制停点"]
   H --> J["08/generated_template.docx<br/>正式生成模板"]
   H --> K["template_generation_manifest.json<br/>执行记录和 hash"]
@@ -231,7 +231,7 @@ evidence_refs
 | `summary.json` | `--out/summary.json` | 本次命令状态、blocked_at、artifacts 索引 |
 | `pm_report.md` | `--out/pm_report.md` | 人读结果说明 |
 | `findings.json` | `--out/findings.json` | 机器可读问题列表 |
-| `generated_template.docx` | `--out/generated_template.docx` | 模板生成阶段正式 Word 输出 |
+| `generated_template.docx` | `--out/generated_template.docx` | 模板生成支撑流程的正式 Word 输出 |
 | 模板生成 JSON 产物 | `--out/artifacts/*.json` | request、source tree、rules、artifact、decisions、plan、manifest |
 | 00-10 调试快照 | `test_outputs/debug/template_generation/<验证名>/` | first_bad_stage 排查 |
 | diff / 对比证据 | `07_copy_source_docx.docx` vs `08_generated_template.docx` | 判断整包复制后被哪些局部 action 改变 |
@@ -246,7 +246,7 @@ evidence_refs
 | 2026-06-21 | 验证模板生成产物链 | `uv run docfit eval template-generate --template test_inputs/template_generation/school-hunannongye-requirement.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/doc_reorg_template_generate_hunannongye_20260621` | `PASS` | 写出 `generated_template.docx`、artifacts、manifest；manifest 记录 143 个执行动作、53 个 slot、0 个待人工 review 动作 |
 | 2026-06-21 | 验证生成 Word 进入 gap | `uv run docfit eval template-gap --school hunannongye --generated-template test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/doc_reorg_template_generate_hunannongye_20260621/generated_template.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/doc_reorg_template_gap_hunannongye_20260621` | `FAIL` | gap summary 为 `FAIL + UNKNOWN`，`passed=128`、`failed=27`、`unknown=137` |
 
-这说明模板生成阶段能跑并能进入学校标准检查；不说明湖南农业大学生成模板已经合格。
+这说明模板生成支撑流程能跑并能进入学校标准检查；不说明湖南农业大学生成模板已经合格。
 
 ## 当前最小下一步
 
