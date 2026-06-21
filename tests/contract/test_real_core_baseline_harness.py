@@ -23,7 +23,7 @@ ROOT = Path.cwd()
 
 
 def _link_real_core_inputs(root: Path) -> None:
-    for name in ["standards", "inputs", "docs"]:
+    for name in ["standards", "test_inputs", "docs"]:
         os.symlink(ROOT / name, root / name, target_is_directory=True)
 
 
@@ -70,7 +70,7 @@ def test_real_core_coverage_does_not_pass_with_only_bound_word_image_evidence(tm
     _link_real_core_inputs(tmp_path)
     cases = [case for case in get_eval_cases_for_profile("real-core-v0") if case.stage == "e2e"]
     for case in cases:
-        case_dir = tmp_path / "reports/real-core-v0" / case.case_id
+        case_dir = tmp_path / "test_outputs/debug/template_eval_runs/real-core-v0" / case.case_id
         evidence_dir = case_dir / "evidence"
         final_docx = case_dir / "final.docx"
         page_png = evidence_dir / "page-1.png"
@@ -147,7 +147,7 @@ def test_real_core_template_parse_outputs_reviewed_unit_tree_for_all_schools(tmp
             / "template_generation/artifacts/template_generation_manifest.json"
         ).exists()
         assert gap_report["generated_template"]["source_path"] == str(generated_from_stage)
-        assert "inputs/simulated-generated-templates" not in gap_report[
+        assert "test_inputs/template_gap" not in gap_report[
             "generated_template"
         ]["source_path"]
         assert artifact["provenance"]["source_template_docx"] == str(
@@ -198,7 +198,7 @@ def test_real_core_template_contract_verifier_reports_element_style_mismatch(
     result = run_template_eval(
         ROOT,
         "hunannongye",
-        ROOT / "inputs/school-hunannongye-requirement.docx",
+        ROOT / "test_inputs/template_generation/school-hunannongye-requirement.docx",
         tmp_path / "hunannongye",
     )
     assert result.status == Status.FAIL
@@ -223,7 +223,7 @@ def test_real_core_template_contract_requires_structured_expected_units(
     result = run_template_eval(
         ROOT,
         "hunannongye",
-        ROOT / "inputs/school-hunannongye-requirement.docx",
+        ROOT / "test_inputs/template_generation/school-hunannongye-requirement.docx",
         tmp_path / "hunannongye",
     )
     assert result.status == Status.FAIL
@@ -243,7 +243,7 @@ def test_real_core_e2e_reaches_render_and_writes_bound_final_docx(tmp_path) -> N
     result = run_e2e_eval(
         ROOT,
         "hunannongye",
-        ROOT / "inputs/real-student-001-source.docx",
+        ROOT / "test_inputs/content_extraction/real-student-001-source.docx",
         tmp_path / "real_core_case",
     )
 
@@ -259,7 +259,7 @@ def test_real_core_e2e_reaches_render_and_writes_bound_final_docx(tmp_path) -> N
     assert summary["stage_statuses"] == {
         "template": "FAIL",
         "content": "UNKNOWN",
-        "placement": "UNKNOWN",
+        "placement": "PASS",
         "render": "FAIL",
     }
     assert generated_from_stage.exists()
@@ -274,7 +274,9 @@ def test_real_core_e2e_reaches_render_and_writes_bound_final_docx(tmp_path) -> N
     assert "template_unit_tree_missing" not in [
         finding.type for finding in result.findings
     ]
-    assert "render_append_only_insertion" in [finding.type for finding in result.findings]
+    finding_types = [finding.type for finding in result.findings]
+    assert "render_append_only_insertion" in finding_types
+    assert "placement_actions_collapsed_to_virtual_body_slot" not in finding_types
     assert any(
         finding.type == "template_generation_page_rule_unverified"
         for finding in result.findings
@@ -291,7 +293,7 @@ def test_required_dimension_without_comparator_policy_is_unknown() -> None:
         "baseline_type": "student_content_tree",
         "review_metadata": {
             "reviewed_by": "product-owner",
-            "review_source": "inputs/review.md",
+            "review_source": "test_inputs/content_extraction/review.md",
             "source_docx_sha256": "sha256:abc",
             "change_reason": "initial baseline",
             "auto_update_allowed": False,
@@ -310,7 +312,7 @@ def test_numeric_dimension_requires_explicit_tolerance() -> None:
         "baseline_type": "template_unit_contract",
         "review_metadata": {
             "reviewed_by": "product-owner",
-            "review_source": "inputs/review.txt",
+            "review_source": "test_inputs/template_generation/review.txt",
             "source_docx_sha256": "sha256:abc",
             "change_reason": "initial baseline",
             "auto_update_allowed": False,
@@ -334,7 +336,7 @@ def test_baseline_cannot_allow_auto_update() -> None:
         "baseline_type": "render_feature_snapshot",
         "review_metadata": {
             "reviewed_by": "product-owner",
-            "review_source": "inputs/review.txt",
+            "review_source": "test_inputs/template_generation/review.txt",
             "source_docx_sha256": "sha256:abc",
             "change_reason": "initial baseline",
             "auto_update_allowed": True,

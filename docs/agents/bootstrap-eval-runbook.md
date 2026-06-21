@@ -18,7 +18,7 @@ eval command before handing off.
 uv run docfit eval standards --school demo-school --out /tmp/docfit_standards
 uv run docfit eval coverage --profile bootstrap-core --out /tmp/docfit_coverage
 uv run docfit eval e2e --school demo-school \
-  --student inputs/bootstrap-demo-student-pass.docx \
+  --student test_inputs/content_extraction/bootstrap-demo-student-pass.docx \
   --out /tmp/docfit_bootstrap_pass
 ```
 
@@ -28,7 +28,7 @@ Expected status is `PASS`.
 
 ```bash
 uv run docfit eval content \
-  --student inputs/bootstrap-demo-student-unsupported-textbox.docx \
+  --student test_inputs/content_extraction/bootstrap-demo-student-unsupported-textbox.docx \
   --out /tmp/docfit_bootstrap_unknown
 ```
 
@@ -49,7 +49,10 @@ Expected status is `FAIL`.
 
 ## Evidence Rules
 
-- Treat `reports/**`, `out/**`, and `/tmp/docfit_*` as generated evidence.
+- Treat `test_outputs/debug/template_eval_runs/**`,
+  `test_outputs/debug/template_generation/*/eval_runs/**`,
+  `test_outputs/workbench/**`, and
+  `/tmp/docfit_*` as generated evidence.
 - Do not update goldens, signed standards, expected snapshots, or fixture output
   just to make a failing run pass.
 - If a change intentionally updates a standard, contract, or golden, include the

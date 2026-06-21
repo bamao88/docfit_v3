@@ -19,7 +19,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--out",
         type=Path,
-        default=ROOT / "out/real-core-v0-baseline-review",
+        default=ROOT / "test_outputs/workbench/real-core-v0-baseline-review",
         help="Review packet output directory. Defaults to ignored generated output.",
     )
     parser.add_argument(
@@ -205,7 +205,7 @@ def _review_packet_markdown(manifest: dict[str, Any]) -> str:
         "| template parse | Full embedded school review source: unit order, unit elements, sub-elements, relationships, fixed/manual/generated/content policy, style dimensions, page/header/footer rules, keep-together constraints. | `standards/schools/<school_id>/v1/template_unit_contract.yaml` and `signed_standard.yaml` |",
         "| content extract | Full embedded student review source: ignored donor content, title metadata, abstracts, keywords, ordered body flow, figures, tables, references, appendix, acknowledgement. | `standards/eval_profiles/real-core-v0/expected/student_content_trees/<student_id>.yaml` |",
         "| placement | Shared alignment rules plus every render case matrix row; every accepted student content node must receive a disposition against the accepted target-school unit tree. | `standards/eval_profiles/real-core-v0/expected/render_plans/<case_id>.yaml` |",
-        "| render | Accepted template/content/placement facts plus later DOCX feature snapshots and Word image evidence. | `render_feature_snapshots/<case_id>.json` and `reports/real-core-v0/<case_id>/evidence/word_image_evidence.json` |",
+        "| render | Accepted template/content/placement facts plus later DOCX feature snapshots and Word image evidence. | `render_feature_snapshots/<case_id>.json` and `test_outputs/debug/template_eval_runs/real-core-v0/<case_id>/evidence/word_image_evidence.json` |",
         "",
         "## Generated Draft Inventory",
         "",
@@ -266,7 +266,7 @@ def _review_packet_markdown(manifest: dict[str, Any]) -> str:
             + " |"
         )
 
-    shared_review = Path("inputs/shared-template-recognition-alignment-review.txt")
+    shared_review = Path("test_inputs/template_generation/shared-template-recognition-alignment-review.txt")
     lines.extend(
         [
             "",

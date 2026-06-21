@@ -6,9 +6,11 @@
 
 ```text
 test_outputs/
-  eval_runs/
   debug/
+    template_eval_runs/
     template_generation/
+      <验证名>/
+        eval_runs/
     template_parsing/
     content_extraction/
     content_placement/
@@ -18,7 +20,8 @@ test_outputs/
 
 | 目录 | 放什么 |
 | --- | --- |
-| `eval_runs/` | `docfit eval ...`、coverage、e2e 和 convert 报告目录 |
+| `debug/template_eval_runs/` | 不绑定具体模板生成验证的 `docfit eval ...`、coverage、e2e 和 convert 报告目录 |
+| `debug/template_generation/<验证名>/eval_runs/` | 绑定某个模板生成验证的 eval 报告目录，例如同一份输入模板的 `template-generate` 和 `template-gap` 输出 |
 | `debug/` | 单阶段调试快照；每个阶段单独放到下面的阶段目录 |
 | `workbench/` | 人工整理包、临时 review packet、可丢弃草稿 |
 
@@ -26,7 +29,7 @@ test_outputs/
 
 | 目录 | 放什么 |
 | --- | --- |
-| `debug/template_generation/` | 模板生成调试文件，例如 source tree、规则发现、生成计划、manifest 和 debug index |
+| `debug/template_generation/<验证名>/` | 模板生成调试文件，例如 source tree、规则发现、生成计划、manifest、debug index，以及该验证自己的 `eval_runs/` |
 | `debug/template_parsing/` | 模板解析/模板理解调试文件，例如 template artifact、样式字段和单元识别快照 |
 | `debug/content_extraction/` | 用户内容提取调试文件，例如可见内容台账、unsupported 对象和提取 artifact |
 | `debug/content_placement/` | 内容放置调试文件，例如 placement plan、去向检查和放置失败定位 |

@@ -5,11 +5,11 @@ status: signed_source_facts
 owner: docfit-core
 approved_at: '2026-06-15T00:00:00+08:00'
 source:
-  template_docx: inputs/school-pku-graduate-template.docx
+  template_docx: test_inputs/template_generation/school-pku-graduate-template.docx
   template_docx_sha256: sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14
   review_packet: docs/human/real-core-v0-review-packet.md
   review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
-  template_review_source: inputs/school-pku-graduate-template-review.txt
+  template_review_source: test_inputs/template_generation/school-pku-graduate-template-review.txt
   template_review_source_sha256: sha256:631c7a839a1745af605fa1d5ddcffbc60b9325d506a9f8098b1a0d01ff6ad923
   accepted_template_review_section_sha256: sha256:c4067e225d83e45fc96b9ae82f6a222f6315c8d32ff7c7618d2fc21cb8ea4638
 contracts:

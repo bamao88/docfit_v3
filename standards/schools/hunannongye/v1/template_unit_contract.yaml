@@ -12,9 +12,9 @@ accepted_source_facts:
   review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
   source_section_id: hunannongye
   source_section_sha256: sha256:e3a0d411c694df992467c6dfc009125192be56ba265a3e240405879fc5d264b3
-  template_docx: inputs/school-hunannongye-requirement.docx
+  template_docx: test_inputs/template_generation/school-hunannongye-requirement.docx
   template_docx_sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
-  original_review_source: inputs/school-hunannongye-template-review.txt
+  original_review_source: test_inputs/template_generation/school-hunannongye-template-review.txt
   original_review_source_sha256: sha256:65bb89715ad40cc8e2948f65441312d3da7efb56b5973d8f2c4c507c177c9794
   full_review_text: "湖南农业大学本科生毕业论文（设计）格式包审查稿 V2\n日期：2026-06-09\n\n依据：优先使用学校源格式说明与固定表单包\n\
     /Users/fl/ws/gogo/docfit/schools/hunannongye/sources/requirement.docx\n\n辅助证据：\n\

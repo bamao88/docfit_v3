@@ -22,10 +22,10 @@ def test_bootstrap_generator_defaults_to_generated_output(tmp_path, monkeypatch)
 
     generator.main([])
 
-    assert (tmp_path / "out/bootstrap-fixtures/inputs/bootstrap-demo-school-template.docx").exists()
+    assert (tmp_path / "test_outputs/workbench/bootstrap-fixtures/test_inputs/template_generation/bootstrap-demo-school-template.docx").exists()
     assert (
         tmp_path
-        / "out/bootstrap-fixtures/standards/eval_profiles/bootstrap-core/expected/feature_snapshot.json"
+        / "test_outputs/workbench/bootstrap-fixtures/standards/eval_profiles/bootstrap-core/expected/feature_snapshot.json"
     ).exists()
     assert not (tmp_path / "standards/schools/demo-school/v1/signed_standard.yaml").exists()
 

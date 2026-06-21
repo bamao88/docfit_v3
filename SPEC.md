@@ -314,17 +314,24 @@ docfit/
             feature_snapshot.json
             expected.docx
 
-  inputs/
+  test_inputs/
     README.md
-    bootstrap-demo-school-template.docx
-    bootstrap-demo-student-pass.docx
-    bootstrap-demo-student-unsupported-textbox.docx
-    bootstrap-demo-student-silent-drop.docx
-    real-student-001-source.docx
-    school-pku-graduate-template.docx
+    template_generation/
+      bootstrap-demo-school-template.docx
+      school-pku-graduate-template.docx
+    content_extraction/
+      bootstrap-demo-student-pass.docx
+      bootstrap-demo-student-unsupported-textbox.docx
+      bootstrap-demo-student-silent-drop.docx
+      real-student-001-source.docx
+    template_gap/
+      real-core-v0-pku-graduate-generated-template.docx
 
-  reports/
+  test_outputs/
     .gitkeep
+    eval_runs/
+    debug/
+    workbench/
 
   tests/
     unit/
@@ -339,13 +346,17 @@ docfit/
 
 - `standards/`
 - `contracts/`
-- `inputs/`
-- `reports/`
+- `test_inputs/`
+- `test_outputs/`
 - `src/docfit/harness/`
 
 ### 5.2 禁止的组织方式
 
 禁止把标准和 expected 混在普通代码或原始输入目录里。
+
+禁止把仓库内评测输入、用户真实上传入口和运行输出混用。仓库随附的可复现输入放
+`test_inputs/`；每次运行产生的报告、artifact、debug 快照和最终 Word 放
+`test_outputs/` 或显式传入的临时输出目录。
 
 禁止让 stage runner 内部硬编码学校规则。
 
@@ -389,8 +400,8 @@ case_id: bootstrap_e2e_demo_001
 stage: e2e
 school_id: demo-school
 inputs:
-  template_docx: inputs/bootstrap-demo-school-template.docx
-  student_docx: inputs/bootstrap-demo-student-pass.docx
+  template_docx: test_inputs/template_generation/bootstrap-demo-school-template.docx
+  student_docx: test_inputs/content_extraction/bootstrap-demo-student-pass.docx
 standards:
   signed_standard: standards/schools/demo-school/v1/signed_standard.yaml
   template_contract: standards/schools/demo-school/v1/template_contract.json
@@ -434,7 +445,7 @@ owner: docfit-core
 每次运行应输出到：
 
 ```text
-reports/<run_id>/
+test_outputs/debug/template_eval_runs/<run_id>/
   summary.json
   pm_report.md
   findings.json
@@ -487,7 +498,7 @@ status: signed
 owner: product-owner
 approved_at: "2026-06-14T10:00:00+09:00"
 source:
-  template_docx: inputs/bootstrap-demo-school-template.docx
+  template_docx: test_inputs/template_generation/bootstrap-demo-school-template.docx
   template_docx_sha256: "sha256:..."
 contracts:
   template_contract: template_contract.json
@@ -630,6 +641,12 @@ Stage 1 必须只接受学校官方 `.docx` 模板作为主输入。
 
 Template Artifact 必须描述模板的可验证结构。
 
+#### 当前模板生成扩展：默认仅复制单元
+
+当前实现允许在模板生成阶段采用“先整包复制源 Word，再局部 patch”的策略。仅复制单元的规范口径不是固定排除列表，而是内容责任：凡是需要机器根据学生源文档生成、填写或放置内容的区域，都不能默认仅复制；凡是学校固定正文、签名、日期、教师意见、成绩评定等只需要人工线下填写或确认的区域，可以默认仅复制。
+
+普通目录、图目录、表目录、中文摘要、英文摘要、正文、参考文献，以及学生源文档中实际有内容或学校标准要求承载学生内容的致谢、附录等区域，应按生成/填写/放置责任处理。仅复制单元的含义是：生成阶段依赖最开始的整包复制保留该单元，不逐个分析单元内部元素是否需要填写、生成或删除，也不因为内部出现 `____`、`××`、姓名、日期等文本就自动生成 slot。这个策略必须写入 Template Artifact、生成决策、生成计划或 manifest 中的可审计证据，不能替代 Template Contract 或 `template-gap` 对最终 Word 的验收。
+
 示例结构：
 
 ```json
@@ -703,14 +720,14 @@ Template Contract 必须验证：
 ```bash
 docfit eval template \
   --school demo-school \
-  --template inputs/bootstrap-demo-school-template.docx \
-  --out reports/run_template_001
+  --template test_inputs/template_generation/bootstrap-demo-school-template.docx \
+  --out test_outputs/debug/template_eval_runs/run_template_001
 ```
 
 必须生成：
 
 ```text
-reports/run_template_001/
+test_outputs/debug/template_eval_runs/run_template_001/
   summary.json
   pm_report.md
   findings.json
@@ -859,14 +876,14 @@ Stage 2 不允许丢弃任何可见内容。
 
 ```bash
 docfit eval content \
-  --student inputs/bootstrap-demo-student-pass.docx \
-  --out reports/run_content_001
+  --student test_inputs/content_extraction/bootstrap-demo-student-pass.docx \
+  --out test_outputs/debug/template_eval_runs/run_content_001
 ```
 
 必须生成：
 
 ```text
-reports/run_content_001/
+test_outputs/debug/template_eval_runs/run_content_001/
   summary.json
   pm_report.md
   findings.json
@@ -988,15 +1005,15 @@ if any id missing:
 ```bash
 docfit eval placement \
   --school demo-school \
-  --template-artifact reports/run_template_001/artifacts/template_artifact.json \
-  --content-artifact reports/run_content_001/artifacts/student_content_artifact.json \
-  --out reports/run_placement_001
+  --template-artifact test_outputs/debug/template_eval_runs/run_template_001/artifacts/template_artifact.json \
+  --content-artifact test_outputs/debug/template_eval_runs/run_content_001/artifacts/student_content_artifact.json \
+  --out test_outputs/debug/template_eval_runs/run_placement_001
 ```
 
 必须生成：
 
 ```text
-reports/run_placement_001/
+test_outputs/debug/template_eval_runs/run_placement_001/
   summary.json
   pm_report.md
   findings.json
@@ -1063,7 +1080,7 @@ Renderer 禁止：
 {
   "artifact_type": "render_manifest",
   "artifact_version": "1.0",
-  "output_docx": "reports/run_render_001/final.docx",
+  "output_docx": "test_outputs/debug/template_eval_runs/run_render_001/final.docx",
   "actions_executed": [
     {
       "action_id": "a_001",
@@ -1128,15 +1145,15 @@ Feature diff 必须把差异分成：
 ```bash
 docfit eval render \
   --school demo-school \
-  --template-artifact reports/run_template_001/artifacts/template_artifact.json \
-  --placement-plan reports/run_placement_001/artifacts/placement_plan.json \
-  --out reports/run_render_001
+  --template-artifact test_outputs/debug/template_eval_runs/run_template_001/artifacts/template_artifact.json \
+  --placement-plan test_outputs/debug/template_eval_runs/run_placement_001/artifacts/placement_plan.json \
+  --out test_outputs/debug/template_eval_runs/run_render_001
 ```
 
 必须生成：
 
 ```text
-reports/run_render_001/
+test_outputs/debug/template_eval_runs/run_render_001/
   summary.json
   pm_report.md
   findings.json
@@ -1180,9 +1197,9 @@ template parse
 ```bash
 docfit convert \
   --school demo-school \
-  --student inputs/bootstrap-demo-student-pass.docx \
-  --out out/final.docx \
-  --report reports/run_convert_001
+  --student test_inputs/content_extraction/bootstrap-demo-student-pass.docx \
+  --out test_outputs/debug/template_eval_runs/run_convert_001/final.docx \
+  --report test_outputs/debug/template_eval_runs/run_convert_001
 ```
 
 ### 13.4 成功输出
@@ -1190,8 +1207,8 @@ docfit convert \
 成功时必须生成：
 
 ```text
-out/final.docx
-reports/run_convert_001/
+test_outputs/debug/template_eval_runs/run_convert_001/final.docx
+test_outputs/debug/template_eval_runs/run_convert_001/
   summary.json
   pm_report.md
   artifacts/
@@ -1213,7 +1230,7 @@ reports/run_convert_001/
   "blocked_at": "content_extract",
   "user_message": "文档中包含当前系统尚不能可靠提取的文本框内容，因此无法证明转换不会丢失内容。",
   "internal_message": "Stage 2 found unsupported visible text_box c_031.",
-  "report_ref": "reports/run_convert_001/pm_report.md"
+  "report_ref": "test_outputs/debug/template_eval_runs/run_convert_001/pm_report.md"
 }
 ```
 
@@ -1628,11 +1645,13 @@ Bootstrap 成功不是“转换很漂亮”，而是：
 ### 19.4 Bootstrap 必须包含的输入 fixture
 
 ```text
-inputs/
-  bootstrap-demo-school-template.docx
-  bootstrap-demo-student-pass.docx
-  bootstrap-demo-student-unsupported-textbox.docx
-  bootstrap-demo-student-silent-drop.docx
+test_inputs/
+  template_generation/
+    bootstrap-demo-school-template.docx
+  content_extraction/
+    bootstrap-demo-student-pass.docx
+    bootstrap-demo-student-unsupported-textbox.docx
+    bootstrap-demo-student-silent-drop.docx
 ```
 
 Bootstrap expected 中间产物不属于原始输入，必须放在 eval profile surface：
@@ -1650,8 +1669,8 @@ standards/eval_profiles/bootstrap-core/expected/
 ```bash
 docfit eval e2e \
   --school demo-school \
-  --student inputs/bootstrap-demo-student-pass.docx \
-  --out reports/bootstrap_pass
+  --student test_inputs/content_extraction/bootstrap-demo-student-pass.docx \
+  --out test_outputs/debug/template_eval_runs/bootstrap_pass
 ```
 
 期望：
@@ -1664,8 +1683,8 @@ status = PASS
 
 ```bash
 docfit eval content \
-  --student inputs/bootstrap-demo-student-unsupported-textbox.docx \
-  --out reports/bootstrap_unknown
+  --student test_inputs/content_extraction/bootstrap-demo-student-unsupported-textbox.docx \
+  --out test_outputs/debug/template_eval_runs/bootstrap_unknown
 ```
 
 期望：

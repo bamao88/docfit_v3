@@ -12,9 +12,9 @@ accepted_source_facts:
   review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
   source_section_id: pku-graduate
   source_section_sha256: sha256:c4067e225d83e45fc96b9ae82f6a222f6315c8d32ff7c7618d2fc21cb8ea4638
-  template_docx: inputs/school-pku-graduate-template.docx
+  template_docx: test_inputs/template_generation/school-pku-graduate-template.docx
   template_docx_sha256: sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14
-  original_review_source: inputs/school-pku-graduate-template-review.txt
+  original_review_source: test_inputs/template_generation/school-pku-graduate-template-review.txt
   original_review_source_sha256: sha256:631c7a839a1745af605fa1d5ddcffbc60b9325d506a9f8098b1a0d01ff6ad923
   full_review_text: "北京大学研究生学位论文模板审查包 V2\n日期：2026-06-08\n\n依据：只使用学校 Word 模板\n/Users/fl/ws/gogo/docfit/schools/pku-graduate/sources/PKU-Graduate-Thesis-Template.docx\n\
     \n阅读方式\n================================================================================\n\

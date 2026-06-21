@@ -5,11 +5,11 @@ status: signed_source_facts
 owner: docfit-core
 approved_at: '2026-06-15T00:00:00+08:00'
 source:
-  template_docx: inputs/school-hunannongye-requirement.docx
+  template_docx: test_inputs/template_generation/school-hunannongye-requirement.docx
   template_docx_sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
   review_packet: docs/human/real-core-v0-review-packet.md
   review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
-  template_review_source: inputs/school-hunannongye-template-review.txt
+  template_review_source: test_inputs/template_generation/school-hunannongye-template-review.txt
   template_review_source_sha256: sha256:65bb89715ad40cc8e2948f65441312d3da7efb56b5973d8f2c4c507c177c9794
   accepted_template_review_section_sha256: sha256:e3a0d411c694df992467c6dfc009125192be56ba265a3e240405879fc5d264b3
 contracts:

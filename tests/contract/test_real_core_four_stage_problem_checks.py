@@ -17,7 +17,7 @@ def test_real_core_problem_check_reports_all_four_stages(tmp_path) -> None:
     result = run_e2e_eval(
         ROOT,
         "hunannongye",
-        ROOT / "inputs/real-student-003-source.docx",
+        ROOT / "test_inputs/content_extraction/real-student-003-source.docx",
         tmp_path / "real_core_product_quality_case",
     )
     assert (tmp_path / "real_core_product_quality_case/final.docx").exists()
@@ -42,20 +42,14 @@ def test_real_core_problem_check_reports_all_four_stages(tmp_path) -> None:
     assert by_type["content_donor_front_matter_not_disposed"].stage == "content"
     assert "湖 南 农 业 大 学" in by_type["content_donor_front_matter_not_disposed"].actual
 
-    assert "placement_actions_collapsed_to_virtual_body_slot" in by_type
-    assert by_type["placement_actions_collapsed_to_virtual_body_slot"].stage == "placement"
-    assert "slot_body_start" in by_type[
-        "placement_actions_collapsed_to_virtual_body_slot"
-    ].actual
-    assert "a_001" in by_type["placement_actions_collapsed_to_virtual_body_slot"].actual
+    assert "placement_actions_collapsed_to_virtual_body_slot" not in by_type
+    assert "placement_actions_collapsed_to_virtual_body_slot" not in direct_by_type
 
     assert "render_template_instruction_text_leaked" not in by_type
     assert "render_template_instruction_text_leaked" not in direct_by_type
 
-    assert "render_append_only_insertion" in by_type
-    assert by_type["render_append_only_insertion"].stage == "render"
-    assert "word/document.xml:p[" in by_type["render_append_only_insertion"].actual
-    assert "模板解析结果有" in by_type["render_append_only_insertion"].actual
+    assert "render_append_only_insertion" not in by_type
+    assert "render_append_only_insertion" not in direct_by_type
 
     assert result.blocked_at == "template"
     assert result.status.value == "FAIL"

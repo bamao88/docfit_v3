@@ -23,7 +23,7 @@ def test_bootstrap_e2e_pass(tmp_path) -> None:
     result = run_e2e_eval(
         ROOT,
         "demo-school",
-        ROOT / "inputs/bootstrap-demo-student-pass.docx",
+        ROOT / "test_inputs/content_extraction/bootstrap-demo-student-pass.docx",
         tmp_path / "bootstrap_pass",
     )
 
@@ -34,11 +34,11 @@ def test_bootstrap_e2e_pass(tmp_path) -> None:
 
 
 def test_convert_blocks_on_unknown(tmp_path) -> None:
-    final_copy = tmp_path / "out/final.docx"
+    final_copy = tmp_path / "test_outputs/workbench/final.docx"
     result = run_e2e_eval(
         ROOT,
         "demo-school",
-        ROOT / "inputs/bootstrap-demo-student-unsupported-textbox.docx",
+        ROOT / "test_inputs/content_extraction/bootstrap-demo-student-unsupported-textbox.docx",
         tmp_path / "bootstrap_unknown",
         final_copy=final_copy,
     )
@@ -56,7 +56,7 @@ def test_fail_when_renderer_skips_action(tmp_path) -> None:
     pass_result = run_e2e_eval(
         ROOT,
         "demo-school",
-        ROOT / "inputs/bootstrap-demo-student-pass.docx",
+        ROOT / "test_inputs/content_extraction/bootstrap-demo-student-pass.docx",
         tmp_path / "bootstrap_pass",
     )
     assert pass_result.status == Status.PASS
@@ -78,7 +78,7 @@ def test_fail_when_renderer_writes_wrong_content(tmp_path) -> None:
     pass_result = run_e2e_eval(
         ROOT,
         "demo-school",
-        ROOT / "inputs/bootstrap-demo-student-pass.docx",
+        ROOT / "test_inputs/content_extraction/bootstrap-demo-student-pass.docx",
         tmp_path / "bootstrap_pass",
     )
     assert pass_result.status == Status.PASS
@@ -107,7 +107,7 @@ def test_fail_when_render_artifact_hash_chain_mismatches(tmp_path) -> None:
     pass_result = run_e2e_eval(
         ROOT,
         "demo-school",
-        ROOT / "inputs/bootstrap-demo-student-pass.docx",
+        ROOT / "test_inputs/content_extraction/bootstrap-demo-student-pass.docx",
         tmp_path / "bootstrap_pass",
     )
     assert pass_result.status == Status.PASS

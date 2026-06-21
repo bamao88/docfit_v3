@@ -36,21 +36,24 @@ DOCX”，而是用确定性证据证明转换结果满足已签收标准。
 
 - `README.md`：先读短版项目说明和启动命令。
 - `SPEC.md`：先读产品语义、阶段边界和门禁规则。
+- `docs/current/README.md`：先读整体流程图和当前长期文档入口。
 - 处理任何生成模板差距、`template-gap`、生成模板报告、`FAIL` / `UNKNOWN`
-  诊断或相关 e2e 问题前，先读 `docs/human/template-gap-process-mainline.md`。
+  诊断或相关 e2e 问题前，先读 `docs/current/template-generation.md`。
   这是该领域优先级最高的流程指南：先在文档中定位阶段、输入、输出和责任，
   再改代码、测试或报告。
 - 修改模板生成阶段的产物字段、JSON 形状、manifest 清单、差距报告或生产者/消费者
-  连接前，先读 `docs/human/template-generation-artifact-field-dictionary.md`。
+  连接前，先读 `docs/current/template-generation.md` 的字段规则。
   必须先定义字段含义、生产者、消费者、门禁影响、字段缺失结果、默认规则和
   AI 可编辑边界。不要新增未记录字段，不要为已签收含义猜默认值，也不要把
   `template_artifact` / `template_generation_manifest` 当成
   `generated_template.docx` 真实内容的证明。
-- `docs/agents/**`：面向代理的长流程手册；根文件放不下的流程放这里。
+- `docs/agents/**`：面向代理的长流程手册；根文件放不下的代理操作流程放这里。
 - `standards/schools/**` 下的相关标准，以及 `tests/**` 下的相关测试。
 
 `SPEC.md` 是完整产品规范的主来源。
 `DOCFIT_EVAL_HARNESS_FIRST_SPEC_CN.md` 只是短兼容指针。
+长期维护的当前项目文档放在 `docs/current/`；`docs/plans/`、`docs/human/`
+只放计划、讨论、审查、历史过程和迁移指针。
 
 ## 项目地图
 

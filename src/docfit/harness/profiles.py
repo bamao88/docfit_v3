@@ -80,12 +80,18 @@ BOOTSTRAP_PROFILE = EvalProfile(
     ),
 )
 
-BOOTSTRAP_TEMPLATE_DOCX = Path("inputs/bootstrap-demo-school-template.docx")
-BOOTSTRAP_PASS_STUDENT_DOCX = Path("inputs/bootstrap-demo-student-pass.docx")
-BOOTSTRAP_UNSUPPORTED_TEXTBOX_DOCX = Path(
-    "inputs/bootstrap-demo-student-unsupported-textbox.docx"
+BOOTSTRAP_TEMPLATE_DOCX = Path(
+    "test_inputs/template_generation/bootstrap-demo-school-template.docx"
 )
-BOOTSTRAP_SILENT_DROP_DOCX = Path("inputs/bootstrap-demo-student-silent-drop.docx")
+BOOTSTRAP_PASS_STUDENT_DOCX = Path(
+    "test_inputs/content_extraction/bootstrap-demo-student-pass.docx"
+)
+BOOTSTRAP_UNSUPPORTED_TEXTBOX_DOCX = Path(
+    "test_inputs/content_extraction/bootstrap-demo-student-unsupported-textbox.docx"
+)
+BOOTSTRAP_SILENT_DROP_DOCX = Path(
+    "test_inputs/content_extraction/bootstrap-demo-student-silent-drop.docx"
+)
 
 BOOTSTRAP_E2E_PASS_CASE = EvalCase(
     case_id="bootstrap_e2e_demo_001",
@@ -139,48 +145,65 @@ REAL_CORE_PROFILE = EvalProfile(
 REAL_CORE_SCHOOLS = (
     {
         "school_id": "hunannongye",
-        "template_docx": Path("inputs/school-hunannongye-requirement.docx"),
-        "generated_template_docx": Path(
-            "inputs/simulated-generated-templates/real-core-v0/"
-            "hunannongye/generated_template.docx"
+        "template_docx": Path(
+            "test_inputs/template_generation/school-hunannongye-requirement.docx"
         ),
-        "review_source": Path("inputs/school-hunannongye-template-review.txt"),
+        "generated_template_docx": Path(
+            "test_inputs/template_gap/real-core-v0-hunannongye-generated-template.docx"
+        ),
+        "review_source": Path(
+            "test_inputs/template_generation/school-hunannongye-template-review.txt"
+        ),
     },
     {
         "school_id": "nannong-undergraduate",
-        "template_docx": Path("inputs/school-nannong-undergraduate-template.docx"),
-        "generated_template_docx": Path(
-            "inputs/simulated-generated-templates/real-core-v0/"
-            "nannong-undergraduate/generated_template.docx"
+        "template_docx": Path(
+            "test_inputs/template_generation/school-nannong-undergraduate-template.docx"
         ),
-        "review_source": Path("inputs/school-nannong-undergraduate-template-review.txt"),
+        "generated_template_docx": Path(
+            "test_inputs/template_gap/"
+            "real-core-v0-nannong-undergraduate-generated-template.docx"
+        ),
+        "review_source": Path(
+            "test_inputs/template_generation/"
+            "school-nannong-undergraduate-template-review.txt"
+        ),
     },
     {
         "school_id": "pku-graduate",
-        "template_docx": Path("inputs/school-pku-graduate-template.docx"),
-        "generated_template_docx": Path(
-            "inputs/simulated-generated-templates/real-core-v0/"
-            "pku-graduate/generated_template.docx"
+        "template_docx": Path(
+            "test_inputs/template_generation/school-pku-graduate-template.docx"
         ),
-        "review_source": Path("inputs/school-pku-graduate-template-review.txt"),
+        "generated_template_docx": Path(
+            "test_inputs/template_gap/real-core-v0-pku-graduate-generated-template.docx"
+        ),
+        "review_source": Path(
+            "test_inputs/template_generation/school-pku-graduate-template-review.txt"
+        ),
     },
 )
 
 REAL_CORE_STUDENTS = (
     {
         "student_id": "real-student-001",
-        "student_docx": Path("inputs/real-student-001-source.docx"),
-        "review_source": Path("inputs/real-student-001-content-review.md"),
+        "student_docx": Path("test_inputs/content_extraction/real-student-001-source.docx"),
+        "review_source": Path(
+            "test_inputs/content_extraction/real-student-001-content-review.md"
+        ),
     },
     {
         "student_id": "real-student-002",
-        "student_docx": Path("inputs/real-student-002-source.docx"),
-        "review_source": Path("inputs/real-student-002-content-review.md"),
+        "student_docx": Path("test_inputs/content_extraction/real-student-002-source.docx"),
+        "review_source": Path(
+            "test_inputs/content_extraction/real-student-002-content-review.md"
+        ),
     },
     {
         "student_id": "real-student-003",
-        "student_docx": Path("inputs/real-student-003-source.docx"),
-        "review_source": Path("inputs/real-student-003-content-review.md"),
+        "student_docx": Path("test_inputs/content_extraction/real-student-003-source.docx"),
+        "review_source": Path(
+            "test_inputs/content_extraction/real-student-003-content-review.md"
+        ),
     },
 )
 

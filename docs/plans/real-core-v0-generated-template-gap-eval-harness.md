@@ -22,7 +22,7 @@ Scope:
 
 Non-goals: 不修正模板生成逻辑；不自动修改 generated_template.docx；不更新 signed standard、golden、expected snapshot；不重新判断原始学校 Word 是否正确；不用 AI 或人工临场视觉判断替代确定性检查；不把 LibreOffice/脚本分页当成 Microsoft Word evidence。
 
-Context: must-read=docs/plans/real-core-v0-generated-template-gap-eval-harness.md, README.md, SPEC.md, docs/agents/bootstrap-eval-runbook.md, src/docfit/cli/main.py, src/docfit/stages/template_parse/runner.py, src/docfit/stages/render/runner.py, src/docfit/harness/template_units.py, src/docfit/harness/coverage.py, src/docfit/harness/product_quality.py, src/docfit/harness/word_evidence.py, src/docfit/ooxml/package.py, standards/eval_profiles/real-core-v0/cases.yaml, standards/schools/*/v1/template_unit_contract.yaml, tests/contract/test_real_core_baseline_harness.py, tests/contract/test_real_core_four_stage_problem_checks.py, tests/contract/test_contract_gates.py, tests/e2e/test_bootstrap_cli.py; useful=docs/human/real-core-v0-product-quality-review.md, docs/human/real-core-v0-four-stage-problem-checks.md, reports/real-core-v0/**/artifacts/template_artifact.json, reports/real-core-v0/**/final.docx, reports/real-core-v0/**/evidence/word_image_evidence.json; avoid-unless-needed=整份 docs/human/real-core-v0-review-packet.md 和 reports/** 页面图片大文件。
+Context: must-read=docs/plans/real-core-v0-generated-template-gap-eval-harness.md, README.md, SPEC.md, docs/agents/bootstrap-eval-runbook.md, src/docfit/cli/main.py, src/docfit/stages/template_parse/runner.py, src/docfit/stages/render/runner.py, src/docfit/harness/template_units.py, src/docfit/harness/coverage.py, src/docfit/harness/product_quality.py, src/docfit/harness/word_evidence.py, src/docfit/ooxml/package.py, standards/eval_profiles/real-core-v0/cases.yaml, standards/schools/*/v1/template_unit_contract.yaml, tests/contract/test_real_core_baseline_harness.py, tests/contract/test_real_core_four_stage_problem_checks.py, tests/contract/test_contract_gates.py, tests/e2e/test_bootstrap_cli.py; useful=docs/human/real-core-v0-product-quality-review.md, docs/human/real-core-v0-four-stage-problem-checks.md, test_outputs/debug/template_eval_runs/real-core-v0/**/artifacts/template_artifact.json, test_outputs/debug/template_eval_runs/real-core-v0/**/final.docx, test_outputs/debug/template_eval_runs/real-core-v0/**/evidence/word_image_evidence.json; avoid-unless-needed=整份 docs/human/real-core-v0-review-packet.md 和 test_outputs/debug/template_eval_runs/** 页面图片大文件。
 
 Acceptance:
 - SUCCESS: 三所学校都能把 generated_template.docx 作为被测对象，生成 generated_template_tree.json 和三种 template_gap_report；报告含 known_status、display_status、passed_count、failed_count、unknown_count、blocking_status；坏样本不会 PASS；coverage/e2e 不再把 source-fact binding 或 Word evidence binding 当作模板正确性的充分证明。
@@ -31,7 +31,7 @@ Acceptance:
 - INTERMEDIATE_ONLY: none
 - No regressions: bootstrap-core 的 PASS/FAIL/UNKNOWN 行为不变；auto_update_allowed 仍为 false；FAIL/UNKNOWN 不被降级；visible content ledger 和四阶段 gate 规则不被绕过。
 
-Verification: deterministic=uv run pytest tests/unit/test_baseline_comparison.py tests/unit/test_word_evidence.py tests/contract/test_contract_gates.py tests/contract/test_real_core_baseline_harness.py tests/contract/test_real_core_four_stage_problem_checks.py tests/contract/test_real_core_generated_template_gap.py tests/e2e/test_bootstrap_cli.py; integration=uv run pytest tests/contract/test_real_core_generated_template_gap.py -q plus artifact schema/hash/source-ref assertions; product-run=uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage and uv run docfit eval e2e --school hunannongye --student inputs/real-student-003-source.docx --out /tmp/docfit_real_core_template_probe; local-live-manual=uv run python scripts/export_real_core_word_evidence.py, required only for Microsoft Word evidence completion and blocked if Word is unavailable; optional=uv run pytest -q.
+Verification: deterministic=uv run pytest tests/unit/test_baseline_comparison.py tests/unit/test_word_evidence.py tests/contract/test_contract_gates.py tests/contract/test_real_core_baseline_harness.py tests/contract/test_real_core_four_stage_problem_checks.py tests/contract/test_real_core_generated_template_gap.py tests/e2e/test_bootstrap_cli.py; integration=uv run pytest tests/contract/test_real_core_generated_template_gap.py -q plus artifact schema/hash/source-ref assertions; product-run=uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage and uv run docfit eval e2e --school hunannongye --student test_test_inputs/content_extraction/real-student-003-source.docx --out /tmp/docfit_real_core_template_probe; local-live-manual=uv run python scripts/export_real_core_word_evidence.py, required only for Microsoft Word evidence completion and blocked if Word is unavailable; optional=uv run pytest -q.
 Execution: main=监督 $intuitive-flow 按计划分阶段实现、检查产物语义、运行验证并判断 complete/blocked；worker=none；worker-goal=none
 To execute: /goal execute docs/plans/real-core-v0-generated-template-gap-eval-harness.md with intuitive-flow
 Approval: LGTM/approve/go ahead approves; edits request revision.
@@ -106,10 +106,10 @@ uv run pytest -q
 uv run pytest tests/contract/test_real_core_generated_template_gap.py -q
 # 11 passed
 
-uv run docfit eval template-gap --school hunannongye --generated-template inputs/school-hunannongye-requirement.docx --out /tmp/docfit_template_gap_hunannongye
+uv run docfit eval template-gap --school hunannongye --generated-template test_test_inputs/template_generation/school-hunannongye-requirement.docx --out /tmp/docfit_template_gap_hunannongye
 # status = FAIL
 
-uv run docfit eval e2e --school hunannongye --student inputs/real-student-003-source.docx --out /tmp/docfit_real_core_template_probe
+uv run docfit eval e2e --school hunannongye --student test_test_inputs/content_extraction/real-student-003-source.docx --out /tmp/docfit_real_core_template_probe
 # status = FAIL
 # summary: template=FAIL, content=UNKNOWN, placement=UNKNOWN, render=FAIL, blocked_at=template
 # template_gap_report summary: FAIL + UNKNOWN, PASS 103 / FAIL 148 / UNKNOWN 43
@@ -182,7 +182,7 @@ template_gap_report.json 中有 5 条 template_generation_numbering_match，
 
 | 名词 | 含义 | 是否是本阶段被验收对象 |
 | --- | --- | --- |
-| 原始学校模板 Word | 学校提供的模板或要求文档，例如 `inputs/school-*.docx` | 否。它是标准来源，不是本阶段要重新证明正确的对象 |
+| 原始学校模板 Word | 学校提供的模板或要求文档，例如 `test_test_inputs/template_generation/school-*.docx` | 否。它是标准来源，不是本阶段要重新证明正确的对象 |
 | 人工审查文档 | 人工把学校模板拆成单元、元素、样式和规则后的说明 | 否。它是标准来源 |
 | 模板验收标准 | 从人工审查文档编译出的机器可执行标准，例如 `template_unit_contract.yaml` | 否。它是裁判标准 |
 | 生成模板 Word | 代码生成出来、理论上准备给后续内容填充使用的 Word 文件 | 是。本阶段核心被测对象，不默认正确 |
@@ -193,7 +193,7 @@ template_gap_report.json 中有 5 条 template_generation_numbering_match，
 
 ```text
 docfit_v3/
-├── inputs/
+├── test_inputs/
 │   ├── school-hunannongye-requirement.docx
 │   ├── school-nannong-undergraduate-template.docx
 │   ├── school-pku-graduate-template.docx
@@ -229,7 +229,7 @@ docfit_v3/
 
 | 文件 | 当前作用 |
 | --- | --- |
-| `inputs/school-*-template-review.txt` | 人工审查源。说明学校模板应该有哪些结构和样式 |
+| `test_test_inputs/template_generation/school-*-template-review.txt` | 人工审查源。说明学校模板应该有哪些结构和样式 |
 | `standards/schools/*/v1/template_unit_contract.yaml` | 模板验收标准。里面的 `expected.units` 是当前最重要的结构化标准 |
 | `src/docfit/stages/template_parse/runner.py` | 当前模板阶段入口。会读取 Word 段落和样式，也会从人工审查文本/标准生成模板单元树 |
 | `src/docfit/harness/template_units.py` | 把人工审查文本转成结构化单元，并把 artifact 和 expected units 做逐项比对 |
@@ -427,7 +427,7 @@ render / Word evidence 验收
 ## 需要新增或调整的产物
 
 ```text
-reports/<case_or_school>/artifacts/
+test_outputs/debug/template_eval_runs/<case_or_school>/artifacts/
 ├── template_artifact.json
 ├── generated_template.docx
 ├── generated_template_tree.json

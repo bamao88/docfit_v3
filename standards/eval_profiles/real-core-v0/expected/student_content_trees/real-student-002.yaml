@@ -12,9 +12,9 @@ accepted_source_facts:
   review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
   source_section_id: real-student-002
   source_section_sha256: sha256:4ce9ebf483d65fc11a36f32f0fbd003bd0653cebaebdfa4acb0ea1297fe735ec
-  student_docx: inputs/real-student-002-source.docx
+  student_docx: test_inputs/content_extraction/real-student-002-source.docx
   student_docx_sha256: sha256:fc39ac02efd152ddf609199615256393e3077b49629e1cca48e1f437b2e44a9b
-  original_review_source: inputs/real-student-002-content-review.md
+  original_review_source: test_inputs/content_extraction/real-student-002-content-review.md
   original_review_source_sha256: sha256:2f54077297d25d77a65ba41d571c001d9dc47db83c26f3947fee5a7cb2f6d0db
   full_review_text: "# 关②人工内容识别标准说明：002.docx\n\n## 标题\n\n- 中文标题：多环芳烃污染土壤的微生物组协同修复工艺及技术条件研究\n\
     - 英文标题：A STUDY ON MICROBIAL CONSORTIUM-MEDIATED REMEDIATION OF POLYCYCLIC AROMATIC\

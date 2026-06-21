@@ -53,7 +53,7 @@ def render_docx(
     source_template = Path(template_artifact["provenance"]["template_docx"])
     shutil.copyfile(source_template, final_docx)
     doc = Document(final_docx)
-    _remove_slot_markers(doc)
+    slot_markers = _slot_markers(doc)
 
     actions_executed: list[dict[str, Any]] = []
     actions_failed: list[dict[str, Any]] = []
@@ -109,14 +109,24 @@ def render_docx(
                     table.cell(row_index, col_index).text = value
             actual_ref = f"word/document.xml:tbl[{len(doc.tables)}]"
         else:
-            paragraph = doc.add_paragraph(payload.get("text", ""))
+            paragraph = _write_text_payload(
+                doc,
+                slot_markers,
+                action.get("target_slot_id"),
+                payload.get("text", ""),
+            )
             style_ref = action.get("style_ref")
             if style_ref:
                 try:
                     paragraph.style = style_ref
                 except Exception:
                     paragraph.style = "Normal"
-            actual_ref = f"word/document.xml:p[{len(doc.paragraphs)}]"
+            paragraph_index = _paragraph_index(doc, paragraph)
+            actual_ref = (
+                f"word/document.xml:p[{paragraph_index}]"
+                if paragraph_index is not None
+                else f"word/document.xml:slot[{action.get('target_slot_id')}]"
+            )
         actions_executed.append(
             {
                 "action_id": action["action_id"],
@@ -126,6 +136,7 @@ def render_docx(
                 "status": "executed",
             }
         )
+    _remove_slot_markers(doc)
     doc.save(final_docx)
 
     render_manifest = {
@@ -284,6 +295,40 @@ def _remove_docfit_markers_from_paragraph(paragraph: Any) -> None:
     cleaned = re.sub(r"\[\[DOCFIT_(?:SLOT|GENERATED):[^\]]+\]\]", "", paragraph.text)
     if cleaned != paragraph.text:
         paragraph.text = cleaned.strip()
+
+
+def _slot_markers(doc: Document) -> dict[str, Any]:
+    markers: dict[str, Any] = {}
+    pattern = re.compile(r"\[\[DOCFIT_SLOT:([^\]]+)\]\]")
+    for paragraph in doc.paragraphs:
+        for match in pattern.finditer(paragraph.text):
+            markers.setdefault(match.group(1), paragraph)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    for match in pattern.finditer(paragraph.text):
+                        markers.setdefault(match.group(1), paragraph)
+    return markers
+
+
+def _write_text_payload(
+    doc: Document,
+    slot_markers: dict[str, Any],
+    target_slot_id: Any,
+    text: str,
+) -> Any:
+    marker = slot_markers.get(str(target_slot_id or ""))
+    if marker is not None:
+        return marker.insert_paragraph_before(str(text or ""))
+    return doc.add_paragraph(str(text or ""))
+
+
+def _paragraph_index(doc: Document, paragraph: Any) -> int | None:
+    for index, candidate in enumerate(doc.paragraphs, start=1):
+        if candidate._p is paragraph._p:
+            return index
+    return None
 
 
 def _materialize_image_payload(payload: dict[str, Any], out_dir: Path, action_id: str) -> Path:

@@ -24,7 +24,7 @@ and style dimensions are not lost in summary tables.
 | template parse | Full embedded school review source: unit order, unit elements, sub-elements, relationships, fixed/manual/generated/content policy, style dimensions, page/header/footer rules, keep-together constraints. | `standards/schools/<school_id>/v1/template_unit_contract.yaml` and `signed_standard.yaml` |
 | content extract | Full embedded student review source: ignored donor content, title metadata, abstracts, keywords, ordered body flow, figures, tables, references, appendix, acknowledgement. | `standards/eval_profiles/real-core-v0/expected/student_content_trees/<student_id>.yaml` |
 | placement | Shared alignment rules plus every render case matrix row; every accepted student content node must receive a disposition against the accepted target-school unit tree. | `standards/eval_profiles/real-core-v0/expected/render_plans/<case_id>.yaml` |
-| render | Accepted template/content/placement facts plus later DOCX feature snapshots and Word image evidence. | `render_feature_snapshots/<case_id>.json` and `reports/real-core-v0/<case_id>/evidence/word_image_evidence.json` |
+| render | Accepted template/content/placement facts plus later DOCX feature snapshots and Word image evidence. | `render_feature_snapshots/<case_id>.json` and `test_outputs/debug/template_eval_runs/real-core-v0/<case_id>/evidence/word_image_evidence.json` |
 
 ## Generated Draft Inventory
 
@@ -40,21 +40,21 @@ and style dimensions are not lost in summary tables.
 
 | school_id | template_docx | template_sha256 | review_source | review_sha256 |
 | --- | --- | --- | --- | --- |
-| `hunannongye` | `inputs/school-hunannongye-requirement.docx` | `sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989` | `inputs/school-hunannongye-template-review.txt` | `sha256:65bb89715ad40cc8e2948f65441312d3da7efb56b5973d8f2c4c507c177c9794` |
-| `nannong-undergraduate` | `inputs/school-nannong-undergraduate-template.docx` | `sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536` | `inputs/school-nannong-undergraduate-template-review.txt` | `sha256:d6dc0d49dac3e2b83fa63ee92e76965c1cec995d56eb3e27b3ea4d5f45acdb87` |
-| `pku-graduate` | `inputs/school-pku-graduate-template.docx` | `sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14` | `inputs/school-pku-graduate-template-review.txt` | `sha256:631c7a839a1745af605fa1d5ddcffbc60b9325d506a9f8098b1a0d01ff6ad923` |
+| `hunannongye` | `test_inputs/template_generation/school-hunannongye-requirement.docx` | `sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989` | `test_inputs/template_generation/school-hunannongye-template-review.txt` | `sha256:65bb89715ad40cc8e2948f65441312d3da7efb56b5973d8f2c4c507c177c9794` |
+| `nannong-undergraduate` | `test_inputs/template_generation/school-nannong-undergraduate-template.docx` | `sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536` | `test_inputs/template_generation/school-nannong-undergraduate-template-review.txt` | `sha256:d6dc0d49dac3e2b83fa63ee92e76965c1cec995d56eb3e27b3ea4d5f45acdb87` |
+| `pku-graduate` | `test_inputs/template_generation/school-pku-graduate-template.docx` | `sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14` | `test_inputs/template_generation/school-pku-graduate-template-review.txt` | `sha256:631c7a839a1745af605fa1d5ddcffbc60b9325d506a9f8098b1a0d01ff6ad923` |
 
 ### Student Documents
 
 | student_id | source_docx | source_sha256 | review_source | review_sha256 |
 | --- | --- | --- | --- | --- |
-| `real-student-001` | `inputs/real-student-001-source.docx` | `sha256:2e3d6310611cbe2fafddbda18e7b83387b5f3ea3d1f0f3163154d6ec129a6f60` | `inputs/real-student-001-content-review.md` | `sha256:fae06e0474920b7258ce7d5e7358ff665d599d09880e8b6761bbfd75248c7078` |
-| `real-student-002` | `inputs/real-student-002-source.docx` | `sha256:fc39ac02efd152ddf609199615256393e3077b49629e1cca48e1f437b2e44a9b` | `inputs/real-student-002-content-review.md` | `sha256:2f54077297d25d77a65ba41d571c001d9dc47db83c26f3947fee5a7cb2f6d0db` |
-| `real-student-003` | `inputs/real-student-003-source.docx` | `sha256:cf49d90832c44d2f28e7fe6940217f4afe7c637f179b3610c75801b900e7d290` | `inputs/real-student-003-content-review.md` | `sha256:a444c2826368c75c10e7e6df780fdc496e7ab139ee5ae55de0100f9b79c6583c` |
+| `real-student-001` | `test_inputs/content_extraction/real-student-001-source.docx` | `sha256:2e3d6310611cbe2fafddbda18e7b83387b5f3ea3d1f0f3163154d6ec129a6f60` | `test_inputs/content_extraction/real-student-001-content-review.md` | `sha256:fae06e0474920b7258ce7d5e7358ff665d599d09880e8b6761bbfd75248c7078` |
+| `real-student-002` | `test_inputs/content_extraction/real-student-002-source.docx` | `sha256:fc39ac02efd152ddf609199615256393e3077b49629e1cca48e1f437b2e44a9b` | `test_inputs/content_extraction/real-student-002-content-review.md` | `sha256:2f54077297d25d77a65ba41d571c001d9dc47db83c26f3947fee5a7cb2f6d0db` |
+| `real-student-003` | `test_inputs/content_extraction/real-student-003-source.docx` | `sha256:cf49d90832c44d2f28e7fe6940217f4afe7c637f179b3610c75801b900e7d290` | `test_inputs/content_extraction/real-student-003-content-review.md` | `sha256:a444c2826368c75c10e7e6df780fdc496e7ab139ee5ae55de0100f9b79c6583c` |
 
 ### Shared Alignment Review
 
-- Source: `inputs/shared-template-recognition-alignment-review.txt`
+- Source: `test_inputs/template_generation/shared-template-recognition-alignment-review.txt`
 - SHA-256: `sha256:8efd4bb76da5ac7f5aa0806b7fb97055146095c13a5673e991285ea6ba0d0069`
 
 ## Render Case Matrix
@@ -85,7 +85,7 @@ relationships, policies, styles, page rules, and unresolved decisions.
 
 ### Source: `hunannongye`
 
-- Path: `inputs/school-hunannongye-template-review.txt`
+- Path: `test_inputs/template_generation/school-hunannongye-template-review.txt`
 - SHA-256: `sha256:65bb89715ad40cc8e2948f65441312d3da7efb56b5973d8f2c4c507c177c9794`
 
 ~~~~text
@@ -982,7 +982,7 @@ relationships, policies, styles, page rules, and unresolved decisions.
 
 ### Source: `nannong-undergraduate`
 
-- Path: `inputs/school-nannong-undergraduate-template-review.txt`
+- Path: `test_inputs/template_generation/school-nannong-undergraduate-template-review.txt`
 - SHA-256: `sha256:d6dc0d49dac3e2b83fa63ee92e76965c1cec995d56eb3e27b3ea4d5f45acdb87`
 
 ~~~~text
@@ -1663,7 +1663,7 @@ relationships, policies, styles, page rules, and unresolved decisions.
 
 ### Source: `pku-graduate`
 
-- Path: `inputs/school-pku-graduate-template-review.txt`
+- Path: `test_inputs/template_generation/school-pku-graduate-template-review.txt`
 - SHA-256: `sha256:631c7a839a1745af605fa1d5ddcffbc60b9325d506a9f8098b1a0d01ff6ad923`
 
 ~~~~text
@@ -2350,7 +2350,7 @@ references, appendix, and acknowledgement.
 
 ### Source: `real-student-001`
 
-- Path: `inputs/real-student-001-content-review.md`
+- Path: `test_inputs/content_extraction/real-student-001-content-review.md`
 - SHA-256: `sha256:fae06e0474920b7258ce7d5e7358ff665d599d09880e8b6761bbfd75248c7078`
 
 ~~~~text
@@ -2489,7 +2489,7 @@ level 1: 文献综述
 
 ### Source: `real-student-002`
 
-- Path: `inputs/real-student-002-content-review.md`
+- Path: `test_inputs/content_extraction/real-student-002-content-review.md`
 - SHA-256: `sha256:2f54077297d25d77a65ba41d571c001d9dc47db83c26f3947fee5a7cb2f6d0db`
 
 ~~~~text
@@ -2618,7 +2618,7 @@ level 1: 结论与展望
 
 ### Source: `real-student-003`
 
-- Path: `inputs/real-student-003-content-review.md`
+- Path: `test_inputs/content_extraction/real-student-003-content-review.md`
 - SHA-256: `sha256:a444c2826368c75c10e7e6df780fdc496e7ab139ee5ae55de0100f9b79c6583c`
 
 ~~~~text
@@ -2744,7 +2744,7 @@ placement, and render verification.
 
 ### Source: `shared-template-recognition-alignment`
 
-- Path: `inputs/shared-template-recognition-alignment-review.txt`
+- Path: `test_inputs/template_generation/shared-template-recognition-alignment-review.txt`
 - SHA-256: `sha256:8efd4bb76da5ac7f5aa0806b7fb97055146095c13a5673e991285ea6ba0d0069`
 
 ~~~~text

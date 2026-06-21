@@ -55,6 +55,31 @@ def _write_stage_report(out_dir: Path, result: StageResult) -> dict[str, Any]:
     )
 
 
+def _is_relative_to(path: Path, base: Path) -> bool:
+    try:
+        path.resolve().relative_to(base.resolve())
+    except ValueError:
+        return False
+    return True
+
+
+def _template_generation_project_dir(
+    root: Path,
+    *,
+    template_docx: Path | None = None,
+    out_dir: Path | None = None,
+) -> Path:
+    base = root / "test_outputs" / "debug" / "template_generation"
+    if out_dir is not None and _is_relative_to(out_dir, base):
+        relative = out_dir.resolve().relative_to(base.resolve())
+        parts = relative.parts
+        if len(parts) >= 2 and parts[1] == "eval_runs":
+            return base / parts[0]
+    if template_docx is not None:
+        return base / template_docx.stem
+    return base
+
+
 def _required_capabilities(bundle: Any, contract_key: str, fallback: list[str]) -> list[str]:
     if bundle is None:
         return fallback
@@ -105,13 +130,13 @@ def _run_template_generation_for_pipeline(
     template_docx: Path,
     out_dir: Path,
     *,
-    target_units: list[dict[str, Any]] | None = None,
+    debug_root: Path | None = None,
 ) -> StageResult:
     generation_out_dir = out_dir / "template_generation"
     result = generate_template(
         template_docx,
         generation_out_dir,
-        target_units=target_units,
+        debug_root=debug_root,
     )
     write_template_generation_outputs(generation_out_dir, result)
     _write_stage_report(generation_out_dir, result)
@@ -202,9 +227,11 @@ def run_template_eval(root: Path, school_id: str, template_docx: Path, out_dir: 
             generation_result = _run_template_generation_for_pipeline(
                 template_docx,
                 out_dir,
-                target_units=result.artifacts["template_artifact"]
-                .get("data", {})
-                .get("units", []),
+                debug_root=_template_generation_project_dir(
+                    root,
+                    template_docx=template_docx,
+                    out_dir=out_dir,
+                ),
             )
             _merge_template_generation_result(result, generation_result)
             generated_template_docx = generation_result.artifact_paths.get(
@@ -218,7 +245,8 @@ def run_template_eval(root: Path, school_id: str, template_docx: Path, out_dir: 
                 )
             gap_result = evaluate_generated_template_gap(
                 bundle,
-                generated_template_docx or root / "inputs/generated_template.docx",
+                generated_template_docx
+                or root / "test_inputs" / "template_gap" / "generated_template.docx",
                 out_dir,
             )
             _merge_generated_template_gap(result, gap_result)
@@ -269,36 +297,16 @@ def run_template_generate_eval(
     root: Path,
     template_docx: Path,
     out_dir: Path,
-    *,
-    school_id: str | None = None,
 ) -> StageResult:
-    standard_findings: list[Finding] = []
-    target_units: list[dict[str, Any]] | None = None
-    if school_id is not None:
-        bundle, standard_findings = load_standard_bundle(
+    result = generate_template(
+        template_docx,
+        out_dir,
+        debug_root=_template_generation_project_dir(
             root,
-            school_id,
-            finding_stage="template_generate",
-        )
-        if bundle is None:
-            result = StageResult(
-                "template_generate",
-                Status.UNKNOWN,
-                findings=standard_findings,
-                blocked_at="standards",
-            )
-            _write_stage_report(out_dir, result)
-            return result
-        template_context = parse_template(template_docx, bundle)
-        target_units = (
-            template_context.artifacts.get("template_artifact", {})
-            .get("data", {})
-            .get("units", [])
-        )
-    result = generate_template(template_docx, out_dir, target_units=target_units)
-    result.findings = standard_findings + result.findings
-    if standard_findings and result.status == Status.PASS:
-        result.status = Status.UNKNOWN
+            template_docx=template_docx,
+            out_dir=out_dir,
+        ),
+    )
     write_template_generation_outputs(out_dir, result)
     _write_stage_report(out_dir, result)
     return result
@@ -457,9 +465,11 @@ def run_e2e_eval(
         generation_result = _run_template_generation_for_pipeline(
             bundle.template_docx,
             out_dir,
-            target_units=template_result.artifacts["template_artifact"]
-            .get("data", {})
-            .get("units", []),
+            debug_root=_template_generation_project_dir(
+                root,
+                template_docx=bundle.template_docx,
+                out_dir=out_dir,
+            ),
         )
         _merge_template_generation_result(template_result, generation_result)
         generated_template_docx = generation_result.artifact_paths.get(
@@ -475,7 +485,8 @@ def run_e2e_eval(
             )
         gap_result = evaluate_generated_template_gap(
             bundle,
-            generated_template_docx or root / "inputs/generated_template.docx",
+            generated_template_docx
+            or root / "test_inputs" / "template_gap" / "generated_template.docx",
             out_dir,
         )
         _merge_generated_template_gap(template_result, gap_result)

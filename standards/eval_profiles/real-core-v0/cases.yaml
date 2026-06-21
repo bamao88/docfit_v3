@@ -1,31 +1,31 @@
 profile_id: real-core-v0
 status: source_facts_signed_word_image_evidence_pending
 source_evidence:
-  shared_alignment_review: inputs/shared-template-recognition-alignment-review.txt
+  shared_alignment_review: test_inputs/template_generation/shared-template-recognition-alignment-review.txt
   accepted_review_packet: docs/human/real-core-v0-review-packet.md
 schools:
   - school_id: hunannongye
-    template_docx: inputs/school-hunannongye-requirement.docx
-    generated_template_docx: inputs/simulated-generated-templates/real-core-v0/hunannongye/generated_template.docx
-    review_source: inputs/school-hunannongye-template-review.txt
+    template_docx: test_inputs/template_generation/school-hunannongye-requirement.docx
+    generated_template_docx: test_inputs/template_gap/real-core-v0-hunannongye-generated-template.docx
+    review_source: test_inputs/template_generation/school-hunannongye-template-review.txt
   - school_id: nannong-undergraduate
-    template_docx: inputs/school-nannong-undergraduate-template.docx
-    generated_template_docx: inputs/simulated-generated-templates/real-core-v0/nannong-undergraduate/generated_template.docx
-    review_source: inputs/school-nannong-undergraduate-template-review.txt
+    template_docx: test_inputs/template_generation/school-nannong-undergraduate-template.docx
+    generated_template_docx: test_inputs/template_gap/real-core-v0-nannong-undergraduate-generated-template.docx
+    review_source: test_inputs/template_generation/school-nannong-undergraduate-template-review.txt
   - school_id: pku-graduate
-    template_docx: inputs/school-pku-graduate-template.docx
-    generated_template_docx: inputs/simulated-generated-templates/real-core-v0/pku-graduate/generated_template.docx
-    review_source: inputs/school-pku-graduate-template-review.txt
+    template_docx: test_inputs/template_generation/school-pku-graduate-template.docx
+    generated_template_docx: test_inputs/template_gap/real-core-v0-pku-graduate-generated-template.docx
+    review_source: test_inputs/template_generation/school-pku-graduate-template-review.txt
 students:
   - student_id: real-student-001
-    source_docx: inputs/real-student-001-source.docx
-    review_source: inputs/real-student-001-content-review.md
+    source_docx: test_inputs/content_extraction/real-student-001-source.docx
+    review_source: test_inputs/content_extraction/real-student-001-content-review.md
   - student_id: real-student-002
-    source_docx: inputs/real-student-002-source.docx
-    review_source: inputs/real-student-002-content-review.md
+    source_docx: test_inputs/content_extraction/real-student-002-source.docx
+    review_source: test_inputs/content_extraction/real-student-002-content-review.md
   - student_id: real-student-003
-    source_docx: inputs/real-student-003-source.docx
-    review_source: inputs/real-student-003-content-review.md
+    source_docx: test_inputs/content_extraction/real-student-003-source.docx
+    review_source: test_inputs/content_extraction/real-student-003-content-review.md
 cases:
   template:
     - case_id: real_core_v0_template_hunannongye
@@ -74,7 +74,7 @@ expected_artifacts:
   student_content_trees: standards/eval_profiles/real-core-v0/expected/student_content_trees/<student_id>.yaml
   render_plans: standards/eval_profiles/real-core-v0/expected/render_plans/<case_id>.yaml
   render_feature_snapshots: standards/eval_profiles/real-core-v0/expected/render_feature_snapshots/<case_id>.json
-  word_image_evidence: reports/real-core-v0/<case_id>/evidence/word_image_evidence.json
+  word_image_evidence: test_outputs/debug/template_eval_runs/real-core-v0/<case_id>/evidence/word_image_evidence.json
 rules:
   auto_update_allowed: false
   runtime_human_review_allowed: false

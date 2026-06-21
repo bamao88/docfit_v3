@@ -12,9 +12,9 @@ accepted_source_facts:
   review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
   source_section_id: real-student-003
   source_section_sha256: sha256:2705c1033bde215b8f905e9f8fb0a7b6e4306826f45d0f06a28ed535a0859059
-  student_docx: inputs/real-student-003-source.docx
+  student_docx: test_inputs/content_extraction/real-student-003-source.docx
   student_docx_sha256: sha256:cf49d90832c44d2f28e7fe6940217f4afe7c637f179b3610c75801b900e7d290
-  original_review_source: inputs/real-student-003-content-review.md
+  original_review_source: test_inputs/content_extraction/real-student-003-content-review.md
   original_review_source_sha256: sha256:a444c2826368c75c10e7e6df780fdc496e7ab139ee5ae55de0100f9b79c6583c
   full_review_text: "# 关②人工内容识别标准说明：003.docx\n\n## 标题\n\n- 中文标题：磷肥不同施肥量对米粉稻产量性状的影响研究\n\
     - 英文标题：Study on the effect of different amount of phosphate fertilizer on the\

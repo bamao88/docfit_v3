@@ -6,14 +6,10 @@ __pycache__/
 test_outputs/*
 !test_outputs/.gitkeep
 !test_outputs/README.md
-!test_outputs/eval_runs/
-!test_outputs/eval_runs/.gitkeep
 !test_outputs/debug/
 !test_outputs/debug/.gitkeep
 !test_outputs/workbench/
 !test_outputs/workbench/.gitkeep
-test_outputs/eval_runs/*
-!test_outputs/eval_runs/.gitkeep
 test_outputs/debug/*
 !test_outputs/debug/.gitkeep
 !test_outputs/debug/*/

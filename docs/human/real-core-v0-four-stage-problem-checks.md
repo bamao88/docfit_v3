@@ -60,7 +60,7 @@ Word 的差距检查现在会把 template 阶段阻断；即使如此，e2e 仍�
 
 ```text
 学校模板：hunannongye
-学生文档：inputs/real-student-003-source.docx
+学生文档：test_inputs/content_extraction/real-student-003-source.docx
 临时输出：/tmp/real_core_product_quality_case
 ```
 
@@ -137,14 +137,14 @@ Word 的差距检查现在会把 template 阶段阻断；即使如此，e2e 仍�
 最新临时验证：
 
 ```text
-uv run docfit eval e2e --school hunannongye --student inputs/real-student-003-source.docx --out /tmp/docfit_real_core_template_probe
+uv run docfit eval e2e --school hunannongye --student test_inputs/content_extraction/real-student-003-source.docx --out /tmp/docfit_real_core_template_probe
 ```
 
 当前结果是 `stage_statuses.template = FAIL`，`blocked_at = template`。
 `artifacts/template_gap_report.json` 展示为 `FAIL + UNKNOWN`：当前生成模板已经
 有确定性缺失项，同时页面级版面完整性、部分页眉页码规则、等价生成机制和复杂
 样式/section 继承还有未证明项。旧
-`reports/real-core-v0/**` 里的历史 artifacts 在重新生成前仍可能显示旧模板问题。
+`test_outputs/debug/template_eval_runs/real-core-v0/**` 里的历史 artifacts 在重新生成前仍可能显示旧模板问题。
 
 ### 2. 内容抽取
 

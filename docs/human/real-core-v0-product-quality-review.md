@@ -15,8 +15,8 @@
 
 审查对象：
 
-- `reports/real-core-v0/<case_id>/final.docx`
-- `reports/real-core-v0/<case_id>/evidence/page-*.png`
+- `test_outputs/debug/template_eval_runs/real-core-v0/<case_id>/final.docx`
+- `test_outputs/debug/template_eval_runs/real-core-v0/<case_id>/evidence/page-*.png`
 - 对应 `summary.json`、`placement_plan.json`、`render_manifest.json`
   和 `student_content_artifact.json`
 
@@ -80,7 +80,7 @@
 - 内容放置会把这类内容标为不写入成品。
 - Word 生成记录会说明该动作已处理，但不会把旧目录文字写进后续新输出。
 
-注意：这个修复只影响后续重新生成的输出。当前 `reports/real-core-v0/**` 下的
+注意：这个修复只影响后续重新生成的输出。当前 `test_outputs/debug/template_eval_runs/real-core-v0/**` 下的
 页面图像证据仍绑定旧 `final.docx`，本轮没有自动替换。
 
 ### P1：正文标题、参考文献、附录、致谢的识别还不够
@@ -158,7 +158,7 @@ position/relationship 比对 `template_artifact.data.units`。例如元素样式
 页面级版面完整性、等价生成机制、脚注编号、更复杂题注规则、复杂样式表缺项、
 复杂 section 继承和更细页码规则仍有未证明项。
 
-注意：既有 `reports/real-core-v0/**` 仍是旧成品和旧证据，未在本轮重生。因此 coverage
+注意：既有 `test_outputs/debug/template_eval_runs/real-core-v0/**` 仍是旧成品和旧证据，未在本轮重生。因此 coverage
 读取旧报告时仍会看到旧的模板问题；这不代表 source-fact parser 代码回退，而是后续需要
 在生成模板、内容、放置、渲染能力修复后统一重生 9 个真实成品。
 
@@ -216,7 +216,7 @@ position/relationship 比对 `template_artifact.data.units`。例如元素样式
 
 要求：
 
-- 重新生成 `reports/real-core-v0/<case_id>/final.docx`。
+- 重新生成 `test_outputs/debug/template_eval_runs/real-core-v0/<case_id>/final.docx`。
 - 重新导出 Word page images 和 `word_image_evidence.json`。
 - 重新运行 coverage。
 - 再做一轮产品视觉和内容位置 review。

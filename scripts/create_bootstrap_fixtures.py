@@ -252,7 +252,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--root",
         type=Path,
-        default=ROOT / "out/bootstrap-fixtures",
+        default=ROOT / "test_outputs/workbench/bootstrap-fixtures",
         help="Output root. Defaults to ignored generated output.",
     )
     parser.add_argument(

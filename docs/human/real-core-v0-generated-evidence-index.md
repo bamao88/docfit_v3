@@ -3,7 +3,7 @@
 日期：2026-06-15
 
 本机已生成 `real-core-v0` 的 9 个 school/student 组合输出。生成物位于
-`reports/real-core-v0/**`，该目录按仓库规则属于本地 generated evidence，不随代码提交。
+`test_outputs/debug/template_eval_runs/real-core-v0/**`，该目录按仓库规则属于本地 generated evidence，不随代码提交。
 
 注意：下面的 PASS 记录是旧的证据闭环口径。当前代码已经新增生成模板 Word
 差距检查和业务质量 gate；同一批历史证据不能再证明 `real-core-v0` 通过。
@@ -29,15 +29,15 @@ uv run python scripts/export_real_core_word_evidence.py --reconcile-existing
 
 | Case | Report | Final DOCX | Word page images | Page count |
 | --- | --- | --- | --- | ---: |
-| `real_core_v0_hunannongye_real-student-001` | `PASS`, 0 findings | `reports/real-core-v0/real_core_v0_hunannongye_real-student-001/final.docx` | `reports/real-core-v0/real_core_v0_hunannongye_real-student-001/evidence/page-*.png` | 40 |
-| `real_core_v0_hunannongye_real-student-002` | `PASS`, 0 findings | `reports/real-core-v0/real_core_v0_hunannongye_real-student-002/final.docx` | `reports/real-core-v0/real_core_v0_hunannongye_real-student-002/evidence/page-*.png` | 36 |
-| `real_core_v0_hunannongye_real-student-003` | `PASS`, 0 findings | `reports/real-core-v0/real_core_v0_hunannongye_real-student-003/final.docx` | `reports/real-core-v0/real_core_v0_hunannongye_real-student-003/evidence/page-*.png` | 25 |
-| `real_core_v0_nannong-undergraduate_real-student-001` | `PASS`, 0 findings | `reports/real-core-v0/real_core_v0_nannong-undergraduate_real-student-001/final.docx` | `reports/real-core-v0/real_core_v0_nannong-undergraduate_real-student-001/evidence/page-*.png` | 31 |
-| `real_core_v0_nannong-undergraduate_real-student-002` | `PASS`, 0 findings | `reports/real-core-v0/real_core_v0_nannong-undergraduate_real-student-002/final.docx` | `reports/real-core-v0/real_core_v0_nannong-undergraduate_real-student-002/evidence/page-*.png` | 27 |
-| `real_core_v0_nannong-undergraduate_real-student-003` | `PASS`, 0 findings | `reports/real-core-v0/real_core_v0_nannong-undergraduate_real-student-003/final.docx` | `reports/real-core-v0/real_core_v0_nannong-undergraduate_real-student-003/evidence/page-*.png` | 18 |
-| `real_core_v0_pku-graduate_real-student-001` | `PASS`, 0 findings | `reports/real-core-v0/real_core_v0_pku-graduate_real-student-001/final.docx` | `reports/real-core-v0/real_core_v0_pku-graduate_real-student-001/evidence/page-*.png` | 76 |
-| `real_core_v0_pku-graduate_real-student-002` | `PASS`, 0 findings | `reports/real-core-v0/real_core_v0_pku-graduate_real-student-002/final.docx` | `reports/real-core-v0/real_core_v0_pku-graduate_real-student-002/evidence/page-*.png` | 67 |
-| `real_core_v0_pku-graduate_real-student-003` | `PASS`, 0 findings | `reports/real-core-v0/real_core_v0_pku-graduate_real-student-003/final.docx` | `reports/real-core-v0/real_core_v0_pku-graduate_real-student-003/evidence/page-*.png` | 46 |
+| `real_core_v0_hunannongye_real-student-001` | `PASS`, 0 findings | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_hunannongye_real-student-001/final.docx` | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_hunannongye_real-student-001/evidence/page-*.png` | 40 |
+| `real_core_v0_hunannongye_real-student-002` | `PASS`, 0 findings | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_hunannongye_real-student-002/final.docx` | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_hunannongye_real-student-002/evidence/page-*.png` | 36 |
+| `real_core_v0_hunannongye_real-student-003` | `PASS`, 0 findings | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_hunannongye_real-student-003/final.docx` | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_hunannongye_real-student-003/evidence/page-*.png` | 25 |
+| `real_core_v0_nannong-undergraduate_real-student-001` | `PASS`, 0 findings | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_nannong-undergraduate_real-student-001/final.docx` | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_nannong-undergraduate_real-student-001/evidence/page-*.png` | 31 |
+| `real_core_v0_nannong-undergraduate_real-student-002` | `PASS`, 0 findings | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_nannong-undergraduate_real-student-002/final.docx` | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_nannong-undergraduate_real-student-002/evidence/page-*.png` | 27 |
+| `real_core_v0_nannong-undergraduate_real-student-003` | `PASS`, 0 findings | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_nannong-undergraduate_real-student-003/final.docx` | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_nannong-undergraduate_real-student-003/evidence/page-*.png` | 18 |
+| `real_core_v0_pku-graduate_real-student-001` | `PASS`, 0 findings | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_pku-graduate_real-student-001/final.docx` | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_pku-graduate_real-student-001/evidence/page-*.png` | 76 |
+| `real_core_v0_pku-graduate_real-student-002` | `PASS`, 0 findings | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_pku-graduate_real-student-002/final.docx` | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_pku-graduate_real-student-002/evidence/page-*.png` | 67 |
+| `real_core_v0_pku-graduate_real-student-003` | `PASS`, 0 findings | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_pku-graduate_real-student-003/final.docx` | `test_outputs/debug/template_eval_runs/real-core-v0/real_core_v0_pku-graduate_real-student-003/evidence/page-*.png` | 46 |
 
 Each evidence directory also contains `word_image_evidence.json`, binding the
 page images to the corresponding `final.docx` SHA-256 and Microsoft Word

@@ -5,7 +5,7 @@ inputs.
 
 - Required capabilities live in `src/docfit/harness/profiles.py`.
 - Expected intermediate artifacts live in `expected/`.
-- Raw DOCX/DOC inputs and human review evidence live in `inputs/`.
+- Raw DOCX/DOC inputs and human review evidence live in `test_inputs/`.
 - Signed standards, contracts, goldens, and exceptions live in
   `standards/schools/demo-school/v1/`.
 

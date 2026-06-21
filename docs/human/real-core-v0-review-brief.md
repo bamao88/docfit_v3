@@ -34,8 +34,8 @@ docs/human/real-core-v0-review-packet.md
 ## 现在不需要你补什么
 
 - 不需要新增学校模板审查文档或学生内容审查文档。
-- 不需要审 `out/real-core-v0-baseline-review/drafts/**/*.yaml`；当前 gate 使用
-  已签入的 `standards/**` 和 `reports/real-core-v0/**`。
+- 不需要审 `test_outputs/workbench/real-core-v0-baseline-review/drafts/**/*.yaml`；当前 gate 使用
+  已签入的 `standards/**` 和 `test_outputs/debug/template_eval_runs/real-core-v0/**`。
 - 不需要把当前 9 个旧 Word 输出当成合格成品审；它们已经被业务 gate 判为不合格。
 - 不需要决定 PASS/FAIL，AI 和人工都不能作为 runtime gate。
 - 不需要自动更新 golden 或 signed standard。

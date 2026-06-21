@@ -29,6 +29,10 @@ def _root() -> Path:
     return Path.cwd()
 
 
+def _template_eval_runs_root() -> Path:
+    return Path("test_outputs/debug/template_eval_runs")
+
+
 def _echo_status(status: Status) -> None:
     typer.echo(f"status = {status.value}")
 
@@ -62,11 +66,10 @@ def eval_template_gap(
 
 @eval_app.command("template-generate")
 def eval_template_generate(
-    school: str | None = typer.Option(None, "--school"),
     template: Path = typer.Option(..., "--template", exists=True),
     out: Path = typer.Option(..., "--out"),
 ) -> None:
-    result = run_template_generate_eval(_root(), template, out, school_id=school)
+    result = run_template_generate_eval(_root(), template, out)
     _echo_status(result.status)
 
 
@@ -117,7 +120,7 @@ def eval_render(
 def eval_e2e(
     school: str | None = typer.Option(None, "--school"),
     student: Path | None = typer.Option(None, "--student", exists=True),
-    out: Path = typer.Option(Path("reports/bootstrap_pass"), "--out"),
+    out: Path = typer.Option(_template_eval_runs_root() / "bootstrap_pass", "--out"),
     case: str | None = typer.Option(None, "--case"),
 ) -> None:
     if case is not None:
@@ -135,7 +138,10 @@ def eval_e2e(
 @eval_app.command("coverage")
 def eval_coverage(
     profile: str = typer.Option(BOOTSTRAP_PROFILE.profile_id, "--profile"),
-    out: Path = typer.Option(Path("reports/coverage_bootstrap_core"), "--out"),
+    out: Path = typer.Option(
+        _template_eval_runs_root() / "coverage_bootstrap_core",
+        "--out",
+    ),
 ) -> None:
     report, finding_models = evaluate_profile_coverage(_root(), profile)
     findings = [finding.to_dict() for finding in finding_models]
@@ -157,7 +163,7 @@ def eval_coverage(
 def eval_standards(
     school: str = typer.Option("demo-school", "--school"),
     audit: bool = typer.Option(False, "--audit"),
-    out: Path = typer.Option(Path("reports/standards_audit"), "--out"),
+    out: Path = typer.Option(_template_eval_runs_root() / "standards_audit", "--out"),
 ) -> None:
     bundle, findings = load_standard_bundle(_root(), school, finding_stage="standards")
     status = Status.UNKNOWN if findings else Status.PASS
@@ -165,7 +171,7 @@ def eval_standards(
     if bundle is not None:
         artifacts["signed_standard"] = str(bundle.signed_standard_path)
     if audit:
-        audit_path = _root() / "reports" / "audit_log.json"
+        audit_path = out / "audit_log.json"
         artifacts["audit_log"] = str(audit_path)
     write_report_bundle(
         out,
@@ -179,7 +185,7 @@ def eval_standards(
 
 @app.command("diagnose")
 def diagnose(run: Path = typer.Option(..., "--run")) -> None:
-    run_dir = run if run.is_dir() else Path("reports") / str(run)
+    run_dir = run if run.is_dir() else _template_eval_runs_root() / str(run)
     summary = read_json(run_dir / "summary.json")
     clusters = read_json(run_dir / "issue_clusters.json")
     typer.echo(f"run_id = {summary['run_id']}")
@@ -193,7 +199,10 @@ def convert(
     school: str = typer.Option(..., "--school"),
     student: Path = typer.Option(..., "--student", exists=True),
     out: Path = typer.Option(..., "--out"),
-    report: Path = typer.Option(Path("reports/run_convert_001"), "--report"),
+    report: Path = typer.Option(
+        _template_eval_runs_root() / "run_convert_001",
+        "--report",
+    ),
 ) -> None:
     result = run_e2e_eval(_root(), school, student, report, final_copy=out)
     if result.status != Status.PASS:

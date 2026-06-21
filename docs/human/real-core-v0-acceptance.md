@@ -7,6 +7,12 @@ Last updated: 2026-06-16
 This guide explains what must be accepted before the `real-core-v0` gate can
 claim product-quality `PASS`.
 
+Before reviewing individual evidence packages, read
+`docs/human/school-template-acceptance-standards-and-plan.md`. It defines the
+product boundary for school templates: the official school Word is a rule
+source, the generated template is a tested output, and the final student Word is
+the delivery artifact.
+
 The review is not a runtime visual approval of generated DOCX files. The review
 is a baseline trust step plus a deterministic evidence check: confirm that the
 expected school templates, expected student content, expected placement plans,
@@ -49,13 +55,13 @@ Review the full source-fact packet:
 
 ```text
 docs/human/real-core-v0-review-packet.md
-out/real-core-v0-baseline-review/review_packet.md
+test_outputs/workbench/real-core-v0-baseline-review/review_packet.md
 ```
 
 The packet embeds the complete human school-template review sources and student
 content review sources. It is the review surface for source facts that later
 become runnable baselines. The YAML drafts under
-`out/real-core-v0-baseline-review/drafts/**` are not sufficient for human
+`test_outputs/workbench/real-core-v0-baseline-review/drafts/**` are not sufficient for human
 approval by themselves; they are unsigned machine skeletons until engineering
 normalizes the accepted source facts into them.
 
@@ -114,14 +120,14 @@ the reviewer still owns the final expected facts.
 For every e2e case in `real-core-v0`, there must be one evidence package:
 
 ```text
-reports/real-core-v0/<case_id>/evidence/word_image_evidence.json
-reports/real-core-v0/<case_id>/evidence/page-*.png
+test_outputs/debug/template_eval_runs/real-core-v0/<case_id>/evidence/word_image_evidence.json
+test_outputs/debug/template_eval_runs/real-core-v0/<case_id>/evidence/page-*.png
 ```
 
 The rendered DOCX must exist at:
 
 ```text
-reports/real-core-v0/<case_id>/final.docx
+test_outputs/debug/template_eval_runs/real-core-v0/<case_id>/final.docx
 ```
 
 The manifest must bind the exported images to that rendered `final.docx` and
@@ -201,7 +207,7 @@ steps 4 and 5 pass for business correctness:
 1. Move approved school baselines into `standards/schools/<school_id>/v1/`.
 2. Move approved profile baselines into
    `standards/eval_profiles/real-core-v0/expected/`.
-3. Attach Word image evidence packages under `reports/real-core-v0/<case_id>/evidence/`.
+3. Attach Word image evidence packages under `test_outputs/debug/template_eval_runs/real-core-v0/<case_id>/evidence/`.
 4. Fix the four deterministic business stages so template/content/placement/render
    findings are cleared without weakening standards.
 5. Rerun:

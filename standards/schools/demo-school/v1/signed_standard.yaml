@@ -5,7 +5,7 @@ status: signed
 owner: docfit-core
 approved_at: '2026-06-14T00:00:00+00:00'
 source:
-  template_docx: inputs/bootstrap-demo-school-template.docx
+  template_docx: test_inputs/template_generation/bootstrap-demo-school-template.docx
   template_docx_sha256: sha256:8a668e5acc991d6ae9c740ac0dd1fc96644ceb339e881177e484aeddecf19859
 contracts:
   template_contract: template_contract.json

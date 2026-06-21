@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime
 import re
 import shutil
 from pathlib import Path
@@ -25,6 +26,19 @@ from docfit.ooxml.package import is_valid_docx
 
 DEFAULT_TEMPLATE_GENERATION_STRATEGY = "source_copy_scaffold"
 BODY_SLOT_MARKER = "[[DOCFIT_SLOT:body]]"
+COPY_ONLY_DEFAULT_EXCLUDED_UNIT_IDS = {
+    "abstract_cn",
+    "abstract_en",
+    "toc",
+    "body_main",
+    "references",
+}
+FILLABLE_CONTENT_UNIT_IDS = {
+    "abstract_cn",
+    "abstract_en",
+    "body_main",
+    "references",
+}
 
 UNIT_DEFINITIONS = (
     ("cover", "封面", ("封面", "题名", "论文题目", "学校", "学号", "指导教师")),
@@ -74,7 +88,7 @@ def generate_template(
     out_dir: Path,
     *,
     strategy: str = DEFAULT_TEMPLATE_GENERATION_STRATEGY,
-    target_units: list[dict[str, Any]] | None = None,
+    debug_root: Path | None = None,
 ) -> StageResult:
     if not source_template_docx.exists():
         return StageResult(
@@ -116,6 +130,11 @@ def generate_template(
             blocked_at="template_generate",
         )
 
+    debug_dir = _new_template_generation_debug_dir(debug_root)
+    copy_source_snapshot_docx = (
+        debug_dir / "07_copy_source_docx.docx" if debug_dir is not None else None
+    )
+
     request = build_template_generation_request(
         source_template_docx,
         out_dir,
@@ -123,12 +142,6 @@ def generate_template(
     )
     source_tree = inspect_source_template_docx(source_template_docx)
     discovered_rules = infer_template_rules(source_tree)
-    if target_units:
-        discovered_rules = align_target_units_to_source_tree(
-            source_tree,
-            target_units,
-            discovered_rules=discovered_rules,
-        )
     template_artifact = build_template_artifact(request, source_tree, discovered_rules)
     decisions = build_template_unit_decisions(template_artifact)
     plan = build_template_generation_plan(
@@ -141,6 +154,7 @@ def generate_template(
         source_template_docx,
         generated_template_docx,
         plan,
+        copy_source_snapshot_docx=copy_source_snapshot_docx,
     )
     manifest = build_template_generation_manifest(
         request=request,
@@ -151,7 +165,27 @@ def generate_template(
         plan=plan,
         generated_template_docx=generated_template_docx,
         execution=execution,
+        debug_snapshot_dir=debug_dir,
+        copy_source_snapshot_docx=copy_source_snapshot_docx,
     )
+    if debug_dir is not None:
+        write_template_generation_debug_snapshot(
+            debug_dir,
+            source_template_docx=source_template_docx,
+            request=request,
+            source_tree=source_tree,
+            discovered_rules=discovered_rules,
+            template_artifact=template_artifact,
+            decisions=decisions,
+            plan=plan,
+            copy_source_snapshot_docx=copy_source_snapshot_docx,
+            generated_template_docx=generated_template_docx,
+            manifest=manifest,
+        )
+
+    artifact_paths = {"generated_template_docx": generated_template_docx}
+    if debug_dir is not None:
+        artifact_paths["template_generation_debug_dir"] = debug_dir
 
     return StageResult(
         "template_generate",
@@ -165,7 +199,7 @@ def generate_template(
             "template_generation_plan": plan,
             "template_generation_manifest": manifest,
         },
-        artifact_paths={"generated_template_docx": generated_template_docx},
+        artifact_paths=artifact_paths,
         coverage=_coverage(
             input_exists=True,
             input_valid_docx=True,
@@ -201,6 +235,122 @@ def build_template_generation_request(
         "strategy": strategy,
         "optional_labels": {},
     }
+
+
+def _new_template_generation_debug_dir(debug_root: Path | None) -> Path | None:
+    if debug_root is None:
+        return None
+    timestamp = datetime.now().astimezone().strftime("%Y%m%dT%H%M%S%f%z")
+    debug_dir = debug_root / timestamp
+    suffix = 2
+    while debug_dir.exists():
+        debug_dir = debug_root / f"{timestamp}_{suffix:02d}"
+        suffix += 1
+    debug_dir.mkdir(parents=True, exist_ok=False)
+    return debug_dir
+
+
+def write_template_generation_debug_snapshot(
+    debug_dir: Path,
+    *,
+    source_template_docx: Path,
+    request: dict[str, Any],
+    source_tree: dict[str, Any],
+    discovered_rules: dict[str, Any],
+    template_artifact: dict[str, Any],
+    decisions: dict[str, Any],
+    plan: dict[str, Any],
+    copy_source_snapshot_docx: Path | None,
+    generated_template_docx: Path,
+    manifest: dict[str, Any],
+) -> None:
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    files: list[dict[str, Any]] = []
+
+    def record(path: Path, description: str) -> None:
+        files.append(
+            {
+                "name": path.name,
+                "path": str(path),
+                "description": description,
+                "sha256": sha256_file(path) if path.exists() else None,
+            }
+        )
+
+    def copy_docx(src: Path, name: str, description: str) -> Path:
+        dst = debug_dir / name
+        if src.resolve() != dst.resolve():
+            shutil.copyfile(src, dst)
+        record(dst, description)
+        return dst
+
+    def write_step_json(name: str, payload: dict[str, Any], description: str) -> Path:
+        path = debug_dir / name
+        write_json(path, payload)
+        record(path, description)
+        return path
+
+    copy_docx(
+        source_template_docx,
+        "00_input_source_template.docx",
+        "输入：学校原始模板 Word；生成器从这里读取真实 Word 结构。",
+    )
+    write_step_json(
+        "01_template_generation_request.json",
+        request,
+        "阶段 1：本次模板生成请求，记录源文件、输出目录和生成策略。",
+    )
+    write_step_json(
+        "02_source_template_tree.json",
+        source_tree,
+        "阶段 2：从学校原始 Word 解析出的真实结构树。",
+    )
+    write_step_json(
+        "03_discovered_template_rules.json",
+        discovered_rules,
+        "阶段 3：系统从源 Word 推断出的候选模板规则。",
+    )
+    write_step_json(
+        "04_template_artifact.json",
+        template_artifact,
+        "阶段 4：生成阶段整理出的模板结构理解结果。",
+    )
+    write_step_json(
+        "05_template_unit_decisions.json",
+        decisions,
+        "阶段 5：每个模板单元和元素的处理决策。",
+    )
+    write_step_json(
+        "06_template_generation_plan.json",
+        plan,
+        "阶段 6：真正会被执行的生成动作列表。",
+    )
+    if copy_source_snapshot_docx is not None and copy_source_snapshot_docx.exists():
+        record(
+            copy_source_snapshot_docx,
+            "阶段 7：只执行 copy_source_docx 后的 Word；尚未插 slot、删说明、加分页或分节。",
+        )
+    copy_docx(
+        generated_template_docx,
+        "08_generated_template.docx",
+        "阶段 8：执行全部生成动作后的可填写模板 Word。",
+    )
+    write_step_json(
+        "09_template_generation_manifest.json",
+        manifest,
+        "阶段 9：生成过程记录，包含 action、hash、slot、分页和分节等证据。",
+    )
+    write_step_json(
+        "10_template_generation_debug_index.json",
+        {
+            "artifact_type": "template_generation_debug_index",
+            "artifact_version": "1.0",
+            "created_at": now_iso(),
+            "debug_dir": str(debug_dir),
+            "files": files,
+        },
+        "阶段 10：本调试目录里的文件索引和说明。",
+    )
 
 
 def inspect_source_template_docx(source_template_docx: Path) -> dict[str, Any]:
@@ -261,44 +411,6 @@ def infer_template_rules(source_tree: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def align_target_units_to_source_tree(
-    source_tree: dict[str, Any],
-    target_units: list[dict[str, Any]],
-    *,
-    discovered_rules: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    entries = _body_entries(source_tree)
-    aligned_units: list[dict[str, Any]] = []
-    for index, target_unit in enumerate(target_units):
-        aligned_units.append(
-            _aligned_target_unit(
-                target_unit,
-                entries,
-                fallback_order=(index + 1) * 10,
-            )
-        )
-    return {
-        "artifact_type": "discovered_template_rules",
-        "artifact_version": "1.0",
-        "producer": {"name": "docfit-template-generate", "version": "0.2.0"},
-        "created_at": now_iso(),
-        "source_template_hash": source_tree.get("metadata", {}).get(
-            "source_template_hash"
-        ),
-        "discovery_method": "signed_target_units_aligned_to_source_tree",
-        "units": aligned_units,
-        "unknowns": [
-            {
-                "source_ref": item.get("source_ref"),
-                "reason": item.get("reason", "unknown visible object"),
-                "recommended_disposition": "preserve_or_review",
-            }
-            for item in source_tree.get("layers", {}).get("unknown_objects", [])
-        ],
-        "source_discovery": discovered_rules,
-    }
-
-
 def build_template_artifact(
     request: dict[str, Any],
     source_tree: dict[str, Any],
@@ -306,10 +418,14 @@ def build_template_artifact(
 ) -> dict[str, Any]:
     units = discovered_rules.get("units", [])
     paragraphs = source_tree.get("data", {}).get("paragraphs", [])
+    copy_only_source_refs = _copy_only_unit_source_refs(units)
     instruction_paragraphs = _dedupe_by_key(
         [
             *_instruction_paragraphs_from_units(units),
-            *_instruction_paragraphs_from_source_tree(source_tree),
+            *_instruction_paragraphs_from_source_tree(
+                source_tree,
+                excluded_source_refs=copy_only_source_refs,
+            ),
         ],
         "source_ref",
     )
@@ -384,58 +500,62 @@ def build_template_unit_decisions(template_artifact: dict[str, Any]) -> dict[str
         unit_id = str(unit.get("unit_id"))
         unit_anchor_ref = _first_source_ref(unit)
         decisions: list[dict[str, Any]] = []
-        if any(
-            element.get("policy") in {"fixed", "manual_only"}
-            for element in unit.get("elements", [])
-        ):
+        generation_mode = _unit_generation_mode(unit)
+        if generation_mode == "whole_unit_copy":
             decisions.append(
                 {
-                    "decision_id": f"{unit_id}.copy_fixed_block",
-                    "decision_type": "copy_fixed_block",
+                    "decision_id": f"{unit_id}.keep_whole_unit_copy",
+                    "decision_type": "keep_whole_unit_copy",
                     "unit_id": unit_id,
                     "element_id": None,
                     "source_ref": unit_anchor_ref,
-                    "reason": "preserve fixed or manual-only source template content",
+                    "copy_scope": "whole_unit",
+                    "reason": "this unit can be preserved by the initial source DOCX copy",
                 }
             )
-        for element in unit.get("elements", []):
-            policy = element.get("policy")
-            element_id = element.get("element_id")
-            source_ref = _first_source_ref(element)
-            if policy == "remove_instruction":
-                decision_type = "remove_instruction_text"
-            elif policy == "fill":
-                decision_type = "create_fillable_slot"
-            elif policy == "generated":
-                decision_type = "create_generated_field_placeholder"
-            elif policy in {"fixed", "manual_only"} and (
-                source_ref is None
-                and _should_synthesize_visible_text(element)
-            ):
-                decision_type = "insert_fixed_text"
-                source_ref = unit_anchor_ref
-            elif policy == "manual_only":
-                decision_type = "create_manual_placeholder"
-            else:
-                continue
-            decisions.append(
-                {
-                    "decision_id": f"{unit_id}.{element_id}.{decision_type}",
-                    "decision_type": decision_type,
-                    "unit_id": unit_id,
-                    "element_id": element_id,
-                    "element_name": element.get("name"),
-                    "content": element.get("content") or element.get("name") or "",
-                    "source_ref": source_ref,
-                    "reason": _decision_reason(decision_type),
-                }
-            )
+        else:
+            for element in unit.get("elements", []):
+                policy = element.get("policy")
+                element_id = element.get("element_id")
+                source_ref = _first_source_ref(element)
+                if policy == "remove_instruction":
+                    decision_type = "remove_instruction_text"
+                elif policy == "fill":
+                    decision_type = "create_fillable_slot"
+                elif policy == "generated":
+                    decision_type = "create_generated_field_placeholder"
+                elif policy in {"fixed", "manual_only"} and (
+                    source_ref is None
+                    and _should_synthesize_visible_text(element)
+                ):
+                    decision_type = "insert_fixed_text"
+                    source_ref = unit_anchor_ref
+                elif policy == "manual_only":
+                    decision_type = "create_manual_placeholder"
+                else:
+                    continue
+                decisions.append(
+                    {
+                        "decision_id": f"{unit_id}.{element_id}.{decision_type}",
+                        "decision_type": decision_type,
+                        "unit_id": unit_id,
+                        "element_id": element_id,
+                        "element_name": element.get("name"),
+                        "content": element.get("content") or element.get("name") or "",
+                        "source_ref": source_ref,
+                        "reason": _decision_reason(decision_type),
+                    }
+                )
         units.append(
             {
                 "unit_id": unit_id,
                 "unit_name": unit.get("name"),
                 "source_policy": unit.get("policy"),
-                "generation_policy": "unit_actions",
+                "generation_mode": generation_mode,
+                "generation_policy": "whole_unit_copy"
+                if generation_mode == "whole_unit_copy"
+                else "unit_actions",
+                "copy_source_ref": unit_anchor_ref,
                 "decisions": decisions,
                 "unresolved_questions": [],
             }
@@ -448,6 +568,14 @@ def build_template_unit_decisions(template_artifact: dict[str, Any]) -> dict[str
         "input_hashes": {"template_artifact": sha256_json(template_artifact)},
         "units": units,
     }
+
+
+def _unit_generation_mode(unit: dict[str, Any]) -> str:
+    if _unit_is_copy_only_by_default(str(unit.get("unit_id") or "")) and _first_source_ref(
+        unit
+    ):
+        return "whole_unit_copy"
+    return "copy_then_patch"
 
 
 def build_template_generation_plan(
@@ -667,9 +795,14 @@ def execute_template_generation_plan(
     source_template_docx: Path,
     generated_template_docx: Path,
     plan: dict[str, Any],
+    *,
+    copy_source_snapshot_docx: Path | None = None,
 ) -> dict[str, Any]:
     generated_template_docx.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source_template_docx, generated_template_docx)
+    if copy_source_snapshot_docx is not None:
+        copy_source_snapshot_docx.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(generated_template_docx, copy_source_snapshot_docx)
     doc = Document(generated_template_docx)
     paragraph_map = {
         index: paragraph for index, paragraph in enumerate(doc.paragraphs, start=1)
@@ -757,7 +890,7 @@ def execute_template_generation_plan(
                 review.append(_needs_review(action, "source node not found"))
                 continue
             executed.append(_executed(action, output_ref=output_ref))
-        elif action_type == "protect_block":
+        elif action_type == "preserve_whole_unit_copy":
             executed.append(_executed(action, output_ref=action.get("source_ref")))
         elif action_type == "ensure_body_slot":
             marker = BODY_SLOT_MARKER
@@ -828,8 +961,10 @@ def build_template_generation_manifest(
     plan: dict[str, Any],
     generated_template_docx: Path,
     execution: dict[str, Any],
+    debug_snapshot_dir: Path | None = None,
+    copy_source_snapshot_docx: Path | None = None,
 ) -> dict[str, Any]:
-    return {
+    manifest = {
         "artifact_type": "template_generation_manifest",
         "artifact_version": "1.0",
         "producer": {"name": "docfit-template-generate", "version": "0.2.0"},
@@ -855,6 +990,15 @@ def build_template_generation_manifest(
         "actions_executed": execution.get("actions_executed", []),
         "actions_requiring_review": execution.get("actions_requiring_review", []),
     }
+    if debug_snapshot_dir is not None:
+        manifest["debug_snapshot"] = {
+            "dir": str(debug_snapshot_dir),
+            "copy_source_docx": str(copy_source_snapshot_docx)
+            if copy_source_snapshot_docx is not None
+            else None,
+            "naming": "files are ordered by flow step prefix plus artifact name",
+        }
+    return manifest
 
 
 def write_template_generation_outputs(out_dir: Path, result: StageResult) -> None:
@@ -949,19 +1093,55 @@ def _infer_units(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
             else len(entries)
         )
         region_entries = entries[anchor["entry_index"] : next_start]
+        unit_id = anchor["unit_id"]
+        region_source_refs = [
+            str(entry.get("source_ref"))
+            for entry in region_entries
+            if entry.get("source_ref")
+        ]
         units.append(
             {
-                "unit_id": anchor["unit_id"],
+                "unit_id": unit_id,
                 "name": anchor["name"],
                 "order": (anchor_index + 1) * 10,
                 "status": "required",
-                "policy": _unit_policy(anchor["unit_id"]),
-                "source_refs": [anchor["source_ref"]],
+                "policy": _unit_policy(unit_id),
+                "source_refs": region_source_refs or [anchor["source_ref"]],
                 "page": {},
-                "elements": _infer_elements(anchor, region_entries),
+                "elements": _copy_only_unit_elements(anchor, region_entries)
+                if _unit_is_copy_only_by_default(unit_id)
+                else _infer_elements(anchor, region_entries),
             }
         )
     return units
+
+
+def _unit_is_copy_only_by_default(unit_id: str) -> bool:
+    return bool(unit_id) and unit_id not in COPY_ONLY_DEFAULT_EXCLUDED_UNIT_IDS
+
+
+def _copy_only_unit_elements(
+    anchor: dict[str, Any],
+    entries: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    source_refs = [
+        str(entry.get("source_ref")) for entry in entries if entry.get("source_ref")
+    ]
+    return [
+        {
+            "element_id": "e_001",
+            "name": f"{anchor['name']}整体复制区域",
+            "order": 1,
+            "policy": "fixed",
+            "type": "fixed_text",
+            "fill": "no",
+            "content": anchor.get("text", ""),
+            "style": "",
+            "position": anchor.get("source_ref", ""),
+            "relationship": "whole_unit_copy",
+            "source_refs": source_refs or [anchor.get("source_ref", "")],
+        }
+    ]
 
 
 def _unit_anchors(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1046,214 +1226,6 @@ def _infer_elements(anchor: dict[str, Any], entries: list[dict[str, Any]]) -> li
     return elements
 
 
-def _aligned_target_unit(
-    target_unit: dict[str, Any],
-    entries: list[dict[str, Any]],
-    *,
-    fallback_order: int,
-) -> dict[str, Any]:
-    aligned_elements: list[dict[str, Any]] = []
-    source_refs: list[str] = []
-    unit_anchor = _find_source_entry_for_target_unit(entries, target_unit)
-    if unit_anchor and unit_anchor.get("source_ref"):
-        source_refs.append(str(unit_anchor["source_ref"]))
-    for fallback_element_order, element in enumerate(
-        target_unit.get("elements", []),
-        start=1,
-    ):
-        match = _find_source_entry_for_target_element(entries, element)
-        policy = _normalize_target_policy(str(element.get("policy") or ""))
-        refs = [match["source_ref"]] if match and match.get("source_ref") else []
-        source_refs.extend(refs)
-        aligned = {
-            **element,
-            "element_id": str(
-                element.get("element_id") or f"e_{fallback_element_order:03d}"
-            ),
-            "order": element.get("order")
-            or element.get("element_order")
-            or fallback_element_order,
-            "policy": policy,
-            "source_refs": refs,
-        }
-        if match is not None:
-            aligned["source_text"] = match.get("text", "")
-            aligned["position"] = match.get("source_ref", "")
-        aligned_elements.append(aligned)
-    unit_source_refs = _dedupe(source_refs) or list(target_unit.get("source_refs", []))
-    return {
-        **target_unit,
-        "unit_id": str(target_unit.get("unit_id") or "unknown_unit"),
-        "name": target_unit.get("name") or target_unit.get("unit_id") or "未知单元",
-        "order": target_unit.get("order") or fallback_order,
-        "status": target_unit.get("status") or "required",
-        "policy": target_unit.get("policy")
-        or _unit_policy(str(target_unit.get("unit_id") or "")),
-        "source_refs": unit_source_refs,
-        "elements": aligned_elements,
-    }
-
-
-def _find_source_entry_for_target_unit(
-    entries: list[dict[str, Any]],
-    target_unit: dict[str, Any],
-) -> dict[str, Any] | None:
-    if str(target_unit.get("unit_id") or "") == "body_main":
-        body_anchor = _find_body_main_source_entry(entries)
-        if body_anchor is not None:
-            return body_anchor
-    query = _target_unit_query(target_unit)
-    if not _query_has_needles(query):
-        return None
-    return _find_entry_by_query(entries, query)
-
-
-def _target_unit_query(target_unit: dict[str, Any]) -> dict[str, Any]:
-    text = _normalize_text(str(target_unit.get("name") or target_unit.get("unit_id") or ""))
-    if not text or _looks_like_descriptor(text):
-        return {"full": [], "tokens": [], "min_tokens": 0}
-    normalized = _normalize_for_match(text)
-    tokens = _dedupe(
-        [
-            _normalize_for_match(token)
-            for token in _split_match_tokens(text)
-            if _normalize_for_match(token)
-        ]
-    )
-    return {
-        "full": [normalized] if normalized else [],
-        "tokens": tokens,
-        "min_tokens": 1 if tokens else 0,
-    }
-
-
-def _find_source_entry_for_target_element(
-    entries: list[dict[str, Any]],
-    element: dict[str, Any],
-) -> dict[str, Any] | None:
-    query = _target_element_query(element)
-    if not _query_has_needles(query):
-        return None
-    return _find_first_entry_by_query(entries, query)
-
-
-def _target_element_query(element: dict[str, Any]) -> dict[str, Any]:
-    full: list[str] = []
-    tokens: list[str] = []
-    for value in (
-        element.get("content"),
-        element.get("name"),
-        element.get("raw"),
-    ):
-        text = _normalize_text(str(value or ""))
-        if not text or _looks_like_descriptor(text):
-            continue
-        full.append(text)
-        tokens.extend(_split_match_tokens(text))
-    normalized_tokens = _dedupe(
-        [_normalize_for_match(token) for token in tokens if _normalize_for_match(token)]
-    )
-    return {
-        "full": _dedupe(
-            [
-                _normalize_for_match(candidate)
-                for candidate in full
-                if _normalize_for_match(candidate)
-            ]
-        ),
-        "tokens": normalized_tokens,
-        "min_tokens": min(2, len(normalized_tokens)) if normalized_tokens else 0,
-    }
-
-
-def _find_entry_by_query(
-    entries: list[dict[str, Any]],
-    query: dict[str, Any],
-) -> dict[str, Any] | None:
-    candidates: list[tuple[int, int, dict[str, Any]]] = []
-    for entry in entries:
-        text = _normalize_for_match(entry.get("text", ""))
-        if not text:
-            continue
-        score = _query_entry_score(entry, query, text)
-        if score <= 0:
-            continue
-        candidates.append((score, -int(entry.get("order") or 0), entry))
-    if not candidates:
-        return None
-    return max(candidates, key=lambda item: (item[0], item[1]))[2]
-
-
-def _find_first_entry_by_query(
-    entries: list[dict[str, Any]],
-    query: dict[str, Any],
-) -> dict[str, Any] | None:
-    for entry in entries:
-        text = _normalize_for_match(entry.get("text", ""))
-        if not text:
-            continue
-        if any(needle and needle in text for needle in query.get("full", [])):
-            return entry
-        tokens = [token for token in query.get("tokens", []) if token and token in text]
-        if tokens and len(tokens) >= int(query.get("min_tokens") or 1):
-            return entry
-    return None
-
-
-def _query_entry_score(
-    entry: dict[str, Any],
-    query: dict[str, Any],
-    normalized_text: str,
-) -> int:
-    score = 0
-    for needle in query.get("full", []):
-        if not needle:
-            continue
-        if normalized_text == needle:
-            score = max(score, 120)
-        elif _allow_partial_query_match(needle, normalized_text):
-            score = max(score, 70)
-    tokens = [
-        token
-        for token in query.get("tokens", [])
-        if token and _allow_partial_query_match(token, normalized_text)
-    ]
-    if tokens and len(tokens) >= int(query.get("min_tokens") or 1):
-        score = max(score, 35 + 8 * len(tokens))
-    if score <= 0:
-        return 0
-    text = str(entry.get("text") or "").strip()
-    style = str(entry.get("style") or "").lower()
-    signals = entry.get("structural_signals") or {}
-    if signals.get("short_text"):
-        score += 30
-    if signals.get("centered"):
-        score += 20
-    if signals.get("large_font"):
-        score += 15
-    if "heading" in style or "标题" in style:
-        score += 20
-    if "正文前标题" in style or "正文尾标题" in style:
-        score += 25
-    if signals.get("looks_like_instruction_text"):
-        score -= 90
-    if len(text) > 80:
-        score -= 35
-    if len(text) > 140:
-        score -= 45
-    if "\t" in text:
-        score -= 20
-    return score
-
-
-def _allow_partial_query_match(needle: str, normalized_text: str) -> bool:
-    if needle == normalized_text:
-        return True
-    if len(needle) <= 2 and len(normalized_text) <= 6:
-        return False
-    return needle in normalized_text
-
-
 def _find_body_main_source_entry(
     entries: list[dict[str, Any]],
 ) -> dict[str, Any] | None:
@@ -1325,21 +1297,6 @@ def _body_main_anchor_excluded(text: str) -> bool:
     return any(marker in normalized for marker in excluded)
 
 
-def _query_has_needles(query: dict[str, Any]) -> bool:
-    return bool(query.get("full") or query.get("tokens"))
-
-
-def _normalize_target_policy(policy: str) -> str:
-    return {
-        "fillable": "fill",
-        "fill": "fill",
-        "fixed": "fixed",
-        "manual_only": "manual_only",
-        "generated": "generated",
-        "template_default_optional": "template_default_optional",
-    }.get(policy, policy or "fixed")
-
-
 def _rule_unknowns(source_tree: dict[str, Any], units: list[dict[str, Any]]) -> list[dict[str, Any]]:
     unknowns = [
         {
@@ -1383,7 +1340,21 @@ def _instruction_paragraphs_from_units(units: list[dict[str, Any]]) -> list[dict
     return paragraphs
 
 
-def _instruction_paragraphs_from_source_tree(source_tree: dict[str, Any]) -> list[dict[str, Any]]:
+def _copy_only_unit_source_refs(units: list[dict[str, Any]]) -> set[str]:
+    refs: set[str] = set()
+    for unit in units:
+        if not _unit_is_copy_only_by_default(str(unit.get("unit_id") or "")):
+            continue
+        refs.update(str(ref) for ref in unit.get("source_refs", []) if ref)
+    return refs
+
+
+def _instruction_paragraphs_from_source_tree(
+    source_tree: dict[str, Any],
+    *,
+    excluded_source_refs: set[str] | None = None,
+) -> list[dict[str, Any]]:
+    excluded_source_refs = excluded_source_refs or set()
     paragraphs: list[dict[str, Any]] = []
     for entry in _body_entries(source_tree):
         text = str(entry.get("text", ""))
@@ -1391,6 +1362,8 @@ def _instruction_paragraphs_from_source_tree(source_tree: dict[str, Any]) -> lis
             continue
         source_ref = entry.get("source_ref")
         if not source_ref:
+            continue
+        if str(source_ref) in excluded_source_refs:
             continue
         paragraphs.append(
             {
@@ -1418,6 +1391,7 @@ def _style_inventory(source_tree: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _decision_reason(decision_type: str) -> str:
     return {
+        "keep_whole_unit_copy": "unit is preserved by the initial source DOCX copy",
         "remove_instruction_text": "instruction/example text should not enter the fillable template",
         "create_fillable_slot": "fillable source element needs a stable marker for later placement",
         "create_generated_field_placeholder": "generated element needs a marker for later field generation",
@@ -1428,7 +1402,7 @@ def _decision_reason(decision_type: str) -> str:
 
 def _action_type_for_decision(decision_type: str) -> str:
     return {
-        "copy_fixed_block": "protect_block",
+        "keep_whole_unit_copy": "preserve_whole_unit_copy",
         "remove_instruction_text": "remove_instruction_text",
         "create_fillable_slot": "create_fillable_slot",
         "create_generated_field_placeholder": "create_generated_field_placeholder",
@@ -1479,7 +1453,7 @@ def _element_policy(unit_id: str, text: str, entry: dict[str, Any]) -> str:
         label in text for label in FILLABLE_LABELS
     ):
         return "fill"
-    if unit_id in {"abstract_cn", "abstract_en", "body_main"} and not _looks_like_heading(entry):
+    if unit_id in FILLABLE_CONTENT_UNIT_IDS and not _looks_like_heading(entry):
         return "fill"
     return "fixed"
 
@@ -1926,33 +1900,6 @@ def _strip_format_annotations(text: str) -> str:
     text = re.sub(r"（([^（）]*)）", replace_annotation, text)
     text = re.sub(r"\(([^()]*)\)", replace_annotation, text)
     return text
-
-
-def _split_match_tokens(text: str) -> list[str]:
-    stripped = _strip_format_annotations(str(text or ""))
-    raw_tokens = re.split(r"[:：;；,，.。、\s/]+", stripped)
-    tokens: list[str] = []
-    for token in raw_tokens:
-        normalized = _normalize_for_match(token)
-        if len(normalized) >= 2 and not _looks_like_descriptor(normalized):
-            tokens.append(normalized)
-    return _dedupe(tokens)
-
-
-def _looks_like_descriptor(value: str) -> bool:
-    descriptor_markers = (
-        "当前阶段",
-        "目标输出",
-        "系统生成",
-        "××",
-        "模板",
-        "正文",
-        "标题",
-        "内容流",
-    )
-    if value in {"固定", "填充", "生成", "手工", "学生"}:
-        return True
-    return any(marker in value for marker in descriptor_markers) and "：" not in value
 
 
 def _dedupe(items: list[str]) -> list[str]:

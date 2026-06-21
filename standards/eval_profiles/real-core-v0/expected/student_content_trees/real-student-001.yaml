@@ -12,9 +12,9 @@ accepted_source_facts:
   review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
   source_section_id: real-student-001
   source_section_sha256: sha256:55b5637bb7615648d0bb611ffe29a3e92fdc13fe4b639de9c13fc6955df953f0
-  student_docx: inputs/real-student-001-source.docx
+  student_docx: test_inputs/content_extraction/real-student-001-source.docx
   student_docx_sha256: sha256:2e3d6310611cbe2fafddbda18e7b83387b5f3ea3d1f0f3163154d6ec129a6f60
-  original_review_source: inputs/real-student-001-content-review.md
+  original_review_source: test_inputs/content_extraction/real-student-001-content-review.md
   original_review_source_sha256: sha256:fae06e0474920b7258ce7d5e7358ff665d599d09880e8b6761bbfd75248c7078
   full_review_text: "# 关②人工内容识别标准说明：001.docx\n\n## 标题\n\n- 中文标题：植物促生菌PGP6生长素合成基因的鉴定与功能验证\n\
     - 英文标题：Identification and Functional Characterization of Indole-3-Acetic Acid\

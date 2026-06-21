@@ -12,9 +12,9 @@ accepted_source_facts:
   review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
   source_section_id: nannong-undergraduate
   source_section_sha256: sha256:a4bdd5a4cb6cfcf9ad6396586c9330381681d50e998675ab5a8078fdbd83025f
-  template_docx: inputs/school-nannong-undergraduate-template.docx
+  template_docx: test_inputs/template_generation/school-nannong-undergraduate-template.docx
   template_docx_sha256: sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536
-  original_review_source: inputs/school-nannong-undergraduate-template-review.txt
+  original_review_source: test_inputs/template_generation/school-nannong-undergraduate-template-review.txt
   original_review_source_sha256: sha256:d6dc0d49dac3e2b83fa63ee92e76965c1cec995d56eb3e27b3ea4d5f45acdb87
   full_review_text: "南京农业大学本科生毕业论文（设计）模板审查包 V2\n日期：2026-06-09\n\n依据：优先使用学校官方 Word\
     \ 模板\n/Users/fl/ws/gogo/docfit/schools/nannong-undergraduate/sources/nannong_template.docx\n\

@@ -81,7 +81,7 @@ def test_fail_when_template_slot_missing(tmp_path) -> None:
 
 def test_fail_when_visible_content_missing_from_ledger() -> None:
     result = extract_student_content(
-        ROOT / "inputs/bootstrap-demo-student-pass.docx",
+        ROOT / "test_inputs/content_extraction/bootstrap-demo-student-pass.docx",
         omit_content_id_for_test="c_002",
     )
 
@@ -91,7 +91,7 @@ def test_fail_when_visible_content_missing_from_ledger() -> None:
 
 def test_unknown_when_unsupported_visible_object() -> None:
     result = extract_student_content(
-        ROOT / "inputs/bootstrap-demo-student-unsupported-textbox.docx"
+        ROOT / "test_inputs/content_extraction/bootstrap-demo-student-unsupported-textbox.docx"
     )
 
     assert result.status == Status.UNKNOWN
@@ -133,8 +133,8 @@ def test_numbered_body_headings_get_semantic_candidates(tmp_path) -> None:
 
 
 def test_bootstrap_coverage_checks_fixture_content_not_just_paths(tmp_path) -> None:
-    template = tmp_path / "inputs/bootstrap-demo-school-template.docx"
-    student = tmp_path / "inputs/bootstrap-demo-student-pass.docx"
+    template = tmp_path / "test_inputs/template_generation/bootstrap-demo-school-template.docx"
+    student = tmp_path / "test_inputs/content_extraction/bootstrap-demo-student-pass.docx"
     expected_paths = BOOTSTRAP_PROFILE.expected_paths(tmp_path)
     expected_snapshot = expected_paths["feature_snapshot"]
     expected_placement = expected_paths["placement_plan"]
@@ -165,7 +165,7 @@ def test_bootstrap_coverage_checks_fixture_content_not_just_paths(tmp_path) -> N
 def test_fail_when_content_unplaced() -> None:
     bundle = _bundle()
     template = parse_template(bundle.template_docx, bundle)
-    content = extract_student_content(ROOT / "inputs/bootstrap-demo-student-pass.docx")
+    content = extract_student_content(ROOT / "test_inputs/content_extraction/bootstrap-demo-student-pass.docx")
 
     result = build_placement_plan(
         template.artifacts["template_artifact"],
@@ -255,6 +255,51 @@ def test_render_removes_all_internal_docfit_markers(tmp_path) -> None:
     assert "[[DOCFIT_" not in visible_text
     assert "prefix" in visible_text
     assert "suffix" in visible_text
+
+
+def test_render_writes_text_to_target_slot_marker(tmp_path) -> None:
+    template = tmp_path / "template-with-target-slot.docx"
+    doc = Document()
+    doc.add_paragraph("before")
+    doc.add_paragraph("[[DOCFIT_SLOT:abstract_cn.e_002]]")
+    doc.add_paragraph("after")
+    doc.save(template)
+
+    template_artifact = {"provenance": {"template_docx": str(template)}, "data": {}}
+    placement_plan = {
+        "data": {
+            "actions": [
+                {
+                    "action_id": "a_001",
+                    "content_ids": ["c_001"],
+                    "disposition": "place",
+                    "target_slot_id": "abstract_cn.e_002",
+                    "payload": {"type": "text", "text": "student abstract"},
+                    "content_hashes": [],
+                }
+            ]
+        },
+        "input_hashes": {"template_artifact": sha256_json(template_artifact)},
+    }
+
+    render = render_docx(
+        template_artifact,
+        placement_plan,
+        _bundle(),
+        tmp_path / "rendered_target_slot",
+    )
+    rendered_doc = Document(render.artifact_paths["final_docx"])
+    visible_text = [
+        paragraph.text
+        for paragraph in rendered_doc.paragraphs
+        if paragraph.text.strip()
+    ]
+
+    assert visible_text == ["before", "student abstract", "after"]
+    assert "[[DOCFIT_" not in "\n".join(visible_text)
+    assert render.artifacts["render_manifest"]["actions_executed"][0][
+        "actual_ooxml_ref"
+    ] == "word/document.xml:p[2]"
 
 
 def test_unknown_when_golden_missing(tmp_path) -> None:

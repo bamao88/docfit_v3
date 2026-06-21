@@ -37,7 +37,11 @@ def main(argv: list[str] | None = None) -> int:
         description="Export real-core-v0 rendered DOCX files to Word image evidence."
     )
     parser.add_argument("--root", type=Path, default=Path.cwd())
-    parser.add_argument("--reports-root", type=Path, default=Path("reports/real-core-v0"))
+    parser.add_argument(
+        "--reports-root",
+        type=Path,
+        default=Path("test_outputs/debug/template_eval_runs/real-core-v0"),
+    )
     parser.add_argument("--case", action="append", dest="case_ids", default=[])
     parser.add_argument("--dpi", type=int, default=150)
     parser.add_argument("--word-timeout", type=int, default=600)

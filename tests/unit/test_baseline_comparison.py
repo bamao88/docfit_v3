@@ -9,7 +9,7 @@ def _baseline() -> dict:
         "baseline_type": "template_unit_contract",
         "review_metadata": {
             "reviewed_by": "product-owner",
-            "review_source": "inputs/review.txt",
+            "review_source": "test_inputs/template_generation/review.txt",
             "source_docx_sha256": "sha256:abc",
             "change_reason": "test baseline",
             "auto_update_allowed": False,

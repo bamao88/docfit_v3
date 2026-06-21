@@ -143,7 +143,7 @@ def _has_required_content_hashes(path: Path) -> bool:
 
 def evaluate_bootstrap_coverage(root: Path) -> tuple[dict[str, Any], list[Finding]]:
     template_docx = root / BOOTSTRAP_TEMPLATE_DOCX
-    student_docx = root / "inputs/bootstrap-demo-student-pass.docx"
+    student_docx = root / "test_inputs/content_extraction/bootstrap-demo-student-pass.docx"
     expected_paths = BOOTSTRAP_PROFILE.expected_paths(root)
     expected_placement = expected_paths["placement_plan"]
     expected_snapshot = expected_paths["feature_snapshot"]
@@ -367,13 +367,8 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
         findings.extend(snapshot_findings)
         next_index += len(snapshot_findings)
 
-        evidence_path = (
-            root
-            / "reports/real-core-v0"
-            / case.case_id
-            / "evidence/word_image_evidence.json"
-        )
-        case_dir = root / "reports/real-core-v0" / case.case_id
+        case_dir = _real_core_eval_runs_root(root) / case.case_id
+        evidence_path = case_dir / "evidence/word_image_evidence.json"
         if not evidence_path.exists():
             findings.append(
                 make_finding(
@@ -410,12 +405,7 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
             else:
                 evidence_findings = verify_word_image_evidence(
                     evidence_manifest,
-                    expected_final_docx=(
-                        root
-                        / "reports/real-core-v0"
-                        / case.case_id
-                        / "final.docx"
-                    ),
+                    expected_final_docx=case_dir / "final.docx",
                     stage="coverage",
                     start_index=next_index,
                 )
@@ -505,7 +495,7 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
 
 
 def _real_core_source_files() -> list[Path]:
-    paths = [Path("inputs/shared-template-recognition-alignment-review.txt")]
+    paths = [Path("test_inputs/template_generation/shared-template-recognition-alignment-review.txt")]
     for school in REAL_CORE_SCHOOLS:
         paths.append(school["template_docx"])
         generated_template_docx = school.get("generated_template_docx")
@@ -518,6 +508,10 @@ def _real_core_source_files() -> list[Path]:
     return paths
 
 
+def _real_core_eval_runs_root(root: Path) -> Path:
+    return root / "test_outputs/debug/template_eval_runs/real-core-v0"
+
+
 def _real_core_template_gap_findings(
     root: Path,
     school_id: str,
@@ -525,7 +519,7 @@ def _real_core_template_gap_findings(
     start_index: int,
 ) -> list[Finding]:
     case_id = f"real_core_v0_template_{school_id}"
-    artifacts = root / "reports/real-core-v0" / case_id / "artifacts"
+    artifacts = _real_core_eval_runs_root(root) / case_id / "artifacts"
     required = [
         artifacts / "generated_template.docx",
         artifacts / "generated_template_tree.json",

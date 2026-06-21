@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -30,11 +31,13 @@ def build_placement_plan(
     default_slot = "slot_body_start"
     actions: list[dict[str, Any]] = []
     unresolved: list[dict[str, Any]] = []
+    routing_state = _PlacementRoutingState()
     for item in content_artifact.get("data", {}).get("visible_content_ledger", []):
         content_id = item["content_id"]
         if drop_content_id_for_test == content_id:
             continue
-        if _is_source_format_item(item):
+        route = _route_item_to_slot(item, slot_by_id, default_slot, routing_state)
+        if route["disposition"] == "discard_as_source_format":
             actions.append(
                 {
                     "action_id": f"a_{len(actions) + 1:03d}",
@@ -44,19 +47,20 @@ def build_placement_plan(
                     "target_region_id": None,
                     "render_kind": item.get("kind", "source_format"),
                     "style_ref": None,
-                    "evidence": _evidence_for_item(item),
-                    "confidence": 0.95,
+                    "evidence": _evidence_for_item(item) + route["evidence"],
+                    "confidence": route["confidence"],
                     "payload": item.get("payload", {"type": "text", "text": item.get("text", "")}),
                     "content_hashes": [item.get("text_hash")],
                 }
             )
             continue
-        if default_slot not in slot_by_id:
+        target_slot_id = route["target_slot_id"]
+        if target_slot_id not in slot_by_id:
             unresolved.append(
                 {
                     "content_id": content_id,
                     "disposition": "unsupported",
-                    "reason": "target slot slot_body_start does not exist",
+                    "reason": f"target slot {target_slot_id} does not exist",
                     "blocking": True,
                 }
             )
@@ -67,12 +71,12 @@ def build_placement_plan(
                 "action_id": f"a_{len(actions) + 1:03d}",
                 "content_ids": [content_id],
                 "disposition": "place",
-                "target_slot_id": default_slot,
-                "target_region_id": "body",
+                "target_slot_id": target_slot_id,
+                "target_region_id": route["target_region_id"],
                 "render_kind": render_kind,
                 "style_ref": _style_for_item(item),
-                "evidence": _evidence_for_item(item),
-                "confidence": 0.9,
+                "evidence": _evidence_for_item(item) + route["evidence"],
+                "confidence": route["confidence"],
                 "payload": item.get("payload", {"type": "text", "text": item.get("text", "")}),
                 "content_hashes": [item.get("text_hash")],
             }
@@ -164,14 +168,243 @@ def build_placement_plan(
 
 
 def _style_for_item(item: dict[str, Any]) -> str:
+    for candidate in item.get("semantic_candidates", []):
+        if candidate.get("kind") == "heading":
+            return f"Heading {candidate.get('level_candidate', 1)}"
     if item.get("kind") == "heading":
-        for candidate in item.get("semantic_candidates", []):
-            if candidate.get("kind") == "heading":
-                return f"Heading {candidate.get('level_candidate', 1)}"
         return "Heading 1"
     if item.get("kind") == "table":
         return "Table Grid"
     return "Normal"
+
+
+class _PlacementRoutingState:
+    def __init__(self) -> None:
+        self.chinese_title_count = 0
+        self.english_title_count = 0
+        self.section = "front"
+
+
+def _route_item_to_slot(
+    item: dict[str, Any],
+    slot_by_id: dict[str, dict[str, Any]],
+    default_slot: str,
+    state: _PlacementRoutingState,
+) -> dict[str, Any]:
+    if _is_source_format_item(item):
+        return _discard_route("source format content")
+    text = _normalize_text(item.get("text", ""))
+    if _is_source_front_matter_scaffold(item, text):
+        return _discard_route("source front matter scaffold")
+    if _is_target_fixed_front_matter(text):
+        return _discard_route("target fixed front matter already provided by template")
+    if _is_cover_manual_field(text):
+        return _discard_route("source cover manual field is not a body paragraph")
+
+    if state.section == "front":
+        slot_id = _front_matter_slot(text, state)
+        if slot_id:
+            return _place_route(slot_id, "front_matter")
+
+    section_marker = _section_marker(text)
+    if section_marker is not None:
+        state.section = section_marker
+        if section_marker in {"references", "appendix"}:
+            return _discard_route("target template owns this section heading")
+        if section_marker == "acknowledgement" and "acknowledgement.e_001" in slot_by_id:
+            return _place_route("acknowledgement.e_001", "acknowledgement")
+        return _place_route(_body_slot_for_item(item), "body")
+
+    if state.section == "references":
+        return _place_route("references.e_002", "references")
+    if state.section == "acknowledgement":
+        return _place_route("acknowledgement.e_002", "acknowledgement")
+    if state.section == "appendix":
+        return _place_route("appendix.e_002", "appendix")
+    if state.section == "body":
+        return _place_route(_body_slot_for_item(item), "body")
+
+    return _place_route(default_slot, "body")
+
+
+def _front_matter_slot(text: str, state: _PlacementRoutingState) -> str | None:
+    compact = _normalize_for_route(text)
+    if _is_likely_chinese_title(text):
+        state.chinese_title_count += 1
+        return "cover.e_003" if state.chinese_title_count == 1 else "body_title_block.e_001"
+    if _is_likely_english_title(text):
+        state.english_title_count += 1
+        return "cover.e_004" if state.english_title_count == 1 else "abstract_en.e_001"
+    if compact.startswith("学生"):
+        return "body_title_block.e_002"
+    if compact.startswith("指导老师"):
+        return "body_title_block.e_003"
+    if text.startswith("(湖南农业大学") or text.startswith("（湖南农业大学"):
+        return "body_title_block.e_004"
+    if text.startswith("摘 要") or text.startswith("摘要"):
+        return "abstract_cn.e_002"
+    if text.startswith("关键词"):
+        return "abstract_cn.e_004"
+    if text.lower().startswith("student:"):
+        return "abstract_en.e_002"
+    if text.lower().startswith("tutor:"):
+        return "abstract_en.e_003"
+    if text.startswith("(College") or text.startswith("（College"):
+        return "abstract_en.e_004"
+    if text.lower().startswith("abstract:"):
+        return "abstract_en.e_006"
+    if text.lower().startswith("key words") or text.lower().startswith("keywords"):
+        return "abstract_en.e_008"
+    return None
+
+
+def _section_marker(text: str) -> str | None:
+    normalized = _normalize_for_route(text)
+    if normalized in {"参考文献", "references"}:
+        return "references"
+    if normalized in {"致谢", "致謝"}:
+        return "acknowledgement"
+    if normalized.startswith("附录") or normalized.startswith("appendix"):
+        return "appendix"
+    if _looks_like_body_start(text):
+        return "body"
+    return None
+
+
+def _body_slot_for_item(item: dict[str, Any]) -> str:
+    level = _heading_level(item)
+    if level == 2:
+        return "body_main.e_004"
+    if level == 3:
+        return "body_main.e_005"
+    if level is not None and level >= 4:
+        return "body_main.e_006"
+    return "body_main.e_011"
+
+
+def _heading_level(item: dict[str, Any]) -> int | None:
+    if item.get("kind") == "heading":
+        return 1
+    for candidate in item.get("semantic_candidates", []):
+        if candidate.get("kind") == "heading":
+            try:
+                return int(candidate.get("level_candidate", 1))
+            except (TypeError, ValueError):
+                return 1
+    return None
+
+
+def _is_target_fixed_front_matter(text: str) -> bool:
+    normalized = _normalize_for_route(text)
+    return normalized in {
+        "湖南农业大学",
+        "湖南农业大学全日制普通本科生毕业论文",
+        "全日制普通本科生毕业论文",
+        "全日制普通本科生毕业论文设计",
+        "诚信声明",
+        "毕业论文设计作者签名",
+        "年月日",
+        "titleofgraduationpaper",
+    } or text.startswith("本人郑重声明")
+
+
+def _is_source_front_matter_scaffold(item: dict[str, Any], text: str) -> bool:
+    compact = _normalize_for_route(text)
+    if item.get("payload", {}).get("type") == "table":
+        has_cover_label = any(
+            label in compact
+            for label in (
+                "题目",
+                "姓名",
+                "学号",
+                "专业",
+                "指导教师",
+                "学院",
+            )
+        )
+        return "毕业论文" in compact and has_cover_label
+    return (
+        compact in {"目录", "目錄"}
+        or "原创性声明" in compact
+        or "原創性聲明" in compact
+        or "使用授权声明" in compact
+        or "使用授權聲明" in compact
+        or compact.startswith("本学位论文作者完全了解")
+        or compact.startswith("本學位論文作者完全了解")
+        or compact.startswith("论文作者签名")
+        or compact.startswith("論文作者簽名")
+        or "导师签名" in compact
+        or "導師簽名" in compact
+        or compact.startswith("日期年月日")
+    )
+
+
+def _is_cover_manual_field(text: str) -> bool:
+    compact = _normalize_for_route(text)
+    return (
+        compact.startswith("学生姓名")
+        or compact.startswith("学号")
+        or compact.startswith("年级专业及班级")
+        or compact.startswith("指导老师及职称")
+        or compact.startswith("学院")
+        or compact == "湖南长沙"
+        or compact.startswith("提交日期")
+    )
+
+
+def _is_likely_chinese_title(text: str) -> bool:
+    if not text or len(text) > 80:
+        return False
+    if any(marker in text for marker in ("摘 要", "关键词", "诚信声明", "参考文献")):
+        return False
+    return bool(re.search(r"[\u4e00-\u9fff]", text)) and "研究" in text
+
+
+def _is_likely_english_title(text: str) -> bool:
+    if not text or len(text) > 180:
+        return False
+    lower = text.lower()
+    if lower.startswith(("student:", "tutor:", "abstract:", "key words", "keywords")):
+        return False
+    if "title of graduation paper" in lower:
+        return False
+    return bool(re.search(r"[A-Za-z]", text)) and "effect" in lower
+
+
+def _looks_like_body_start(text: str) -> bool:
+    return bool(
+        re.match(r"^\s*1\s+[\u4e00-\u9fffA-Za-z]", text)
+        or re.match(r"^\s*一[、.．]\s*[\u4e00-\u9fffA-Za-z]", text)
+        or re.match(r"^\s*第[一二三四五六七八九十0-9]+[章节篇]\s*", text)
+    )
+
+
+def _place_route(slot_id: str, region_id: str) -> dict[str, Any]:
+    return {
+        "disposition": "place",
+        "target_slot_id": slot_id,
+        "target_region_id": region_id,
+        "confidence": 0.85,
+        "evidence": [f"routing:{region_id}->{slot_id}"],
+    }
+
+
+def _discard_route(reason: str) -> dict[str, Any]:
+    return {
+        "disposition": "discard_as_source_format",
+        "target_slot_id": None,
+        "target_region_id": None,
+        "confidence": 0.9,
+        "evidence": [f"routing:discard:{reason}"],
+    }
+
+
+def _normalize_text(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value or "")).strip()
+
+
+def _normalize_for_route(value: Any) -> str:
+    return re.sub(r"[\s:：;；,，.。!！?？、（）()《》<>“”\"'‘’\[\]【】·]", "", str(value or "")).lower()
 
 
 def _is_source_format_item(item: dict[str, Any]) -> bool:

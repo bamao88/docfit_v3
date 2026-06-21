@@ -26,15 +26,15 @@ AI may diagnose structured failures, but AI does not decide `PASS`, `FAIL`, or
 
 - `SPEC.md` is the canonical product spec for stage boundaries, gate states,
   reports, and AI RCA limits.
-- `inputs/README.md` is the current catalog of raw school templates, raw student
+- `test_test_inputs/README.md` is the current catalog of raw school templates, raw student
   documents, and human review evidence.
 - Runnable signed standards now exist for `demo-school/v1` and the three
   `real-core-v0` schools.
-- Real school source evidence under `inputs/**` has been normalized into signed
+- Real school source evidence under `test_test_inputs/**` has been normalized into signed
   source-fact baselines under `standards/schools/**` and
   `standards/eval_profiles/real-core-v0/expected/**`.
 - The shared alignment note
-  `inputs/shared-template-recognition-alignment-review.txt` already defines the
+  `test_test_inputs/template_generation/shared-template-recognition-alignment-review.txt` already defines the
   core domain model: `unit -> element -> sub-element`.
 
 ## Zoom-Out Map
@@ -59,12 +59,12 @@ Stage plane:
 
 Evidence and baseline plane:
 
-- `inputs/**`: raw DOCX/DOC files and human review evidence.
+- `test_test_inputs/**`: raw DOCX/DOC files and human review evidence.
 - `standards/schools/**`: runnable signed school standards only.
 - `standards/eval_profiles/**`: profile-level expected artifacts, fixed cases,
   and real evidence baselines.
-- `reports/**`: generated proof from eval runs.
-- `reports/real-core-v0/**`: local generated evidence for the nine real-core
+- `test_outputs/debug/template_eval_runs/**`: generated proof from eval runs.
+- `test_outputs/debug/template_eval_runs/real-core-v0/**`: local generated evidence for the nine real-core
   school/student combinations; ignored by git, but currently present on this
   machine.
 
@@ -112,7 +112,7 @@ Public contract / boundary:
 - `standards/schools/**` contains signed runnable school standards.
 - `standards/eval_profiles/real-core-v0/**` contains profile cases and expected
   artifacts for this fixed real evidence loop.
-- `inputs/**` remains source evidence, not executable standard.
+- `test_test_inputs/**` remains source evidence, not executable standard.
 - Reports may summarize human review, but reports are not allowed to mutate or
   redefine the baseline.
 
@@ -174,17 +174,17 @@ Rejected alternatives:
 
 | School id | Template input | Human review evidence |
 | --- | --- | --- |
-| `hunannongye` | `inputs/school-hunannongye-requirement.docx` | `inputs/school-hunannongye-template-review.txt` |
-| `nannong-undergraduate` | `inputs/school-nannong-undergraduate-template.docx` | `inputs/school-nannong-undergraduate-template-review.txt` |
-| `pku-graduate` | `inputs/school-pku-graduate-template.docx` | `inputs/school-pku-graduate-template-review.txt` |
+| `hunannongye` | `test_test_inputs/template_generation/school-hunannongye-requirement.docx` | `test_test_inputs/template_generation/school-hunannongye-template-review.txt` |
+| `nannong-undergraduate` | `test_test_inputs/template_generation/school-nannong-undergraduate-template.docx` | `test_test_inputs/template_generation/school-nannong-undergraduate-template-review.txt` |
+| `pku-graduate` | `test_test_inputs/template_generation/school-pku-graduate-template.docx` | `test_test_inputs/template_generation/school-pku-graduate-template-review.txt` |
 
 ### Student Documents
 
 | Student id | Source input | Human review evidence |
 | --- | --- | --- |
-| `real-student-001` | `inputs/real-student-001-source.docx` | `inputs/real-student-001-content-review.md` |
-| `real-student-002` | `inputs/real-student-002-source.docx` | `inputs/real-student-002-content-review.md` |
-| `real-student-003` | `inputs/real-student-003-source.docx` | `inputs/real-student-003-content-review.md` |
+| `real-student-001` | `test_test_inputs/content_extraction/real-student-001-source.docx` | `test_test_inputs/content_extraction/real-student-001-content-review.md` |
+| `real-student-002` | `test_test_inputs/content_extraction/real-student-002-source.docx` | `test_test_inputs/content_extraction/real-student-002-content-review.md` |
+| `real-student-003` | `test_test_inputs/content_extraction/real-student-003-source.docx` | `test_test_inputs/content_extraction/real-student-003-content-review.md` |
 
 ## Baseline Model
 
@@ -299,7 +299,7 @@ Required id families:
 | Template element id | `abstract_cn.keyword_label` | Template Unit Contract |
 | Student content id | `student001.body.flow.019.table` | Student Content Tree Golden |
 | Render plan action id | `case_pku_001.place.table_019` | Aligned Render Plan Golden |
-| Evidence ref | `inputs/real-student-001-content-review.md#table-1` | Baseline author |
+| Evidence ref | `test_test_inputs/content_extraction/real-student-001-content-review.md#table-1` | Baseline author |
 | Output feature ref | `word/document.xml:p[42]` | Feature snapshot extractor |
 
 Rules:
@@ -344,7 +344,7 @@ It does not answer:
 
 Allowed baseline-time evidence:
 
-- Source review files under `inputs/**`, such as school template reviews,
+- Source review files under `test_test_inputs/**`, such as school template reviews,
   student content reviews, and the shared alignment review.
 - Baseline review metadata that binds a machine-readable baseline to the raw
   input hash and the human review source.
@@ -968,7 +968,7 @@ uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_covera
 uv run docfit eval standards --school hunannongye --out /tmp/docfit_hunannongye_standards
 uv run docfit eval standards --school nannong-undergraduate --out /tmp/docfit_nannong_standards
 uv run docfit eval standards --school pku-graduate --out /tmp/docfit_pku_standards
-uv run docfit eval content --student inputs/real-student-001-source.docx --out /tmp/docfit_student_001
+uv run docfit eval content --student test_test_inputs/content_extraction/real-student-001-source.docx --out /tmp/docfit_student_001
 ```
 
 ## Risks And Stop Gates
@@ -992,8 +992,8 @@ Evidence used:
 
 - `SPEC.md` Stage 1 through Stage 4 contracts.
 - `SPEC.md` AI RCA rules.
-- `inputs/README.md` fixed real evidence catalog.
-- `inputs/shared-template-recognition-alignment-review.txt`.
+- `test_test_inputs/README.md` fixed real evidence catalog.
+- `test_test_inputs/template_generation/shared-template-recognition-alignment-review.txt`.
 - Existing bootstrap contracts under `standards/schools/demo-school/v1/`.
 - Existing bootstrap profile registry in `src/docfit/harness/profiles.py`.
 
@@ -1002,7 +1002,7 @@ Initial entropy found:
 - The repo had real source evidence but no executable real-school baselines.
 - The term "quality" was too broad until decomposed into dimensions.
 - The conversion matrix was a product decision, not an implementation detail.
-- Layout/page-level verification needed an explicit `UNKNOWN` boundary.
+- Laytest_outputs/workbench/page-level verification needed an explicit `UNKNOWN` boundary.
 
 Actions in this plan:
 
@@ -1030,7 +1030,7 @@ Candidate 1: Sign executable baseline formats before coding comparators
 - Maintainer test: Reviewers need to know whether a `PASS` was judged against a
   signed baseline or against the current implementation's interpretation.
 - Affected paths: `standards/schools/**`,
-  `standards/eval_profiles/real-core-v0/**`, `inputs/**`
+  `standards/eval_profiles/real-core-v0/**`, `test_test_inputs/**`
 - Owner skill: `$grill-with-docs-batch`, then `$intuitive-preflight`
 - Zen hint: explicit current truth beats implicit review notes.
 - Pattern hint: schema plus comparator pipeline; no larger pattern needed yet.
@@ -1303,7 +1303,7 @@ Implemented:
   template, student-content, and aligned-render-plan review packets under
   ignored output by default.
 - Generated local review packet at
-  `out/real-core-v0-baseline-review/manifest.json` with 15 draft baseline
+  `test_outputs/workbench/real-core-v0-baseline-review/manifest.json` with 15 draft baseline
   files for review.
 
 Verification for this slice:
@@ -1460,7 +1460,7 @@ Implemented:
   `real-core-v0` rendered `final.docx` files through Microsoft Word, render
   page images, and write `word_image_evidence.json` manifests.
 - Tightened the Word evidence verifier and `real-core-v0` coverage so evidence
-  must bind to `reports/real-core-v0/<case_id>/final.docx`; image files alone
+  must bind to `test_outputs/debug/template_eval_runs/real-core-v0/<case_id>/final.docx`; image files alone
   cannot satisfy the gate.
 - Documented that the exporter requires pre-existing rendered `final.docx`
   files and does not create or substitute render outputs.
@@ -1477,7 +1477,7 @@ Current gate result:
 
 - Local Word export is no longer a user-preparation blocker.
 - The current real-school e2e pipeline still does not produce the required
-  `reports/real-core-v0/<case_id>/final.docx` files: a probe case blocks at
+  `test_outputs/debug/template_eval_runs/real-core-v0/<case_id>/final.docx` files: a probe case blocks at
   template slot detection, and the three real student content probes are
   `UNKNOWN` because image extraction is not implemented in the bootstrap
   extractor.
@@ -1507,9 +1507,9 @@ Implemented:
   feature snapshot, and compares real-core render feature source facts instead
   of requiring the bootstrap golden snapshot path.
 - Generated all nine local real-core outputs under
-  `reports/real-core-v0/<case_id>/final.docx`.
+  `test_outputs/debug/template_eval_runs/real-core-v0/<case_id>/final.docx`.
 - Ran Microsoft Word export for all nine outputs and wrote
-  `reports/real-core-v0/<case_id>/evidence/word_image_evidence.json` plus
+  `test_outputs/debug/template_eval_runs/real-core-v0/<case_id>/evidence/word_image_evidence.json` plus
   page PNGs.
 - Word evidence export now verifies the produced manifest and refreshes each
   case report after export. Existing evidence can be reconciled without
@@ -1533,13 +1533,13 @@ Current gate result:
 - `uv run pytest -q` passes with 45 tests.
 - `real-core-v0` deterministic coverage is `PASS` with `baseline_status:
   signed`, `covered: 20`, and no missing categories.
-- Each generated `reports/real-core-v0/<case_id>/summary.json` now reports
+- Each generated `test_outputs/debug/template_eval_runs/real-core-v0/<case_id>/summary.json` now reports
   `PASS`, `blocked_at: null`, `render.word_image_evidence: true`, and zero
   findings after Word evidence reconciliation.
 - The generated evidence set contains 9 `final.docx` files, 9 Word evidence
   manifests, and 366 page PNGs.
 - A lightweight review index is tracked at
-  `docs/human/real-core-v0-generated-evidence-index.md`; the `reports/**`
+  `docs/human/real-core-v0-generated-evidence-index.md`; the `test_outputs/debug/template_eval_runs/**`
   artifacts remain local generated evidence.
 - Scope note: this PASS means the signed source-fact coverage and Word-open
   page-image evidence gate is satisfied. It is not a claim that every visual

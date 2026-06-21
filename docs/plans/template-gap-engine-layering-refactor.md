@@ -10,11 +10,11 @@ Implementation evidence:
 - `uv run pytest tests/contract/test_real_core_generated_template_gap.py tests/contract/test_contract_gates.py tests/e2e/test_bootstrap_cli.py -q` → 34 passed.
 - `uv run pytest tests/unit tests/contract tests/e2e -q` → 68 passed.
 - 三校 `docfit eval template-gap` 使用
-  `inputs/simulated-generated-templates/real-core-v0/<school_id>/generated_template.docx`
+  `test_test_inputs/template_gap/real-core-v0-<school_id>-generated-template.docx`
   均能产出 v2 分层报告，当前仍按真实差距和未知能力阻断为 `FAIL`。
 - `uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage`
   → `status = FAIL`，没有绕过 real-core gate。
-- `uv run docfit eval e2e --school hunannongye --student inputs/real-student-003-source.docx --out /tmp/docfit_real_core_e2e_hna`
+- `uv run docfit eval e2e --school hunannongye --student test_test_inputs/content_extraction/real-student-003-source.docx --out /tmp/docfit_real_core_e2e_hna`
   → `status = FAIL`，仍在模板问题处阻断。
 
 Current result:
@@ -41,19 +41,19 @@ Goal: 把 template-gap 改成只检查业务生成模板输入，报告按单元
 
 Scope:
 - 执行计划里的 C0-C5：被测对象统一、最小 PASS 夹具、分层报告树、匹配去噪、单元内匹配、coverage/e2e 回归。
-- 当前仓库里没有 inputs/simulated-generated-templates/.../generated_template.docx；执行时先创建或恢复这三份“虚拟业务生成模板”输入，并在 inputs/README.md 说清它们只是当前阶段的验收尺子输入，不是 golden。
+- 当前仓库里没有 test_inputs/simulated-generated-templates/.../generated_template.docx；执行时先创建或恢复这三份“虚拟业务生成模板”输入，并在 test_test_inputs/README.md 说清它们只是当前阶段的验收尺子输入，不是 golden。
 - 删除公开的 check_items 输出，迁移调用方和测试到结果树。
 Non-goals: 不实现真正模板生成器；不更新 signed standards、goldens、expected snapshots；不保留旧 check_items 兼容输出；不修内容抽取、内容放置、最终渲染；不加学校硬编码补丁。
-Context: must-read=docs/plans/template-gap-engine-layering-refactor.md, README.md, SPEC.md, docs/agents/bootstrap-eval-runbook.md, inputs/README.md, standards/eval_profiles/real-core-v0/cases.yaml, standards/schools/*/v1/template_unit_contract.yaml, src/docfit/harness/generated_template_gap.py, src/docfit/harness/generated_template_inspector.py, src/docfit/harness/coverage.py, src/docfit/harness/profiles.py, src/docfit/convert/orchestrator.py, tests/contract/test_real_core_generated_template_gap.py; useful=docs/human/real-core-v0-generated-template-gap-live-run-report.md, docs/human/real-core-v0-generated-template-gap-test-quality-review.md, docs/plans/template-gap-engine-optimization-guide.md; avoid-unless-needed=reports/** 页面图片证据和 out/** 生成物。
+Context: must-read=docs/plans/template-gap-engine-layering-refactor.md, README.md, SPEC.md, docs/agents/bootstrap-eval-runbook.md, test_test_inputs/README.md, standards/eval_profiles/real-core-v0/cases.yaml, standards/schools/*/v1/template_unit_contract.yaml, src/docfit/harness/generated_template_gap.py, src/docfit/harness/generated_template_inspector.py, src/docfit/harness/coverage.py, src/docfit/harness/profiles.py, src/docfit/convert/orchestrator.py, tests/contract/test_real_core_generated_template_gap.py; useful=docs/human/real-core-v0-generated-template-gap-live-run-report.md, docs/human/real-core-v0-generated-template-gap-test-quality-review.md, docs/plans/template-gap-engine-optimization-guide.md; avoid-unless-needed=test_outputs/debug/template_eval_runs/** 页面图片证据和 test_outputs/workbench/** 生成物。
 
 Acceptance:
-- SUCCESS: 三校 real-core gap 使用 inputs/simulated-generated-templates/real-core-v0/<school_id>/generated_template.docx 或 CLI 显式传入的 generated_template.docx；template_gap_report.json 为 v2 分层树并包含 summary.per_unit；最小 PASS 夹具得到 blocking_status == PASS；单样式变异、删 required 元素、无搜索词、跨单元同文都能定点证明；湖南农业和南农误报型 element_missing 明显下降，真差距仍是 FAIL。
+- SUCCESS: 三校 real-core gap 使用 test_test_inputs/template_gap/real-core-v0-<school_id>-generated-template.docx 或 CLI 显式传入的 generated_template.docx；template_gap_report.json 为 v2 分层树并包含 summary.per_unit；最小 PASS 夹具得到 blocking_status == PASS；单样式变异、删 required 元素、无搜索词、跨单元同文都能定点证明；湖南农业和南农误报型 element_missing 明显下降，真差距仍是 FAIL。
 - BLOCKED_NEEDS_DECISION: 如果三份虚拟业务生成模板不能从仓库内资产确定性创建；如果用户要求保留旧 check_items 公开兼容层；如果需要改 signed standard/golden/expected snapshot。
 - BLOCKED_NEEDS_LOCAL_VALIDATION: none。
 - INTERMEDIATE_ONLY: 只有用户明确批准时，C0+C1 可作为阶段性检查点。
 - No regressions: 终态只允许 PASS/FAIL/UNKNOWN，UNKNOWN 仍阻断；不自动更新标准或金标；docfit convert/e2e 不绕过阶段检查。
 
-Verification: deterministic=uv run pytest tests/contract/test_real_core_generated_template_gap.py -q; uv run pytest tests/contract/test_real_core_generated_template_gap.py tests/contract/test_contract_gates.py tests/e2e/test_bootstrap_cli.py -q; final=uv run pytest tests/unit tests/contract tests/e2e -q; integration=uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage; product-run=三校分别运行 uv run docfit eval template-gap --school <school_id> --generated-template inputs/simulated-generated-templates/real-core-v0/<school_id>/generated_template.docx --out /tmp/docfit_gap_<school_id>，并至少运行一个 real-core e2e：uv run docfit eval e2e --school hunannongye --student inputs/real-student-003-source.docx --out /tmp/docfit_real_core_e2e_hna; local-live-manual=none; optional=对比执行前后的 template_generation_element_missing 数量。
+Verification: deterministic=uv run pytest tests/contract/test_real_core_generated_template_gap.py -q; uv run pytest tests/contract/test_real_core_generated_template_gap.py tests/contract/test_contract_gates.py tests/e2e/test_bootstrap_cli.py -q; final=uv run pytest tests/unit tests/contract tests/e2e -q; integration=uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage; product-run=三校分别运行 uv run docfit eval template-gap --school <school_id> --generated-template test_test_inputs/template_gap/real-core-v0-<school_id>-generated-template.docx --out /tmp/docfit_gap_<school_id>，并至少运行一个 real-core e2e：uv run docfit eval e2e --school hunannongye --student test_test_inputs/content_extraction/real-student-003-source.docx --out /tmp/docfit_real_core_e2e_hna; local-live-manual=none; optional=对比执行前后的 template_generation_element_missing 数量。
 Execution: main=主会话监督执行、保护标准/金标、按 C0-C5 分段验证；worker=none；worker-goal=none
 To execute: /goal execute docs/plans/template-gap-engine-layering-refactor.md with intuitive-flow
 Approval: LGTM/approve/go ahead approves; edits request revision.
@@ -104,9 +104,9 @@ generated_template.docx  —— 业务生成模板
 
 | 学校 | 当前被测 generated_template.docx |
 | --- | --- |
-| 湖南农业 | `inputs/simulated-generated-templates/real-core-v0/hunannongye/generated_template.docx` |
-| 南农本科 | `inputs/simulated-generated-templates/real-core-v0/nannong-undergraduate/generated_template.docx` |
-| 北大研究生 | `inputs/simulated-generated-templates/real-core-v0/pku-graduate/generated_template.docx` |
+| 湖南农业 | `test_test_inputs/template_gap/real-core-v0-hunannongye-generated-template.docx` |
+| 南农本科 | `test_test_inputs/template_gap/real-core-v0-nannong-undergraduate-generated-template.docx` |
+| 北大研究生 | `test_test_inputs/template_gap/real-core-v0-pku-graduate-generated-template.docx` |
 
 后续文档、报告、评审和排期里统一使用“虚拟业务生成模板”或“业务生成模板”这个口径，不再引入第二套被测对象概念。
 
@@ -162,7 +162,7 @@ generated_template.docx         被测对象：实际长什么样
 
 报告里的 `generated_template.path` / `source_path` 应指向：
 
-- `inputs/simulated-generated-templates/real-core-v0/<school_id>/generated_template.docx`
+- `test_test_inputs/template_gap/real-core-v0-<school_id>-generated-template.docx`
 - 或开发者通过 CLI 显式传入的 `generated_template.docx`
 
 ### 5.2 报告按单元组织
@@ -220,7 +220,7 @@ generated_template.docx         被测对象：实际长什么样
 
 ## 8. 完成标准
 
-- [x] real-core gap 检查使用 `inputs/simulated-generated-templates/.../generated_template.docx` 作为被测生成模板输入。
+- [x] real-core gap 检查使用 `test_inputs/simulated-generated-templates/.../generated_template.docx` 作为被测生成模板输入。
 - [x] `template_gap_report.json` 以分层树为主结构，不再公开平铺 `check_items`。
 - [x] 最小 PASS 夹具能让真实 parser → checker 链路得到 `blocking_status == PASS`。
 - [x] 单样式变异、删 required 元素、无 needle 元素、跨单元同文这四类测试都能定点证明结果。
@@ -256,7 +256,7 @@ generated_template.docx
 
 | 文件 | 改动 |
 | --- | --- |
-| `inputs/README.md` | 新增“虚拟业务生成模板输入”一节，说明这些文件是 gap 被测对象 |
+| `test_test_inputs/README.md` | 新增“虚拟业务生成模板输入”一节，说明这些文件是 gap 被测对象 |
 | `standards/eval_profiles/real-core-v0/cases.yaml` | 每校增加 `generated_template_docx` |
 | `src/docfit/harness/profiles.py` | `EvalCase` 增加 `generated_template_docx`；`REAL_CORE_SCHOOLS` 同步 |
 | `src/docfit/convert/orchestrator.py` | real-core gap 检查改用 `generated_template_docx` |
@@ -266,7 +266,7 @@ generated_template.docx
 `standards/eval_profiles/real-core-v0/cases.yaml` 每个学校增加：
 
 ```yaml
-generated_template_docx: inputs/simulated-generated-templates/real-core-v0/<school_id>/generated_template.docx
+generated_template_docx: test_test_inputs/template_gap/real-core-v0-<school_id>-generated-template.docx
 ```
 
 `src/docfit/harness/profiles.py`：
@@ -304,11 +304,11 @@ evaluate_generated_template_gap(bundle, generated_template_docx, out_dir)
 uv run pytest tests/contract/test_real_core_generated_template_gap.py::test_real_core_template_gap_outputs_tree_and_reports_for_all_schools -q
 
 uv run docfit eval template-gap --school hunannongye \
-  --generated-template inputs/simulated-generated-templates/real-core-v0/hunannongye/generated_template.docx \
+  --generated-template test_test_inputs/template_gap/real-core-v0-hunannongye-generated-template.docx \
   --out /tmp/docfit_gap_hna
 ```
 
-完成后，`template_gap_report.json["generated_template"]["path"]` / `source_path` 不应指向 `inputs/school-*.docx`。
+完成后，`template_gap_report.json["generated_template"]["path"]` / `source_path` 不应指向 `test_test_inputs/template_generation/school-*.docx`。
 
 ## 11. C1：建立最小 PASS 夹具
 
@@ -505,7 +505,7 @@ uv run pytest tests/contract/test_real_core_generated_template_gap.py \
   -k "normalizes_template_noise or unsearchable_fixed_element" -q
 
 uv run docfit eval template-gap --school hunannongye \
-  --generated-template inputs/simulated-generated-templates/real-core-v0/hunannongye/generated_template.docx \
+  --generated-template test_test_inputs/template_gap/real-core-v0-hunannongye-generated-template.docx \
   --out /tmp/docfit_gap_hna_after_match
 ```
 
