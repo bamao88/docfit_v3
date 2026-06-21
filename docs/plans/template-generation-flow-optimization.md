@@ -23,10 +23,10 @@ Last updated: 2026-06-21
 | 模板生成要优化什么 | 从“按 unit_id 排除列表”升级为“硬编码基线 + 内容责任 + 学生源内容 + 学校标准”的策略选择 |
 | 哪些区域可以仅复制 | 学校固定正文、签名日期、教师意见、成绩评定等不由机器填写的区域 |
 | 哪些区域不能默认仅复制 | 中文摘要、英文摘要、目录族、正文、参考文献，以及有学生内容的致谢/附录 |
-| 判定发生在哪一步 | `template_unit_decisions` 生成时确认 `generation_mode = whole_unit_copy` |
-| 判定前上游给什么 | `source_template_tree` 和 `discovered_template_rules` 提供 unit、source_ref 和 source range |
-| 判定后元素怎么处理 | copy-only 单元也要做受限元素识别：保留固定/人工内容，清理说明文字，但不自动生成学生填写 slot |
-| 执行时 Word 怎么变 | `preserve_whole_unit_copy` 保留整体结构；copy-only 内部命中的说明文字仍可产生 `remove_instruction_text` |
+| 判定发生在哪一步 | 阶段三“模板业务地图与策略”里确认 `generation_mode = whole_unit_copy` / `copy_then_patch` / `needs_review` |
+| 判定前上游给什么 | 阶段一提供源 Word 事实；阶段二提供 unit、element、source_ref、role_hint 和证据 |
+| 判定后元素怎么处理 | 阶段三把 copy-only、slot、protected zone、cleanup 和 unresolved question 统一写进模板业务地图 |
+| 执行时 Word 怎么变 | 阶段四把业务地图翻译成 action plan；`preserve_whole_unit_copy` 保留整体结构，copy-only 内部说明文字仍可产生 `remove_instruction_text` |
 | 和其他单元有什么不同 | copy-only 单元的元素处理只做清理和保护；非 copy-only 单元会按元素生成 slot、生成字段占位、删除说明文字或插入固定文本 |
 
 ## 当前真实实现
@@ -139,43 +139,25 @@ flowchart TD
   B -->|否：不存在| U["UNKNOWN：缺源模板<br/>代码: src/docfit/stages/template_generate/runner.py"]
   B -->|否：不是 DOCX| V["FAIL：源模板无效<br/>代码: src/docfit/stages/template_generate/runner.py"]
   B -->|是| C["解析源 Word<br/>source_template_tree<br/>代码: src/docfit/stages/template_generate/runner.py<br/>src/docfit/harness/generated_template_inspector.py"]
-  C --> D["识别候选单元<br/>discovered_template_rules<br/>代码: src/docfit/stages/template_generate/runner.py"]
-  D --> E["收集策略证据<br/>硬编码基线 + 单元语义 + 学校标准 + 学生源内容<br/>当前代码: src/docfit/stages/template_generate/runner.py<br/>目标还需接入 standards / content_extract"]
-  E --> F{"策略是否可判定？<br/>当前代码: src/docfit/stages/template_generate/runner.py"}
-  F -->|仅复制| G["做 copy-preserve 元素识别<br/>保留固定/人工内容；说明文字可删除；不自动生成 slot<br/>目标待实现: src/docfit/stages/template_generate/runner.py"]
-  F -->|填写/生成/删除| H["逐个元素分析 policy<br/>fill / generated / remove_instruction / manual_only / fixed<br/>代码: src/docfit/stages/template_generate/runner.py"]
-  F -->|证据不足| X["写 open_questions / needs_review<br/>后续 gate 不应假装 PASS<br/>目标待实现: src/docfit/stages/template_generate/runner.py"]
-  G --> I["构建 template_artifact<br/>无可写 slot；固定内容进 protected_zones；说明文字进 cleanup<br/>代码: src/docfit/stages/template_generate/runner.py<br/>src/docfit/harness/template_units.py"]
-  H --> I
-  X --> I
-  I --> J["生成 template_unit_decisions<br/>代码: src/docfit/stages/template_generate/runner.py"]
-  J --> K{"generation_mode<br/>代码: src/docfit/stages/template_generate/runner.py"}
-  K -->|whole_unit_copy| L["生成 keep_whole_unit_copy 决策<br/>代码: src/docfit/stages/template_generate/runner.py"]
-  K -->|copy_then_patch| M["按元素生成填写、生成、删除或插文本决策<br/>代码: src/docfit/stages/template_generate/runner.py"]
-  K -->|needs_review| Y["保留问题证据<br/>阻断或等待人工确认<br/>目标待实现: src/docfit/stages/template_generate/runner.py"]
-  L --> N["生成 preserve_whole_unit_copy action<br/>代码: src/docfit/stages/template_generate/runner.py"]
-  M --> O["生成 create_fillable_slot 等 action<br/>代码: src/docfit/stages/template_generate/runner.py"]
-  Y --> O
-  N --> P["执行计划：先整包复制 DOCX<br/>代码: src/docfit/stages/template_generate/runner.py"]
-  O --> P
-  P --> Q["执行后续 action<br/>代码: src/docfit/stages/template_generate/runner.py"]
-  Q --> R["输出 generated_template.docx<br/>代码: src/docfit/stages/template_generate/runner.py"]
-  Q --> S["输出 template_generation_manifest<br/>代码: src/docfit/stages/template_generate/runner.py"]
-  S --> T["写 artifacts / summary / debug 快照<br/>代码: src/docfit/stages/template_generate/runner.py<br/>src/docfit/convert/orchestrator.py"]
+  C --> D["阶段二：候选结构识别<br/>unit / element / source_ref / role_hint / evidence<br/>当前产物: discovered_template_rules"]
+  D --> E["阶段三：模板业务地图与策略<br/>generation_mode / slots / protected_zones / cleanup / unresolved_questions<br/>目标产物: template_generation_model<br/>兼容产物: template_artifact + template_unit_decisions"]
+  E --> F["阶段四：动作计划<br/>把业务地图翻译成 copy / preserve / slot / cleanup action<br/>产物: template_generation_plan"]
+  F --> G["阶段五：执行动作<br/>先整包复制 DOCX，再执行 action<br/>产物: generated_template.docx + manifest"]
+  G --> H["写 artifacts / summary / debug 快照<br/>代码: src/docfit/stages/template_generate/runner.py<br/>src/docfit/convert/orchestrator.py"]
 ```
 
-图里的“代码”是当前真实实现所在文件；标注“目标待实现”的节点表示计划里的策略能力还没有完整落到代码。
+图里的“目标产物”是调整后的概念边界。当前代码仍把这些责任集中在
+`src/docfit/stages/template_generate/runner.py`，并且仍会写出旧产物名。
+后续重构可以先保留旧 JSON 文件名，把语义边界按上图收拢。
 
 | 流程节点 | 当前主要代码文件 | 当前状态 |
 | --- | --- | --- |
 | CLI 输入和 eval 包装 | `src/docfit/cli/main.py`、`src/docfit/convert/orchestrator.py` | 已实现 |
 | 输入存在性和 DOCX 有效性检查 | `src/docfit/stages/template_generate/runner.py`、`src/docfit/ooxml/package.py` | 已实现 |
 | 源 Word 解析 | `src/docfit/stages/template_generate/runner.py`、`src/docfit/harness/generated_template_inspector.py` | 已实现 |
-| 候选单元识别 | `src/docfit/stages/template_generate/runner.py` | 已实现，仍是启发式 |
-| 策略证据收集 | `src/docfit/stages/template_generate/runner.py` | 部分实现；学校标准和学生内容台账尚未正式接入 |
-| copy-only / patch 策略判定 | `src/docfit/stages/template_generate/runner.py` | 已实现第一版；仍按 `unit_id` 排除列表，且缺少 copy-only 内部 cleanup |
-| slot、region、protected zone 构建 | `src/docfit/stages/template_generate/runner.py`、`src/docfit/harness/template_units.py` | 已实现 |
-| decision 和 action plan 生成 | `src/docfit/stages/template_generate/runner.py` | 已实现 |
+| 候选结构识别 | `src/docfit/stages/template_generate/runner.py` | 已实现第一版；仍是 entry 到 element 的启发式识别 |
+| 模板业务地图与策略 | `src/docfit/stages/template_generate/runner.py`、`src/docfit/harness/template_units.py` | 部分实现；目前分散在 `template_artifact` 和 `template_unit_decisions`，学校标准和学生内容台账尚未正式接入 |
+| 动作计划生成 | `src/docfit/stages/template_generate/runner.py` | 已实现第一版；应改成只消费阶段三业务地图，不重新做业务判定 |
 | Word 复制和 action 执行 | `src/docfit/stages/template_generate/runner.py` | 已实现 |
 | 产物写出和 summary/debug | `src/docfit/stages/template_generate/runner.py`、`src/docfit/convert/orchestrator.py` | 已实现 |
 
@@ -224,7 +206,7 @@ flowchart TD
 
 这个问题的 `first_bad_stage` 是 `source_parse`。不要先改阶段二的单元边界规则；应该先证明源 Word 的 OOXML 结构到底是一段、多个段落、多个表格格子，还是文本框。
 
-## 阶段二：识别单元和元素
+## 阶段二：候选结构识别
 
 产物：`discovered_template_rules.json`
 
@@ -237,9 +219,9 @@ flowchart TD
 | 单元识别 | 把 Word 的连续内容划到封面、声明、摘要、正文、参考文献等 unit 里 |
 | 元素合并 | 把阶段一的碎片 entry 合并成更接近业务含义的 logical element |
 | 元素角色提示 | 给 logical element 标出候选角色，例如固定正文、说明文字、人工填写区、学生内容位、系统生成位、冲突证据 |
-| 策略证据 | 为 `whole_unit_copy`、`copy_then_patch`、`needs_review` 提供证据和 hint，而不是生成阶段三/四的最终结构或动作 |
+| 策略证据 | 为阶段三策略判定提供证据，而不是输出 `whole_unit_copy`、`copy_then_patch` 等最终处理策略 |
 
-所以当前“一个 entry 变一个 element”的实现只是第一版占位，价值确实偏小。目标实现至少要加入元素合并层，再在合并后的 logical element 上给出 `role` / `policy_hint`。这里是“提示和证据”，不是最终 artifact 决策。
+所以当前“一个 entry 变一个 element”的实现只是第一版占位，价值确实偏小。目标实现至少要加入元素合并层，再在合并后的 logical element 上给出 `role_hint` 和 evidence。这里是“候选结构和证据”，不是最终处理策略。
 
 ### 阶段二输入契约
 
@@ -264,7 +246,7 @@ flowchart TD
 | 输入 | 用途 |
 | --- | --- |
 | 通用单元定义和关键词表 | 辅助识别 `cover`、`abstract_cn`、`body_main` 等 unit |
-| 通用内容责任基线 | 给 `content_responsibility_hint` 和 `generation_mode_hint` 一个默认起点 |
+| 通用内容责任基线 | 给 `role_hint` 和 evidence 一个默认解释起点 |
 | 学校结构化标准 | 如果已接入，可覆盖通用规则；如果未接入，应在输出里明确证据不足 |
 | 学生内容台账摘要 | 如果已接入，可判断致谢/附录等条件单元是否承载学生内容 |
 
@@ -274,12 +256,14 @@ flowchart TD
 | --- | --- |
 | 直接打开源 DOCX 重新解析 | 阶段一已经负责解析，重复解析会让证据链分叉 |
 | 生成后的 Word | 阶段二发生在生成前 |
-| 阶段五 action plan | 阶段二只给证据和提示，不消费执行计划 |
+| 阶段四 action plan | 阶段二只给证据和提示，不消费执行计划 |
 | 人工口头判断但没有写入标准/配置的规则 | 应进入 `open_questions` 或 `needs_review`，不要隐式硬编码 |
 
 ### 阶段二输出契约
 
-阶段二交给阶段三的输出是 `discovered_template_rules.json`。它不应该直接生成 Word action，也不应该最终决定所有 `generation_mode`；它应该输出“识别结果 + 合并结果 + 策略证据”，供阶段三构建 `template_artifact`，再由阶段四生成正式 decisions。
+阶段二交给阶段三的输出当前仍叫 `discovered_template_rules.json`。目标上更准确的名字是
+`template_structure_candidates.json`：它不应该直接生成 Word action，也不应该最终决定
+`generation_mode`；它只输出“候选结构 + source_ref + role_hint + evidence”，供阶段三生成模板模型与处理策略。
 
 顶层结构应该包含：
 
@@ -288,8 +272,8 @@ flowchart TD
 | `artifact_type` / `artifact_version` | 产物类型和版本 | 校验输入格式 |
 | `input_hashes.source_template_tree` | 对应的阶段一输入 hash | 保证证据链可追溯 |
 | `discovery_method` | 使用的识别/合并方法版本 | 调试和回归定位 |
-| `source_context` | 从阶段一传下来的全局上下文摘要 | 构建样式、页面、编号、页眉页脚、unsupported 等 artifact 字段 |
-| `units[]` | 识别出的模板单元 | 构建 artifact units、regions、slots、protected zones、instruction candidates |
+| `source_context` | 从阶段一传下来的全局上下文摘要 | 构建样式、页面、编号、页眉页脚、unsupported 等模型字段 |
+| `units[]` | 识别出的候选模板单元 | 构建 template_generation_model 的 unit 策略、slots、protected_zones、cleanup |
 | `unknowns[]` | 无法解释或证据不足的对象 | 进入 unsupported / needs_review |
 | `open_questions[]` | 需要人工或学校标准确认的问题 | 阻断或降低后续 gate 结论 |
 
@@ -314,8 +298,7 @@ flowchart TD
 | `unit_id` / `name` / `order` / `status` | 单元身份、名称、顺序、必选/可选状态 |
 | `source_range` | 单元覆盖的源范围，例如起止 `source_ref`、entry order、完整 `source_refs` |
 | `anchors[]` | 单元标题或锚点证据，例如命中文本、source_ref、置信度 |
-| `content_responsibility_hint` | 内容责任提示：学校固定、人工填写、学生内容、系统生成、混合、未知 |
-| `generation_mode_hint` | 策略提示：`whole_unit_copy_candidate`、`copy_then_patch_candidate`、`needs_review`；正式决定留给阶段四 |
+| `responsibility_evidence[]` | 内容责任证据：学校固定、人工填写、学生内容、系统生成、混合、未知 |
 | `elements[]` | 合并后的 logical elements，不是原始 body_flow entry 列表 |
 | `conflicts[]` | 例如 copy-only 单元里出现强学生填写信号、目录字段出现在固定表单里 |
 | `evidence[]` | 支撑上述判断的 source_ref、样式、结构、关键词证据 |
@@ -325,8 +308,7 @@ flowchart TD
 | 字段 | 含义 |
 | --- | --- |
 | `element_id` / `order` | 单元内稳定编号和顺序 |
-| `role` | 逻辑角色，例如 `heading`、`fixed_text`、`instruction_block`、`manual_field`、`student_field_candidate`、`generated_field_candidate`、`conflict_evidence` |
-| `policy_hint` | 策略提示，例如 `preserve_fixed`、`remove_instruction`、`manual_only`、`fill_candidate`、`generated_candidate`、`needs_review` |
+| `role_hint` | 候选逻辑角色，例如 `heading`、`fixed_text`、`instruction_candidate`、`manual_field_candidate`、`student_field_candidate`、`generated_field_candidate`、`conflict_evidence` |
 | `content` / `normalized_content` | 合并后的原文和规范化文本 |
 | `source_refs[]` | 这个 logical element 覆盖的所有源位置 |
 | `entry_refs[]` | 由哪些阶段一 body_flow entries 合并而来 |
@@ -341,25 +323,25 @@ flowchart TD
 | 阶段二应该输出 | 阶段二不应该输出 |
 | --- | --- |
 | logical elements 和它们的 source_refs | Word 修改动作 |
-| `policy_hint` / `generation_mode_hint` | 最终 action plan |
+| `role_hint` / evidence | 最终处理策略和 action plan |
 | copy-only 内部说明文字候选 | 直接删除 Word 内容 |
 | copy-only 内部填空/系统生成冲突证据 | 直接插 slot 或 generated marker |
 | unknowns / open_questions | 假装确定的 PASS 结论 |
 
 ### 阶段二和阶段三不重复
 
-阶段二和阶段三的区别是：阶段二做识别和证据归纳，阶段三做 artifact 编译。
+阶段二和阶段三的区别是：阶段二做候选结构识别和证据归纳，阶段三做模板模型和策略判定。
 
 | 问题 | 阶段二回答 | 阶段三回答 |
 | --- | --- | --- |
-| 这段 Word 内容是什么 | 这是一个 logical element，候选角色是 `instruction_block` / `manual_field` / `fixed_text` 等 | 把它放进 artifact 的哪个集合 |
-| 证据在哪里 | 输出 `source_refs[]`、`entry_refs[]`、`style_evidence`、`confidence` | 保留 provenance，并转成下游可消费的字段 |
-| 是否可能需要删除说明文字 | 输出 `policy_hint = remove_instruction` | 写入 `data.instruction_paragraphs[]`，供后续 decision/action 使用 |
-| 是否可能是人工填写区 | 输出 `policy_hint = manual_only` | 写入 `protected_zones[]` 或 manual placeholder 所需上下文 |
-| 是否可能是学生内容位 | 输出 `policy_hint = fill_candidate` | 根据单元模式和责任口径决定是否生成 `slots[]` / `required_fields[]` |
-| 是否是 copy-only 冲突 | 输出 `conflicts[]` 或 `needs_review` 证据 | 把冲突编入 artifact 的 unsupported/review 信息，不直接插 slot |
+| 这段 Word 内容是什么 | 这是一个 logical element，`role_hint` 是 `instruction_candidate` / `manual_field_candidate` / `fixed_text` 等 | 这次生成里把它转成 cleanup、protected zone、slot，还是 unresolved question |
+| 证据在哪里 | 输出 `source_refs[]`、`entry_refs[]`、`style_evidence`、`confidence` | 保留 provenance，并转成后续 placement/render/gap 可消费的字段 |
+| 是否可能需要删除说明文字 | 输出 `role_hint = instruction_candidate` | 写入 `cleanup[]`，供阶段四生成 cleanup action |
+| 是否可能是人工填写区 | 输出 `role_hint = manual_field_candidate` | 写入 `protected_zones[]`，并决定不生成学生内容 slot |
+| 是否可能是学生内容位 | 输出 `role_hint = student_field_candidate` | 根据单元策略和责任口径决定是否生成 `slots[]` / `required_fields[]` |
+| 是否是 copy-only 冲突 | 输出 `conflicts[]` 或 `needs_review` 证据 | 写入 `unresolved_questions[]` 或让该单元切换到 `copy_then_patch` |
 
-例如阶段二可以说：“这个 logical element 看起来是人工填写区，证据是 `签名`、`年月日` 和对应 source_ref。”阶段三才决定：“这个元素在 artifact 里进入 `protected_zones[]`，并且不生成 slot。”这样阶段三不是重复识别，而是把阶段二的识别结果转换成后续阶段稳定消费的数据结构。
+例如阶段二可以说：“这个 logical element 看起来是人工填写区，证据是 `签名`、`年月日` 和对应 source_ref。”阶段三才决定：“这个元素进入 `protected_zones[]`，并且不生成 slot。”这样阶段三不是重复识别，而是把阶段二的识别证据转换成系统后续稳定消费的 `template_generation_model`。
 
 ### 阶段二仍需补齐的定义
 
@@ -371,7 +353,7 @@ flowchart TD
 | 表格坐标结构 | 需要明确 table_index、row_index、cell_index、row/col span、container_ref 怎么进入 element.structure |
 | 合并规则优先级 | 例如先按表格行合并，还是先按句子连续性合并；规则不同会影响字段识别 |
 | 合并停止条件 | 标题和正文、说明和正文、不同样式/不同表格行什么时候不能合并 |
-| role / policy_hint 枚举 | 需要固定枚举，避免阶段三/四消费时出现自由文本 |
+| role_hint 枚举 | 需要固定枚举，避免阶段三消费时出现自由文本 |
 | confidence 口径 | 需要定义高/中/低置信度和何时进入 `needs_review` |
 | copy-only 受限识别规则 | 需要明确哪些 policy 在 copy-only 内可以产生 cleanup，哪些只能产生 conflict |
 | header/footer 处理边界 | 当前不作为正文 unit element，但仍要作为全局上下文传递；未来是否有独立 header/footer unit 需要定义 |
