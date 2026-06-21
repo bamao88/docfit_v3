@@ -275,11 +275,18 @@ def test_template_generate_copy_only_units_use_restricted_internal_element_analy
     result = run_template_generate_eval(tmp_path, source, out_dir)
     generated = out_dir / "generated_template.docx"
     rules = read_json(out_dir / "artifacts/discovered_template_rules.json")
+    template_artifact = read_json(out_dir / "artifacts/template_artifact.json")
     decisions = read_json(out_dir / "artifacts/template_unit_decisions.json")
     plan = read_json(out_dir / "artifacts/template_generation_plan.json")
     cover_rule = next(unit for unit in rules["units"] if unit["unit_id"] == "cover")
+    cover_artifact = next(
+        unit
+        for unit in template_artifact["data"]["units"]
+        if unit["unit_id"] == "cover"
+    )
     cover_decision = next(unit for unit in decisions["units"] if unit["unit_id"] == "cover")
     cover_elements = cover_rule["elements"]
+    cover_artifact_elements = cover_artifact["elements"]
     whole_copy = next(
         element
         for element in cover_elements
@@ -295,12 +302,19 @@ def test_template_generate_copy_only_units_use_restricted_internal_element_analy
         for element in cover_elements
         if element.get("source_refs") == ["word/document.xml:p[3]"]
     )
+    artifact_title = next(
+        element
+        for element in cover_artifact_elements
+        if element.get("source_refs") == ["word/document.xml:p[2]"]
+    )
 
     assert result.status == Status.PASS
     assert whole_copy["policy"] == "fixed"
     assert whole_copy["role_hint"] == "whole_unit_copy_candidate"
     assert title_candidate["role_hint"] == "student_field_candidate"
-    assert title_candidate["policy"] == "fixed"
+    assert title_candidate["policy"] == "fill"
+    assert artifact_title["candidate_policy"] == "fill"
+    assert artifact_title["policy"] == "fixed"
     assert instruction_candidate["role_hint"] == "instruction_candidate"
     assert instruction_candidate["policy"] == "remove_instruction"
     assert cover_decision["generation_mode"] == "whole_unit_copy"

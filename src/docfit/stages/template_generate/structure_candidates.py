@@ -125,13 +125,12 @@ def _copy_only_unit_elements(
         if not text:
             continue
         policy_hint = _element_policy(anchor["unit_id"], text, entry)
-        policy = _copy_only_policy_from_hint(policy_hint)
         elements.append(
             _element_from_entry(
                 anchor,
                 entry,
                 element_id=f"e_{len(elements) + 1:03d}",
-                policy=policy,
+                policy=policy_hint,
                 role_hint=_role_hint_for_policy(policy_hint),
                 relationship="copy_only_internal_candidate",
                 policy_hint=policy_hint,
@@ -246,14 +245,6 @@ def _element_from_entry(
         "evidence": _element_evidence(policy_hint or policy, source_ref),
         "source_refs": [source_ref],
     }
-
-
-def _copy_only_policy_from_hint(policy_hint: str) -> str:
-    if policy_hint == "remove_instruction":
-        return "remove_instruction"
-    if policy_hint == "manual_only":
-        return "manual_only"
-    return "fixed"
 
 
 def _role_hint_for_policy(policy: str) -> str:

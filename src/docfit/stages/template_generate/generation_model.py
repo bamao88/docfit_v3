@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from docfit.core.io import now_iso, sha256_json
@@ -20,7 +21,7 @@ def build_template_artifact(
     source_tree: dict[str, Any],
     discovered_rules: dict[str, Any],
 ) -> dict[str, Any]:
-    units = discovered_rules.get("units", [])
+    units = _materialize_template_units(discovered_rules.get("units", []))
     paragraphs = source_tree.get("data", {}).get("paragraphs", [])
     copy_only_source_refs = _copy_only_unit_source_refs(units)
     instruction_paragraphs = _dedupe_by_key(
@@ -96,6 +97,51 @@ def build_template_artifact(
             "unsupported": source_tree.get("layers", {}).get("unknown_objects", []),
         },
     }
+
+
+def _materialize_template_units(candidate_units: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    units: list[dict[str, Any]] = []
+    for unit in candidate_units:
+        materialized = deepcopy(unit)
+        generation_mode = _unit_generation_mode(materialized)
+        materialized["elements"] = [
+            _materialize_template_element(element, generation_mode=generation_mode)
+            for element in unit.get("elements", [])
+        ]
+        units.append(materialized)
+    return units
+
+
+def _materialize_template_element(
+    element: dict[str, Any],
+    *,
+    generation_mode: str,
+) -> dict[str, Any]:
+    materialized = deepcopy(element)
+    candidate_policy = str(element.get("policy") or "fixed")
+    final_policy = _final_policy_for_generation(candidate_policy, generation_mode)
+    materialized["candidate_policy"] = candidate_policy
+    materialized["policy"] = final_policy
+    materialized["type"] = _element_type(final_policy)
+    materialized["fill"] = "yes" if final_policy == "fill" else "no"
+    return materialized
+
+
+def _final_policy_for_generation(candidate_policy: str, generation_mode: str) -> str:
+    if generation_mode != "whole_unit_copy":
+        return candidate_policy
+    if candidate_policy in {"remove_instruction", "manual_only"}:
+        return candidate_policy
+    return "fixed"
+
+
+def _element_type(policy: str) -> str:
+    return {
+        "fill": "fillable",
+        "generated": "generated",
+        "manual_only": "manual_only",
+        "remove_instruction": "instruction_text",
+    }.get(policy, "fixed_text")
 
 
 def build_template_unit_decisions(template_artifact: dict[str, Any]) -> dict[str, Any]:
