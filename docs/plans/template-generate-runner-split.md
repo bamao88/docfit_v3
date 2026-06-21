@@ -35,6 +35,43 @@ Last updated: 2026-06-21
 
 当前还存在一个语义偏差：候选结构识别阶段已经直接写 `policy = fill / fixed / generated / remove_instruction`，但目标流程里阶段二应该只给 `role_hint` 和证据，阶段三才统一决定 slot、protected zone、cleanup 和 `generation_mode`。
 
+## 过程文件输出兼容要求
+
+拆分后必须继续输出当前 Runner 已经输出的过程文件。代码可以拆成多个 Python 文件，但对调用方和排查者来说，过程证据的位置、文件名和阶段编号必须保持兼容。
+
+当前有两类输出都要保留：
+
+| 输出位置 | 用途 | 拆分后要求 |
+| --- | --- | --- |
+| `--out/artifacts/*.json` | 公开机器可读阶段产物，供 summary、报告、后续 e2e 和人工排查引用 | 文件名和 JSON 形状第一轮不变 |
+| `test_outputs/debug/template_generation/<验证名或运行目录>/<timestamp>/00-10_*` | 按阶段编号保存的调试快照，方便从输入到 manifest 逐步定位 first_bad_stage | 目录层级、编号前缀和文件名第一轮不变 |
+
+以当前真实输出目录
+`test_outputs/debug/template_generation/20260621T160704467333+0800/` 为例，拆分后仍应生成同名文件：
+
+| 编号 | 文件 | 含义 |
+| --- | --- | --- |
+| `00` | `00_input_source_template.docx` | 输入学校原始模板 Word |
+| `01` | `01_template_generation_request.json` | 本次生成请求 |
+| `02` | `02_source_template_tree.json` | 阶段一：源 Word 事实 |
+| `03` | `03_discovered_template_rules.json` | 阶段二：候选结构识别，当前兼容产物名 |
+| `04` | `04_template_artifact.json` | 阶段三的一部分：模板业务地图，当前兼容产物名 |
+| `05` | `05_template_unit_decisions.json` | 阶段三的一部分：处理策略，当前兼容产物名 |
+| `06` | `06_template_generation_plan.json` | 阶段四：动作计划 |
+| `07` | `07_copy_source_docx.docx` | 只执行整包复制后的 Word 停点 |
+| `08` | `08_generated_template.docx` | 执行全部 action 后的生成模板 Word |
+| `09` | `09_template_generation_manifest.json` | 阶段五：执行记录和输出 hash |
+| `10` | `10_template_generation_debug_index.json` | 本 debug 目录的文件索引 |
+
+重要边界：
+
+| 边界 | 说明 |
+| --- | --- |
+| 拆模块不等于改输出契约 | 第一轮机械拆分不能改文件位置、编号、名字或 JSON 形状 |
+| 阶段三目标产物可以叫 `template_generation_model` | 但迁移期仍要写出 `template_artifact.json` 和 `template_unit_decisions.json` |
+| `outputs.py` 负责保持输出兼容 | 其他模块只返回数据，不直接决定 debug 文件命名 |
+| manifest 仍只证明执行记录 | 不能因为拆分后 manifest 更完整，就把它当成模板质量通过证明 |
+
 ## 目标模块结构
 
 建议先拆成下面这些文件：
@@ -87,6 +124,7 @@ Last updated: 2026-06-21
 3. `runner.py` 只保留主流程，并从新模块导入函数。
 4. 如有外部测试或模块仍从 `runner.py` import 常量或函数，先在 `runner.py` 保留兼容导出。
 5. 不新增字段，不改 JSON 形状，不改 copy-only 行为。
+6. 保留 `--out/artifacts/` 和 debug snapshot 的现有输出位置、编号前缀和文件名。
 
 验收：
 
@@ -147,6 +185,7 @@ uv run pytest tests/contract/test_template_generate.py -q
 | 每个模块职责能对应五步流程 | 待做 |
 | `tests/contract/test_template_generate.py` 通过 | 待做 |
 | 公开产物名和 JSON 形状不变 | 待做 |
+| 00-10 debug 快照位置和文件名不变 | 待做 |
 
 第二轮完成标准：
 
