@@ -117,6 +117,23 @@ def build_template_unit_decisions(template_artifact: dict[str, Any]) -> dict[str
                     "reason": "this unit can be preserved by the initial source DOCX copy",
                 }
             )
+            for element in unit.get("elements", []):
+                if element.get("policy") != "remove_instruction":
+                    continue
+                element_id = element.get("element_id")
+                source_ref = _first_source_ref(element)
+                decisions.append(
+                    {
+                        "decision_id": f"{unit_id}.{element_id}.remove_instruction_text",
+                        "decision_type": "remove_instruction_text",
+                        "unit_id": unit_id,
+                        "element_id": element_id,
+                        "element_name": element.get("name"),
+                        "content": element.get("content") or element.get("name") or "",
+                        "source_ref": source_ref,
+                        "reason": _decision_reason("remove_instruction_text"),
+                    }
+                )
         else:
             for element in unit.get("elements", []):
                 policy = element.get("policy")

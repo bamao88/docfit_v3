@@ -333,19 +333,18 @@ def _append_only_finding(
         for action in render_manifest.get("actions_executed", [])
         if action.get("action_id") in writing_action_ids
     ]
-    first_ref = next(
-        (
-            str(action.get("actual_ooxml_ref", ""))
-            for action in executed
-            if str(action.get("actual_ooxml_ref", "")).startswith("word/document.xml:p[")
-        ),
-        "",
-    )
-    match = re.search(r"p\[(\d+)\]", first_ref)
-    if not match:
+    rendered_paragraph_refs: list[tuple[int, str]] = []
+    for action in executed:
+        ref = str(action.get("actual_ooxml_ref", ""))
+        if not ref.startswith("word/document.xml:p["):
+            continue
+        match = re.search(r"p\[(\d+)\]", ref)
+        if match:
+            rendered_paragraph_refs.append((int(match.group(1)), ref))
+    if not rendered_paragraph_refs:
         return None
 
-    first_rendered_paragraph_index = int(match.group(1))
+    first_rendered_paragraph_index, first_ref = min(rendered_paragraph_refs)
     if first_rendered_paragraph_index <= max(1, template_paragraph_count):
         return None
 

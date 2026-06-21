@@ -103,7 +103,7 @@ def _copy_only_unit_elements(
     source_refs = [
         str(entry.get("source_ref")) for entry in entries if entry.get("source_ref")
     ]
-    return [
+    elements: list[dict[str, Any]] = [
         {
             "element_id": "e_001",
             "name": f"{anchor['name']}整体复制区域",
@@ -115,9 +115,29 @@ def _copy_only_unit_elements(
             "style": "",
             "position": anchor.get("source_ref", ""),
             "relationship": "whole_unit_copy",
+            "role_hint": "whole_unit_copy_candidate",
+            "evidence": _element_evidence("fixed", anchor.get("source_ref", "")),
             "source_refs": source_refs or [anchor.get("source_ref", "")],
         }
     ]
+    for entry in entries:
+        text = str(entry.get("text", "")).strip()
+        if not text:
+            continue
+        policy_hint = _element_policy(anchor["unit_id"], text, entry)
+        policy = _copy_only_policy_from_hint(policy_hint)
+        elements.append(
+            _element_from_entry(
+                anchor,
+                entry,
+                element_id=f"e_{len(elements) + 1:03d}",
+                policy=policy,
+                role_hint=_role_hint_for_policy(policy_hint),
+                relationship="copy_only_internal_candidate",
+                policy_hint=policy_hint,
+            )
+        )
+    return elements
 
 
 def _unit_anchors(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -173,33 +193,90 @@ def _infer_elements(anchor: dict[str, Any], entries: list[dict[str, Any]]) -> li
             continue
         policy = _element_policy(anchor["unit_id"], text, entry)
         elements.append(
-            {
-                "element_id": f"e_{len(elements) + 1:03d}",
-                "name": _element_name(anchor["unit_id"], text, policy),
-                "order": len(elements) + 1,
-                "policy": policy,
-                "type": _element_type(policy),
-                "fill": "yes" if policy == "fill" else "no",
-                "content": text if policy != "remove_instruction" else "",
-                "style": _style_summary(entry),
-                "position": entry.get("source_ref", ""),
-                "relationship": "",
-                "source_refs": [entry.get("source_ref", "")],
-            }
+            _element_from_entry(
+                anchor,
+                entry,
+                element_id=f"e_{len(elements) + 1:03d}",
+                policy=policy,
+                role_hint=_role_hint_for_policy(policy),
+            )
         )
     if not elements:
+        fallback_policy = "fill" if anchor["unit_id"] == "body_main" else "fixed"
         elements.append(
             {
                 "element_id": "e_001",
                 "name": anchor["name"],
                 "order": 1,
-                "policy": "fill" if anchor["unit_id"] == "body_main" else "fixed",
+                "policy": fallback_policy,
                 "content": anchor.get("text", ""),
                 "style": "",
+                "role_hint": _role_hint_for_policy(fallback_policy),
+                "evidence": _element_evidence(fallback_policy, anchor.get("source_ref", "")),
                 "source_refs": [anchor.get("source_ref", "")],
             }
         )
     return elements
+
+
+def _element_from_entry(
+    anchor: dict[str, Any],
+    entry: dict[str, Any],
+    *,
+    element_id: str,
+    policy: str,
+    role_hint: str,
+    relationship: str = "",
+    policy_hint: str | None = None,
+) -> dict[str, Any]:
+    text = str(entry.get("text", "")).strip()
+    source_ref = entry.get("source_ref", "")
+    return {
+        "element_id": element_id,
+        "name": _element_name(anchor["unit_id"], text, policy_hint or policy),
+        "order": int(element_id.rsplit("_", 1)[-1]),
+        "policy": policy,
+        "type": _element_type(policy),
+        "fill": "yes" if policy == "fill" else "no",
+        "content": text if policy != "remove_instruction" else "",
+        "style": _style_summary(entry),
+        "position": source_ref,
+        "relationship": relationship,
+        "role_hint": role_hint,
+        "evidence": _element_evidence(policy_hint or policy, source_ref),
+        "source_refs": [source_ref],
+    }
+
+
+def _copy_only_policy_from_hint(policy_hint: str) -> str:
+    if policy_hint == "remove_instruction":
+        return "remove_instruction"
+    if policy_hint == "manual_only":
+        return "manual_only"
+    return "fixed"
+
+
+def _role_hint_for_policy(policy: str) -> str:
+    return {
+        "remove_instruction": "instruction_candidate",
+        "generated": "generated_field_candidate",
+        "fill": "student_field_candidate",
+        "manual_only": "manual_field_candidate",
+        "fixed": "fixed_text_candidate",
+    }.get(policy, "fixed_text_candidate")
+
+
+def _element_evidence(policy_hint: str, source_ref: Any) -> list[dict[str, Any]]:
+    return [
+        {
+            "kind": "source_ref",
+            "value": str(source_ref or ""),
+        },
+        {
+            "kind": "heuristic_policy_hint",
+            "value": policy_hint,
+        },
+    ]
 
 
 def _find_body_main_source_entry(

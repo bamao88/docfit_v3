@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from docfit.convert.orchestrator import run_e2e_eval
-from docfit.harness.product_quality import audit_e2e_case
+from docfit.harness.product_quality import _append_only_finding, audit_e2e_case
 
 
 ROOT = Path.cwd()
@@ -53,3 +53,62 @@ def test_real_core_problem_check_reports_all_four_stages(tmp_path) -> None:
 
     assert result.blocked_at == "template"
     assert result.status.value == "FAIL"
+
+
+def test_append_only_check_uses_earliest_rendered_paragraph_position() -> None:
+    finding = _append_only_finding(
+        {"data": {"paragraphs": [{} for _ in range(100)]}},
+        {
+            "data": {
+                "actions": [
+                    {"action_id": "a_001", "disposition": "place"},
+                    {"action_id": "a_002", "disposition": "place"},
+                ]
+            }
+        },
+        {
+            "actions_executed": [
+                {
+                    "action_id": "a_001",
+                    "actual_ooxml_ref": "word/document.xml:p[150]",
+                },
+                {
+                    "action_id": "a_002",
+                    "actual_ooxml_ref": "word/document.xml:p[50]",
+                },
+            ]
+        },
+        [{"index": 1, "text": "模板正文"}],
+    )
+
+    assert finding is None
+
+
+def test_append_only_check_reports_when_all_writes_follow_template() -> None:
+    finding = _append_only_finding(
+        {"data": {"paragraphs": [{} for _ in range(100)]}},
+        {
+            "data": {
+                "actions": [
+                    {"action_id": "a_001", "disposition": "place"},
+                    {"action_id": "a_002", "disposition": "place"},
+                ]
+            }
+        },
+        {
+            "actions_executed": [
+                {
+                    "action_id": "a_001",
+                    "actual_ooxml_ref": "word/document.xml:p[150]",
+                },
+                {
+                    "action_id": "a_002",
+                    "actual_ooxml_ref": "word/document.xml:p[151]",
+                },
+            ]
+        },
+        [{"index": 1, "text": "模板正文"}],
+    )
+
+    assert finding is not None
+    assert finding.type == "render_append_only_insertion"

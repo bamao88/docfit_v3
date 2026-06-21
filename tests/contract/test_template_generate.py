@@ -256,7 +256,7 @@ def test_template_generate_marks_fixed_unit_as_whole_unit_copy(tmp_path) -> None
     )
 
 
-def test_template_generate_copy_only_units_skip_internal_element_analysis(
+def test_template_generate_copy_only_units_use_restricted_internal_element_analysis(
     tmp_path,
 ) -> None:
     source = tmp_path / "test_inputs/template_generation/school-template.docx"
@@ -279,52 +279,52 @@ def test_template_generate_copy_only_units_skip_internal_element_analysis(
     plan = read_json(out_dir / "artifacts/template_generation_plan.json")
     cover_rule = next(unit for unit in rules["units"] if unit["unit_id"] == "cover")
     cover_decision = next(unit for unit in decisions["units"] if unit["unit_id"] == "cover")
+    cover_elements = cover_rule["elements"]
+    whole_copy = next(
+        element
+        for element in cover_elements
+        if element.get("relationship") == "whole_unit_copy"
+    )
+    title_candidate = next(
+        element
+        for element in cover_elements
+        if element.get("source_refs") == ["word/document.xml:p[2]"]
+    )
+    instruction_candidate = next(
+        element
+        for element in cover_elements
+        if element.get("source_refs") == ["word/document.xml:p[3]"]
+    )
 
     assert result.status == Status.PASS
-    assert cover_rule["elements"] == [
-        {
-            "content": "封面",
-            "element_id": "e_001",
-            "fill": "no",
-            "name": "封面整体复制区域",
-            "order": 1,
-            "policy": "fixed",
-            "position": "word/document.xml:p[1]",
-            "relationship": "whole_unit_copy",
-            "source_refs": [
-                "word/document.xml:p[1]",
-                "word/document.xml:p[2]",
-                "word/document.xml:p[3]",
-            ],
-            "style": "",
-            "type": "fixed_text",
-        }
-    ]
+    assert whole_copy["policy"] == "fixed"
+    assert whole_copy["role_hint"] == "whole_unit_copy_candidate"
+    assert title_candidate["role_hint"] == "student_field_candidate"
+    assert title_candidate["policy"] == "fixed"
+    assert instruction_candidate["role_hint"] == "instruction_candidate"
+    assert instruction_candidate["policy"] == "remove_instruction"
     assert cover_decision["generation_mode"] == "whole_unit_copy"
-    assert cover_decision["decisions"] == [
-        {
-            "copy_scope": "whole_unit",
-            "decision_id": "cover.keep_whole_unit_copy",
-            "decision_type": "keep_whole_unit_copy",
-            "element_id": None,
-            "reason": "this unit can be preserved by the initial source DOCX copy",
-            "source_ref": "word/document.xml:p[1]",
-            "unit_id": "cover",
-        }
-    ]
-    assert not any(
-        action.get("unit_id") == "cover"
-        and action["action_type"]
-        in {"create_fillable_slot", "remove_instruction_text"}
-        for action in plan["actions"]
+    assert any(
+        decision["decision_type"] == "keep_whole_unit_copy"
+        for decision in cover_decision["decisions"]
+    )
+    assert any(
+        decision["decision_type"] == "remove_instruction_text"
+        and decision["source_ref"] == "word/document.xml:p[3]"
+        for decision in cover_decision["decisions"]
     )
     assert not any(
+        action.get("unit_id") == "cover"
+        and action["action_type"] in {"create_fillable_slot", "create_generated_field_placeholder"}
+        for action in plan["actions"]
+    )
+    assert any(
         action["action_type"] == "remove_instruction_text"
         and action.get("source_ref") == "word/document.xml:p[3]"
         for action in plan["actions"]
     )
     assert "论文题目：____" in docx_texts(generated)
-    assert "格式说明：小四宋体" in docx_texts(generated)
+    assert "格式说明：小四宋体" not in docx_texts(generated)
     assert not any("[[DOCFIT_SLOT:cover." in text for text in docx_texts(generated))
 
 

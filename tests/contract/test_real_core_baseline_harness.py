@@ -260,7 +260,7 @@ def test_real_core_e2e_reaches_render_and_writes_bound_final_docx(tmp_path) -> N
         "template": "FAIL",
         "content": "UNKNOWN",
         "placement": "PASS",
-        "render": "FAIL",
+        "render": "UNKNOWN",
     }
     assert generated_from_stage.exists()
     assert (
@@ -275,7 +275,7 @@ def test_real_core_e2e_reaches_render_and_writes_bound_final_docx(tmp_path) -> N
         finding.type for finding in result.findings
     ]
     finding_types = [finding.type for finding in result.findings]
-    assert "render_append_only_insertion" in finding_types
+    assert "render_append_only_insertion" not in finding_types
     assert "placement_actions_collapsed_to_virtual_body_slot" not in finding_types
     assert any(
         finding.type == "template_generation_page_rule_unverified"
