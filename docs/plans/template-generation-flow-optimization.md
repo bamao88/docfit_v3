@@ -4,6 +4,9 @@ Last updated: 2026-06-21
 
 一句话结论：模板生成支撑流程应该收敛成五个逻辑步骤：源 Word 事实、候选结构识别、生成模板模型与策略、动作计划、执行与 manifest；其中阶段三产出系统后续要消费的模板业务地图，阶段四才把业务地图翻译成可执行 action。
 
+拆分实施文档：`docs/plans/template-generate-runner-split.md` 记录
+`src/docfit/stages/template_generate/runner.py` 应如何按这个五步流程拆成多个 Python 文件。
+
 ## 这个文件做什么
 
 这个文件是模板生成流程优化计划。它不是只讨论“默认仅复制单元”，而是把模板生成阶段里几个关键决策放到同一个流程里对齐：
