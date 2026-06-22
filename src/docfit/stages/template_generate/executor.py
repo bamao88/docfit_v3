@@ -95,6 +95,7 @@ def execute_template_generation_plan(
                     "element_id": action.get("element_id"),
                     "marker": marker,
                     "output_ref": output_ref,
+                    "source_seq_refs": action.get("affected_source_seq_refs", []),
                 }
             )
             executed.append(_executed(action, output_ref=output_ref))
@@ -203,6 +204,7 @@ def _slot_from_action(
         "kind": "body_content",
         "marker": marker,
         "output_ref": output_ref,
+        "source_seq_refs": action.get("affected_source_seq_refs", []),
         "required": True,
     }
 

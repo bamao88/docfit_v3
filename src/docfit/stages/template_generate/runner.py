@@ -8,7 +8,7 @@ from docfit.ooxml.package import is_valid_docx
 
 from .constants import BODY_SLOT_MARKER, DEFAULT_TEMPLATE_GENERATION_STRATEGY
 from .executor import execute_template_generation_plan
-from .generation_model import build_template_artifact, build_template_unit_decisions
+from .generation_model import build_template_generation_model
 from .manifest import build_template_generation_manifest
 from .outputs import (
     _new_template_generation_debug_dir,
@@ -18,7 +18,7 @@ from .outputs import (
 from .plan import build_template_generation_plan
 from .request import build_template_generation_request
 from .source_tree import inspect_source_template_docx
-from .structure_candidates import infer_template_rules
+from .structure_candidates import build_template_structure_candidates
 
 
 def generate_template(
@@ -70,7 +70,7 @@ def generate_template(
 
     debug_dir = _new_template_generation_debug_dir(debug_root)
     copy_source_snapshot_docx = (
-        debug_dir / "07_copy_source_docx.docx" if debug_dir is not None else None
+        debug_dir / "05.0_copy_source_docx.docx" if debug_dir is not None else None
     )
 
     request = build_template_generation_request(
@@ -79,13 +79,14 @@ def generate_template(
         strategy=strategy,
     )
     source_tree = inspect_source_template_docx(source_template_docx)
-    discovered_rules = infer_template_rules(source_tree)
-    template_artifact = build_template_artifact(request, source_tree, discovered_rules)
-    decisions = build_template_unit_decisions(template_artifact)
+    structure_candidates = build_template_structure_candidates(source_tree)
+    generation_model = build_template_generation_model(
+        request,
+        structure_candidates=structure_candidates,
+    )
     plan = build_template_generation_plan(
         request,
-        template_artifact=template_artifact,
-        decisions=decisions,
+        generation_model=generation_model,
     )
     generated_template_docx = out_dir / "generated_template.docx"
     execution = execute_template_generation_plan(
@@ -97,9 +98,8 @@ def generate_template(
     manifest = build_template_generation_manifest(
         request=request,
         source_tree=source_tree,
-        discovered_rules=discovered_rules,
-        template_artifact=template_artifact,
-        decisions=decisions,
+        structure_candidates=structure_candidates,
+        generation_model=generation_model,
         plan=plan,
         generated_template_docx=generated_template_docx,
         execution=execution,
@@ -112,9 +112,8 @@ def generate_template(
             source_template_docx=source_template_docx,
             request=request,
             source_tree=source_tree,
-            discovered_rules=discovered_rules,
-            template_artifact=template_artifact,
-            decisions=decisions,
+            structure_candidates=structure_candidates,
+            generation_model=generation_model,
             plan=plan,
             copy_source_snapshot_docx=copy_source_snapshot_docx,
             generated_template_docx=generated_template_docx,
@@ -131,9 +130,8 @@ def generate_template(
         artifacts={
             "template_generation_request": request,
             "source_template_tree": source_tree,
-            "discovered_template_rules": discovered_rules,
-            "template_artifact": template_artifact,
-            "template_unit_decisions": decisions,
+            "template_structure_candidates": structure_candidates,
+            "template_generation_model": generation_model,
             "template_generation_plan": plan,
             "template_generation_manifest": manifest,
         },
@@ -142,9 +140,8 @@ def generate_template(
             input_exists=True,
             input_valid_docx=True,
             source_tree=bool(source_tree.get("layers", {}).get("body_flow")),
-            discovered_rules=bool(discovered_rules.get("units")),
-            template_artifact=bool(template_artifact.get("data", {}).get("units")),
-            decisions=bool(decisions.get("units")),
+            structure_candidates=bool(structure_candidates.get("units")),
+            generation_model=bool(generation_model.get("units")),
             generation_plan=bool(plan.get("actions")),
             output_docx=generated_template_docx.exists(),
             manifest=True,
@@ -162,9 +159,8 @@ def _coverage(
     input_exists: bool,
     input_valid_docx: bool | None = None,
     source_tree: bool = False,
-    discovered_rules: bool = False,
-    template_artifact: bool = False,
-    decisions: bool = False,
+    structure_candidates: bool = False,
+    generation_model: bool = False,
     generation_plan: bool = False,
     output_docx: bool = False,
     manifest: bool = False,
@@ -174,9 +170,8 @@ def _coverage(
         "template_generation.input_exists": input_exists,
         "template_generation.input_valid_docx": bool(input_valid_docx),
         "template_generation.source_tree": source_tree,
-        "template_generation.discovered_rules": discovered_rules,
-        "template_generation.template_artifact": template_artifact,
-        "template_generation.decisions": decisions,
+        "template_generation.structure_candidates": structure_candidates,
+        "template_generation.generation_model": generation_model,
         "template_generation.plan": generation_plan,
         "template_generation.output_docx": output_docx,
         "template_generation.manifest": manifest,

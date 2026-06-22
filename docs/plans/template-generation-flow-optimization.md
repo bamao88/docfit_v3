@@ -9,17 +9,18 @@ Last updated: 2026-06-22
 
 ## 文档定位（先读）
 
-这份文件是模板生成支撑流程的目标方案文档，不是当前实现清单。它先定义我们希望模板生成最终收敛到什么逻辑边界，再用“当前真实实现”“当前代码”“当前旧产物承载”等段落说明现在代码如何承载这些职责。
+这份文件是模板生成支撑流程的目标方案和执行记录。它先定义模板生成最终收敛到什么逻辑边界，再用“当前真实实现”“当前代码”“历史旧产物承载”等段落说明现在代码如何承载这些职责。
 
 读这份文档时按下面口径区分：
 
 | 写法 | 含义 |
 | --- | --- |
 | 目标方案、目标产物、应该 | 新方案的逻辑边界和未来稳定口径 |
-| 当前真实实现、当前代码、当前旧产物承载 | 仓库现在已经实现、但还没有切到目标产物名的方式 |
+| 当前真实实现、当前代码 | 仓库现在已经实现的方式 |
+| 历史旧产物承载 | 本轮切换前的实现方式，用来解释为什么要改 |
 | 仍需补齐、目标需要 | 当前还没有完全闭合，不能当成已实现能力 |
 
-所以，“阶段二：候选结构识别”和“阶段三：生成模板模型与策略”在本文里首先是目标职责拆分。当前代码已经拆出 `structure_candidates.py` 和 `generation_model.py`，但阶段二/三的产物边界还没有完全稳定成 `template_structure_candidates.json -> template_generation_model.json`：当前仍主要通过 `discovered_template_rules.json`、`template_artifact.json` 和 `template_unit_decisions.json` 承载。目标改造时同步更新消费者，不为旧产物名保留兼容输出。
+所以，“阶段二：候选结构识别”和“阶段三：生成模板模型与策略”在本文里首先是职责拆分。当前代码已经切到 `template_structure_candidates.json -> template_generation_model.json`：阶段二由 `structure_candidates.py` 写候选结构、logical element、`source_seq_refs` 和 `source_context`；阶段三由 `generation_model.py` 写单一生成模型、`unit_strategies`、slots、protected zones 和 cleanup。历史旧产物 `discovered_template_rules.json`、template-generate 内部的 `template_artifact.json` 和 `template_unit_decisions.json` 不再作为本支撑流程的 public artifacts 写出。
 
 如果只想看当前真实流程，以 `docs/current/template-generation.md` 为准；如果要讨论下一步怎么改阶段边界、字段和责任，以本文为准。
 
@@ -143,7 +144,7 @@ Last updated: 2026-06-22
 
 | 问题 | 本文件回答 |
 | --- | --- |
-| 这是新方案还是现状 | 主体写新方案；凡是现状都用“当前真实实现 / 当前代码 / 当前旧产物承载”单独标出 |
+| 这是新方案还是现状 | 主体写目标方案和执行结果；凡是现状都用“当前真实实现 / 当前代码”单独标出，历史实现用“历史旧产物承载”标出 |
 | 模板生成要优化什么 | 从“按 unit_id 排除列表”升级为“硬编码基线 + 内容责任 + 学生源内容 + 学校标准”的策略选择 |
 | 哪些区域可以仅复制 | 学校固定正文、签名日期、教师意见、成绩评定等不由机器填写的区域 |
 | 哪些区域不能默认仅复制 | 中文摘要、英文摘要、目录族、正文、参考文献，以及有学生内容的致谢/附录 |
@@ -160,8 +161,8 @@ Last updated: 2026-06-22
 | 逻辑步骤 | 输出 | 回答的问题 | 不做什么 |
 | --- | --- | --- | --- |
 | 阶段一：源 Word 事实 | `source_template_tree.json` | 学校原始 Word 里实际有什么段落、表格、样式、页眉页脚、source_ref | 不判断业务单元，不决定生成策略 |
-| 阶段二：候选结构识别 | `template_structure_candidates.json`；当前旧产物是 `discovered_template_rules.json` | 这些事实看起来属于哪些 unit / element，有哪些 role_hint 和 evidence | 不输出 `whole_unit_copy` / `copy_then_patch`，不生成 slot 或 action |
-| 阶段三：生成模板模型与策略 | `template_generation_model`，当前由 `template_artifact.json` + `template_unit_decisions.json` 承载 | 这个模板在系统里是什么业务地图；每个 unit 怎么处理；哪些是 slots、protected_zones、cleanup、unresolved_questions | 不直接改 Word，不生成 python-docx 执行动作 |
+| 阶段二：候选结构识别 | `template_structure_candidates.json` | 这些事实看起来属于哪些 unit / element，有哪些 role_hint 和 evidence | 不输出 `whole_unit_copy` / `copy_then_patch`，不生成 slot 或 action |
+| 阶段三：生成模板模型与策略 | `template_generation_model.json` | 这个模板在系统里是什么业务地图；每个 unit 怎么处理；哪些是 slots、protected_zones、cleanup、unresolved_questions | 不直接改 Word，不生成 python-docx 执行动作 |
 | 阶段四：动作计划 | `template_generation_plan.json` | 为了实现阶段三的业务地图，需要执行哪些 copy / preserve / slot / cleanup action | 不重新判断 unit 语义，不反推业务模型 |
 | 阶段五：执行与记录 | `generated_template.docx` + `template_generation_manifest.json` | 实际执行了哪些 action，输出 Word 和 hash 是什么，哪些 action 需要 review | 不重新决定内容应该放哪里，不决定 PASS / FAIL |
 
@@ -183,14 +184,14 @@ Last updated: 2026-06-22
 
 当前代码的 copy-only 默认规则仍按 `unit_id` 判断。这是实现现状，不是长期定义。
 
-当前阶段二/阶段三已经有对应模块和产物链，但还不是目标方案里的完全独立边界：
+当前阶段二/阶段三已经切到目标产物链：
 
 | 目标职责 | 当前实现承载 |
 | --- | --- |
-| 阶段二候选结构识别 | `structure_candidates.py` 写 `discovered_template_rules.json`，已有第一版 entry 级元素、`role_hint` 和 copy-only 受限内部候选 |
-| 阶段三生成模板模型与策略 | `generation_model.py` 写 `template_artifact.json` 和 `template_unit_decisions.json`，把候选 `policy` materialize 成最终执行策略 |
-| 目标 `template_structure_candidates.json` | 当前还没有作为稳定独立产物命名，主要由 `discovered_template_rules.json` 承载；目标切换后不保留旧名兼容输出 |
-| 目标 `template_generation_model.json` | 当前还没有作为单一稳定产物写出，主要由 `template_artifact.json` + `template_unit_decisions.json` 共同承担 |
+| 阶段二候选结构识别 | `structure_candidates.py` 写 `template_structure_candidates.json`，已有第一版 logical element、`role_hint`、`source_seq_refs`、`source_context` 和 copy-only 受限内部候选 |
+| 阶段三生成模板模型与策略 | `generation_model.py` 写 `template_generation_model.json`，把候选 `candidate_policy` materialize 成最终 `policy`，并集中输出 `unit_strategies`、slots、protected zones、cleanup 和 unresolved questions |
+| 历史 `discovered_template_rules.json` | 已从 template-generate public artifacts 移除，不再双写兼容输出 |
+| 历史 `template_artifact.json` + `template_unit_decisions.json` | 已在 template-generate 支撑流程中收敛为 `template_generation_model.json`；业务四阶段里的 template_parse `template_artifact.json` 不属于这次改名范围 |
 
 已修正的偏差：copy-only 单元不再完全跳过内部元素分析。阶段二会为 copy-only 单元写出单元级 `whole_unit_copy` 候选和内部受限候选元素；阶段三会把内部说明文字 materialize 成 cleanup，把内部填写/生成候选 materialize 成固定保留证据，不会自动生成学生内容 slot。`whole_unit_copy` 只表示“主体结构和固定内容通过整包复制保留”，不表示“内部说明文字免处理”。
 
@@ -204,13 +205,13 @@ Last updated: 2026-06-22
 | `body_main` | 正文 | 学生正文内容的主要写入区域 |
 | `references` | 参考文献 | 通常来自学生文档，不能默认把源模板里的参考文献区域当成最终内容 |
 
-## 代码改造执行计划（按阶段）
+## 代码改造执行记录（按阶段）
 
-一句话结论：下一轮代码优化不是继续拆模块，而是在现有模块里把阶段产物切到目标形态。最核心的改动是阶段二先把原始 entry 合并成 logical element，阶段三再把旧的 `template_artifact + template_unit_decisions` 合并成单一 `template_generation_model`。
+一句话结论：本轮代码优化没有继续拆模块，而是在现有模块里把阶段产物切到目标形态。最核心的改动是阶段二把原始 entry 汇总成带 `source_seq_refs` 的 logical element，阶段三把旧的 `template_artifact + template_unit_decisions` 合并成单一 `template_generation_model`。
 
 ### 总调用链怎么改
 
-当前 `runner.py` 调用链是：
+切换前 `runner.py` 调用链是：
 
 ```python
 request = build_template_generation_request(...)
@@ -234,7 +235,7 @@ manifest = build_template_generation_manifest(
 )
 ```
 
-目标调用链应改成：
+当前 `runner.py` 调用链已改成：
 
 ```python
 request = build_template_generation_request(...)
@@ -275,7 +276,7 @@ manifest = build_template_generation_manifest(
 | `structure_candidates.py::infer_template_rules` | 改为 `build_template_structure_candidates`，产物 `artifact_type` 改为 `template_structure_candidates`；public artifact key 改成 `template_structure_candidates` | `--out/artifacts/template_structure_candidates.json` 存在；不再写 `discovered_template_rules.json` |
 | `_body_entries` | 要求每个 entry 带 `source_seq`；过滤页眉页脚的同时保留它们到 `source_context.header_footer` | 正文 unit 不混入页眉页脚，但阶段三仍能拿到页眉页脚上下文 |
 | `_infer_units` / `_unit_anchors` | unit 增加 `source_range`、`source_seq_range`、`source_seq_refs[]`、`anchors[]`；anchor 证据写 `source_ref + source_seq` | 单元范围能用原始序号解释，例如 cover 覆盖 1-6 |
-| `_infer_elements` | 拆成三步：`entry -> fragment -> logical element -> role_hint/evidence`；先实现表格同一行 label+blank、连续说明文字、句子/段落 continuation 三类合并 | 合并后的 element 保留全部 `source_refs[]`、`entry_refs[]`、`source_seq_refs[]` 和 `merge.reason` |
+| `_infer_elements` | 拆成三步：`entry -> fragment -> logical element -> role_hint/evidence`；本轮先实现连续说明文字合并，表格同一行 label+blank 和句子/段落 continuation 后续继续补 | 合并后的 element 保留全部 `source_refs[]`、`entry_refs[]`、`source_seq_refs[]` 和 `merge.reason` |
 | `_copy_only_unit_elements` | 不再把 copy-only 写成最终策略；输出单元级 `copy_region_candidate` 和内部受限 logical elements。内部 `student_field_candidate` 只能作为证据，不能在阶段二变成 slot | copy-only 封面里的 `论文题目：____` 仍有候选证据，但阶段二不输出最终 `generation_mode` |
 | `_element_policy` | 保留为内部启发式也可以，但输出字段应改成 `role_hint` / `candidate_policy`，不要让阶段二的 `policy` 被误读成最终处理策略 | 阶段二 schema 中没有最终 `whole_unit_copy` / `copy_then_patch` |
 | 新增 `_source_context_from_source_tree` | 把 `body_order`、`by_source_ref`、`by_source_seq`、`style_inventory`、`numbering_definitions`、`section_rules`、`header_footer`、`unknown_objects` 从阶段一整理到 `source_context` | 阶段三不再为了页面、样式、编号、页眉页脚直接回读完整 `source_tree` |
@@ -285,8 +286,8 @@ manifest = build_template_generation_manifest(
 
 | 文件 / 函数 | 具体改动 | 验收断言 |
 | --- | --- | --- |
-| `generation_model.py::build_template_artifact` | 改成或包成 `build_template_generation_model(request, structure_candidates=...)`，产物 `artifact_type = template_generation_model` | `--out/artifacts/template_generation_model.json` 存在；不再写 template-generate 的 `template_artifact.json` |
-| `generation_model.py::build_template_unit_decisions` | 不再作为单独 public 产物；逻辑并入 `template_generation_model.unit_strategies[]` 和 `generation_model.decisions[]` 或 `action_intents[]` | 没有 `template_unit_decisions.json`；每个 unit 的策略仍可追踪 |
+| `generation_model.py::build_template_generation_model` | 已替代旧的 template-generate `build_template_artifact` 写法，产物 `artifact_type = template_generation_model` | `--out/artifacts/template_generation_model.json` 存在；不再写 template-generate 的 `template_artifact.json` |
+| 阶段三 unit 决策构建 | 旧的 `build_template_unit_decisions` 不再作为单独 public 产物；逻辑并入 `template_generation_model.unit_strategies[]`、`slots[]`、`protected_zones[]`、`cleanup[]` | 没有 `template_unit_decisions.json`；每个 unit 的策略仍可追踪 |
 | `_materialize_template_units` | 改为消费阶段二的 logical elements 和 `role_hint`；输出确认后的 `units[]`、最终 `policy` 或 `final_disposition` | 阶段三才出现最终 `generation_mode`、slot、cleanup、protected zone |
 | 新增 `_build_unit_strategies` | 集中决定 `whole_unit_copy` / `copy_then_patch` / `needs_review`；当前先沿用 `COPY_ONLY_DEFAULT_EXCLUDED_UNIT_IDS`，后续再接学校标准和学生内容台账 | cover 默认 whole copy，references 默认 copy_then_patch |
 | 新增 `_build_cleanup` | 把 `role_hint = instruction_candidate` 的 logical element 转成 `cleanup[]`，保留 `source_refs[]`、`source_seq_refs[]`、evidence | copy-only 内部说明文字能进入 cleanup |
@@ -324,7 +325,7 @@ manifest = build_template_generation_manifest(
 | --- | --- |
 | `tests/contract/test_template_generate.py` | 这是主测试改动点：更新文件名、artifact_type、debug 编号、source_seq、阶段二合并、阶段三模型、action trace 断言 |
 | `src/docfit/convert/orchestrator.py` | `_artifact_refs` 自动读 `StageResult.artifact_paths`，通常只要 runner/artifact key 更新即可；但要检查 e2e summary 里是否有旧 key 断言 |
-| `docs/current/template-generation.md` | 代码真正切换后再从“当前旧产物承载”更新为“当前真实实现”；不要在代码未改前提前写成已实现 |
+| `docs/current/template-generation.md` | 已同步为当前真实实现：阶段二/三新产物、source_seq 追踪、阶段编号 debug 文件名和验证记录 |
 | 全仓搜索 | 用 `rg "discovered_template_rules|template_unit_decisions|03_discovered|04_template_artifact|05_template_unit"` 找残留；`template_parse` 业务产物里的 `template_artifact` 不属于本次清理 |
 
 ### 最小提交切分
@@ -446,8 +447,8 @@ flowchart TD
 | 输入存在性和 DOCX 有效性检查 | `src/docfit/stages/template_generate/runner.py`、`src/docfit/ooxml/package.py` | 已实现 |
 | 源 Word 解析 | `src/docfit/stages/template_generate/source_tree.py`、`src/docfit/harness/generated_template_inspector.py` | 已实现 |
 | 候选结构识别 | `src/docfit/stages/template_generate/structure_candidates.py` | 已实现第一版；输出 entry 级候选元素、`role_hint` 和 evidence |
-| 生成模板模型与策略 | `src/docfit/stages/template_generate/generation_model.py`、`src/docfit/harness/template_units.py` | 当前由旧产物层承载；materialize 最终 `policy`，学校标准和学生内容台账尚未正式接入 |
-| 动作计划生成 | `src/docfit/stages/template_generate/plan.py` | 已实现；消费阶段三 artifact 和 decisions，不重新决定 copy-only / fill / generated 语义 |
+| 生成模板模型与策略 | `src/docfit/stages/template_generate/generation_model.py`、`src/docfit/harness/template_units.py` | 已切到 `template_generation_model.json`；materialize 最终 `policy`，学校标准和学生内容台账尚未正式接入 |
+| 动作计划生成 | `src/docfit/stages/template_generate/plan.py` | 已实现；消费阶段三 generation model，不重新决定 copy-only / fill / generated 语义 |
 | Word 复制和 action 执行 | `src/docfit/stages/template_generate/executor.py` | 已实现 |
 | 产物写出和 summary/debug | `src/docfit/stages/template_generate/manifest.py`、`src/docfit/stages/template_generate/outputs.py`、`src/docfit/convert/orchestrator.py` | 已实现 |
 
@@ -472,7 +473,7 @@ flowchart TD
 
 | 不是这一阶段做的事 | 后续在哪里做 |
 | --- | --- |
-| 不判断 `cover` / `abstract_cn` / `body_main` 等单元 | `discovered_template_rules` |
+| 不判断 `cover` / `abstract_cn` / `body_main` 等单元 | `template_structure_candidates` |
 | 不判断元素是否 `fill` | 非 copy-only 单元的元素分析 |
 | 不决定 action | `template_generation_plan` |
 | 不证明生成模板合格 | `template-gap` |
@@ -498,9 +499,7 @@ flowchart TD
 
 ## 阶段二：候选结构识别
 
-目标产物：`template_structure_candidates.json`
-
-当前旧产物：`discovered_template_rules.json`
+产物：`template_structure_candidates.json`
 
 阶段二真正应该承担的职责，不是把阶段一的 `body_flow entry` 换个名字叫 element。阶段一负责记录 Word 里“看见了什么”，包括文本、表格、source_ref、样式、顺序、结构层；阶段二应该把这些低层事实整理成后续生成策略能理解的单元和元素。
 
@@ -520,10 +519,10 @@ flowchart TD
 | 项 | 当前情况 |
 | --- | --- |
 | 代码位置 | `src/docfit/stages/template_generate/structure_candidates.py` |
-| 当前产物 | `discovered_template_rules.json` |
-| 已有能力 | 识别候选 unit；给 entry 级元素写 `policy`、`role_hint`、evidence；copy-only 单元已有第一版受限内部候选 |
-| 还不是目标的地方 | 还没有稳定 logical element 合并层；`source_context`、`conflicts[]`、`open_questions[]` 还没有按目标 schema 集中输出 |
-| 和阶段三的关系 | 当前阶段三仍会直接回读部分 `source_tree` 全局事实；目标上应通过阶段二 `source_context` 传递 |
+| 当前产物 | `template_structure_candidates.json` |
+| 已有能力 | 识别候选 unit；把连续说明文字合并成 logical element；给 element 写 `candidate_policy`、`role_hint`、evidence、`source_seq_refs`；copy-only 单元已有第一版受限内部候选；集中输出 `source_context`、`unknowns[]`、`open_questions[]` |
+| 还不是目标的地方 | 表格 label/value、跨段落业务句、文本框等更复杂 logical element 合并仍需继续增强；学校标准和学生内容台账尚未正式接入 |
+| 和阶段三的关系 | 当前阶段三消费阶段二的 `units[]`、`source_context` 和 `source_seq_refs`；不再把旧产物作为 public artifact |
 
 ### 阶段二输入契约
 
@@ -563,7 +562,7 @@ flowchart TD
 
 ### 阶段二输出契约
 
-阶段二交给阶段三的输出当前仍主要叫 `discovered_template_rules.json`。目标上更准确的名字是
+阶段二交给阶段三的输出已经改成
 `template_structure_candidates.json`：它不应该直接生成 Word action，也不应该最终决定
 `generation_mode`；它只输出“候选结构 + source_ref + role_hint + evidence”，供阶段三生成模板模型与处理策略。
 
@@ -830,13 +829,11 @@ body_flow entries
 | `source_template_tree.data.tables[].cells[]` | 确认是否被表格 cell 切碎 |
 | `source_template_tree.data.text_boxes[]` / `layers.unknown_objects[]` | 确认是否来自文本框或未解析 drawing |
 | `source_template_tree.layers.body_flow[]` | 确认阶段二实际消费的 entry 顺序和 source_ref |
-| `discovered_template_rules.units[].elements[]` | 确认碎片最终分别变成了哪些 element、policy 是什么 |
+| `template_structure_candidates.units[].elements[]` | 确认碎片最终分别变成了哪些 element、candidate_policy 是什么 |
 
 ## 阶段三：生成模板模型与策略
 
-目标产物：`template_generation_model.json`
-
-当前旧产物：`template_artifact.json` + `template_unit_decisions.json`
+产物：`template_generation_model.json`
 
 这个阶段不重新识别元素语义，而是把阶段二输出的候选 `units[]`、logical `elements[]`、`role_hint`、`source_context`，再结合学校标准、学生内容台账和默认责任基线，生成一次模板生成的业务模型和处理策略。
 
@@ -845,10 +842,10 @@ body_flow entries
 | 项 | 当前情况 |
 | --- | --- |
 | 代码位置 | `src/docfit/stages/template_generate/generation_model.py` |
-| 当前产物 | `template_artifact.json` + `template_unit_decisions.json` |
-| 已有能力 | 把阶段二候选 `policy` materialize 成最终 `policy`；为 copy-only 单元生成 `whole_unit_copy` 决策；把说明文字转成 cleanup 决策 |
-| 还不是目标的地方 | 还没有单一稳定的 `template_generation_model.json`；学校标准和学生内容台账尚未作为正式输入接入；`unresolved_questions[]` 还比较弱 |
-| 和阶段二的关系 | 当前仍依赖阶段二的候选 `policy` / `role_hint`，也会读取部分阶段一 `source_tree` 上下文；目标上应主要消费阶段二整理后的 `source_context` |
+| 当前产物 | `template_generation_model.json` |
+| 已有能力 | 把阶段二候选 `candidate_policy` materialize 成最终 `policy`；为 copy-only 单元生成 `whole_unit_copy` 策略；把说明文字转成 `cleanup[]`；集中输出 slots、required_fields、protected_zones、unsupported、unresolved_questions |
+| 还不是目标的地方 | 学校标准和学生内容台账尚未作为正式输入接入；`unresolved_questions[]` 还比较弱 |
+| 和阶段二的关系 | 当前消费阶段二的候选 `candidate_policy` / `role_hint`、`source_context` 和 `source_seq_refs`；不再读取旧阶段三 public artifacts |
 
 阶段三回答的问题是：
 
@@ -896,16 +893,16 @@ body_flow entries
 
 当前代码的对应关系：
 
-| 目标模型字段 | 当前旧产物承载 |
+| 模型字段 | 当前承载 |
 | --- | --- |
-| `units[]` / `unit_strategies[]` | `template_artifact.data.units[]` + `template_unit_decisions.units[]` |
-| `slots[]` | `template_artifact.data.slots[]` |
-| `required_fields[]` | `template_artifact.data.required_fields[]` |
-| `protected_zones[]` | `template_artifact.data.protected_zones[]` |
-| `cleanup[]` | `template_artifact.data.instruction_paragraphs[]` + `template_generation_plan.remove_instruction_text` |
-| `unresolved_questions[]` | 当前较弱，主要散落在 unknowns / warnings，目标需要集中表达 |
+| `units[]` / `unit_strategies[]` | `template_generation_model.units[]` + `template_generation_model.unit_strategies[]` |
+| `slots[]` | `template_generation_model.slots[]` |
+| `required_fields[]` | `template_generation_model.required_fields[]` |
+| `protected_zones[]` | `template_generation_model.protected_zones[]` |
+| `cleanup[]` | `template_generation_model.cleanup[]`；阶段四再转成 `template_generation_plan.remove_instruction_text` |
+| `unresolved_questions[]` | `template_generation_model.unresolved_questions[]`，后续还要接入更强的学校标准和学生内容证据 |
 
-所以如果说“当前阶段二和阶段三合并了”，更准确地说是：它们的目标职责已经拆开描述，但当前产物和代码边界仍由旧产物承载，还没有完全收敛成两个稳定阶段产物。本文后续提到阶段二/阶段三时，优先指目标职责；谈到当前代码时会单独用“当前实现”标出。目标改造不需要旧名相互兼容，应同步替换产物生产者和消费者。
+所以如果说“当前阶段二和阶段三合并了”，更准确地说是：旧实现曾经把两个职责揉在 `discovered_template_rules`、`template_artifact` 和 `template_unit_decisions` 里；现在已经拆成 `template_structure_candidates.json` 和 `template_generation_model.json`。后续优化应继续增强这两个阶段内部的判断质量，而不是恢复旧名或做旧名兼容。
 
 ## 阶段四：生成 action plan
 
@@ -959,8 +956,8 @@ remove_instruction_text
 | --- | --- |
 | `generated_template.docx` | 模板生成阶段正式 Word 输出 |
 | `template_generation_manifest.json` | 记录执行过哪些 action、输出 hash、slot 和待复核项 |
-| `07_copy_source_docx.docx` | 调试快照：只做整包复制后的 Word |
-| `08_generated_template.docx` | 调试快照：执行所有 action 后的 Word |
+| `05.0_copy_source_docx.docx` | 调试快照：只做整包复制后的 Word |
+| `05.1_generated_template.docx` | 调试快照：执行所有 action 后的 Word |
 
 目标调试快照命名应按阶段编号，而不是按流水步骤编号。整数部分对应阶段，点后面表示该阶段内的子产物；`00` 留给运行输入、请求和上下文，`99` 留给索引、汇总和非阶段性说明。目标命名不为旧产物名额外保留兼容文件。
 
@@ -987,7 +984,7 @@ remove_instruction_text
 ```mermaid
 flowchart TD
   A["开始执行 plan"] --> B["整包复制 source_template_docx<br/>到 generated_template.docx"]
-  B --> C["可选写 07_copy_source_docx.docx"]
+  B --> C["可选写 05.0_copy_source_docx.docx"]
   C --> D["用 python-docx 打开副本"]
   D --> E{"逐个 action 执行"}
   E -->|preserve_whole_unit_copy| F["不改 Word<br/>只写 actions_executed"]
@@ -1065,12 +1062,12 @@ flowchart TD
 
 | 现象 | first_bad_stage | 先看什么 | 应该改哪里 |
 | --- | --- | --- | --- |
-| 某个单元没有被识别出来 | `unit_detection` | `discovered_template_rules.json` | 单元 anchor 识别 |
-| 应该 copy-only 的单元仍被插 slot | `mode_selection` 或 `element_policy` | `template_unit_decisions.json`、`template_generation_plan.json` | copy-only 排除列表或单元识别 |
-| copy-only 单元里的说明文字没有被删除 | `copy_only_element_policy` 或 `artifact_build` | `discovered_template_rules.json`、`template_artifact.data.instruction_paragraphs`、`template_generation_plan.actions[]` | copy-only 受限元素识别和 instruction source_ref 过滤 |
-| copy-only 单元里的固定/人工内容被误删 | `copy_only_element_policy` 或 `plan_build` | `discovered_template_rules.json`、`template_generation_plan.actions[]` | 说明文字规则和 protected zone 边界 |
-| 非 copy-only 单元没有 slot | `element_policy` | `discovered_template_rules.json` 的 elements | `_element_policy` |
-| plan 正确但 Word 没变化 | `action_execution` | `07_copy_source_docx.docx` vs `08_generated_template.docx` | action 执行器 |
+| 某个单元没有被识别出来 | `unit_detection` | `template_structure_candidates.json` | 单元 anchor 识别 |
+| 应该 copy-only 的单元仍被插 slot | `mode_selection` 或 `element_policy` | `template_generation_model.json`、`template_generation_plan.json` | copy-only 排除列表或单元识别 |
+| copy-only 单元里的说明文字没有被删除 | `copy_only_element_policy` 或 `model_build` | `template_structure_candidates.json`、`template_generation_model.cleanup[]`、`template_generation_plan.actions[]` | copy-only 受限元素识别和 instruction source_ref 过滤 |
+| copy-only 单元里的固定/人工内容被误删 | `copy_only_element_policy` 或 `plan_build` | `template_structure_candidates.json`、`template_generation_plan.actions[]` | 说明文字规则和 protected zone 边界 |
+| 非 copy-only 单元没有 slot | `element_policy` | `template_structure_candidates.json` 的 elements、`template_generation_model.slots[]` | `_element_policy` 或 model materialize |
+| plan 正确但 Word 没变化 | `action_execution` | `05.0_copy_source_docx.docx` vs `05.1_generated_template.docx` | action 执行器 |
 | manifest 说保留但 gap 找不到单元 | `gap_region_or_evidence` | `generated_template_tree.json` 和 `template_gap_report.json` | generated-template inspector 或 gap 单元定位 |
 
 ## 验证方式

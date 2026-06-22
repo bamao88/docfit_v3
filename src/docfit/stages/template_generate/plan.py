@@ -12,8 +12,7 @@ from .text_utils import _normalize_text
 def build_template_generation_plan(
     request: dict[str, Any],
     *,
-    template_artifact: dict[str, Any],
-    decisions: dict[str, Any],
+    generation_model: dict[str, Any],
 ) -> dict[str, Any]:
     actions: list[dict[str, Any]] = [
         {
@@ -22,6 +21,7 @@ def build_template_generation_plan(
             "unit_id": None,
             "element_id": None,
             "source_ref": request.get("source_template_docx"),
+            "affected_source_seq_refs": [],
             "target_ref": "generated_template.docx",
             "status": "planned",
             "reason": "create the generated Word from the source template package",
@@ -30,7 +30,7 @@ def build_template_generation_plan(
     next_id = 2
     page_boundary_refs: set[str] = set()
     section_boundary_refs: set[str] = set()
-    for index, unit in enumerate(template_artifact.get("data", {}).get("units", [])):
+    for index, unit in enumerate(generation_model.get("data", {}).get("units", [])):
         if index == 0:
             continue
         page = unit.get("page") or {}
@@ -48,6 +48,7 @@ def build_template_generation_plan(
                     "unit_id": unit.get("unit_id"),
                     "element_id": None,
                     "source_ref": source_ref,
+                    "affected_source_seq_refs": unit.get("source_seq_refs", []),
                     "target_ref": source_ref,
                     "status": "planned",
                     "reason": "unit page rule requires a deterministic page break before this unit",
@@ -66,6 +67,7 @@ def build_template_generation_plan(
                     "unit_id": unit.get("unit_id"),
                     "element_id": None,
                     "source_ref": source_ref,
+                    "affected_source_seq_refs": unit.get("source_seq_refs", []),
                     "target_ref": source_ref,
                     "status": "planned",
                     "reason": "unit page rule requires a deterministic section boundary before this unit",
@@ -73,11 +75,11 @@ def build_template_generation_plan(
             )
             section_boundary_refs.add(source_ref)
             next_id += 1
-    for action in _synthetic_unit_title_actions(template_artifact):
+    for action in _synthetic_unit_title_actions(generation_model):
         action["action_id"] = f"a_{next_id:03d}"
         actions.append(action)
         next_id += 1
-    for unit in decisions.get("units", []):
+    for unit in generation_model.get("unit_strategies", []):
         for decision in unit.get("decisions", []):
             action_type = _action_type_for_decision(decision["decision_type"])
             actions.append(
@@ -87,6 +89,7 @@ def build_template_generation_plan(
                     "unit_id": decision.get("unit_id"),
                     "element_id": decision.get("element_id"),
                     "source_ref": decision.get("source_ref"),
+                    "affected_source_seq_refs": decision.get("source_seq_refs", []),
                     "target_ref": _target_ref_for_decision(decision),
                     "status": "planned",
                     "reason": decision.get("reason"),
@@ -98,10 +101,7 @@ def build_template_generation_plan(
         for action in actions
         if action.get("action_type") == "remove_instruction_text"
     }
-    for instruction in template_artifact.get("data", {}).get(
-        "instruction_paragraphs",
-        [],
-    ):
+    for instruction in generation_model.get("cleanup", []):
         source_ref = instruction.get("source_ref")
         if not source_ref or source_ref in planned_instruction_refs:
             continue
@@ -112,6 +112,7 @@ def build_template_generation_plan(
                 "unit_id": "template_instructions",
                 "element_id": None,
                 "source_ref": source_ref,
+                "affected_source_seq_refs": instruction.get("source_seq_refs", []),
                 "target_ref": source_ref,
                 "status": "planned",
                 "reason": instruction.get(
@@ -130,6 +131,7 @@ def build_template_generation_plan(
                 "unit_id": "body_main",
                 "element_id": "slot_body_start",
                 "source_ref": None,
+                "affected_source_seq_refs": [],
                 "target_ref": BODY_SLOT_MARKER,
                 "status": "planned",
                 "reason": "guarantee a stable write position for later content placement",
@@ -144,15 +146,14 @@ def build_template_generation_plan(
         "source_template_docx": request.get("source_template_docx"),
         "input_hashes": {
             "source_template_docx": request.get("source_template_hash"),
-            "template_artifact": sha256_json(template_artifact),
-            "template_unit_decisions": sha256_json(decisions),
+            "template_generation_model": sha256_json(generation_model),
         },
         "actions": actions,
     }
 
 
-def _synthetic_unit_title_actions(template_artifact: dict[str, Any]) -> list[dict[str, Any]]:
-    units = template_artifact.get("data", {}).get("units", [])
+def _synthetic_unit_title_actions(generation_model: dict[str, Any]) -> list[dict[str, Any]]:
+    units = generation_model.get("data", {}).get("units", [])
     actions: list[dict[str, Any]] = []
     for index, unit in enumerate(units):
         if str(unit.get("unit_id") or "") != "toc":
@@ -183,6 +184,7 @@ def _synthetic_unit_title_actions(template_artifact: dict[str, Any]) -> list[dic
                 "unit_id": unit.get("unit_id"),
                 "element_id": "e_001",
                 "source_ref": next_ref,
+                "affected_source_seq_refs": unit.get("source_seq_refs", []),
                 "target_ref": title,
                 "status": "planned",
                 "reason": (

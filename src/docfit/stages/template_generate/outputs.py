@@ -28,9 +28,8 @@ def write_template_generation_debug_snapshot(
     source_template_docx: Path,
     request: dict[str, Any],
     source_tree: dict[str, Any],
-    discovered_rules: dict[str, Any],
-    template_artifact: dict[str, Any],
-    decisions: dict[str, Any],
+    structure_candidates: dict[str, Any],
+    generation_model: dict[str, Any],
     plan: dict[str, Any],
     copy_source_snapshot_docx: Path | None,
     generated_template_docx: Path,
@@ -68,52 +67,47 @@ def write_template_generation_debug_snapshot(
         "输入：学校原始模板 Word；生成器从这里读取真实 Word 结构。",
     )
     write_step_json(
-        "01_template_generation_request.json",
+        "00_template_generation_request.json",
         request,
-        "阶段 1：本次模板生成请求，记录源文件、输出目录和生成策略。",
+        "运行请求：记录源文件、输出目录和生成策略。",
     )
     write_step_json(
-        "02_source_template_tree.json",
+        "01_source_template_tree.json",
         source_tree,
-        "阶段 2：从学校原始 Word 解析出的真实结构树。",
+        "阶段一：从学校原始 Word 解析出的真实结构树。",
     )
     write_step_json(
-        "03_discovered_template_rules.json",
-        discovered_rules,
-        "阶段 3：系统从源 Word 推断出的候选模板规则。",
+        "02_template_structure_candidates.json",
+        structure_candidates,
+        "阶段二：系统从源 Word 推断出的候选结构和证据。",
     )
     write_step_json(
-        "04_template_artifact.json",
-        template_artifact,
-        "阶段 4：生成阶段整理出的模板结构理解结果。",
+        "03_template_generation_model.json",
+        generation_model,
+        "阶段三：生成模板模型与处理策略。",
     )
     write_step_json(
-        "05_template_unit_decisions.json",
-        decisions,
-        "阶段 5：每个模板单元和元素的处理决策。",
-    )
-    write_step_json(
-        "06_template_generation_plan.json",
+        "04_template_generation_plan.json",
         plan,
-        "阶段 6：真正会被执行的生成动作列表。",
+        "阶段四：真正会被执行的生成动作列表。",
     )
     if copy_source_snapshot_docx is not None and copy_source_snapshot_docx.exists():
         record(
             copy_source_snapshot_docx,
-            "阶段 7：只执行 copy_source_docx 后的 Word；尚未插 slot、删说明、加分页或分节。",
+            "阶段五：只执行 copy_source_docx 后的 Word；尚未插 slot、删说明、加分页或分节。",
         )
     copy_docx(
         generated_template_docx,
-        "08_generated_template.docx",
-        "阶段 8：执行全部生成动作后的可填写模板 Word。",
+        "05.1_generated_template.docx",
+        "阶段五：执行全部生成动作后的可填写模板 Word。",
     )
     write_step_json(
-        "09_template_generation_manifest.json",
+        "05.2_template_generation_manifest.json",
         manifest,
-        "阶段 9：生成过程记录，包含 action、hash、slot、分页和分节等证据。",
+        "阶段五：生成过程记录，包含 action、hash、slot、分页和分节等证据。",
     )
     write_step_json(
-        "10_template_generation_debug_index.json",
+        "99_template_generation_debug_index.json",
         {
             "artifact_type": "template_generation_debug_index",
             "artifact_version": "1.0",
@@ -121,7 +115,7 @@ def write_template_generation_debug_snapshot(
             "debug_dir": str(debug_dir),
             "files": files,
         },
-        "阶段 10：本调试目录里的文件索引和说明。",
+        "非阶段文件：本调试目录里的文件索引和说明。",
     )
 
 
@@ -129,9 +123,8 @@ def write_template_generation_outputs(out_dir: Path, result: StageResult) -> Non
     for key in [
         "template_generation_request",
         "source_template_tree",
-        "discovered_template_rules",
-        "template_artifact",
-        "template_unit_decisions",
+        "template_structure_candidates",
+        "template_generation_model",
         "template_generation_plan",
         "template_generation_manifest",
     ]:

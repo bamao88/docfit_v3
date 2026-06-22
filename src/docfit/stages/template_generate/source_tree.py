@@ -47,6 +47,16 @@ def inspect_source_template_docx(source_template_docx: Path) -> dict[str, Any]:
                 for item in body_flow
                 if item.get("source_ref")
             },
+            "by_source_seq": {
+                str(item.get("source_seq")): {
+                    "node_id": item.get("node_id"),
+                    "source_ref": item.get("source_ref"),
+                    "text_preview": str(item.get("text") or "")[:80],
+                    "structure_layer": item.get("structure_layer"),
+                }
+                for item in body_flow
+                if item.get("source_seq") is not None
+            },
             "body_order": [item.get("node_id") for item in body_flow],
         },
         "warnings": _source_tree_warnings(inspected),
@@ -79,7 +89,14 @@ def _body_flow_from_inspection(tree: dict[str, Any]) -> list[dict[str, Any]]:
                 "structural_signals": _structural_signals(entry),
             }
         )
-    return sorted(items, key=lambda item: (float(item.get("order") or 0), item["node_id"]))
+    sorted_items = sorted(
+        items,
+        key=lambda item: (float(item.get("order") or 0), item["node_id"]),
+    )
+    for index, item in enumerate(sorted_items, start=1):
+        item["source_seq"] = index
+        item["source_seq_label"] = f"源模板元素 {index:03d}"
+    return sorted_items
 
 
 def _source_tree_warnings(inspected: dict[str, Any]) -> list[dict[str, Any]]:

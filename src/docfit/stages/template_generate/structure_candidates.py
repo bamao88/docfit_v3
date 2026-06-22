@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from docfit.core.io import now_iso
+from docfit.core.io import now_iso, sha256_json
 from docfit.harness import template_units
 
 from .constants import (
@@ -20,21 +20,28 @@ from .constants import (
 from .text_utils import _normalize_for_match, _normalize_text
 
 
-def infer_template_rules(source_tree: dict[str, Any]) -> dict[str, Any]:
+def build_template_structure_candidates(source_tree: dict[str, Any]) -> dict[str, Any]:
     entries = _body_entries(source_tree)
     units = _infer_units(entries)
     return {
-        "artifact_type": "discovered_template_rules",
+        "artifact_type": "template_structure_candidates",
         "artifact_version": "1.0",
         "producer": {"name": "docfit-template-generate", "version": "0.2.0"},
         "created_at": now_iso(),
         "source_template_hash": source_tree.get("metadata", {}).get(
             "source_template_hash"
         ),
+        "input_hashes": {"source_template_tree": sha256_json(source_tree)},
         "discovery_method": "deterministic_keyword_and_structure_heuristics",
+        "source_context": _source_context_from_source_tree(source_tree),
         "units": units,
         "unknowns": _rule_unknowns(source_tree, units),
+        "open_questions": [],
     }
+
+
+def infer_template_rules(source_tree: dict[str, Any]) -> dict[str, Any]:
+    return build_template_structure_candidates(source_tree)
 
 
 def _body_entries(source_tree: dict[str, Any]) -> list[dict[str, Any]]:
@@ -47,6 +54,41 @@ def _body_entries(source_tree: dict[str, Any]) -> list[dict[str, Any]]:
     return entries
 
 
+def _source_context_from_source_tree(source_tree: dict[str, Any]) -> dict[str, Any]:
+    data = source_tree.get("data", {})
+    layers = source_tree.get("layers", {})
+    indexes = source_tree.get("indexes", {})
+    return {
+        "source_template_tree_ref": "source_template_tree.json",
+        "body_order": indexes.get("body_order", []),
+        "body_flow": layers.get("body_flow", []),
+        "by_source_ref": indexes.get("by_source_ref", {}),
+        "by_source_seq": indexes.get("by_source_seq", {}),
+        "style_inventory": _style_inventory_from_source_tree(source_tree),
+        "numbering_definitions": layers.get("package_global", {}).get(
+            "numbering_definitions",
+            data.get("numbering_definitions", []),
+        ),
+        "numbering_refs": data.get("numbering_refs", []),
+        "section_rules": layers.get("section_rules", []),
+        "header_footer": layers.get("header_footer", []),
+        "unknown_objects": layers.get("unknown_objects", []),
+        "warnings": source_tree.get("warnings", []),
+        "paragraphs": data.get("paragraphs", []),
+    }
+
+
+def _style_inventory_from_source_tree(source_tree: dict[str, Any]) -> list[dict[str, Any]]:
+    styles: dict[str, dict[str, Any]] = {}
+    for paragraph in source_tree.get("data", {}).get("paragraphs", []):
+        style = paragraph.get("style")
+        if not style:
+            continue
+        styles.setdefault(str(style), {"name": style, "count": 0})
+        styles[str(style)]["count"] += 1
+    return list(styles.values())
+
+
 def _infer_units(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not entries:
         return [
@@ -55,8 +97,15 @@ def _infer_units(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "name": "正文",
                 "order": 10,
                 "status": "required",
-                "policy": "fill",
+                "candidate_policy": "fill",
                 "source_refs": [],
+                "source_seq_refs": [],
+                "source_range": {},
+                "source_seq_range": {},
+                "anchors": [],
+                "responsibility_evidence": [],
+                "conflicts": [],
+                "evidence": [],
                 "elements": [],
             }
         ]
@@ -75,14 +124,42 @@ def _infer_units(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
             for entry in region_entries
             if entry.get("source_ref")
         ]
+        region_source_seq_refs = _source_seq_refs_for_entries(region_entries)
         units.append(
             {
                 "unit_id": unit_id,
                 "name": anchor["name"],
                 "order": (anchor_index + 1) * 10,
                 "status": "required",
-                "policy": _unit_policy(unit_id),
+                "candidate_policy": _unit_policy(unit_id),
                 "source_refs": region_source_refs or [anchor["source_ref"]],
+                "source_seq_refs": region_source_seq_refs,
+                "source_range": {
+                    "start_source_ref": region_source_refs[0] if region_source_refs else anchor["source_ref"],
+                    "end_source_ref": region_source_refs[-1] if region_source_refs else anchor["source_ref"],
+                    "source_refs": region_source_refs or [anchor["source_ref"]],
+                },
+                "source_seq_range": _source_seq_range(region_source_seq_refs),
+                "anchors": [
+                    {
+                        "source_ref": anchor.get("source_ref"),
+                        "source_seq": anchor.get("source_seq"),
+                        "text": anchor.get("text", ""),
+                        "confidence": "medium",
+                    }
+                ],
+                "responsibility_evidence": [
+                    {
+                        "kind": "default_unit_policy",
+                        "value": _unit_policy(unit_id),
+                    }
+                ],
+                "conflicts": [],
+                "evidence": _element_evidence(
+                    _unit_policy(unit_id),
+                    anchor.get("source_ref", ""),
+                    source_seq=anchor.get("source_seq"),
+                ),
                 "page": {},
                 "elements": _copy_only_unit_elements(anchor, region_entries)
                 if _unit_is_copy_only_by_default(unit_id)
@@ -103,32 +180,46 @@ def _copy_only_unit_elements(
     source_refs = [
         str(entry.get("source_ref")) for entry in entries if entry.get("source_ref")
     ]
+    source_seq_refs = _source_seq_refs_for_entries(entries)
     elements: list[dict[str, Any]] = [
         {
             "element_id": "e_001",
             "name": f"{anchor['name']}整体复制区域",
             "order": 1,
-            "policy": "fixed",
+            "candidate_policy": "fixed",
             "type": "fixed_text",
             "fill": "no",
             "content": anchor.get("text", ""),
             "style": "",
             "position": anchor.get("source_ref", ""),
-            "relationship": "whole_unit_copy",
-            "role_hint": "whole_unit_copy_candidate",
-            "evidence": _element_evidence("fixed", anchor.get("source_ref", "")),
+            "relationship": "copy_region_candidate",
+            "role_hint": "copy_region_candidate",
+            "evidence": _element_evidence(
+                "fixed",
+                anchor.get("source_ref", ""),
+                source_seq=anchor.get("source_seq"),
+            ),
             "source_refs": source_refs or [anchor.get("source_ref", "")],
+            "source_seq_refs": source_seq_refs,
+            "entry_refs": [
+                str(entry.get("node_id"))
+                for entry in entries
+                if entry.get("node_id")
+            ],
+            "merge": {
+                "type": "whole_unit_copy_region",
+                "merged_source_seq_refs": source_seq_refs,
+                "reason": "默认仅复制单元的整体保留候选区域",
+            },
         }
     ]
-    for entry in entries:
-        text = str(entry.get("text", "")).strip()
-        if not text:
-            continue
-        policy_hint = _element_policy(anchor["unit_id"], text, entry)
+    for group in _logical_entry_groups(entries):
+        text = _merged_text(group)
+        policy_hint = _element_policy(anchor["unit_id"], text, group[0])
         elements.append(
-            _element_from_entry(
+            _element_from_entries(
                 anchor,
-                entry,
+                group,
                 element_id=f"e_{len(elements) + 1:03d}",
                 policy=policy_hint,
                 role_hint=_role_hint_for_policy(policy_hint),
@@ -152,6 +243,7 @@ def _unit_anchors(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "unit_id": unit_id,
                 "name": name,
                 "source_ref": entry.get("source_ref"),
+                "source_seq": entry.get("source_seq"),
                 "text": entry.get("text", ""),
             }
         )
@@ -164,6 +256,7 @@ def _unit_anchors(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "unit_id": "cover",
                 "name": "封面",
                 "source_ref": entries[0].get("source_ref"),
+                "source_seq": entries[0].get("source_seq"),
                 "text": entries[0].get("text", ""),
             },
         )
@@ -175,6 +268,7 @@ def _unit_anchors(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "unit_id": "body_main",
                 "name": "正文",
                 "source_ref": entries[body_index].get("source_ref"),
+                "source_seq": entries[body_index].get("source_seq"),
                 "text": entries[body_index].get("text", ""),
             }
         )
@@ -186,15 +280,13 @@ def _unit_anchors(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _infer_elements(anchor: dict[str, Any], entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     elements: list[dict[str, Any]] = []
-    for entry in entries:
-        text = str(entry.get("text", "")).strip()
-        if not text:
-            continue
-        policy = _element_policy(anchor["unit_id"], text, entry)
+    for group in _logical_entry_groups(entries):
+        text = _merged_text(group)
+        policy = _element_policy(anchor["unit_id"], text, group[0])
         elements.append(
-            _element_from_entry(
+            _element_from_entries(
                 anchor,
-                entry,
+                group,
                 element_id=f"e_{len(elements) + 1:03d}",
                 policy=policy,
                 role_hint=_role_hint_for_policy(policy),
@@ -207,20 +299,58 @@ def _infer_elements(anchor: dict[str, Any], entries: list[dict[str, Any]]) -> li
                 "element_id": "e_001",
                 "name": anchor["name"],
                 "order": 1,
-                "policy": fallback_policy,
+                "candidate_policy": fallback_policy,
                 "content": anchor.get("text", ""),
                 "style": "",
                 "role_hint": _role_hint_for_policy(fallback_policy),
-                "evidence": _element_evidence(fallback_policy, anchor.get("source_ref", "")),
+                "evidence": _element_evidence(
+                    fallback_policy,
+                    anchor.get("source_ref", ""),
+                    source_seq=anchor.get("source_seq"),
+                ),
                 "source_refs": [anchor.get("source_ref", "")],
+                "source_seq_refs": [anchor.get("source_seq")]
+                if anchor.get("source_seq") is not None
+                else [],
+                "entry_refs": [],
             }
         )
     return elements
 
 
-def _element_from_entry(
+def _logical_entry_groups(entries: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
+    groups: list[list[dict[str, Any]]] = []
+    index = 0
+    while index < len(entries):
+        entry = entries[index]
+        text = str(entry.get("text", "")).strip()
+        if not text:
+            index += 1
+            continue
+        if _looks_like_instruction(text):
+            group = [entry]
+            index += 1
+            while index < len(entries):
+                candidate = entries[index]
+                candidate_text = str(candidate.get("text", "")).strip()
+                if not candidate_text or not _looks_like_instruction(candidate_text):
+                    break
+                group.append(candidate)
+                index += 1
+            groups.append(group)
+            continue
+        groups.append([entry])
+        index += 1
+    return groups
+
+
+def _merged_text(entries: list[dict[str, Any]]) -> str:
+    return "\n".join(str(entry.get("text", "")).strip() for entry in entries).strip()
+
+
+def _element_from_entries(
     anchor: dict[str, Any],
-    entry: dict[str, Any],
+    entries: list[dict[str, Any]],
     *,
     element_id: str,
     policy: str,
@@ -228,22 +358,62 @@ def _element_from_entry(
     relationship: str = "",
     policy_hint: str | None = None,
 ) -> dict[str, Any]:
-    text = str(entry.get("text", "")).strip()
-    source_ref = entry.get("source_ref", "")
+    first_entry = entries[0]
+    text = _merged_text(entries)
+    source_refs = [
+        str(entry.get("source_ref")) for entry in entries if entry.get("source_ref")
+    ]
+    source_seq_refs = _source_seq_refs_for_entries(entries)
+    source_ref = source_refs[0] if source_refs else ""
+    candidate_policy = policy_hint or policy
+    merge = {
+        "type": "single_source_entry",
+        "merged_source_seq_refs": source_seq_refs,
+        "reason": "单个阶段一元素形成候选元素",
+    }
+    if len(entries) > 1:
+        merge = {
+            "type": "instruction_block_continuation"
+            if all(_looks_like_instruction(str(entry.get("text", ""))) for entry in entries)
+            else "entry_continuation",
+            "merged_source_seq_refs": source_seq_refs,
+            "reason": "连续说明文字合并"
+            if all(_looks_like_instruction(str(entry.get("text", ""))) for entry in entries)
+            else "连续源元素合并",
+        }
     return {
         "element_id": element_id,
-        "name": _element_name(anchor["unit_id"], text, policy_hint or policy),
+        "name": _element_name(anchor["unit_id"], text, candidate_policy),
         "order": int(element_id.rsplit("_", 1)[-1]),
-        "policy": policy,
+        "candidate_policy": candidate_policy,
         "type": _element_type(policy),
         "fill": "yes" if policy == "fill" else "no",
         "content": text if policy != "remove_instruction" else "",
-        "style": _style_summary(entry),
+        "normalized_content": _normalize_for_match(text),
+        "style": _style_summary(first_entry),
+        "style_summary": _style_summary(first_entry),
+        "style_evidence": first_entry.get("style_details", {}),
         "position": source_ref,
         "relationship": relationship,
         "role_hint": role_hint,
-        "evidence": _element_evidence(policy_hint or policy, source_ref),
-        "source_refs": [source_ref],
+        "evidence": _element_evidence(
+            candidate_policy,
+            source_ref,
+            source_seq=source_seq_refs[0] if source_seq_refs else None,
+        ),
+        "source_refs": source_refs,
+        "source_seq_refs": source_seq_refs,
+        "entry_refs": [
+            str(entry.get("node_id")) for entry in entries if entry.get("node_id")
+        ],
+        "merge": merge,
+        "structure": {
+            "kind": first_entry.get("kind"),
+            "container_ref": first_entry.get("container_ref"),
+            "source_refs": source_refs,
+        },
+        "confidence": "medium",
+        "review_notes": [],
     }
 
 
@@ -257,17 +427,46 @@ def _role_hint_for_policy(policy: str) -> str:
     }.get(policy, "fixed_text_candidate")
 
 
-def _element_evidence(policy_hint: str, source_ref: Any) -> list[dict[str, Any]]:
+def _element_evidence(
+    policy_hint: str,
+    source_ref: Any,
+    *,
+    source_seq: Any = None,
+) -> list[dict[str, Any]]:
     return [
         {
             "kind": "source_ref",
             "value": str(source_ref or ""),
         },
         {
+            "kind": "source_seq",
+            "value": source_seq,
+        },
+        {
             "kind": "heuristic_policy_hint",
             "value": policy_hint,
         },
     ]
+
+
+def _source_seq_refs_for_entries(entries: list[dict[str, Any]]) -> list[int]:
+    refs: list[int] = []
+    for entry in entries:
+        seq = entry.get("source_seq")
+        if seq is None:
+            continue
+        refs.append(int(seq))
+    return refs
+
+
+def _source_seq_range(source_seq_refs: list[int]) -> dict[str, Any]:
+    if not source_seq_refs:
+        return {}
+    return {
+        "start": source_seq_refs[0],
+        "end": source_seq_refs[-1],
+        "source_seq_refs": source_seq_refs,
+    }
 
 
 def _find_body_main_source_entry(

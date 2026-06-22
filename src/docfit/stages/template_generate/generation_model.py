@@ -8,27 +8,24 @@ from docfit.harness import template_units
 
 from .plan import _decision_reason
 from .refs import _first_source_ref, _paragraph_index
-from .structure_candidates import (
-    _body_entries,
-    _looks_like_instruction,
-    _unit_is_copy_only_by_default,
-)
+from .refs import _source_seq_refs
+from .structure_candidates import _looks_like_instruction, _unit_is_copy_only_by_default
 from .text_utils import _dedupe_by_key, _normalize_for_match
 
 
-def build_template_artifact(
+def build_template_generation_model(
     request: dict[str, Any],
-    source_tree: dict[str, Any],
-    discovered_rules: dict[str, Any],
+    structure_candidates: dict[str, Any],
 ) -> dict[str, Any]:
-    units = _materialize_template_units(discovered_rules.get("units", []))
-    paragraphs = source_tree.get("data", {}).get("paragraphs", [])
+    source_context = structure_candidates.get("source_context", {})
+    units = _materialize_template_units(structure_candidates.get("units", []))
+    paragraphs = source_context.get("paragraphs", [])
     copy_only_source_refs = _copy_only_unit_source_refs(units)
     instruction_paragraphs = _dedupe_by_key(
         [
             *_instruction_paragraphs_from_units(units),
-            *_instruction_paragraphs_from_source_tree(
-                source_tree,
+            *_instruction_paragraphs_from_source_context(
+                source_context,
                 excluded_source_refs=copy_only_source_refs,
             ),
         ],
@@ -49,6 +46,7 @@ def build_template_artifact(
                 "required": True,
                 "accepted_content_kinds": ["heading", "paragraph", "table", "image"],
                 "source_ref": "template-generate:body-slot",
+                "source_seq_refs": [],
                 "policy": "fill",
             }
         )
@@ -60,44 +58,55 @@ def build_template_artifact(
                 "required": True,
                 "anchors": ["slot_body_start"],
                 "source_ref": "template-generate:body-slot",
+                "source_seq_refs": [],
                 "policy": "fill",
             }
         )
+    data = {
+        "source_template_tree": "source_template_tree.json",
+        "template_structure_candidates": "template_structure_candidates.json",
+        "page_setup": {"sections": source_context.get("section_rules", [])},
+        "styles": source_context.get("style_inventory", []),
+        "paragraphs": paragraphs,
+        "units": units,
+        "instruction_paragraphs": instruction_paragraphs,
+        "regions": regions,
+        "slots": slots,
+        "protected_zones": template_units.protected_zones_from_units(units),
+        "numbering": source_context.get("numbering_definitions", []),
+        "headers_footers": source_context.get("header_footer", []),
+        "required_fields": template_units.required_fields_from_units(units),
+        "unsupported": source_context.get("unknown_objects", []),
+    }
+    unit_strategies = _build_unit_strategies(units)
     return {
-        "artifact_type": "template_artifact",
+        "artifact_type": "template_generation_model",
         "artifact_version": "1.0",
         "producer": {"name": "docfit-template-generate", "version": "0.2.0"},
         "created_at": now_iso(),
         "input_hashes": {
             "template_docx": request.get("source_template_hash"),
-            "source_template_tree": sha256_json(source_tree),
-            "discovered_template_rules": sha256_json(discovered_rules),
+            "template_structure_candidates": sha256_json(structure_candidates),
         },
         "provenance": {"template_docx": request.get("source_template_docx")},
         "status_notes": [
             "units are inferred from source Word structure and deterministic keywords",
             "formal quality still requires template-gap against accepted standards",
         ],
-        "data": {
-            "source_template_tree": "source_template_tree.json",
-            "discovered_template_rules": "discovered_template_rules.json",
-            "page_setup": {
-                "sections": source_tree.get("layers", {}).get("section_rules", [])
-            },
-            "styles": _style_inventory(source_tree),
-            "paragraphs": paragraphs,
-            "units": units,
-            "instruction_paragraphs": instruction_paragraphs,
-            "regions": regions,
-            "slots": slots,
-            "protected_zones": template_units.protected_zones_from_units(units),
-            "numbering": source_tree.get("data", {}).get("numbering_definitions", []),
-            "headers_footers": source_tree.get("layers", {}).get("header_footer", []),
-            "required_fields": template_units.required_fields_from_units(units),
-            "unsupported": source_tree.get("layers", {}).get("unknown_objects", []),
-        },
+        "source_context": source_context,
+        "units": units,
+        "unit_strategies": unit_strategies,
+        "slots": slots,
+        "required_fields": data["required_fields"],
+        "protected_zones": data["protected_zones"],
+        "cleanup": instruction_paragraphs,
+        "unsupported": data["unsupported"],
+        "unresolved_questions": _unresolved_questions_from_candidates(
+            structure_candidates,
+            unit_strategies,
+        ),
+        "data": data,
     }
-
 
 def _materialize_template_units(candidate_units: list[dict[str, Any]]) -> list[dict[str, Any]]:
     units: list[dict[str, Any]] = []
@@ -118,7 +127,9 @@ def _materialize_template_element(
     generation_mode: str,
 ) -> dict[str, Any]:
     materialized = deepcopy(element)
-    candidate_policy = str(element.get("policy") or "fixed")
+    candidate_policy = str(
+        element.get("candidate_policy") or element.get("policy") or "fixed"
+    )
     final_policy = _final_policy_for_generation(candidate_policy, generation_mode)
     materialized["candidate_policy"] = candidate_policy
     materialized["policy"] = final_policy
@@ -144,9 +155,9 @@ def _element_type(policy: str) -> str:
     }.get(policy, "fixed_text")
 
 
-def build_template_unit_decisions(template_artifact: dict[str, Any]) -> dict[str, Any]:
-    units: list[dict[str, Any]] = []
-    for unit in template_artifact.get("data", {}).get("units", []):
+def _build_unit_strategies(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    strategies: list[dict[str, Any]] = []
+    for unit in units:
         unit_id = str(unit.get("unit_id"))
         unit_anchor_ref = _first_source_ref(unit)
         decisions: list[dict[str, Any]] = []
@@ -159,6 +170,7 @@ def build_template_unit_decisions(template_artifact: dict[str, Any]) -> dict[str
                     "unit_id": unit_id,
                     "element_id": None,
                     "source_ref": unit_anchor_ref,
+                    "source_seq_refs": _source_seq_refs(unit),
                     "copy_scope": "whole_unit",
                     "reason": "this unit can be preserved by the initial source DOCX copy",
                 }
@@ -177,6 +189,7 @@ def build_template_unit_decisions(template_artifact: dict[str, Any]) -> dict[str
                         "element_name": element.get("name"),
                         "content": element.get("content") or element.get("name") or "",
                         "source_ref": source_ref,
+                        "source_seq_refs": _source_seq_refs(element),
                         "reason": _decision_reason("remove_instruction_text"),
                     }
                 )
@@ -210,31 +223,26 @@ def build_template_unit_decisions(template_artifact: dict[str, Any]) -> dict[str
                         "element_name": element.get("name"),
                         "content": element.get("content") or element.get("name") or "",
                         "source_ref": source_ref,
+                        "source_seq_refs": _source_seq_refs(element),
                         "reason": _decision_reason(decision_type),
                     }
                 )
-        units.append(
+        strategies.append(
             {
                 "unit_id": unit_id,
                 "unit_name": unit.get("name"),
-                "source_policy": unit.get("policy"),
+                "source_policy": unit.get("candidate_policy") or unit.get("policy"),
                 "generation_mode": generation_mode,
                 "generation_policy": "whole_unit_copy"
                 if generation_mode == "whole_unit_copy"
                 else "unit_actions",
                 "copy_source_ref": unit_anchor_ref,
+                "source_seq_refs": _source_seq_refs(unit),
                 "decisions": decisions,
                 "unresolved_questions": [],
             }
         )
-    return {
-        "artifact_type": "template_unit_decisions",
-        "artifact_version": "1.0",
-        "producer": {"name": "docfit-template-generate", "version": "0.2.0"},
-        "created_at": now_iso(),
-        "input_hashes": {"template_artifact": sha256_json(template_artifact)},
-        "units": units,
-    }
+    return strategies
 
 
 def _unit_generation_mode(unit: dict[str, Any]) -> str:
@@ -251,20 +259,24 @@ def _instruction_paragraphs_from_units(units: list[dict[str, Any]]) -> list[dict
         for element in unit.get("elements", []):
             if element.get("policy") != "remove_instruction":
                 continue
-            source_ref = _first_source_ref(element)
-            paragraph_index = _paragraph_index(source_ref)
-            if paragraph_index is None:
-                continue
-            paragraphs.append(
-                {
-                    "source_ref": source_ref,
-                    "paragraph_index": paragraph_index,
-                    "text": element.get("content") or element.get("name", ""),
-                    "policy": "strip",
-                    "final_disposition": "omit_from_final",
-                    "reason": "detected template instruction text should not appear in the generated fillable template",
-                }
-            )
+            source_refs = element.get("source_refs") or [_first_source_ref(element)]
+            seq_refs = _source_seq_refs(element)
+            for index, source_ref in enumerate(source_refs):
+                paragraph_index = _paragraph_index(source_ref)
+                if paragraph_index is None:
+                    continue
+                source_seq_refs = [seq_refs[index]] if index < len(seq_refs) else []
+                paragraphs.append(
+                    {
+                        "source_ref": source_ref,
+                        "source_seq_refs": source_seq_refs,
+                        "paragraph_index": paragraph_index,
+                        "text": element.get("content") or element.get("name", ""),
+                        "policy": "strip",
+                        "final_disposition": "omit_from_final",
+                        "reason": "detected template instruction text should not appear in the generated fillable template",
+                    }
+                )
     return paragraphs
 
 
@@ -277,25 +289,26 @@ def _copy_only_unit_source_refs(units: list[dict[str, Any]]) -> set[str]:
     return refs
 
 
-def _instruction_paragraphs_from_source_tree(
-    source_tree: dict[str, Any],
+def _instruction_paragraphs_from_source_context(
+    source_context: dict[str, Any],
     *,
     excluded_source_refs: set[str] | None = None,
 ) -> list[dict[str, Any]]:
     excluded_source_refs = excluded_source_refs or set()
     paragraphs: list[dict[str, Any]] = []
-    for entry in _body_entries(source_tree):
+    for entry in source_context.get("body_flow", []):
+        if entry.get("structure_layer") != "body_flow":
+            continue
         text = str(entry.get("text", ""))
         if not _looks_like_instruction(text):
             continue
         source_ref = entry.get("source_ref")
-        if not source_ref:
-            continue
-        if str(source_ref) in excluded_source_refs:
+        if not source_ref or str(source_ref) in excluded_source_refs:
             continue
         paragraphs.append(
             {
                 "source_ref": source_ref,
+                "source_seq_refs": _source_seq_refs(entry),
                 "paragraph_index": _paragraph_index(source_ref),
                 "text": text,
                 "policy": "strip",
@@ -306,16 +319,23 @@ def _instruction_paragraphs_from_source_tree(
     return paragraphs
 
 
-def _style_inventory(source_tree: dict[str, Any]) -> list[dict[str, Any]]:
-    styles: dict[str, dict[str, Any]] = {}
-    for paragraph in source_tree.get("data", {}).get("paragraphs", []):
-        style = paragraph.get("style")
-        if not style:
-            continue
-        styles.setdefault(str(style), {"name": style, "count": 0})
-        styles[str(style)]["count"] += 1
-    return list(styles.values())
-
+def _unresolved_questions_from_candidates(
+    structure_candidates: dict[str, Any],
+    unit_strategies: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    questions: list[dict[str, Any]] = []
+    for item in structure_candidates.get("unknowns", []):
+        questions.append(
+            {
+                "kind": "unknown_source_object",
+                "source_ref": item.get("source_ref"),
+                "source_seq_refs": item.get("source_seq_refs", []),
+                "reason": item.get("reason"),
+            }
+        )
+    for strategy in unit_strategies:
+        questions.extend(strategy.get("unresolved_questions", []))
+    return questions
 
 def _should_synthesize_visible_text(element: dict[str, Any]) -> bool:
     order = element.get("order") or element.get("element_order")

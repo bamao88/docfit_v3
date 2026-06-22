@@ -51,44 +51,47 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     debug_root = tmp_path / "test_outputs/debug/template_generation/school-template"
     summary = read_json(out_dir / "summary.json")
     manifest = read_json(manifest_path)
+    plan = read_json(plan_path)
     source_tree = read_json(artifacts / "source_template_tree.json")
-    rules = read_json(artifacts / "discovered_template_rules.json")
-    template_artifact = read_json(artifacts / "template_artifact.json")
-    decisions = read_json(artifacts / "template_unit_decisions.json")
+    structure_candidates = read_json(artifacts / "template_structure_candidates.json")
+    generation_model = read_json(artifacts / "template_generation_model.json")
     debug_dirs = sorted(
         path for path in debug_root.iterdir() if path.is_dir() and path.name != "eval_runs"
     )
     debug_dir = debug_dirs[0]
-    debug_index = read_json(debug_dir / "10_template_generation_debug_index.json")
+    debug_index = read_json(debug_dir / "99_template_generation_debug_index.json")
 
     assert result.status == Status.PASS
     assert out_dir.parent.name == "eval_runs"
     assert generated.exists()
     assert (artifacts / "template_generation_request.json").exists()
     assert source_tree["artifact_type"] == "source_template_tree"
-    assert rules["artifact_type"] == "discovered_template_rules"
-    assert template_artifact["artifact_type"] == "template_artifact"
-    assert decisions["artifact_type"] == "template_unit_decisions"
+    assert structure_candidates["artifact_type"] == "template_structure_candidates"
+    assert generation_model["artifact_type"] == "template_generation_model"
     assert manifest_path.exists()
     assert plan_path.exists()
+    source_seq_refs = [
+        item["source_seq"] for item in source_tree["layers"]["body_flow"]
+    ]
+    assert source_seq_refs == list(range(1, len(source_seq_refs) + 1))
+    assert source_tree["indexes"]["by_source_seq"]["1"]["node_id"] == "body_0001"
     assert len(debug_dirs) == 1
     assert debug_dir.parent == debug_root
     assert summary["artifacts"]["template_generation_debug_dir"] == str(debug_dir)
     assert (debug_dir / "00_input_source_template.docx").exists()
-    assert (debug_dir / "01_template_generation_request.json").exists()
-    assert (debug_dir / "02_source_template_tree.json").exists()
-    assert (debug_dir / "03_discovered_template_rules.json").exists()
-    assert (debug_dir / "04_template_artifact.json").exists()
-    assert (debug_dir / "05_template_unit_decisions.json").exists()
-    assert (debug_dir / "06_template_generation_plan.json").exists()
-    assert (debug_dir / "07_copy_source_docx.docx").exists()
-    assert (debug_dir / "08_generated_template.docx").exists()
-    assert (debug_dir / "09_template_generation_manifest.json").exists()
+    assert (debug_dir / "00_template_generation_request.json").exists()
+    assert (debug_dir / "01_source_template_tree.json").exists()
+    assert (debug_dir / "02_template_structure_candidates.json").exists()
+    assert (debug_dir / "03_template_generation_model.json").exists()
+    assert (debug_dir / "04_template_generation_plan.json").exists()
+    assert (debug_dir / "05.0_copy_source_docx.docx").exists()
+    assert (debug_dir / "05.1_generated_template.docx").exists()
+    assert (debug_dir / "05.2_template_generation_manifest.json").exists()
     assert summary["status"] == Status.PASS.value
     assert summary["artifacts"]["generated_template_docx"] == str(generated)
     assert BODY_SLOT_MARKER in docx_texts(generated)
-    assert BODY_SLOT_MARKER not in docx_texts(debug_dir / "07_copy_source_docx.docx")
-    assert "格式说明：小四宋体" in docx_texts(debug_dir / "07_copy_source_docx.docx")
+    assert BODY_SLOT_MARKER not in docx_texts(debug_dir / "05.0_copy_source_docx.docx")
+    assert "格式说明：小四宋体" in docx_texts(debug_dir / "05.0_copy_source_docx.docx")
     assert manifest["strategy"] == "source_copy_scaffold"
     assert manifest["debug_snapshot"]["dir"] == str(debug_dir)
     assert manifest["output"]["generated_template_docx"] == str(generated)
@@ -97,17 +100,18 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
         item["name"] for item in debug_index["files"]
     } >= {
         "00_input_source_template.docx",
-        "07_copy_source_docx.docx",
-        "08_generated_template.docx",
+        "05.0_copy_source_docx.docx",
+        "05.1_generated_template.docx",
     }
     assert {slot["slot_id"] for slot in manifest["slots"]} >= {"slot_body_start"}
     assert manifest["actions_executed"]
     assert "actions_deferred" not in manifest
-    assert any(unit["unit_id"] == "toc" for unit in rules["units"])
+    assert any(unit["unit_id"] == "toc" for unit in structure_candidates["units"])
     assert any(
         item["policy"] == "strip"
-        for item in template_artifact["data"]["instruction_paragraphs"]
+        for item in generation_model["cleanup"]
     )
+    assert all("affected_source_seq_refs" in action for action in plan["actions"])
 
 
 def test_template_generate_preserves_existing_body_slot(tmp_path) -> None:
@@ -223,14 +227,20 @@ def test_template_generate_marks_fixed_unit_as_whole_unit_copy(tmp_path) -> None
     write_source_docx(source, ["封面", "参考文献"])
 
     result = run_template_generate_eval(tmp_path, source, out_dir)
-    decisions = read_json(out_dir / "artifacts/template_unit_decisions.json")
+    generation_model = read_json(out_dir / "artifacts/template_generation_model.json")
     plan = read_json(out_dir / "artifacts/template_generation_plan.json")
-    cover = next(unit for unit in decisions["units"] if unit["unit_id"] == "cover")
+    cover = next(
+        unit for unit in generation_model["unit_strategies"] if unit["unit_id"] == "cover"
+    )
 
     assert result.status == Status.PASS
     assert cover["generation_mode"] == "whole_unit_copy"
     assert cover["generation_policy"] == "whole_unit_copy"
-    references = next(unit for unit in decisions["units"] if unit["unit_id"] == "references")
+    references = next(
+        unit
+        for unit in generation_model["unit_strategies"]
+        if unit["unit_id"] == "references"
+    )
     assert references["generation_mode"] == "copy_then_patch"
     assert references["generation_policy"] == "unit_actions"
     assert cover["decisions"] == [
@@ -240,6 +250,7 @@ def test_template_generate_marks_fixed_unit_as_whole_unit_copy(tmp_path) -> None
             "decision_type": "keep_whole_unit_copy",
             "element_id": None,
             "reason": "this unit can be preserved by the initial source DOCX copy",
+            "source_seq_refs": [1],
             "source_ref": "word/document.xml:p[1]",
             "unit_id": "cover",
         }
@@ -247,6 +258,7 @@ def test_template_generate_marks_fixed_unit_as_whole_unit_copy(tmp_path) -> None
     assert any(
         action["action_type"] == "preserve_whole_unit_copy"
         and action["unit_id"] == "cover"
+        and action["affected_source_seq_refs"] == [1]
         for action in plan["actions"]
     )
     assert not any(
@@ -274,23 +286,26 @@ def test_template_generate_copy_only_units_use_restricted_internal_element_analy
 
     result = run_template_generate_eval(tmp_path, source, out_dir)
     generated = out_dir / "generated_template.docx"
-    rules = read_json(out_dir / "artifacts/discovered_template_rules.json")
-    template_artifact = read_json(out_dir / "artifacts/template_artifact.json")
-    decisions = read_json(out_dir / "artifacts/template_unit_decisions.json")
+    structure_candidates = read_json(out_dir / "artifacts/template_structure_candidates.json")
+    generation_model = read_json(out_dir / "artifacts/template_generation_model.json")
     plan = read_json(out_dir / "artifacts/template_generation_plan.json")
-    cover_rule = next(unit for unit in rules["units"] if unit["unit_id"] == "cover")
-    cover_artifact = next(
+    cover_candidate = next(
+        unit for unit in structure_candidates["units"] if unit["unit_id"] == "cover"
+    )
+    cover_model = next(
         unit
-        for unit in template_artifact["data"]["units"]
+        for unit in generation_model["units"]
         if unit["unit_id"] == "cover"
     )
-    cover_decision = next(unit for unit in decisions["units"] if unit["unit_id"] == "cover")
-    cover_elements = cover_rule["elements"]
-    cover_artifact_elements = cover_artifact["elements"]
+    cover_strategy = next(
+        unit for unit in generation_model["unit_strategies"] if unit["unit_id"] == "cover"
+    )
+    cover_elements = cover_candidate["elements"]
+    cover_model_elements = cover_model["elements"]
     whole_copy = next(
         element
         for element in cover_elements
-        if element.get("relationship") == "whole_unit_copy"
+        if element.get("relationship") == "copy_region_candidate"
     )
     title_candidate = next(
         element
@@ -302,30 +317,33 @@ def test_template_generate_copy_only_units_use_restricted_internal_element_analy
         for element in cover_elements
         if element.get("source_refs") == ["word/document.xml:p[3]"]
     )
-    artifact_title = next(
+    model_title = next(
         element
-        for element in cover_artifact_elements
+        for element in cover_model_elements
         if element.get("source_refs") == ["word/document.xml:p[2]"]
     )
 
     assert result.status == Status.PASS
-    assert whole_copy["policy"] == "fixed"
-    assert whole_copy["role_hint"] == "whole_unit_copy_candidate"
+    assert whole_copy["candidate_policy"] == "fixed"
+    assert whole_copy["role_hint"] == "copy_region_candidate"
     assert title_candidate["role_hint"] == "student_field_candidate"
-    assert title_candidate["policy"] == "fill"
-    assert artifact_title["candidate_policy"] == "fill"
-    assert artifact_title["policy"] == "fixed"
+    assert title_candidate["candidate_policy"] == "fill"
+    assert title_candidate["source_seq_refs"] == [2]
+    assert model_title["candidate_policy"] == "fill"
+    assert model_title["policy"] == "fixed"
     assert instruction_candidate["role_hint"] == "instruction_candidate"
-    assert instruction_candidate["policy"] == "remove_instruction"
-    assert cover_decision["generation_mode"] == "whole_unit_copy"
+    assert instruction_candidate["candidate_policy"] == "remove_instruction"
+    assert instruction_candidate["source_seq_refs"] == [3]
+    assert cover_strategy["generation_mode"] == "whole_unit_copy"
     assert any(
         decision["decision_type"] == "keep_whole_unit_copy"
-        for decision in cover_decision["decisions"]
+        for decision in cover_strategy["decisions"]
     )
     assert any(
         decision["decision_type"] == "remove_instruction_text"
         and decision["source_ref"] == "word/document.xml:p[3]"
-        for decision in cover_decision["decisions"]
+        and decision["source_seq_refs"] == [3]
+        for decision in cover_strategy["decisions"]
     )
     assert not any(
         action.get("unit_id") == "cover"
@@ -335,6 +353,7 @@ def test_template_generate_copy_only_units_use_restricted_internal_element_analy
     assert any(
         action["action_type"] == "remove_instruction_text"
         and action.get("source_ref") == "word/document.xml:p[3]"
+        and action["affected_source_seq_refs"] == [3]
         for action in plan["actions"]
     )
     assert "论文题目：____" in docx_texts(generated)
@@ -348,9 +367,13 @@ def test_template_generate_references_unit_is_fillable_not_copy_only(tmp_path) -
     write_source_docx(source, ["封面", "正文", "参考文献", "学生文献内容占位"])
 
     result = run_template_generate_eval(tmp_path, source, out_dir)
-    decisions = read_json(out_dir / "artifacts/template_unit_decisions.json")
+    generation_model = read_json(out_dir / "artifacts/template_generation_model.json")
     plan = read_json(out_dir / "artifacts/template_generation_plan.json")
-    references = next(unit for unit in decisions["units"] if unit["unit_id"] == "references")
+    references = next(
+        unit
+        for unit in generation_model["unit_strategies"]
+        if unit["unit_id"] == "references"
+    )
 
     assert result.status == Status.PASS
     assert references["generation_mode"] == "copy_then_patch"

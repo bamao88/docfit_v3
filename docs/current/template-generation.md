@@ -1,6 +1,6 @@
 # 模板生成当前主线
 
-Last updated: 2026-06-21
+Last updated: 2026-06-22
 
 一句话结论：模板生成是当前模板侧支撑流程，只负责把学校原始模板 Word 变成 `generated_template.docx` 和过程证据；它不是 DocFit 四个业务阶段之外新增的业务阶段，学校格式是否合格必须交给 `template-gap` 判定。
 
@@ -20,7 +20,7 @@ generated_template.docx + template_unit_contract.yaml -> template_gap_report.*
 
 ## 模板生成策略优化
 
-一句话结论：当前生成器先整包复制源 Word，再按计划局部 patch；代码已经按五步证据链拆成模块，copy-only 单元会做受限内部识别，说明文字可以进入 cleanup，但填写痕迹不会自动变成学生内容 slot。
+一句话结论：当前生成器先整包复制源 Word，再按计划局部 patch；代码已经按五步证据链拆成模块，阶段一会给可见元素分配 `source_seq`，阶段二写 `template_structure_candidates`，阶段三写单一 `template_generation_model`，copy-only 单元会做受限内部识别，说明文字可以进入 cleanup，但填写痕迹不会自动变成学生内容 slot。
 
 完整计划、流程图、产物流转和排查入口见：
 
@@ -44,30 +44,29 @@ generated_template.docx + template_unit_contract.yaml -> template_gap_report.*
 flowchart TD
   A["输入<br/>学校原始模板 Word"] --> B["步骤 0<br/>template_generation_request"]
   B --> C["步骤 1<br/>source_template_tree<br/>解析源 Word 事实"]
-  C --> D["步骤 2<br/>discovered_template_rules<br/>发现候选 unit / element"]
-  D --> E["步骤 3<br/>template_artifact<br/>构建模板结构理解"]
-  E --> F["步骤 4<br/>template_unit_decisions<br/>决定 whole_unit_copy / copy_then_patch"]
-  F --> G["步骤 5<br/>template_generation_plan<br/>生成 action 列表"]
-  G --> H["步骤 6<br/>执行计划"]
-  H --> I["07_copy_source_docx.docx<br/>整包复制停点"]
-  H --> J["08/generated_template.docx<br/>正式生成模板"]
-  H --> K["template_generation_manifest.json<br/>执行记录和 hash"]
+  C --> D["步骤 2<br/>template_structure_candidates<br/>发现候选 unit / logical element"]
+  D --> E["步骤 3<br/>template_generation_model<br/>构建模板业务模型和处理策略"]
+  E --> F["步骤 4<br/>template_generation_plan<br/>生成 action 列表"]
+  F --> G["步骤 5<br/>执行计划"]
+  G --> I["05.0_copy_source_docx.docx<br/>整包复制停点"]
+  G --> J["05.1_generated_template.docx<br/>正式生成模板"]
+  G --> K["05.2_template_generation_manifest.json<br/>执行记录和 hash"]
   J --> L["template-gap<br/>检查学校签收标准"]
   L --> M["template_gap_report.json/.md/.docx"]
 ```
 
-## F -> G：解析源 Word，生成 `source_template_tree`
+## 阶段一：解析源 Word，生成 `source_template_tree`
 
 一句话结论：这一阶段只把学校原始 Word 解析成“源文件里实际观察到了什么”，不判断这些内容是不是学校签收规则，也不证明最终生成模板合格。
 
-说明：在更长的生成流程图里，这一步写成 `F --> G["解析源 Word<br/>source_template_tree"]`；在本文上面的简化流程图里，它对应 `B --> C`。
+说明：在本文上面的流程图里，这一步对应 `B --> C`。
 
 | 项 | 当前真实实现 |
 | --- | --- |
 | 输入 | `--template` 指向的学校原始模板 Word |
 | 生产者 | `src/docfit/stages/template_generate/source_tree.py::inspect_source_template_docx` |
 | 上游 | `generate_template` 先调用 `build_template_generation_request` 记录源文件路径、hash、输出目录和生成策略 |
-| 下游 | `infer_template_rules(source_tree)` 用它发现候选 unit / element；`build_template_artifact` 用它整理模板结构理解 |
+| 下游 | `build_template_structure_candidates(source_tree)` 用它发现候选 unit / logical element；`build_template_generation_model` 用候选结构整理模板业务模型和处理策略 |
 | 正式输出 | `--out/artifacts/source_template_tree.json` |
 | 调试输出 | `test_outputs/debug/template_generation/<验证名>/.../02_source_template_tree.json` 或调试快照目录里的同名步骤文件 |
 
@@ -76,7 +75,8 @@ flowchart TD
 ```python
 request = build_template_generation_request(...)
 source_tree = inspect_source_template_docx(source_template_docx)
-discovered_rules = infer_template_rules(source_tree)
+structure_candidates = build_template_structure_candidates(source_tree)
+generation_model = build_template_generation_model(request, structure_candidates)
 ```
 
 这里要注意：`source_tree` 不是从 `request` 对象里读出来的，而是再次用同一个 `source_template_docx` 路径直接解析 Word。`request` 负责记录本次任务，`source_template_tree` 负责记录源 Word 事实。
@@ -87,7 +87,7 @@ discovered_rules = infer_template_rules(source_tree)
 | --- | --- | --- |
 | 1 | 调用 `inspect_generated_template_docx(source_template_docx)` | 复用底层 Word / OOXML inspector 读取这份源模板 Word |
 | 2 | 读取底层 `data.paragraphs`、`data.tables`、`data.headers_footers`、`data.sections`、`data.fields`、`data.numbering_definitions` 等 | 保留段落、表格、页眉页脚、分节、字段、编号等源 Word 事实 |
-| 3 | 调用 `_body_flow_from_inspection(inspected)` | 当前把可见段落、表格单元格、页眉页脚压成带 `node_id`、`source_ref`、`order`、`text`、`style_details` 的可见节点序列；下一步目标是在这里新增 `source_seq` |
+| 3 | 调用 `_body_flow_from_inspection(inspected)` | 当前把可见段落、表格单元格、页眉页脚压成带 `node_id`、`source_seq`、`source_ref`、`order`、`text`、`style_details` 的可见节点序列 |
 | 4 | 组装 `artifact_type = source_template_tree` 的 JSON | 写出 metadata、layers、indexes、warnings 和底层 raw data |
 
 `source_template_tree` 的主要结构：
@@ -102,7 +102,7 @@ discovered_rules = infer_template_rules(source_tree)
 | `layers.body_flow` | 后续规则发现最常用的正文可见节点序列 |
 | `layers.unknown_objects` | 当前解析器不能稳定解释的可见对象，需要保留为风险或待复核 |
 | `indexes.by_source_ref` | 通过 OOXML 位置反查 `node_id` |
-| 目标新增：`indexes.by_source_seq` | 通过阶段一原始可见元素序号反查 `node_id` 和 `source_ref`；当前代码尚未写出 |
+| `indexes.by_source_seq` | 通过阶段一原始可见元素序号反查 `node_id`、`source_ref`、文本摘要和结构层 |
 | `indexes.body_order` | 正文可见节点顺序 |
 | `warnings` | 解析阶段发现的问题，主要来自 unknown visible objects |
 | `data` | 底层 inspector 的原始解析结果，供 debug 和后续构建继续使用 |
@@ -112,8 +112,8 @@ discovered_rules = infer_template_rules(source_tree)
 | 字段 | 含义 |
 | --- | --- |
 | `node_id` | 解析阶段分配的节点 ID，例如 `body_0001` |
-| 目标新增：`source_seq` | 解析阶段分配的原始可见元素序号，从 1 开始递增；后续阶段只能引用，不能重编号 |
-| 目标新增：`source_seq_label` | 给人看的定位标签，例如 `源模板元素 003` |
+| `source_seq` | 解析阶段分配的原始可见元素序号，从 1 开始递增；后续阶段只能引用，不能重编号 |
+| `source_seq_label` | 给人看的定位标签，例如 `源模板元素 003` |
 | `structure_layer` | `body_flow` 或 `header_footer`；后续 unit 发现会过滤掉页眉页脚 |
 | `flow_item_type` / `kind` | `paragraph`、`table_cell`、`header`、`footer` 等 |
 | `source_ref` | OOXML 来源位置，例如 `word/document.xml:p[3]` |
@@ -123,7 +123,7 @@ discovered_rules = infer_template_rules(source_tree)
 | `style` / `style_details` | Word 样式、字体、字号、加粗、对齐、行距等 |
 | `structural_signals` | 是否居中、短文本、大字号、加粗、像标题、像说明文字等启发式信号 |
 
-下一步优化中，`source_seq` 应作为全流程定位锚点。阶段二合并元素时要保留
+当前实现中，`source_seq` 是全流程定位锚点。阶段二合并元素时要保留
 `source_seq_refs[]`，例如说明“这个 logical element 由源模板元素 3、4、5
 合并而来”；阶段三生成 slot、protected zone、cleanup 或 unresolved question
 时继续保留这些序号；阶段四 action 和阶段五 manifest 要写
@@ -134,7 +134,7 @@ discovered_rules = infer_template_rules(source_tree)
 
 | 不做什么 | 应该看哪一步 |
 | --- | --- |
-| 不判断“这是封面、摘要、正文还是参考文献” | 下一步 `discovered_template_rules` |
+| 不判断“这是封面、摘要、正文还是参考文献” | 下一步 `template_structure_candidates` |
 | 不决定元素最终是固定保留、学生填写、自动生成还是删除说明文字 | 下一步候选识别给 `role_hint` 和证据，再由生成模型 materialize 最终策略 |
 | 不读取学校签收标准 | 生成后的 `template-gap` |
 | 不证明 `generated_template.docx` 最终真的长对了 | `generated_template_tree.json` 和 `template_gap_report.*` |
@@ -172,14 +172,13 @@ uv run pytest tests/contract/test_template_generate.py -q
 | 顺序 | 产物 | 生产者 | 消费者 | 能证明什么 |
 | --- | --- | --- | --- | --- |
 | 1 | `source_template_tree.json` | 源 Word inspector | rule discovery、artifact builder | 源 Word 里观察到了什么 |
-| 2 | `discovered_template_rules.json` | `structure_candidates.py` | generation model、debug | 系统推断出的候选 unit / element、`role_hint` 和 evidence |
-| 3 | `template_artifact.json` | `generation_model.py` | decisions、plan、placement/render 上下文 | 系统如何把候选结构 materialize 成模板业务地图 |
-| 4 | `template_unit_decisions.json` | `generation_model.py` | plan builder | 每个 unit 怎么处理 |
-| 5 | `template_generation_plan.json` | `plan.py` | generator executor | 生成器准备执行哪些动作 |
-| 6 | `generated_template.docx` | `executor.py` | template-gap、后续 placement/render | 本次生成的可填写模板 Word |
-| 7 | `template_generation_manifest.json` | `manifest.py` | 审计、debug、e2e 解释 | 生成器实际执行了什么 |
-| 8 | `generated_template_tree.json` | generated-template inspector | template-gap checker | 被测生成 Word 实际结构 |
-| 9 | `template_gap_report.*` | template-gap checker | coverage、e2e、人工排查 | 生成模板差距和阻断状态 |
+| 2 | `template_structure_candidates.json` | `structure_candidates.py` | generation model、debug | 系统推断出的候选 unit / logical element、`role_hint`、`source_seq_refs` 和 evidence |
+| 3 | `template_generation_model.json` | `generation_model.py` | plan builder、debug | 系统如何把候选结构 materialize 成模板业务地图、unit 策略、slots、protected zones、cleanup |
+| 4 | `template_generation_plan.json` | `plan.py` | generator executor | 生成器准备执行哪些动作，每个 action 影响哪些 `source_seq` |
+| 5 | `generated_template.docx` | `executor.py` | template-gap、后续 placement/render | 本次生成的可填写模板 Word |
+| 6 | `template_generation_manifest.json` | `manifest.py` | 审计、debug、e2e 解释 | 生成器实际执行了什么 |
+| 7 | `generated_template_tree.json` | generated-template inspector | template-gap checker | 被测生成 Word 实际结构 |
+| 8 | `template_gap_report.*` | template-gap checker | coverage、e2e、人工排查 | 生成模板差距和阻断状态 |
 
 ## 字段规则
 
@@ -227,24 +226,24 @@ evidence_refs
 | `*.source_seq_refs[]` | 后续阶段对象引用的阶段一原始可见元素序号列表，例如合并 3、4、5 后写 `[3, 4, 5]` | `structure_candidates.py` 起，后续阶段透传 | generation model、plan、manifest、phase check、报告 | 证明合并、slot、cleanup、protected zone 的来源 | 源驱动对象缺失时应标为 `UNKNOWN`；配置 verifier 后可阻断 | AI 不能补造序号，只能解释已有序号 | `tests/contract/test_template_generate.py` |
 | `template_generation_plan.actions[].affected_source_seq_refs[]` | action 实际影响哪些阶段一原始可见元素，例如删除元素 12 | `plan.py` | `executor.py`、manifest、debug、报告 | 证明 Word 修改动作影响范围 | 修改型 action 缺失时应为 `UNKNOWN` 或 `needs_review` | AI 不能改动作影响范围 | `tests/contract/test_template_generate.py` |
 | `template_generation_manifest.actions_executed[].affected_source_seq_refs[]` | 执行记录继续保留 action 的原始元素序号 | `manifest.py` / `executor.py` | 审计、first_bad_stage、人工复核 | 证明执行结果可回溯到源元素 | 缺失时 manifest 不能完整解释修改来源 | AI 只能引用分析 | `tests/contract/test_template_generate.py` |
-| `discovered_template_rules.units[].elements[].role_hint` | 阶段二给阶段三看的候选角色，例如说明文字候选、学生填写候选、人工填写候选 | `structure_candidates.py` | `generation_model.py`、debug 排查 | 不直接决定 `PASS` / `FAIL` / `UNKNOWN`；只影响阶段三策略输入 | 当前仍有旧 `policy` 字段；目标实现应直接消费 `role_hint`，不保留旧字段回退 | AI 不能直接改运行产物，只能解释 | `tests/contract/test_template_generate.py` |
-| `discovered_template_rules.units[].elements[].evidence[]` | 支撑候选角色的 source_ref 和启发式来源 | `structure_candidates.py` | `generation_model.py`、debug 排查 | 不直接决定门禁；作为策略可追溯证据 | 缺失时策略仍可运行，但证据链不完整 | AI 不能补造证据 | `tests/contract/test_template_generate.py` |
-| `template_artifact.data.units[].elements[].candidate_policy` | 阶段三保留的阶段二候选 policy，用来说明最终 `policy` 是怎么 materialize 出来的 | `generation_model.py` | decisions、debug、人工排查 | 不直接决定门禁；最终 `policy` 才进入 slot / cleanup / protected zone | 缺失时仍可按最终 `policy` 执行，但难以解释阶段二/三差异 | AI 不能改运行产物 | `tests/contract/test_template_generate.py` |
+| `template_structure_candidates.units[].elements[].role_hint` | 阶段二给阶段三看的候选角色，例如说明文字候选、学生填写候选、人工填写候选 | `structure_candidates.py` | `generation_model.py`、debug 排查 | 不直接决定 `PASS` / `FAIL` / `UNKNOWN`；只影响阶段三策略输入 | 缺失时策略仍可运行，但证据链不完整 | AI 不能直接改运行产物，只能解释 | `tests/contract/test_template_generate.py` |
+| `template_structure_candidates.units[].elements[].evidence[]` | 支撑候选角色的 source_ref、source_seq 和启发式来源 | `structure_candidates.py` | `generation_model.py`、debug 排查 | 不直接决定门禁；作为策略可追溯证据 | 缺失时策略仍可运行，但证据链不完整 | AI 不能补造证据 | `tests/contract/test_template_generate.py` |
+| `template_generation_model.units[].elements[].candidate_policy` | 阶段三保留的阶段二候选 policy，用来说明最终 `policy` 是怎么 materialize 出来的 | `generation_model.py` | plan、debug、人工排查 | 不直接决定门禁；最终 `policy` 才进入 slot / cleanup / protected zone | 缺失时仍可按最终 `policy` 执行，但难以解释阶段二/三差异 | AI 不能改运行产物 | `tests/contract/test_template_generate.py` |
 
 ## first_bad_stage 判断
 
 | 现象 | 先看什么 | first_bad_stage | 应该改哪里 |
 | --- | --- | --- | --- |
 | 输入文件拿错 | `00_input_source_template.docx` | input | 调用命令或 profile 绑定 |
-| 源 Word 内容没被解析出来 | `02_source_template_tree.json` | source_parse | `inspect_source_template_docx` |
-| unit 没识别或识别错 | `03_discovered_template_rules.json` | unit_detection | `infer_template_rules` |
+| 源 Word 内容没被解析出来 | `01_source_template_tree.json` | source_parse | `inspect_source_template_docx` |
+| unit 没识别或识别错 | `02_template_structure_candidates.json` | unit_detection | `build_template_structure_candidates` |
 | 人工指出“源模板元素 12 不该被删或合并错” | 先用 `source_seq = 12` 查阶段二 `source_seq_refs[]`，再查阶段三 cleanup / plan action | structure_discovery / model_materialize / plan_build | 先定位 12 第一次被标成什么角色，再改对应阶段 |
-| 候选角色或最终策略错 | `03_discovered_template_rules.json` 的 `role_hint` / `policy`，以及 `04_template_artifact.json` 的最终 `policy` | candidate_policy 或 model_materialize | `structure_candidates.py` 或 `generation_model.py` |
-| 应整体复制却变成 patch | `05_template_unit_decisions.json` | mode_selection | `build_template_unit_decisions` |
-| 决策对但 action 错 | `06_template_generation_plan.json` | plan_build | `build_template_generation_plan` |
-| `07_copy_source_docx.docx` 已经不对 | 打开 `07` | copy_execution | 整包复制和输入 DOCX |
-| `07` 对但 `08_generated_template.docx` 不对 | 对比 `07` 和 `08` | action_execution | `execute_template_generation_plan` |
-| manifest 看不出做了什么 | `09_template_generation_manifest.json` | trace_missing | `build_template_generation_manifest` |
+| 候选角色或最终策略错 | `02_template_structure_candidates.json` 的 `role_hint` / `candidate_policy`，以及 `03_template_generation_model.json` 的最终 `policy` / `unit_strategies` | candidate_policy 或 model_materialize | `structure_candidates.py` 或 `generation_model.py` |
+| 应整体复制却变成 patch | `03_template_generation_model.json` 的 `unit_strategies[]` | mode_selection | `build_template_generation_model` |
+| 决策对但 action 错 | `04_template_generation_plan.json` | plan_build | `build_template_generation_plan` |
+| `05.0_copy_source_docx.docx` 已经不对 | 打开 `05.0` | copy_execution | 整包复制和输入 DOCX |
+| `05.0` 对但 `05.1_generated_template.docx` 不对 | 对比 `05.0` 和 `05.1` | action_execution | `execute_template_generation_plan` |
+| manifest 看不出做了什么 | `05.2_template_generation_manifest.json` | trace_missing | `build_template_generation_manifest` |
 | gap 报告大面积误报 | 先看 `generated_template_tree.json` 和 unit 定位 | gap_region_or_evidence | generated-template inspector / gap checker |
 
 不要看到最终 Word 不对就直接改 gap 报告或最终渲染；先定位问题第一次出现在哪一步。
@@ -259,12 +258,12 @@ evidence_refs
 | `pm_report.md` | `--out/pm_report.md` | 人读结果说明 |
 | `findings.json` | `--out/findings.json` | 机器可读问题列表 |
 | `generated_template.docx` | `--out/generated_template.docx` | 模板生成支撑流程的正式 Word 输出 |
-| 模板生成 JSON 产物 | `--out/artifacts/*.json` | request、source tree、rules、artifact、decisions、plan、manifest |
-| 00-10 调试快照 | `test_outputs/debug/template_generation/<验证名>/` | first_bad_stage 排查 |
-| diff / 对比证据 | `07_copy_source_docx.docx` vs `08_generated_template.docx` | 判断整包复制后被哪些局部 action 改变 |
+| 模板生成 JSON 产物 | `--out/artifacts/*.json` | request、source tree、structure candidates、generation model、plan、manifest |
+| 阶段编号调试快照 | `test_outputs/debug/template_generation/<验证名>/` | first_bad_stage 排查 |
+| diff / 对比证据 | `05.0_copy_source_docx.docx` vs `05.1_generated_template.docx` | 判断整包复制后被哪些局部 action 改变 |
 | gap 报告 | `template-gap --out/artifacts/template_gap_report.*` | 证明生成 Word 是否满足学校签收标准 |
 
-当前调试快照仍使用 `00-10` 流水编号。下一步目标是改成阶段对齐编号：
+当前调试快照使用阶段对齐编号：
 `00` 表示运行输入、请求和上下文；`01` 到 `05` 分别对应
 `source_parse`、`structure_discovery`、`generation_model`、`plan_build`、
 `action_execution`；小数点只表示阶段内子产物，不用于保留旧产物名兼容文件。
@@ -281,13 +280,15 @@ evidence_refs
 | 2026-06-21 | 验证拆分后模板生成产物链 | `uv run docfit eval template-generate --template test_inputs/template_generation/school-hunannongye-requirement.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_generate_split_check` | `PASS` | 写出 7 个 public JSON artifact 和 00-10 debug 快照；manifest 记录 84 个执行动作、31 个 slot、0 个待人工 review 动作、43 个 copy-only 内部 cleanup 动作 |
 | 2026-06-21 | 验证模板生成产物链 | `uv run docfit eval template-generate --template test_inputs/template_generation/school-hunannongye-requirement.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/doc_reorg_template_generate_hunannongye_20260621` | `PASS` | 写出 `generated_template.docx`、artifacts、manifest；manifest 记录 143 个执行动作、53 个 slot、0 个待人工 review 动作 |
 | 2026-06-21 | 验证生成 Word 进入 gap | `uv run docfit eval template-gap --school hunannongye --generated-template test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/doc_reorg_template_generate_hunannongye_20260621/generated_template.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/doc_reorg_template_gap_hunannongye_20260621` | `FAIL` | gap summary 为 `FAIL + UNKNOWN`，`passed=128`、`failed=27`、`unknown=137` |
+| 2026-06-22 | 验证阶段二/三目标产物切换和 `source_seq` 追踪 | `uv run pytest tests/contract/test_template_generate.py -q` | `PASS` | `9 passed`；覆盖 `template_structure_candidates`、`template_generation_model`、阶段编号 debug、action 来源序号 |
+| 2026-06-22 | 验证合同测试矩阵 | `uv run pytest tests/contract -q` | `PASS` | `71 passed`；真实 real-core 链路没有说明文字泄漏回归 |
 
 这说明模板生成支撑流程能跑并能进入学校标准检查；不说明湖南农业大学生成模板已经合格。
 
 ## 当前最小下一步
 
-如果继续推进模板生成质量，下一步不是再拆文件，而是把 copy-only / copy_then_patch 的策略输入从全局 `unit_id` 基线升级到学校标准和学生内容责任：
+如果继续推进模板生成质量，下一步不是再切产物名，而是把 copy-only / copy_then_patch 的策略输入从全局 `unit_id` 基线升级到学校标准和学生内容责任：
 
 - 学校签收标准明确承载学生内容时，不能继续按默认 copy-only 保留；
 - 致谢、附录等条件单元要接入学生内容台账后再决定是否 copy-only；
-- `template-gap` 仍负责判断生成 Word 是否满足学校签收标准，不能用 manifest 或 `template_artifact` 替代。
+- `template-gap` 仍负责判断生成 Word 是否满足学校签收标准，不能用 manifest 或 `template_generation_model` 替代。

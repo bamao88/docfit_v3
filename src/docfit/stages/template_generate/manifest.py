@@ -10,9 +10,8 @@ def build_template_generation_manifest(
     *,
     request: dict[str, Any],
     source_tree: dict[str, Any],
-    discovered_rules: dict[str, Any],
-    template_artifact: dict[str, Any],
-    decisions: dict[str, Any],
+    structure_candidates: dict[str, Any],
+    generation_model: dict[str, Any],
     plan: dict[str, Any],
     generated_template_docx: Path,
     execution: dict[str, Any],
@@ -28,9 +27,8 @@ def build_template_generation_manifest(
         "input_hashes": {
             "source_template_docx": request.get("source_template_hash"),
             "source_template_tree": sha256_json(source_tree),
-            "discovered_template_rules": sha256_json(discovered_rules),
-            "template_artifact": sha256_json(template_artifact),
-            "template_unit_decisions": sha256_json(decisions),
+            "template_structure_candidates": sha256_json(structure_candidates),
+            "template_generation_model": sha256_json(generation_model),
             "template_generation_plan": sha256_json(plan),
         },
         "output": {
@@ -51,6 +49,6 @@ def build_template_generation_manifest(
             "copy_source_docx": str(copy_source_snapshot_docx)
             if copy_source_snapshot_docx is not None
             else None,
-            "naming": "files are ordered by flow step prefix plus artifact name",
+            "naming": "files are ordered by template generation phase prefix",
         }
     return manifest

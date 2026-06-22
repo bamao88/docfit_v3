@@ -3,11 +3,11 @@
 Status: Implemented
 Last updated: 2026-06-22
 
-一句话结论：`src/docfit/stages/template_generate/runner.py` 的机械拆分已经完成；当前剩余工作不是继续拆文件，而是把阶段二/三产物名、debug 编号、`source_seq` 追踪字段和消费者连接一次性切到目标契约。
+一句话结论：`src/docfit/stages/template_generate/runner.py` 的机械拆分已经完成，阶段二/三目标产物、debug 编号和 `source_seq` 追踪字段也已经切到当前契约；当前剩余工作是更深的 logical element 合并、学校标准和学生内容台账接入，以及阶段检查归因。
 
 ## 这个文件做什么
 
-这个文件记录模板生成模块拆分后的当前状态、已经完成的证据、仍然使用旧产物名的地方，以及下一轮代码优化要改哪里。
+这个文件记录模板生成模块拆分后的当前状态、已经完成的证据，以及下一轮代码优化要改哪里。
 
 它不再作为“待拆模块清单”。模板生成五阶段目标方案以
 `docs/plans/template-generation-flow-optimization.md` 为准；当前长期流程说明以
@@ -23,8 +23,8 @@ Last updated: 2026-06-22
 | 常量和默认规则 | `constants.py` | 被阶段模块复用 |
 | 请求记录 | `request.py` | `template_generation_request.json` |
 | 阶段一：源 Word 事实解析 | `source_tree.py` | `source_template_tree.json` |
-| 阶段二：候选单元和元素识别 | `structure_candidates.py` | `discovered_template_rules.json` |
-| 阶段三：模板模型和策略 | `generation_model.py` | `template_artifact.json`、`template_unit_decisions.json` |
+| 阶段二：候选单元和元素识别 | `structure_candidates.py` | `template_structure_candidates.json` |
+| 阶段三：模板模型和策略 | `generation_model.py` | `template_generation_model.json` |
 | 阶段四：动作计划 | `plan.py` | `template_generation_plan.json` |
 | 阶段五：Word action 执行 | `executor.py` | `generated_template.docx` 和执行结果 |
 | manifest 生成 | `manifest.py` | `template_generation_manifest.json` |
@@ -33,46 +33,30 @@ Last updated: 2026-06-22
 | 文本规范化工具 | `text_utils.py` | 被阶段模块复用 |
 | python-docx 底层操作 | `word_ops.py` | 被执行阶段复用 |
 
-当前语义边界已经比最初 runner 单文件更清楚：`discovered_template_rules` 里的元素带 `role_hint` 和 `evidence`；`generation_model.py` 会把候选 `policy` materialize 成阶段三最终 `policy`。copy-only 单元内部的 `fill` / `generated` 候选会保留为证据但最终变成 `fixed`，不会生成 slot；`remove_instruction` 候选会进入 cleanup。
+当前语义边界已经比最初 runner 单文件更清楚：`template_structure_candidates` 里的元素带 `role_hint`、`evidence` 和 `source_seq_refs`；`generation_model.py` 会把候选 `candidate_policy` materialize 成阶段三最终 `policy`，并写入 `unit_strategies`、`slots`、`protected_zones` 和 `cleanup`。copy-only 单元内部的 `fill` / `generated` 候选会保留为证据但最终变成 `fixed`，不会生成 slot；`remove_instruction` 候选会进入 cleanup。
 
 ## 当前真实输出
 
-当前代码仍写出旧的公开产物名和旧的 debug 编号。排查现有运行结果时，应按这张表定位：
+当前代码写出阶段对齐后的公开产物名和 debug 编号。排查现有运行结果时，应按这张表定位：
 
 | 编号 | 当前文件 | 说明 |
 | --- | --- | --- |
 | `00` | `00_input_source_template.docx` | 输入学校原始模板 Word |
-| `01` | `01_template_generation_request.json` | 本次生成请求 |
-| `02` | `02_source_template_tree.json` | 阶段一：源 Word 事实 |
-| `03` | `03_discovered_template_rules.json` | 阶段二：候选结构识别，当前旧产物名 |
-| `04` | `04_template_artifact.json` | 阶段三的一部分：模板业务地图，当前旧产物名 |
-| `05` | `05_template_unit_decisions.json` | 阶段三的一部分：处理策略，当前旧产物名 |
-| `06` | `06_template_generation_plan.json` | 阶段四：动作计划 |
-| `07` | `07_copy_source_docx.docx` | 阶段五：只执行整包复制后的 Word 停点 |
-| `08` | `08_generated_template.docx` | 阶段五：执行全部 action 后的生成模板 Word |
-| `09` | `09_template_generation_manifest.json` | 阶段五：执行记录和输出 hash |
-| `10` | `10_template_generation_debug_index.json` | 本 debug 目录的文件索引 |
-
-这些旧名字是当前真实实现，不是下一轮目标。下一轮改名时，应同步更新生产者、消费者、测试和报告引用，不为旧产物名额外保留兼容输出。
-
-## 下一轮目标输出
-
-下一轮目标是让文件编号按阶段命名：整数部分对应阶段，点后面对应该阶段内的子产物；`00` 留给输入、请求和运行上下文，`99` 留给索引、汇总和非阶段性说明。
-
-| 编号 | 目标文件 | 说明 |
-| --- | --- | --- |
-| `00` | `00_input_source_template.docx` | 运行输入：学校原始模板 Word，不属于阶段一 |
-| `00` | `00_template_generation_request.json` | 运行请求：记录源文件、输出目录和策略，不属于阶段一 |
+| `00` | `00_template_generation_request.json` | 本次生成请求 |
 | `01` | `01_source_template_tree.json` | 阶段一：源 Word 事实 |
-| `02` | `02_template_structure_candidates.json` | 阶段二：候选结构识别的目标主产物 |
-| `03` | `03_template_generation_model.json` | 阶段三：生成模板模型与策略的目标主产物 |
+| `02` | `02_template_structure_candidates.json` | 阶段二：候选结构识别 |
+| `03` | `03_template_generation_model.json` | 阶段三：模板业务模型和处理策略 |
 | `04` | `04_template_generation_plan.json` | 阶段四：动作计划 |
-| `05.0` | `05.0_copy_source_docx.docx` | 阶段五：只执行整包复制后的停点 |
-| `05.1` | `05.1_generated_template.docx` | 阶段五：执行全部 action 后的 Word |
+| `05.0` | `05.0_copy_source_docx.docx` | 阶段五：只执行整包复制后的 Word 停点 |
+| `05.1` | `05.1_generated_template.docx` | 阶段五：执行全部 action 后的生成模板 Word |
 | `05.2` | `05.2_template_generation_manifest.json` | 阶段五：执行记录和输出 hash |
-| `99` | `99_template_generation_debug_index.json` | 非阶段文件：本 debug 目录索引 |
+| `99` | `99_template_generation_debug_index.json` | 本 debug 目录的文件索引 |
 
-小数点不是数学小数，而是 `阶段.子步骤` 标号。后续如果某阶段内子产物超过 9 个，可以改用 `02.01`、`02.02` 这种两位子步骤，避免文件排序混乱。
+这些是当前真实实现。`template_parse` 业务四阶段里的 `template_artifact.json` 仍是另一个业务产物，不属于 `template_generate` 支撑流程这次改名范围。
+
+## 编号规则
+
+整数部分对应阶段，点后面对应该阶段内的子产物；`00` 留给输入、请求和运行上下文，`99` 留给索引、汇总和非阶段性说明。小数点不是数学小数，而是 `阶段.子步骤` 标号。后续如果某阶段内子产物超过 9 个，可以改用 `02.01`、`02.02` 这种两位子步骤，避免文件排序混乱。
 
 ## 已完成
 
@@ -81,20 +65,22 @@ Last updated: 2026-06-22
 | `runner.py` 拆成阶段模块 | 提交 `0db2f4d refactor(template-generate): split runner modules` |
 | copy-only 内部说明文字可以清理 | 提交 `304d613 feat(template-generate): clean copy-only instructions` |
 | 阶段三 materialize 最终策略 | 提交 `526196f refactor(template-generate): materialize candidate policies in model` |
+| 阶段一新增 `source_seq` | 当前实现；`source_template_tree.layers.body_flow[]` 和 `indexes.by_source_seq` 已写出 |
+| 阶段二目标产物改名 | 当前实现；`template_structure_candidates.json` 已替代 `discovered_template_rules.json` |
+| 阶段三目标产物合并 | 当前实现；`template_generation_model.json` 已承载 units、unit_strategies、slots、protected_zones、cleanup |
+| debug 编号按阶段重命名 | 当前实现；debug 快照使用 `00 / 01 / 02 / 03 / 04 / 05.x / 99` |
 | 聚焦合同测试通过 | `uv run pytest tests/contract/test_template_generate.py -q` -> `9 passed` |
 | 合同测试通过 | `uv run pytest tests/contract -q` -> `71 passed` |
 | 真实模板生成通过 | `uv run docfit eval template-generate --template test_inputs/template_generation/school-hunannongye-requirement.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_generate_split_check` -> `status = PASS` |
-| 当前 debug 快照仍写出旧编号 | 真实运行写出 `00_input_source_template.docx` 到 `10_template_generation_debug_index.json` |
+| action 来源序号可追踪 | `template_generation_plan.actions[].affected_source_seq_refs[]` 和 manifest 执行记录已保留来源序号 |
 
 ## 仍需补齐
 
 | 剩余工作 | 应该改哪里 | 验收重点 |
 | --- | --- | --- |
-| 阶段一新增 `source_seq` | `source_tree.py`、相关 schema 和测试 | 每个可追踪元素都有稳定序号，后续合并、删除、保留都能引用原始序号 |
-| 阶段二目标产物改名 | `structure_candidates.py`、`outputs.py`、消费者和测试 | `discovered_template_rules` 切到 `template_structure_candidates`，不双写旧名 |
-| 阶段三目标产物合并 | `generation_model.py`、`outputs.py`、消费者和测试 | `template_artifact` 与 `template_unit_decisions` 收敛为 `template_generation_model`，合并对象保留来源序号 |
-| debug 编号按阶段重命名 | `outputs.py` 和 debug index | 新文件名按 `00 / 01 / 02 / 03 / 04 / 05.x / 99` 写出 |
-| 报告和测试引用同步更新 | summary、template-gap、e2e 或合同测试中读取旧名的代码 | 没有残留旧产物名依赖 |
+| 更深的 logical element 合并 | `structure_candidates.py` | 在当前连续说明文字合并之外，继续补表格行 label+blank、句子 continuation 等规则 |
+| 学校标准和学生内容台账接入 | `generation_model.py`、CLI/e2e 输入边界 | copy-only / copy_then_patch 不再只靠全局 unit_id 基线 |
+| 报告和长期文档引用同步更新 | current docs、plan docs、人工排查说明 | 人工排查入口全部使用新产物名 |
 | 阶段检查结果落地 | 评测层和报告层 | 能表达 `first_bad_phase`、上游阻断和下游症状 |
 
 ## 不做

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from docx import Document
 from docx.table import _Cell
@@ -13,6 +14,14 @@ def _first_source_ref(item: dict[str, Any]) -> str | None:
         return str(refs[0])
     ref = item.get("source_ref")
     return str(ref) if ref else None
+
+
+def _source_seq_refs(item: dict[str, Any]) -> list[int]:
+    refs = item.get("source_seq_refs")
+    if isinstance(refs, list):
+        return [int(ref) for ref in refs if ref is not None]
+    seq = item.get("source_seq")
+    return [int(seq)] if seq is not None else []
 
 
 def _paragraph_index(source_ref: str | None) -> int | None:
