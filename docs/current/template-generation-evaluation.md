@@ -153,6 +153,70 @@ test_inputs/template_gap/
 - `01` 到 `05` 已有三校阶段标准，但测试仍只是“产物链和当前生成行为”的合同测试，不等于这些阶段已经有独立验收 verifier。
 - `06_final_template_gap` 的测试才是在验证“最终生成模板是否按学校标准检查，并且 FAIL / UNKNOWN 不能误放成 PASS”。
 
+## 检测逻辑和字段层次
+
+一句话结论：00 只有“这次运行是谁、输入是什么”的请求字段；01 开始把 Word 拆成事实层；02 才引入候选 unit / element；03 把候选变成生成策略；04 变成 Word action；05 记录实际执行；06 才把最终生成模板和学校签收标准做确定性比对。
+
+先区分当前真实实现和目标检测口径：
+
+| 范围 | 当前真实实现 | 文档里的检测逻辑指什么 |
+| --- | --- | --- |
+| `01` 到 `05` | 有产物、合同测试和三校阶段标准；verifier 仍是 `not_configured` | 说明未来阶段 verifier 应该怎么读标准、读产物、比较字段；不能说这些阶段现在会输出 `PASS` |
+| `06_final_template_gap` | 已有可运行 verifier | 当前真的会读取 `generated_template.docx` 和 `template_unit_contract.yaml`，生成 `template_gap_report.*` 并输出 `PASS` / `FAIL` / `UNKNOWN` |
+
+最开始只有这些输入和字段：
+
+| 起点 | 字段或证据 | 含义 |
+| --- | --- | --- |
+| 学校原始模板 Word | `.docx` 包本身 | 这是业务输入，还没有 JSON 层次，也没有 unit、element、policy 或 action |
+| `template_generation_request.json` | `artifact_type`、`artifact_version`、`created_at`、`source_template_docx`、`source_template_hash`、`out_dir`、`strategy`、`optional_labels` | 只记录这次运行的输入、输出目录、hash 和策略；不判断模板内容 |
+
+每个阶段新增的层次和关键字段：
+
+| 阶段 | 新增层次 | 新字段或字段组 | 这些字段用来做什么 |
+| --- | --- | --- | --- |
+| `01_source_parse` | `source_template_tree` | `metadata.source_template_hash`、`layers.package_global`、`layers.section_rules`、`layers.header_footer`、`layers.body_flow`、`layers.unknown_objects`、`indexes.by_source_ref`、`indexes.by_source_seq`、`warnings` | 把 Word 里的段落、表格、页眉页脚、分节、字段、编号和未知对象保存成事实证据；后续只能引用这些事实，不能改写事实 |
+| `01_source_parse` | `layers.body_flow[]` | `node_id`、`source_seq`、`source_seq_label`、`structure_layer`、`flow_item_type`、`source_ref`、`part_name`、`order`、`container_ref`、`text`、`style_details`、`structural_signals` | 给每个可见源元素一个稳定定位。`source_seq` 是后续追溯 first_bad_stage 的主锚点 |
+| `02_structure_discovery` | `template_structure_candidates` | `source_template_hash`、`input_hashes.source_template_tree`、`discovery_method`、`source_context`、`units[]`、`unknowns`、`open_questions` | 说明系统基于源事实树发现了哪些候选单元和候选逻辑元素，并绑定输入 hash |
+| `02_structure_discovery` | `units[]` / `elements[]` | `unit_id`、`name`、`order`、`status`、`candidate_policy`、`source_refs`、`source_seq_refs`、`source_range`、`source_seq_range`、`anchors`、`role_hint`、`evidence`、`entry_refs`、`merge` | 把源元素组织成候选单元和元素；`role_hint` 是候选角色，`candidate_policy` 是候选策略，还不是最终生成策略 |
+| `03_generation_model` | `template_generation_model` | `input_hashes`、`provenance`、`source_context`、`units`、`unit_strategies`、`slots`、`regions`、`protected_zones`、`cleanup`、`required_fields`、`unsupported`、`unresolved_questions`、`data` | 把候选结构整理成生成模型：哪些要填、哪些要保护、哪些说明文字要清理、哪些问题还不能确定 |
+| `03_generation_model` | `units[].elements[]` | `candidate_policy`、最终 `policy`、`type`、`fill` | 保留“候选策略”和“最终策略”的差异。比如 copy-only 单元里的候选 fill 可能最终变成 fixed |
+| `04_plan_build` | `template_generation_plan` | `strategy`、`source_template_docx`、`input_hashes.template_generation_model`、`actions[]` | 把生成模型转成可执行 action，并证明 action 是从哪个模型 hash 来的 |
+| `04_plan_build` | `actions[]` | `action_id`、`action_type`、`unit_id`、`element_id`、`source_ref`、`affected_source_seq_refs`、`target_ref`、`status`、`reason` | 说明准备改 Word 的哪一处、影响哪些源元素、为什么改。修改型 action 必须能回到 `source_seq` |
+| `05_action_execution` | `generated_template.docx` + `template_generation_manifest` | `input_hashes`、`output.generated_template_docx_hash`、`slots`、`generated_fields`、`page_breaks`、`section_breaks`、`synthesized_texts`、`actions_executed`、`actions_requiring_review`、`debug_snapshot` | 证明 action 实际执行了什么，输出 Word 的 hash 是什么，是否有需要人工复核的动作 |
+| `06_final_template_gap` | `generated_template_tree` + `template_gap_report` | `generated_template.path/source_path/sha256`、`standard.path/sha256`、`input`、`units[]`、`global_checks`、`unmodeled_objects`、`summary`、`coverage` | 读取最终 Word 的实际结构，并和学校 `template_unit_contract.yaml` 比对，输出真正的阻断状态 |
+
+01-05 的阶段标准文件也有自己的字段层次。它们不是运行产物，而是未来 verifier 的裁判口径：
+
+| 标准字段 | 含义 |
+| --- | --- |
+| `baseline_type`、`profile_id`、`school_id`、`stage_id`、`standard_id` | 说明这份标准属于哪个学校、哪个 profile、哪个模板生成阶段 |
+| `standard_state`、`verifier_state`、`gate_enabled` | 说明标准已存在，但检查器是否启用；现在 01-05 是 `signed_pending_verifier` + `not_configured` + `false` |
+| `review_metadata` | 谁 review、来源在哪里、为什么改、是否允许自动更新 |
+| `accepted_source_facts` | 绑定人工 review、源模板 Word、上游 `template_unit_contract.yaml` 和 hash |
+| `expected.final_review_unit_order` | 人工签收的最终单元顺序 |
+| `expected.final_review_unit_summaries` | 每个单元的名称、顺序、状态、策略、元素数量和处理口径摘要 |
+| `expected.final_review_policy_groups` | manual_only、fillable、generated、template_default、fixed/protected 等单元分组 |
+| `expected.stage_boundary` | 这个阶段读什么、写什么、检查什么、不允许做什么 |
+| `expected.verifier_requirements` | 这个阶段未来 verifier 最少要检查哪些字段 |
+| `dimensions[]` | 将来 verifier 可直接执行的比较维度，例如 exact、subset、ordered_sequence |
+
+未来 01-05 verifier 的检测逻辑应该按这个顺序走：
+
+| 阶段 | 应该怎么检测 | 出错时怎么判 |
+| --- | --- | --- |
+| `01_source_parse` | 读取 `01_source_parse_contract.yaml` 和 `source_template_tree.json`；检查 `artifact_type`、源模板 hash、必需事实类别 `paragraphs/tables/headers_footers/sections/fields/numbering_definitions/unknown_objects`、`source_seq` 连续性、`source_ref` 和索引可回查 | 文件缺失、hash 对不上、必需事实类别缺失或定位字段缺失应为 `UNKNOWN`；事实明显不完整时可为 `FAIL` |
+| `02_structure_discovery` | 读取 `02_structure_discovery_contract.yaml` 和 `template_structure_candidates.json`；检查候选 `unit_id` 顺序是否覆盖 `expected.final_review_unit_order`，元素是否保留 `source_seq_refs`、`role_hint`、`evidence`，合并关系是否可追溯 | 无法证明候选来自源事实时 `UNKNOWN`；候选单元边界、manual_only/fillable/generated 分组明显错时 `FAIL` |
+| `03_generation_model` | 读取 `03_generation_model_contract.yaml` 和 `template_generation_model.json`；检查 `candidate_policy` 到最终 `policy` 的转换、`unit_strategies`、`slots`、`protected_zones`、`cleanup` 是否符合人工 review 的 status/policy/handling | 策略证据缺失为 `UNKNOWN`；把 manual_only 当 fill、把说明文字保留进最终模板等为 `FAIL` |
+| `04_plan_build` | 读取 `04_plan_build_contract.yaml` 和 `template_generation_plan.json`；检查每个修改型 action 是否有 `affected_source_seq_refs`、`unit_id`、`action_type`、`reason`，cleanup 是否有 review 依据，protected/manual_only 单元是否被越界修改 | action 无法回溯来源为 `UNKNOWN`；生成越界删除、替换或 slot action 为 `FAIL` |
+| `05_action_execution` | 读取 `05_action_execution_contract.yaml`、`generated_template.docx`、`template_generation_manifest.json` 和 debug 停点；检查输出文件存在且 hash 绑定，manifest 是否绑定所有输入 hash，`actions_executed` 是否保留来源，是否有 `actions_requiring_review` | 缺 Word、缺 manifest 或 hash 不一致为 `UNKNOWN`；执行记录和 plan 明显不一致为 `FAIL` |
+| `06_final_template_gap` | 当前已实现：复制被测 Word 到评测输出目录，解析成 `generated_template_tree.json`，读取 `template_unit_contract.yaml#/expected/units`，按单元、元素、样式、页眉页脚、页码、字段、编号和未知对象生成检查项，再汇总状态 | 任一检查项 `FAIL` 则最终阻断；有 `UNKNOWN` 且无 `FAIL` 也阻断；全部可证明才 `PASS` |
+
+这里有两个关键约束：
+
+- 阶段产物字段是证据链，不是越多越好。新增字段必须说明生产者、消费者、门禁影响、缺失后果和 AI 边界。
+- 01-05 标准文件现在只是“裁判口径已经写下来了”，不是“裁判已经开始执法”。真正执法要等阶段 verifier 和聚合入口接入。
+
 ## 产品评测能力和测试代码边界
 
 | 文件或目录 | 身份 | 当前用途 |
