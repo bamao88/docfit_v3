@@ -121,6 +121,13 @@ TEMPLATE_GENERATION_STAGE_BOUNDARIES: list[dict[str, Any]] = [
         "missing_or_unreadable_result": "UNKNOWN",
     },
 ]
+TEMPLATE_GENERATION_STAGE_ARTIFACT_TYPES = {
+    "01_source_parse": "source_template_tree",
+    "02_structure_discovery": "template_structure_candidates",
+    "03_generation_model": "template_generation_model",
+    "04_plan_build": "template_generation_plan",
+    "05_action_execution": "template_generation_manifest",
+}
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -222,9 +229,12 @@ def _write_school_standards(
                 },
                 "evidence_baselines": {
                     "template_unit_contract": "template_unit_contract.yaml",
-                    "template_generation_stage_contract": (
-                        "template_generation_stage_contract.yaml"
-                    ),
+                    "template_generation_stage_contracts": {
+                        stage["stage_id"]: (
+                            f"template_generation/{stage['stage_id']}_contract.yaml"
+                        )
+                        for stage in TEMPLATE_GENERATION_STAGE_BOUNDARIES
+                    },
                 },
                 "coverage_requirements": {
                     "profile": PROFILE_ID,
@@ -283,7 +293,7 @@ def _write_school_standards(
                 ],
             },
         )
-        _write_template_generation_stage_contract(
+        _write_template_generation_stage_contracts(
             school_dir=school_dir,
             school_id=school_id,
             packet_path=packet_path,
@@ -310,7 +320,7 @@ def _existing_template_units(template_unit_contract_path: Path) -> list[dict[str
     return units if isinstance(units, list) else []
 
 
-def _write_template_generation_stage_contract(
+def _write_template_generation_stage_contracts(
     *,
     school_dir: Path,
     school_id: str,
@@ -324,87 +334,131 @@ def _write_template_generation_stage_contract(
     template_units: list[dict[str, Any]],
 ) -> None:
     template_unit_contract_path = school_dir / "template_unit_contract.yaml"
-    _write_yaml(
-        school_dir / "template_generation_stage_contract.yaml",
-        {
-            "baseline_type": "template_generation_stage_contract",
-            "profile_id": PROFILE_ID,
-            "school_id": school_id,
-            "review_metadata": _review_metadata(
-                reviewed_by=reviewed_by,
-                review_source=f"{packet_path}#source-{school_id}",
-                source_hash=template_hash,
-                change_reason=(
-                    "derive template generation stage standards from reviewed "
-                    "template source facts"
-                ),
-            ),
-            "accepted_source_facts": {
-                "review_packet": str(packet_path),
-                "review_packet_sha256": packet_sha,
-                "source_section_id": school_id,
-                "source_section_sha256": section_sha,
-                "template_docx": str(template_docx),
-                "template_docx_sha256": template_hash,
-                "original_review_source": str(review_source),
-                "original_review_source_sha256": sha256_file(ROOT / review_source),
-                "upstream_template_unit_contract": "template_unit_contract.yaml",
-                "upstream_template_unit_contract_sha256": sha256_file(
-                    template_unit_contract_path
-                ),
-            },
-            "purpose": (
-                "为模板生成 01-05 阶段提供人工签收的输入/输出标准。"
-                "这些标准来自 template_unit_contract.yaml 的 expected.units 和完整人工 review；"
-                "在阶段 verifier 接入前只表示标准已存在，不表示阶段已 PASS。"
-            ),
-            "ai_boundary": {
-                "ai_may_explain": True,
-                "ai_may_edit_status_or_standard_without_human_review": False,
-                "auto_update_allowed": False,
-            },
-            "gate_policy": {
-                "enabled_verifier_required_for_pass": True,
-                "not_configured_is_not_pass": True,
-                "missing_standard_result": "UNKNOWN",
-                "missing_artifact_result": "UNKNOWN",
-            },
-            "expected": {
+    legacy_contract = school_dir / "template_generation_stage_contract.yaml"
+    if legacy_contract.exists():
+        legacy_contract.unlink()
+
+    stage_dir = school_dir / "template_generation"
+    ensure_dir(stage_dir)
+    common_source_facts = {
+        "review_packet": str(packet_path),
+        "review_packet_sha256": packet_sha,
+        "source_section_id": school_id,
+        "source_section_sha256": section_sha,
+        "template_docx": str(template_docx),
+        "template_docx_sha256": template_hash,
+        "original_review_source": str(review_source),
+        "original_review_source_sha256": sha256_file(ROOT / review_source),
+        "upstream_template_unit_contract": "../template_unit_contract.yaml",
+        "upstream_template_unit_contract_sha256": sha256_file(
+            template_unit_contract_path
+        ),
+    }
+    for stage in TEMPLATE_GENERATION_STAGE_BOUNDARIES:
+        stage_id = str(stage["stage_id"])
+        stage_standard = _template_generation_stage_standard(stage_id, template_units)
+        expected_from_review = stage_standard["expected_from_review"]
+        _write_yaml(
+            stage_dir / f"{stage_id}_contract.yaml",
+            {
+                "baseline_type": "template_generation_stage_contract",
+                "profile_id": PROFILE_ID,
                 "school_id": school_id,
-                "source_section_sha256": section_sha,
-                "review_packet_sha256": packet_sha,
-                "stage_model": TEMPLATE_GENERATION_STAGE_MODEL,
-                "unit_tree_source": "template_unit_contract.yaml#/expected/units",
-                "unit_order": [unit["unit_id"] for unit in template_units],
-                "unit_summaries": _unit_summaries(template_units),
-                "policy_groups": _policy_groups(template_units),
-                "stage_boundaries": TEMPLATE_GENERATION_STAGE_BOUNDARIES,
-                "stage_standards": {
-                    stage["stage_id"]: _template_generation_stage_standard(
-                        stage["stage_id"], template_units
-                    )
-                    for stage in TEMPLATE_GENERATION_STAGE_BOUNDARIES
+                "stage_id": stage_id,
+                "standard_id": f"{school_id}-v1-template-generation-{stage_id[:2]}",
+                "standard_scope": "single_template_generation_stage",
+                "standard_state": stage_standard["standard_state"],
+                "verifier_state": stage_standard["verifier_state"],
+                "gate_enabled": stage_standard["gate_enabled"],
+                "review_metadata": _review_metadata(
+                    reviewed_by=reviewed_by,
+                    review_source=f"{packet_path}#source-{school_id}",
+                    source_hash=template_hash,
+                    change_reason=(
+                        "derive single template generation stage standard from "
+                        "reviewed template source facts"
+                    ),
+                ),
+                "accepted_source_facts": common_source_facts,
+                "purpose": (
+                    f"为模板生成 {stage_id} 阶段提供人工签收的输入/输出标准。"
+                    "这个标准来自 ../template_unit_contract.yaml 的 expected.units 和完整人工 review；"
+                    "在该阶段 verifier 接入前只表示标准已存在，不表示阶段已 PASS。"
+                ),
+                "ai_boundary": {
+                    "ai_may_explain": True,
+                    "ai_may_edit_status_or_standard_without_human_review": False,
+                    "auto_update_allowed": False,
                 },
+                "gate_policy": {
+                    "enabled_verifier_required_for_pass": True,
+                    "not_configured_is_not_pass": True,
+                    "missing_standard_result": "UNKNOWN",
+                    "missing_artifact_result": "UNKNOWN",
+                },
+                "expected": {
+                    "school_id": school_id,
+                    "stage_id": stage_id,
+                    "artifact_type": TEMPLATE_GENERATION_STAGE_ARTIFACT_TYPES[stage_id],
+                    "source_section_sha256": section_sha,
+                    "review_packet_sha256": packet_sha,
+                    "stage_model": TEMPLATE_GENERATION_STAGE_MODEL,
+                    "unit_tree_source": "../template_unit_contract.yaml#/expected/units",
+                    "final_review_unit_order": [
+                        unit["unit_id"] for unit in template_units
+                    ],
+                    "final_review_unit_summaries": _unit_summaries(template_units),
+                    "final_review_policy_groups": _policy_groups(template_units),
+                    "stage_boundary": stage,
+                    "verifier_requirements": expected_from_review,
+                    "calibration_observation": {
+                        "availability": "not_generated_by_review_packet_script",
+                        "meaning": (
+                            "本脚本只从人工 review 生成标准；正式业务运行产物和 hash "
+                            "需要由单独的校准流程写入 checked-in 标准。"
+                        ),
+                    },
+                },
+                "dimensions": _template_generation_stage_dimensions(stage_id),
             },
-            "dimensions": [
-                _dimension(
-                    "template_generation_stage.source_section_hash",
-                    "exact",
-                    "source_section_sha256",
-                ),
-                _dimension(
-                    "template_generation_stage.stage_model",
-                    "exact",
-                    "stage_model",
-                ),
-                _dimension(
-                    "template_generation_stage.unit_order",
-                    "ordered_sequence",
-                    "unit_order",
-                ),
-            ],
-        },
-    )
+        )
+
+
+def _template_generation_stage_dimensions(stage_id: str) -> list[dict[str, str]]:
+    stage_no = stage_id[:2]
+    dimensions = [
+        _dimension(
+            f"template_generation.{stage_no}.artifact_type",
+            "exact",
+            "artifact_type",
+            "artifact_type",
+        ),
+        _dimension(
+            f"template_generation.{stage_no}.source_section_hash",
+            "exact",
+            "source_section_sha256",
+            "source_section_sha256",
+        ),
+    ]
+    if stage_id == "01_source_parse":
+        dimensions.append(
+            _dimension(
+                "template_generation.01.required_source_fact_layers",
+                "subset",
+                "verifier_requirements.required_source_fact_layers",
+                "observed_layer_names",
+            )
+        )
+    else:
+        dimensions.append(
+            _dimension(
+                f"template_generation.{stage_no}.final_review_unit_order",
+                "ordered_sequence",
+                "final_review_unit_order",
+                "unit_order",
+            )
+        )
+    return dimensions
 
 
 def _unit_summaries(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -810,13 +864,18 @@ def _review_metadata(
     }
 
 
-def _dimension(dimension_id: str, comparator_mode: str, key: str) -> dict[str, str]:
+def _dimension(
+    dimension_id: str,
+    comparator_mode: str,
+    expected_path: str,
+    actual_path: str | None = None,
+) -> dict[str, str]:
     return {
         "dimension_id": dimension_id,
         "required": True,
         "comparator_mode": comparator_mode,
-        "expected_path": key,
-        "actual_path": key,
+        "expected_path": expected_path,
+        "actual_path": actual_path or expected_path,
     }
 
 

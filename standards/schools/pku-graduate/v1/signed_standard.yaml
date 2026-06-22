@@ -19,7 +19,12 @@ contracts:
   render_contract: render_contract.json
 evidence_baselines:
   template_unit_contract: template_unit_contract.yaml
-  template_generation_stage_contract: template_generation_stage_contract.yaml
+  template_generation_stage_contracts:
+    01_source_parse: template_generation/01_source_parse_contract.yaml
+    02_structure_discovery: template_generation/02_structure_discovery_contract.yaml
+    03_generation_model: template_generation/03_generation_model_contract.yaml
+    04_plan_build: template_generation/04_plan_build_contract.yaml
+    05_action_execution: template_generation/05_action_execution_contract.yaml
 coverage_requirements:
   profile: real-core-v0
   required_capabilities:
