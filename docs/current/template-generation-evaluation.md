@@ -242,8 +242,8 @@ standards/schools/<school_id>/v1/template_generation/
 
 | verifier 阶段 | 检查对象 | 当前检查状态 | 当前建议 |
 | --- | --- | --- | --- |
-| `01_source_parse` | `source_template_tree.json` 是否完整表达源 Word 事实 | `standard_defined_pending_verifier`；verifier 仍是 `not_configured` | 读取 `template_generation_stage_contract.yaml` 后，检查源 Word 事实、hash、`source_seq`、`source_ref` |
-| `02_structure_discovery` | `template_structure_candidates.json` 是否正确识别候选 unit 和 logical element | `standard_defined_pending_verifier`；verifier 仍是 `not_configured` | 对照 `expected.unit_order`、`policy_groups` 和 `source_seq_refs[]` 检查候选边界 |
+| `01_source_parse` | `source_template_tree.json` 是否完整表达源 Word 事实 | `standard_defined_pending_verifier`；verifier 仍是 `not_configured` | 读取 `template_generation/01_source_parse_contract.yaml` 后，检查源 Word 事实、hash、`source_seq`、`source_ref` |
+| `02_structure_discovery` | `template_structure_candidates.json` 是否正确识别候选 unit 和 logical element | `standard_defined_pending_verifier`；verifier 仍是 `not_configured` | 对照 `expected.final_review_unit_order`、`final_review_policy_groups` 和 `source_seq_refs[]` 检查候选边界 |
 | `03_generation_model` | `template_generation_model.json` 是否把候选结构转成正确策略 | `standard_defined_pending_verifier`；verifier 仍是 `not_configured` | 对照人工 review 的 unit status/policy/handling 检查策略，不把启发式当签收结论 |
 | `04_plan_build` | `template_generation_plan.json` 是否完整表达要执行的 Word action | `standard_defined_pending_verifier`；verifier 仍是 `not_configured` | 检查 action 来源、protected/manual_only 边界和 cleanup 依据 |
 | `05_action_execution` | `generated_template.docx` 和 `template_generation_manifest.json` 是否与 plan 对齐 | `standard_defined_pending_verifier`；verifier 仍是 `not_configured` | 检查 manifest/hash/action 执行证据，并把最终质量交给 `06_final_template_gap` |
@@ -294,7 +294,7 @@ standards/schools/<school_id>/v1/template_generation/
 | --- | --- | --- | --- | --- |
 | `tests/contract/test_template_generate.py` | 11 个测试 | `00` 到 `05`，以及 `99` debug index | 模板生成能写出完整产物链、debug 编号稳定、`source_seq` 可追踪、阶段二合并和 copy-only 策略行为稳定 | 不证明 `01` 到 `05` 已经有独立 verifier；不证明最终 Word 符合学校标准 |
 | `tests/contract/test_real_core_generated_template_gap.py` | 33 个测试 | `06_final_template_gap` | 最终 `template-gap` 能对真实学校和聚焦 fixture 输出 `PASS` / `FAIL` / `UNKNOWN`，并写出 tree 和报告 | 不证明 `01` 到 `05` 的中间产物已经逐阶段验收 |
-| `tests/contract/test_real_core_baseline_harness.py` | 覆盖 real-core 标准登记 | 三校标准入口 | `template_generation_stage_contract.yaml` 存在、可解析、绑定到 `signed_standard.yaml`，并且 `not_configured` 不会被写成 `PASS` | 不证明阶段 verifier 已经实现 |
+| `tests/contract/test_real_core_baseline_harness.py` | 覆盖 real-core 标准登记 | 三校标准入口 | 15 个 `template_generation/*_contract.yaml` 存在、可解析、绑定到 `signed_standard.yaml`，并且 `not_configured` 不会被写成 `PASS` | 不证明阶段 verifier 已经实现 |
 
 按阶段看当前测试输入输出：
 
@@ -314,7 +314,7 @@ standards/schools/<school_id>/v1/template_generation/
 | 测试目标 | 期望 |
 | --- | --- |
 | 阶段清单稳定 | 报告里列出 `01_source_parse` 到 `06_final_template_gap` |
-| 阶段标准入口稳定 | 三校 `signed_standard.yaml` 都引用 `template_generation_stage_contract.yaml` |
+| 阶段标准入口稳定 | 三校 `signed_standard.yaml` 都引用 `template_generation/01_source_parse_contract.yaml` 到 `05_action_execution_contract.yaml` |
 | 阶段标准不伪装成通过 | 标准文件里 `gate_policy.not_configured_is_not_pass = true`，01-05 的 `gate_enabled = false` |
 | 未配置阶段不伪装成通过 | `verifier_state = not_configured` 时没有 `status = PASS` |
 | 最终 gap 作为示例接入 | `06_final_template_gap` 能复用现有 gap 检查结果 |
@@ -325,7 +325,7 @@ standards/schools/<school_id>/v1/template_generation/
 
 ## 当前最小落地顺序
 
-1. 已完成：三校 `template_generation_stage_contract.yaml` 已根据人工 review 准备，并在 `signed_standard.yaml` 中登记。
+1. 已完成：三校 01-05 阶段标准已拆成 `template_generation/*_contract.yaml`，并在 `signed_standard.yaml` 中登记。
 2. 下一步定义“已有 `template-generate` run 目录 / artifact bundle”作为阶段检查聚合的输入。
 3. 新增阶段检查聚合结构，只登记阶段、产物路径、hash、标准路径和检查状态。
 4. 把现有 `template-gap` 挂成 `06_final_template_gap` 的第一个已启用检查器，并让它消费同一个 bundle 里的 `generated_template.docx`。

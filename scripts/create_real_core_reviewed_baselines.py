@@ -53,7 +53,7 @@ TEMPLATE_GENERATION_STAGE_BOUNDARIES: list[dict[str, Any]] = [
         "input_artifacts": ["source_template_tree.json"],
         "output_artifacts": ["template_structure_candidates.json"],
         "checks_against_review": [
-            "候选 unit 顺序必须能覆盖人工 review 的 expected.unit_order",
+            "候选 unit 顺序必须能覆盖人工 review 的 final_review_unit_order",
             "logical element 必须保留 source_seq_refs，合并关系必须可追溯",
             "固定、填充、生成、manual_only、template_default_optional 的角色提示必须来自源模板证据",
         ],
