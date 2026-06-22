@@ -1,11 +1,27 @@
 # 模板生成流程优化计划
 
-Last updated: 2026-06-21
+Last updated: 2026-06-22
 
 一句话结论：模板生成支撑流程应该收敛成五个逻辑步骤：源 Word 事实、候选结构识别、生成模板模型与策略、动作计划、执行与 manifest；其中阶段三产出系统后续要消费的模板业务地图，阶段四才把业务地图翻译成可执行 action。
 
 拆分实施文档：`docs/plans/template-generate-runner-split.md` 记录
 `src/docfit/stages/template_generate/runner.py` 应如何按这个五步流程拆成多个 Python 文件。
+
+## 文档定位（先读）
+
+这份文件是模板生成支撑流程的目标方案文档，不是当前实现清单。它先定义我们希望模板生成最终收敛到什么逻辑边界，再用“当前真实实现”“当前代码”“当前兼容产物”等段落说明现在代码如何承载这些职责。
+
+读这份文档时按下面口径区分：
+
+| 写法 | 含义 |
+| --- | --- |
+| 目标方案、目标产物、应该 | 新方案的逻辑边界和未来稳定口径 |
+| 当前真实实现、当前代码、当前兼容产物 | 仓库现在已经实现或正在兼容承载的方式 |
+| 仍需补齐、目标需要 | 当前还没有完全闭合，不能当成已实现能力 |
+
+所以，“阶段二：候选结构识别”和“阶段三：生成模板模型与策略”在本文里首先是目标职责拆分。当前代码已经拆出 `structure_candidates.py` 和 `generation_model.py`，但阶段二/三的产物边界还没有完全稳定成 `template_structure_candidates.json -> template_generation_model.json`：当前仍主要通过 `discovered_template_rules.json`、`template_artifact.json` 和 `template_unit_decisions.json` 兼容承载。
+
+如果只想看当前真实流程，以 `docs/current/template-generation.md` 为准；如果要讨论下一步怎么改阶段边界、字段和责任，以本文为准。
 
 ## 评测层追责原则（先读）
 
@@ -113,7 +129,7 @@ Last updated: 2026-06-21
 
 ## 这个文件做什么
 
-这个文件是模板生成流程优化计划。它不是只讨论“默认仅复制单元”，而是把模板生成阶段里几个关键决策放到同一个流程里对齐：
+这个文件是模板生成流程优化计划，主口径是新方案。它不是只讨论“默认仅复制单元”，而是把模板生成阶段里几个关键决策放到同一个流程里对齐：
 
 - 哪些区域只保留学校原始模板；
 - 哪些区域要生成字段或占位；
@@ -127,6 +143,7 @@ Last updated: 2026-06-21
 
 | 问题 | 本文件回答 |
 | --- | --- |
+| 这是新方案还是现状 | 主体写新方案；凡是现状都用“当前真实实现 / 当前代码 / 当前兼容产物”单独标出 |
 | 模板生成要优化什么 | 从“按 unit_id 排除列表”升级为“硬编码基线 + 内容责任 + 学生源内容 + 学校标准”的策略选择 |
 | 哪些区域可以仅复制 | 学校固定正文、签名日期、教师意见、成绩评定等不由机器填写的区域 |
 | 哪些区域不能默认仅复制 | 中文摘要、英文摘要、目录族、正文、参考文献，以及有学生内容的致谢/附录 |
@@ -136,9 +153,9 @@ Last updated: 2026-06-21
 | 执行时 Word 怎么变 | 阶段四把业务地图翻译成 action plan；`preserve_whole_unit_copy` 保留整体结构，copy-only 内部说明文字仍可产生 `remove_instruction_text` |
 | 和其他单元有什么不同 | copy-only 单元的元素处理只做清理和保护；非 copy-only 单元会按元素生成 slot、生成字段占位、删除说明文字或插入固定文本 |
 
-## 调整后的总关系
+## 目标逻辑关系
 
-一句话结论：阶段二只给识别证据，阶段三生成模板业务地图和处理策略，阶段四只生成动作计划。
+一句话结论：目标方案里，阶段二只给识别证据，阶段三生成模板业务地图和处理策略，阶段四只生成动作计划。
 
 | 逻辑步骤 | 输出 | 回答的问题 | 不做什么 |
 | --- | --- | --- | --- |
@@ -148,7 +165,7 @@ Last updated: 2026-06-21
 | 阶段四：动作计划 | `template_generation_plan.json` | 为了实现阶段三的业务地图，需要执行哪些 copy / preserve / slot / cleanup action | 不重新判断 unit 语义，不反推业务模型 |
 | 阶段五：执行与记录 | `generated_template.docx` + `template_generation_manifest.json` | 实际执行了哪些 action，输出 Word 和 hash 是什么，哪些 action 需要 review | 不重新决定内容应该放哪里，不决定 PASS / FAIL |
 
-阶段三是这条链路的核心分界：它把阶段二的“看起来像什么”变成系统后续稳定消费的业务地图。
+阶段三是这条目标链路的核心分界：它把阶段二的“看起来像什么”变成系统后续稳定消费的业务地图。
 阶段四只是把这个业务地图翻译成执行器能跑的动作清单。
 
 例如封面里有 `论文题目：____` 和 `格式说明：小四宋体`：
@@ -160,11 +177,20 @@ Last updated: 2026-06-21
 | 阶段四 | 生成 `preserve_whole_unit_copy cover` 和 `remove_instruction_text <source_ref>` 等 action |
 | 阶段五 | 复制 Word，执行 action，写 manifest |
 
-下方各阶段的具体说明暂时保持当前文档粒度，不在本次修改里重写；后续代码拆分时，以这里的五步总关系作为新的模块边界。
+下方各阶段按“目标职责”说明；涉及当前代码时会单独标注“当前实现承载”。不要把目标产物名直接理解成当前已经稳定写出的文件名。
 
 ## 当前真实实现
 
 当前代码的 copy-only 默认规则仍按 `unit_id` 判断。这是实现现状，不是长期定义。
+
+当前阶段二/阶段三已经有对应模块和产物链，但还不是目标方案里的完全独立边界：
+
+| 目标职责 | 当前实现承载 |
+| --- | --- |
+| 阶段二候选结构识别 | `structure_candidates.py` 写 `discovered_template_rules.json`，已有第一版 entry 级元素、`role_hint` 和 copy-only 受限内部候选 |
+| 阶段三生成模板模型与策略 | `generation_model.py` 写 `template_artifact.json` 和 `template_unit_decisions.json`，把候选 `policy` materialize 成最终执行策略 |
+| 目标 `template_structure_candidates.json` | 当前还没有作为稳定独立产物命名，主要由 `discovered_template_rules.json` 兼容承担 |
+| 目标 `template_generation_model.json` | 当前还没有作为单一稳定产物写出，主要由 `template_artifact.json` + `template_unit_decisions.json` 共同承担 |
 
 已修正的偏差：copy-only 单元不再完全跳过内部元素分析。阶段二会为 copy-only 单元写出单元级 `whole_unit_copy` 候选和内部受限候选元素；阶段三会把内部说明文字 materialize 成 cleanup，把内部填写/生成候选 materialize 成固定保留证据，不会自动生成学生内容 slot。`whole_unit_copy` 只表示“主体结构和固定内容通过整包复制保留”，不表示“内部说明文字免处理”。
 
@@ -339,7 +365,9 @@ flowchart TD
 
 ## 阶段二：候选结构识别
 
-产物：`discovered_template_rules.json`
+目标产物：`template_structure_candidates.json`
+
+当前兼容产物：`discovered_template_rules.json`
 
 阶段二真正应该承担的职责，不是把阶段一的 `body_flow entry` 换个名字叫 element。阶段一负责记录 Word 里“看见了什么”，包括文本、表格、source_ref、样式、顺序、结构层；阶段二应该把这些低层事实整理成后续生成策略能理解的单元和元素。
 
@@ -353,6 +381,16 @@ flowchart TD
 | 策略证据 | 为阶段三策略判定提供证据，而不是输出 `whole_unit_copy`、`copy_then_patch` 等最终处理策略 |
 
 所以当前“一个 entry 变一个 element”的实现只是第一版占位，价值确实偏小。目标实现至少要加入元素合并层，再在合并后的 logical element 上给出 `role_hint` 和 evidence。这里是“候选结构和证据”，不是最终处理策略。
+
+当前实现承载：
+
+| 项 | 当前情况 |
+| --- | --- |
+| 代码位置 | `src/docfit/stages/template_generate/structure_candidates.py` |
+| 当前产物 | `discovered_template_rules.json` |
+| 已有能力 | 识别候选 unit；给 entry 级元素写 `policy`、`role_hint`、evidence；copy-only 单元已有第一版受限内部候选 |
+| 还不是目标的地方 | 还没有稳定 logical element 合并层；`source_context`、`conflicts[]`、`open_questions[]` 还没有按目标 schema 集中输出 |
+| 和阶段三的关系 | 当前阶段三仍会直接回读部分 `source_tree` 全局事实；目标上应通过阶段二 `source_context` 传递 |
 
 ### 阶段二输入契约
 
@@ -392,7 +430,7 @@ flowchart TD
 
 ### 阶段二输出契约
 
-阶段二交给阶段三的输出当前仍叫 `discovered_template_rules.json`。目标上更准确的名字是
+阶段二交给阶段三的输出当前仍主要叫 `discovered_template_rules.json`。目标上更准确的名字是
 `template_structure_candidates.json`：它不应该直接生成 Word action，也不应该最终决定
 `generation_mode`；它只输出“候选结构 + source_ref + role_hint + evidence”，供阶段三生成模板模型与处理策略。
 
@@ -463,6 +501,8 @@ flowchart TD
 
 阶段二和阶段三的区别是：阶段二做候选结构识别和证据归纳，阶段三做模板模型和策略判定。
 
+这里说的是目标职责不重复，不等于当前代码已经把两个阶段完全物理隔离。当前实现里，阶段二的候选结果和阶段三的 materialize 逻辑仍通过兼容字段衔接；后续需要继续把阶段二输出收敛成稳定候选结构，把阶段三输出收敛成稳定模板生成模型。
+
 | 问题 | 阶段二回答 | 阶段三回答 |
 | --- | --- | --- |
 | 这段 Word 内容是什么 | 这是一个 logical element，`role_hint` 是 `instruction_candidate` / `manual_field_candidate` / `fixed_text` 等 | 这次生成里把它转成 cleanup、protected zone、slot，还是 unresolved question |
@@ -501,7 +541,7 @@ flowchart TD
 
 | 单元类型 | 当前代码 | 目标口径 |
 | --- | --- | --- |
-| 默认仅复制单元 | 只写出一个单元级 `whole_unit_copy` 元素，当前还没有稳定的内部受限候选识别 | 保留单元级 copy 元素，同时逐 entry 做受限候选识别；说明文字可进入 cleanup，填空/系统生成信号不直接生成 slot |
+| 默认仅复制单元 | 写出单元级 `whole_unit_copy` 元素，并已有第一版逐 entry 受限内部候选；但还没有稳定 logical element 合并层和完整 `source_context` 输出 | 保留单元级 copy 元素，同时把内部碎片合并为 logical element；说明文字可进入 cleanup，填空/系统生成信号不直接生成 slot |
 | 排除列表里的单元 | 逐个可见节点分析元素 policy | 继续逐 entry 做完整元素识别；可生成 slot、generated marker、删除说明文字或插入固定文本 |
 
 当前代码里，默认仅复制单元的单元级 copy 元素形状大致是：
@@ -637,7 +677,7 @@ body_flow entries
 | 文本包含括号内样式提示，例如宋体、黑体、楷体、居中、行距、字号、号字、pt | 判为说明文字 |
 | 但如果文本本身是短的实质模板标题或字段，例如目录、摘要、关键词、论文题目等 | 不因为括号里的字体字号提示直接判为说明文字 |
 
-阶段三会继续使用阶段二结果：`role_hint = instruction_candidate` 的元素会进入 `cleanup[]`，后续由阶段四生成 `remove_instruction_text` 动作。同时阶段三还会结合 `source_context` 里的全局样式和结构证据复核说明文字候选。当前代码会排除 copy-only 单元的 `source_refs`，这会让 copy-only 内部说明文字漏删；目标应改成只保护 copy-only 内部的固定/人工内容，而不是整段 source range 全部免于说明文字处理。
+阶段三会继续使用阶段二结果：`role_hint = instruction_candidate` 的元素会进入 `cleanup[]`，后续由阶段四生成 `remove_instruction_text` 动作。同时阶段三还会结合全局样式和结构证据复核说明文字候选。当前代码已经能从 unit elements 里收集 copy-only 内部说明文字；但全局样式、编号、页眉页脚等事实仍主要从 `source_tree` 回读。目标上应把这些依赖收敛到阶段二 `source_context`，并只保护 copy-only 内部的固定/人工内容，而不是让整段 source range 天然免于说明文字处理。
 
 ### 待排查问题：entry 颗粒度过细会放大元素误判
 
@@ -666,6 +706,16 @@ body_flow entries
 当前兼容产物：`template_artifact.json` + `template_unit_decisions.json`
 
 这个阶段不重新识别元素语义，而是把阶段二输出的候选 `units[]`、logical `elements[]`、`role_hint`、`source_context`，再结合学校标准、学生内容台账和默认责任基线，生成一次模板生成的业务模型和处理策略。
+
+当前实现承载：
+
+| 项 | 当前情况 |
+| --- | --- |
+| 代码位置 | `src/docfit/stages/template_generate/generation_model.py` |
+| 当前产物 | `template_artifact.json` + `template_unit_decisions.json` |
+| 已有能力 | 把阶段二候选 `policy` materialize 成最终 `policy`；为 copy-only 单元生成 `whole_unit_copy` 决策；把说明文字转成 cleanup 决策 |
+| 还不是目标的地方 | 还没有单一稳定的 `template_generation_model.json`；学校标准和学生内容台账尚未作为正式输入接入；`unresolved_questions[]` 还比较弱 |
+| 和阶段二的关系 | 当前仍依赖阶段二的候选 `policy` / `role_hint`，也会读取部分阶段一 `source_tree` 上下文；目标上应主要消费阶段二整理后的 `source_context` |
 
 阶段三回答的问题是：
 
@@ -721,6 +771,8 @@ body_flow entries
 | `protected_zones[]` | `template_artifact.data.protected_zones[]` |
 | `cleanup[]` | `template_artifact.data.instruction_paragraphs[]` + `template_generation_plan.remove_instruction_text` |
 | `unresolved_questions[]` | 当前较弱，主要散落在 unknowns / warnings，目标需要集中表达 |
+
+所以如果说“当前阶段二和阶段三合并了”，更准确地说是：它们的目标职责已经拆开描述，但当前产物和代码边界仍是兼容承载，还没有完全收敛成两个稳定阶段产物。本文后续提到阶段二/阶段三时，优先指目标职责；谈到当前代码时会单独用“当前实现”标出。
 
 ## 阶段四：生成 action plan
 
