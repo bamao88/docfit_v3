@@ -87,7 +87,7 @@ discovered_rules = infer_template_rules(source_tree)
 | --- | --- | --- |
 | 1 | 调用 `inspect_generated_template_docx(source_template_docx)` | 复用底层 Word / OOXML inspector 读取这份源模板 Word |
 | 2 | 读取底层 `data.paragraphs`、`data.tables`、`data.headers_footers`、`data.sections`、`data.fields`、`data.numbering_definitions` 等 | 保留段落、表格、页眉页脚、分节、字段、编号等源 Word 事实 |
-| 3 | 调用 `_body_flow_from_inspection(inspected)` | 把可见段落、表格单元格、页眉页脚压成带 `node_id`、`source_ref`、`order`、`text`、`style_details` 的可见节点序列 |
+| 3 | 调用 `_body_flow_from_inspection(inspected)` | 当前把可见段落、表格单元格、页眉页脚压成带 `node_id`、`source_ref`、`order`、`text`、`style_details` 的可见节点序列；下一步目标是在这里新增 `source_seq` |
 | 4 | 组装 `artifact_type = source_template_tree` 的 JSON | 写出 metadata、layers、indexes、warnings 和底层 raw data |
 
 `source_template_tree` 的主要结构：
@@ -102,6 +102,7 @@ discovered_rules = infer_template_rules(source_tree)
 | `layers.body_flow` | 后续规则发现最常用的正文可见节点序列 |
 | `layers.unknown_objects` | 当前解析器不能稳定解释的可见对象，需要保留为风险或待复核 |
 | `indexes.by_source_ref` | 通过 OOXML 位置反查 `node_id` |
+| 目标新增：`indexes.by_source_seq` | 通过阶段一原始可见元素序号反查 `node_id` 和 `source_ref`；当前代码尚未写出 |
 | `indexes.body_order` | 正文可见节点顺序 |
 | `warnings` | 解析阶段发现的问题，主要来自 unknown visible objects |
 | `data` | 底层 inspector 的原始解析结果，供 debug 和后续构建继续使用 |
@@ -111,6 +112,8 @@ discovered_rules = infer_template_rules(source_tree)
 | 字段 | 含义 |
 | --- | --- |
 | `node_id` | 解析阶段分配的节点 ID，例如 `body_0001` |
+| 目标新增：`source_seq` | 解析阶段分配的原始可见元素序号，从 1 开始递增；后续阶段只能引用，不能重编号 |
+| 目标新增：`source_seq_label` | 给人看的定位标签，例如 `源模板元素 003` |
 | `structure_layer` | `body_flow` 或 `header_footer`；后续 unit 发现会过滤掉页眉页脚 |
 | `flow_item_type` / `kind` | `paragraph`、`table_cell`、`header`、`footer` 等 |
 | `source_ref` | OOXML 来源位置，例如 `word/document.xml:p[3]` |
@@ -119,6 +122,13 @@ discovered_rules = infer_template_rules(source_tree)
 | `text` | 解析到的可见文字 |
 | `style` / `style_details` | Word 样式、字体、字号、加粗、对齐、行距等 |
 | `structural_signals` | 是否居中、短文本、大字号、加粗、像标题、像说明文字等启发式信号 |
+
+下一步优化中，`source_seq` 应作为全流程定位锚点。阶段二合并元素时要保留
+`source_seq_refs[]`，例如说明“这个 logical element 由源模板元素 3、4、5
+合并而来”；阶段三生成 slot、protected zone、cleanup 或 unresolved question
+时继续保留这些序号；阶段四 action 和阶段五 manifest 要写
+`affected_source_seq_refs[]`。这样人工和 AI 都可以直接说“源模板元素 12
+不应该被删除”，再回查第一次把 12 判成说明文字或 cleanup 的阶段。
 
 这一阶段明确不做这些事：
 
@@ -197,6 +207,9 @@ policy
 required
 slot_id
 source_ref
+source_seq
+source_seq_refs
+affected_source_seq_refs
 output_ref
 style rule
 page rule
@@ -205,10 +218,15 @@ check status
 evidence_refs
 ```
 
-本轮新增或明确的模板生成字段：
+本轮计划新增或明确的模板生成字段：
 
 | 字段 | 含义 | 生产者 | 消费者 | 判定影响 | 缺失后果 | AI 边界 | 测试 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
+| `source_template_tree.layers.body_flow[].source_seq` | 阶段一给每个原始可见元素分配的稳定序号，从 1 开始递增 | `source_tree.py` | 后续所有模板生成阶段、debug、报告、AI RCA | 证据链基础字段；后续 verifier 配置后，缺失或重复应阻断 | 无默认；缺失或重复时不能可靠定位源元素，应为 `FAIL` 或 `UNKNOWN` | AI 可以引用，不能改写或补造 | `tests/contract/test_template_generate.py` |
+| `source_template_tree.layers.body_flow[].source_seq_label` | 给人看的序号标签，例如 `源模板元素 003` | `source_tree.py` | debug、报告、人工沟通 | 不独立决定门禁；辅助定位 | 可由 `source_seq` 派生；缺失会降低可读性 | AI 可以引用，不能当成裁判 | `tests/contract/test_template_generate.py` |
+| `*.source_seq_refs[]` | 后续阶段对象引用的阶段一原始可见元素序号列表，例如合并 3、4、5 后写 `[3, 4, 5]` | `structure_candidates.py` 起，后续阶段透传 | generation model、plan、manifest、phase check、报告 | 证明合并、slot、cleanup、protected zone 的来源 | 源驱动对象缺失时应标为 `UNKNOWN`；配置 verifier 后可阻断 | AI 不能补造序号，只能解释已有序号 | `tests/contract/test_template_generate.py` |
+| `template_generation_plan.actions[].affected_source_seq_refs[]` | action 实际影响哪些阶段一原始可见元素，例如删除元素 12 | `plan.py` | `executor.py`、manifest、debug、报告 | 证明 Word 修改动作影响范围 | 修改型 action 缺失时应为 `UNKNOWN` 或 `needs_review` | AI 不能改动作影响范围 | `tests/contract/test_template_generate.py` |
+| `template_generation_manifest.actions_executed[].affected_source_seq_refs[]` | 执行记录继续保留 action 的原始元素序号 | `manifest.py` / `executor.py` | 审计、first_bad_stage、人工复核 | 证明执行结果可回溯到源元素 | 缺失时 manifest 不能完整解释修改来源 | AI 只能引用分析 | `tests/contract/test_template_generate.py` |
 | `discovered_template_rules.units[].elements[].role_hint` | 阶段二给阶段三看的候选角色，例如说明文字候选、学生填写候选、人工填写候选 | `structure_candidates.py` | `generation_model.py`、debug 排查 | 不直接决定 `PASS` / `FAIL` / `UNKNOWN`；只影响阶段三策略输入 | 可从旧 `policy` 兼容回退，但会降低排查清晰度 | AI 不能直接改运行产物，只能解释 | `tests/contract/test_template_generate.py` |
 | `discovered_template_rules.units[].elements[].evidence[]` | 支撑候选角色的 source_ref 和启发式来源 | `structure_candidates.py` | `generation_model.py`、debug 排查 | 不直接决定门禁；作为策略可追溯证据 | 缺失时策略仍可运行，但证据链不完整 | AI 不能补造证据 | `tests/contract/test_template_generate.py` |
 | `template_artifact.data.units[].elements[].candidate_policy` | 阶段三保留的阶段二候选 policy，用来说明最终 `policy` 是怎么 materialize 出来的 | `generation_model.py` | decisions、debug、人工排查 | 不直接决定门禁；最终 `policy` 才进入 slot / cleanup / protected zone | 缺失时仍可按最终 `policy` 执行，但难以解释阶段二/三差异 | AI 不能改运行产物 | `tests/contract/test_template_generate.py` |
@@ -220,6 +238,7 @@ evidence_refs
 | 输入文件拿错 | `00_input_source_template.docx` | input | 调用命令或 profile 绑定 |
 | 源 Word 内容没被解析出来 | `02_source_template_tree.json` | source_parse | `inspect_source_template_docx` |
 | unit 没识别或识别错 | `03_discovered_template_rules.json` | unit_detection | `infer_template_rules` |
+| 人工指出“源模板元素 12 不该被删或合并错” | 先用 `source_seq = 12` 查阶段二 `source_seq_refs[]`，再查阶段三 cleanup / plan action | structure_discovery / model_materialize / plan_build | 先定位 12 第一次被标成什么角色，再改对应阶段 |
 | 候选角色或最终策略错 | `03_discovered_template_rules.json` 的 `role_hint` / `policy`，以及 `04_template_artifact.json` 的最终 `policy` | candidate_policy 或 model_materialize | `structure_candidates.py` 或 `generation_model.py` |
 | 应整体复制却变成 patch | `05_template_unit_decisions.json` | mode_selection | `build_template_unit_decisions` |
 | 决策对但 action 错 | `06_template_generation_plan.json` | plan_build | `build_template_generation_plan` |
