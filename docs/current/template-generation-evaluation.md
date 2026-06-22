@@ -75,65 +75,37 @@ Last updated: 2026-06-22
 ## 相关目录树
 
 ```text
-docs/current/template-generation-evaluation.md  # 本文；定义模板生成评测阶段、输入输出、测试边界和后续 verifier 骨架。
-docs/current/template-generation-stage-optimization.md  # 已定下的模板生成阶段和产物编号来源；代码优化和 first_bad_stage 排查看这里。
-docs/current/template-generation.md  # 模板生成支撑流程主线；字段规则、命令和长期边界看这里。
-standards/  # 已签收标准和 eval profile 目录；只放“应该怎么验”的标准或 case 绑定。
-  eval_profiles/real-core-v0/cases.yaml  # 真实学校评测 case 入口；绑定 school_id、学校标准和当前虚拟 generated_template 输入。
-  schools/<school_id>/v1/signed_standard.yaml  # 学校签收标准入口；说明该学校版本使用哪些标准文件。
-  schools/<school_id>/v1/template_unit_contract.yaml  # 06_final_template_gap 的期望标准；说明生成模板应该有哪些单元、元素和规则。
-test_inputs/  # 测试和评测输入目录；这里的文件不是运行结果。
-  template_generation/school-*.docx  # 00-01 的学校原始模板输入；用于生成模板，不是 06 的被测 generated_template。
-  template_generation/*-template-review.txt  # 人工模板审查材料；用于整理标准或人工对齐，不是当前自动 verifier 的直接输入。
-  template_gap/real-core-v0-<school_id>-generated-template.docx  # 06_final_template_gap 当前使用的虚拟业务生成模板输入。
-src/docfit/cli/  # 产品 CLI 入口；暴露 docfit eval template-generate 和 docfit eval template-gap。
-src/docfit/convert/orchestrator.py  # 产品评测编排代码；run_template_generate_eval 和 run_template_gap_eval 在这里串联产物写出。
-src/docfit/stages/template_generate/  # 模板生成支撑流程产品代码；负责 00-05 的生成链路。
-  request.py  # 00_input_request 的请求记录生产者。
-  source_tree.py  # 01_source_parse 的源 Word 事实解析生产者。
-  structure_candidates.py  # 02_structure_discovery 的候选 unit / logical element 生产者。
-  generation_model.py  # 03_generation_model 的策略模型生产者。
-  plan.py  # 04_plan_build 的 Word action 计划生产者。
-  executor.py  # 05_action_execution 的 Word action 执行代码。
-  manifest.py  # 05_action_execution 的执行记录和输出 hash 生产者。
-  outputs.py  # public artifacts 和 debug 快照写出代码。
-src/docfit/harness/  # 产品评测能力代码；不是测试辅助目录。
-  generated_template_inspector.py  # 06_final_template_gap 的 Word 实际结构解析器，生产 generated_template_tree.json。
-  generated_template_gap.py  # 06_final_template_gap 的差距检查器，生产 template_gap_report.*。
-  template_units.py  # gap 检查读取 template_unit_contract.yaml 时使用的单元标准辅助代码。
-  reports.py  # eval summary、pm_report 和 findings 写出辅助代码。
-tests/contract/  # 合同测试目录；调用产品代码证明行为稳定。
-  test_template_generate.py  # 00-05 模板生成链路测试，共 11 个测试；证明产物链、debug 编号、source_seq 和策略行为。
-  test_real_core_generated_template_gap.py  # 06 final gap 测试，共 33 个测试；证明 tree、report、PASS/FAIL/UNKNOWN 和真实学校 case 行为。
-test_outputs/debug/template_generation/<case>/eval_runs/<run>/  # template-generate 真实运行输出目录；每次运行一个 run。
-  summary.json  # 本次 eval 总状态和 artifacts 索引。
-  pm_report.md  # 面向人阅读的运行说明。
-  findings.json  # 机器可读问题列表。
-  generated_template.docx  # 05_action_execution 的正式生成模板输出，也是后续 gap 的被测 Word。
-  artifacts/template_generation_request.json  # 00_input_request 的 public artifact。
-  artifacts/source_template_tree.json  # 01_source_parse 的 public artifact。
-  artifacts/template_structure_candidates.json  # 02_structure_discovery 的 public artifact。
-  artifacts/template_generation_model.json  # 03_generation_model 的 public artifact。
-  artifacts/template_generation_plan.json  # 04_plan_build 的 public artifact。
-  artifacts/template_generation_manifest.json  # 05_action_execution 的 public artifact。
-  # 这整个目录是后续阶段评测应优先复用的 artifact bundle。
-test_outputs/debug/template_generation/<case>/<debug_snapshot>/  # template-generate 调试快照目录；按阶段编号保存可对照文件。
-  00_input_source_template.docx  # 00_input_request 的源模板副本。
-  00_template_generation_request.json  # 00_input_request 的请求记录副本。
-  01_source_template_tree.json  # 01_source_parse 的调试副本。
-  02_template_structure_candidates.json  # 02_structure_discovery 的调试副本。
-  03_template_generation_model.json  # 03_generation_model 的调试副本。
-  04_template_generation_plan.json  # 04_plan_build 的调试副本。
-  05.0_copy_source_docx.docx  # 05_action_execution 只整包复制后的停点。
-  05.1_generated_template.docx  # 05_action_execution 完整执行后的生成模板快照。
-  05.2_template_generation_manifest.json  # 05_action_execution 的 manifest 调试副本。
-  99_template_generation_debug_index.json  # 99_debug_index 的文件索引；不是质量 verifier。
-<template-gap-out>/artifacts/  # template-gap 运行输出目录；06_final_template_gap 的证据和报告放这里。
-  generated_template.docx  # 06_final_template_gap 实际检查的 Word 副本。
-  generated_template_tree.json  # 06_final_template_gap 从被测 Word 解析出的事实证据。
-  template_gap_report.json  # 06_final_template_gap 的机器可读检查结果。
-  template_gap_report.md  # 06_final_template_gap 的人读 Markdown 报告。
-  template_gap_report.docx  # 06_final_template_gap 的 Word 审阅报告。
+docs/current/template-generation-evaluation.md  # 本文；只定义模板生成评测和测试边界。
+
+standards/
+  eval_profiles/real-core-v0/cases.yaml  # 真实学校评测 case 绑定。
+  schools/<school_id>/v1/signed_standard.yaml  # 学校评测标准入口。
+  schools/<school_id>/v1/template_unit_contract.yaml  # 06_final_template_gap 的检查标准。
+
+src/docfit/cli/main.py  # 暴露 docfit eval template-gap；template-generate 只是产物生产入口。
+src/docfit/convert/orchestrator.py  # run_template_gap_eval 和后续阶段检查聚合入口位置。
+src/docfit/harness/
+  generated_template_inspector.py  # 读取被测 generated_template.docx，产出 generated_template_tree.json。
+  generated_template_gap.py  # 对照 template_unit_contract.yaml，产出 template_gap_report.* 和状态。
+  coverage.py  # coverage gate 读取 gap 证据，发现缺失或阻断问题。
+  reports.py  # 写 summary.json、pm_report.md 和 findings.json。
+
+tests/contract/
+  test_real_core_generated_template_gap.py  # 锁住 06_final_template_gap 的 PASS / FAIL / UNKNOWN 行为。
+
+test_inputs/template_gap/
+  real-core-v0-<school_id>-generated-template.docx  # 当前 06_final_template_gap 的被测模板 fixture。
+
+<template-generate-run>/  # 后续阶段检查应复用的已有业务产物包；不是 verifier 本身。
+  generated_template.docx
+  artifacts/*.json
+
+<template-gap-out>/artifacts/  # template-gap 评测输出证据。
+  generated_template.docx
+  generated_template_tree.json
+  template_gap_report.json
+  template_gap_report.md
+  template_gap_report.docx
 ```
 
 ## 阶段编号
