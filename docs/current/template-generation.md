@@ -227,7 +227,7 @@ evidence_refs
 | `*.source_seq_refs[]` | 后续阶段对象引用的阶段一原始可见元素序号列表，例如合并 3、4、5 后写 `[3, 4, 5]` | `structure_candidates.py` 起，后续阶段透传 | generation model、plan、manifest、phase check、报告 | 证明合并、slot、cleanup、protected zone 的来源 | 源驱动对象缺失时应标为 `UNKNOWN`；配置 verifier 后可阻断 | AI 不能补造序号，只能解释已有序号 | `tests/contract/test_template_generate.py` |
 | `template_generation_plan.actions[].affected_source_seq_refs[]` | action 实际影响哪些阶段一原始可见元素，例如删除元素 12 | `plan.py` | `executor.py`、manifest、debug、报告 | 证明 Word 修改动作影响范围 | 修改型 action 缺失时应为 `UNKNOWN` 或 `needs_review` | AI 不能改动作影响范围 | `tests/contract/test_template_generate.py` |
 | `template_generation_manifest.actions_executed[].affected_source_seq_refs[]` | 执行记录继续保留 action 的原始元素序号 | `manifest.py` / `executor.py` | 审计、first_bad_stage、人工复核 | 证明执行结果可回溯到源元素 | 缺失时 manifest 不能完整解释修改来源 | AI 只能引用分析 | `tests/contract/test_template_generate.py` |
-| `discovered_template_rules.units[].elements[].role_hint` | 阶段二给阶段三看的候选角色，例如说明文字候选、学生填写候选、人工填写候选 | `structure_candidates.py` | `generation_model.py`、debug 排查 | 不直接决定 `PASS` / `FAIL` / `UNKNOWN`；只影响阶段三策略输入 | 可从旧 `policy` 兼容回退，但会降低排查清晰度 | AI 不能直接改运行产物，只能解释 | `tests/contract/test_template_generate.py` |
+| `discovered_template_rules.units[].elements[].role_hint` | 阶段二给阶段三看的候选角色，例如说明文字候选、学生填写候选、人工填写候选 | `structure_candidates.py` | `generation_model.py`、debug 排查 | 不直接决定 `PASS` / `FAIL` / `UNKNOWN`；只影响阶段三策略输入 | 当前仍有旧 `policy` 字段；目标实现应直接消费 `role_hint`，不保留旧字段回退 | AI 不能直接改运行产物，只能解释 | `tests/contract/test_template_generate.py` |
 | `discovered_template_rules.units[].elements[].evidence[]` | 支撑候选角色的 source_ref 和启发式来源 | `structure_candidates.py` | `generation_model.py`、debug 排查 | 不直接决定门禁；作为策略可追溯证据 | 缺失时策略仍可运行，但证据链不完整 | AI 不能补造证据 | `tests/contract/test_template_generate.py` |
 | `template_artifact.data.units[].elements[].candidate_policy` | 阶段三保留的阶段二候选 policy，用来说明最终 `policy` 是怎么 materialize 出来的 | `generation_model.py` | decisions、debug、人工排查 | 不直接决定门禁；最终 `policy` 才进入 slot / cleanup / protected zone | 缺失时仍可按最终 `policy` 执行，但难以解释阶段二/三差异 | AI 不能改运行产物 | `tests/contract/test_template_generate.py` |
 
@@ -267,9 +267,9 @@ evidence_refs
 当前调试快照仍使用 `00-10` 流水编号。下一步目标是改成阶段对齐编号：
 `00` 表示运行输入、请求和上下文；`01` 到 `05` 分别对应
 `source_parse`、`structure_discovery`、`generation_model`、`plan_build`、
-`action_execution`；小数点表示阶段内子产物或兼容产物，例如
-`03.1_template_artifact_compat.json`。如果同一目录后续纳入最终模板差距检查，
-可用 `06` 表示 `final_template_gap`；`99` 留给 debug index 这类非阶段索引文件。
+`action_execution`；小数点只表示阶段内子产物，不用于保留旧产物名兼容文件。
+如果同一目录后续纳入最终模板差距检查，可用 `06` 表示
+`final_template_gap`；`99` 留给 debug index 这类非阶段索引文件。
 
 ## 最近一次验证记录
 

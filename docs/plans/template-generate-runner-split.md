@@ -55,16 +55,16 @@ Last updated: 2026-06-21
 | `00` | `00_input_source_template.docx` | 输入学校原始模板 Word |
 | `01` | `01_template_generation_request.json` | 本次生成请求 |
 | `02` | `02_source_template_tree.json` | 阶段一：源 Word 事实 |
-| `03` | `03_discovered_template_rules.json` | 阶段二：候选结构识别，当前兼容产物名 |
-| `04` | `04_template_artifact.json` | 阶段三的一部分：模板业务地图，当前兼容产物名 |
-| `05` | `05_template_unit_decisions.json` | 阶段三的一部分：处理策略，当前兼容产物名 |
+| `03` | `03_discovered_template_rules.json` | 阶段二：候选结构识别，当前旧产物名 |
+| `04` | `04_template_artifact.json` | 阶段三的一部分：模板业务地图，当前旧产物名 |
+| `05` | `05_template_unit_decisions.json` | 阶段三的一部分：处理策略，当前旧产物名 |
 | `06` | `06_template_generation_plan.json` | 阶段四：动作计划 |
 | `07` | `07_copy_source_docx.docx` | 只执行整包复制后的 Word 停点 |
 | `08` | `08_generated_template.docx` | 执行全部 action 后的生成模板 Word |
 | `09` | `09_template_generation_manifest.json` | 阶段五：执行记录和输出 hash |
 | `10` | `10_template_generation_debug_index.json` | 本 debug 目录的文件索引 |
 
-下一轮重命名目标：调试快照编号应按阶段命名，而不是按流水步骤命名。整数部分对应阶段，点后面对应该阶段内的子产物或兼容产物；`00` 留给输入、请求和运行上下文，`99` 留给索引、汇总和非阶段性说明。
+下一轮重命名目标：调试快照编号应按阶段命名，而不是按流水步骤命名。整数部分对应阶段，点后面对应该阶段内的子产物；`00` 留给输入、请求和运行上下文，`99` 留给索引、汇总和非阶段性说明。目标命名不为旧产物名额外保留兼容文件。
 
 目标命名示例：
 
@@ -74,10 +74,7 @@ Last updated: 2026-06-21
 | `00` | `00_template_generation_request.json` | 运行请求：记录源文件、输出目录和策略，不属于阶段一 |
 | `01` | `01_source_template_tree.json` | 阶段一：源 Word 事实 |
 | `02` | `02_template_structure_candidates.json` | 阶段二：候选结构识别的目标主产物 |
-| `02.1` | `02.1_discovered_template_rules_compat.json` | 阶段二：兼容旧产物名或辅助解释产物 |
 | `03` | `03_template_generation_model.json` | 阶段三：生成模板模型与策略的目标主产物 |
-| `03.1` | `03.1_template_artifact_compat.json` | 阶段三：兼容旧 `template_artifact.json` |
-| `03.2` | `03.2_template_unit_decisions_compat.json` | 阶段三：兼容旧 `template_unit_decisions.json` |
 | `04` | `04_template_generation_plan.json` | 阶段四：动作计划 |
 | `05.0` | `05.0_copy_source_docx.docx` | 阶段五：只执行整包复制后的停点 |
 | `05.1` | `05.1_generated_template.docx` | 阶段五：执行全部 action 后的 Word |
@@ -171,7 +168,7 @@ uv run docfit eval template-generate \
 2. `generation_model.py` 统一决定 `generation_mode`、slots、protected zones、cleanup 清单和 unresolved questions。
 3. `plan.py` 只消费阶段三模型，不重新判断 unit 语义。
 4. 修复 copy-only 单元内部说明文字漏清理的问题：copy-only 仍不自动生成学生内容 slot，但允许内部说明文字进入 cleanup。
-5. 继续兼容写出旧产物名，直到消费者完成迁移。
+5. 同步更新消费者到目标产物名，不继续双写旧产物名。
 
 验收：
 
@@ -214,7 +211,7 @@ uv run pytest tests/contract/test_template_generate.py -q
 
 | 标准 | 结果 |
 | --- | --- |
-| 阶段二只输出候选结构和证据 | 已完成到兼容层；`role_hint` 和 `evidence` 已进入 `discovered_template_rules`，旧 `policy` 字段保留为候选 policy 兼容字段 |
+| 阶段二只输出候选结构和证据 | 已完成到旧产物层；`role_hint` 和 `evidence` 已进入 `discovered_template_rules`，旧 `policy` 字段保留为候选 policy 字段 |
 | 阶段三统一输出模板业务地图和处理策略 | 已完成；`generation_model.py` materialize 最终 `policy`，并保留 `candidate_policy` 解释候选来源 |
 | 阶段四只翻译 action，不重新判断业务语义 | 已完成；`plan.py` 消费 `template_artifact` 和 `template_unit_decisions`，不重新决定 copy-only / fill / generated 语义 |
 | copy-only 内部说明文字清理有测试证明 | 已完成；`tests/contract/test_template_generate.py` 证明 copy-only 内部说明文字删除、填写痕迹不生成 cover slot |

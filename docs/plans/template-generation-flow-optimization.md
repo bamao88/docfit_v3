@@ -9,17 +9,17 @@ Last updated: 2026-06-22
 
 ## 文档定位（先读）
 
-这份文件是模板生成支撑流程的目标方案文档，不是当前实现清单。它先定义我们希望模板生成最终收敛到什么逻辑边界，再用“当前真实实现”“当前代码”“当前兼容产物”等段落说明现在代码如何承载这些职责。
+这份文件是模板生成支撑流程的目标方案文档，不是当前实现清单。它先定义我们希望模板生成最终收敛到什么逻辑边界，再用“当前真实实现”“当前代码”“当前旧产物承载”等段落说明现在代码如何承载这些职责。
 
 读这份文档时按下面口径区分：
 
 | 写法 | 含义 |
 | --- | --- |
 | 目标方案、目标产物、应该 | 新方案的逻辑边界和未来稳定口径 |
-| 当前真实实现、当前代码、当前兼容产物 | 仓库现在已经实现或正在兼容承载的方式 |
+| 当前真实实现、当前代码、当前旧产物承载 | 仓库现在已经实现、但还没有切到目标产物名的方式 |
 | 仍需补齐、目标需要 | 当前还没有完全闭合，不能当成已实现能力 |
 
-所以，“阶段二：候选结构识别”和“阶段三：生成模板模型与策略”在本文里首先是目标职责拆分。当前代码已经拆出 `structure_candidates.py` 和 `generation_model.py`，但阶段二/三的产物边界还没有完全稳定成 `template_structure_candidates.json -> template_generation_model.json`：当前仍主要通过 `discovered_template_rules.json`、`template_artifact.json` 和 `template_unit_decisions.json` 兼容承载。
+所以，“阶段二：候选结构识别”和“阶段三：生成模板模型与策略”在本文里首先是目标职责拆分。当前代码已经拆出 `structure_candidates.py` 和 `generation_model.py`，但阶段二/三的产物边界还没有完全稳定成 `template_structure_candidates.json -> template_generation_model.json`：当前仍主要通过 `discovered_template_rules.json`、`template_artifact.json` 和 `template_unit_decisions.json` 承载。目标改造时同步更新消费者，不为旧产物名保留兼容输出。
 
 如果只想看当前真实流程，以 `docs/current/template-generation.md` 为准；如果要讨论下一步怎么改阶段边界、字段和责任，以本文为准。
 
@@ -101,7 +101,7 @@ Last updated: 2026-06-22
 | 暂缓事项 | 为什么暂缓 |
 | --- | --- |
 | 给每个业务阶段写完整语义 verifier | 阶段职责和标准还未最终确定，提前写会把临时实现固化成标准 |
-| 规定每个阶段的完整 artifact schema | 当前产物名和 JSON 形状仍有兼容层，具体形状要等业务阶段边界稳定 |
+| 规定每个阶段的完整 artifact schema | 当前产物名和 JSON 形状仍由旧产物层承载，具体形状要等业务阶段边界稳定 |
 | 判断某个 unit 应该 copy-only 还是 copy-then-patch | 这是业务策略，不是评测层底座 |
 | 判断阶段二应该如何合并 logical element | 这是业务识别逻辑，评测层只先定义“将来要能检查输入可信和输出可信” |
 | 修改 `template_generate` 业务代码 | 当前目标是评测层原则和架构，不改生成逻辑 |
@@ -143,7 +143,7 @@ Last updated: 2026-06-22
 
 | 问题 | 本文件回答 |
 | --- | --- |
-| 这是新方案还是现状 | 主体写新方案；凡是现状都用“当前真实实现 / 当前代码 / 当前兼容产物”单独标出 |
+| 这是新方案还是现状 | 主体写新方案；凡是现状都用“当前真实实现 / 当前代码 / 当前旧产物承载”单独标出 |
 | 模板生成要优化什么 | 从“按 unit_id 排除列表”升级为“硬编码基线 + 内容责任 + 学生源内容 + 学校标准”的策略选择 |
 | 哪些区域可以仅复制 | 学校固定正文、签名日期、教师意见、成绩评定等不由机器填写的区域 |
 | 哪些区域不能默认仅复制 | 中文摘要、英文摘要、目录族、正文、参考文献，以及有学生内容的致谢/附录 |
@@ -160,7 +160,7 @@ Last updated: 2026-06-22
 | 逻辑步骤 | 输出 | 回答的问题 | 不做什么 |
 | --- | --- | --- | --- |
 | 阶段一：源 Word 事实 | `source_template_tree.json` | 学校原始 Word 里实际有什么段落、表格、样式、页眉页脚、source_ref | 不判断业务单元，不决定生成策略 |
-| 阶段二：候选结构识别 | `template_structure_candidates`，当前兼容名是 `discovered_template_rules.json` | 这些事实看起来属于哪些 unit / element，有哪些 role_hint 和 evidence | 不输出 `whole_unit_copy` / `copy_then_patch`，不生成 slot 或 action |
+| 阶段二：候选结构识别 | `template_structure_candidates.json`；当前旧产物是 `discovered_template_rules.json` | 这些事实看起来属于哪些 unit / element，有哪些 role_hint 和 evidence | 不输出 `whole_unit_copy` / `copy_then_patch`，不生成 slot 或 action |
 | 阶段三：生成模板模型与策略 | `template_generation_model`，当前由 `template_artifact.json` + `template_unit_decisions.json` 承载 | 这个模板在系统里是什么业务地图；每个 unit 怎么处理；哪些是 slots、protected_zones、cleanup、unresolved_questions | 不直接改 Word，不生成 python-docx 执行动作 |
 | 阶段四：动作计划 | `template_generation_plan.json` | 为了实现阶段三的业务地图，需要执行哪些 copy / preserve / slot / cleanup action | 不重新判断 unit 语义，不反推业务模型 |
 | 阶段五：执行与记录 | `generated_template.docx` + `template_generation_manifest.json` | 实际执行了哪些 action，输出 Word 和 hash 是什么，哪些 action 需要 review | 不重新决定内容应该放哪里，不决定 PASS / FAIL |
@@ -189,7 +189,7 @@ Last updated: 2026-06-22
 | --- | --- |
 | 阶段二候选结构识别 | `structure_candidates.py` 写 `discovered_template_rules.json`，已有第一版 entry 级元素、`role_hint` 和 copy-only 受限内部候选 |
 | 阶段三生成模板模型与策略 | `generation_model.py` 写 `template_artifact.json` 和 `template_unit_decisions.json`，把候选 `policy` materialize 成最终执行策略 |
-| 目标 `template_structure_candidates.json` | 当前还没有作为稳定独立产物命名，主要由 `discovered_template_rules.json` 兼容承担 |
+| 目标 `template_structure_candidates.json` | 当前还没有作为稳定独立产物命名，主要由 `discovered_template_rules.json` 承载；目标切换后不保留旧名兼容输出 |
 | 目标 `template_generation_model.json` | 当前还没有作为单一稳定产物写出，主要由 `template_artifact.json` + `template_unit_decisions.json` 共同承担 |
 
 已修正的偏差：copy-only 单元不再完全跳过内部元素分析。阶段二会为 copy-only 单元写出单元级 `whole_unit_copy` 候选和内部受限候选元素；阶段三会把内部说明文字 materialize 成 cleanup，把内部填写/生成候选 materialize 成固定保留证据，不会自动生成学生内容 slot。`whole_unit_copy` 只表示“主体结构和固定内容通过整包复制保留”，不表示“内部说明文字免处理”。
@@ -305,7 +305,7 @@ flowchart TD
   G --> H["写 artifacts / summary / debug 快照<br/>代码: template_generate/outputs.py<br/>src/docfit/convert/orchestrator.py"]
 ```
 
-图里的“目标产物”是调整后的概念边界。当前代码已经按这些边界拆成多个模块，但仍会写出旧产物名，用于兼容 summary、报告、e2e 和人工排查。
+图里的“目标产物”是调整后的概念边界。当前代码已经按这些边界拆成多个模块，但仍会写出旧产物名，summary、报告、e2e 和人工排查当前也还读取旧名。目标改造时应同步更新这些消费者，不保留旧名双写。
 
 | 流程节点 | 当前主要代码文件 | 当前状态 |
 | --- | --- | --- |
@@ -313,7 +313,7 @@ flowchart TD
 | 输入存在性和 DOCX 有效性检查 | `src/docfit/stages/template_generate/runner.py`、`src/docfit/ooxml/package.py` | 已实现 |
 | 源 Word 解析 | `src/docfit/stages/template_generate/source_tree.py`、`src/docfit/harness/generated_template_inspector.py` | 已实现 |
 | 候选结构识别 | `src/docfit/stages/template_generate/structure_candidates.py` | 已实现第一版；输出 entry 级候选元素、`role_hint` 和 evidence |
-| 生成模板模型与策略 | `src/docfit/stages/template_generate/generation_model.py`、`src/docfit/harness/template_units.py` | 已实现兼容层；materialize 最终 `policy`，学校标准和学生内容台账尚未正式接入 |
+| 生成模板模型与策略 | `src/docfit/stages/template_generate/generation_model.py`、`src/docfit/harness/template_units.py` | 当前由旧产物层承载；materialize 最终 `policy`，学校标准和学生内容台账尚未正式接入 |
 | 动作计划生成 | `src/docfit/stages/template_generate/plan.py` | 已实现；消费阶段三 artifact 和 decisions，不重新决定 copy-only / fill / generated 语义 |
 | Word 复制和 action 执行 | `src/docfit/stages/template_generate/executor.py` | 已实现 |
 | 产物写出和 summary/debug | `src/docfit/stages/template_generate/manifest.py`、`src/docfit/stages/template_generate/outputs.py`、`src/docfit/convert/orchestrator.py` | 已实现 |
@@ -367,7 +367,7 @@ flowchart TD
 
 目标产物：`template_structure_candidates.json`
 
-当前兼容产物：`discovered_template_rules.json`
+当前旧产物：`discovered_template_rules.json`
 
 阶段二真正应该承担的职责，不是把阶段一的 `body_flow entry` 换个名字叫 element。阶段一负责记录 Word 里“看见了什么”，包括文本、表格、source_ref、样式、顺序、结构层；阶段二应该把这些低层事实整理成后续生成策略能理解的单元和元素。
 
@@ -501,7 +501,7 @@ flowchart TD
 
 阶段二和阶段三的区别是：阶段二做候选结构识别和证据归纳，阶段三做模板模型和策略判定。
 
-这里说的是目标职责不重复，不等于当前代码已经把两个阶段完全物理隔离。当前实现里，阶段二的候选结果和阶段三的 materialize 逻辑仍通过兼容字段衔接；后续需要继续把阶段二输出收敛成稳定候选结构，把阶段三输出收敛成稳定模板生成模型。
+这里说的是目标职责不重复，不等于当前代码已经把两个阶段完全物理隔离。当前实现里，阶段二的候选结果和阶段三的 materialize 逻辑仍通过旧字段衔接；后续需要继续把阶段二输出收敛成稳定候选结构，把阶段三输出收敛成稳定模板生成模型，并同步更新消费者。
 
 | 问题 | 阶段二回答 | 阶段三回答 |
 | --- | --- | --- |
@@ -529,7 +529,7 @@ flowchart TD
 | copy-only 受限识别规则 | 需要明确哪些 policy 在 copy-only 内可以产生 cleanup，哪些只能产生 conflict |
 | header/footer 处理边界 | 当前不作为正文 unit element，但仍要作为全局上下文传递；未来是否有独立 header/footer unit 需要定义 |
 | source_context 与完整 source_tree 的关系 | 要决定是只传摘要，还是同时保留 ref + 必要快照，避免阶段三过度回读阶段一 |
-| 阶段二到阶段三的兼容策略 | 当前代码的 `discovered_template_rules` schema 较薄，目标 schema 需要版本迁移或兼容读取 |
+| 阶段二到阶段三的切换策略 | 当前代码的 `discovered_template_rules` schema 较薄，目标 schema 需要一次性切换消费者，不保留兼容读取 |
 
 当前代码先在 `layers.body_flow[]` 里找单元锚点，例如封面、目录、摘要、正文、参考文献。每个单元拿到一个正文范围：
 
@@ -703,7 +703,7 @@ body_flow entries
 
 目标产物：`template_generation_model.json`
 
-当前兼容产物：`template_artifact.json` + `template_unit_decisions.json`
+当前旧产物：`template_artifact.json` + `template_unit_decisions.json`
 
 这个阶段不重新识别元素语义，而是把阶段二输出的候选 `units[]`、logical `elements[]`、`role_hint`、`source_context`，再结合学校标准、学生内容台账和默认责任基线，生成一次模板生成的业务模型和处理策略。
 
@@ -763,7 +763,7 @@ body_flow entries
 
 当前代码的对应关系：
 
-| 目标模型字段 | 当前兼容产物 |
+| 目标模型字段 | 当前旧产物承载 |
 | --- | --- |
 | `units[]` / `unit_strategies[]` | `template_artifact.data.units[]` + `template_unit_decisions.units[]` |
 | `slots[]` | `template_artifact.data.slots[]` |
@@ -772,7 +772,7 @@ body_flow entries
 | `cleanup[]` | `template_artifact.data.instruction_paragraphs[]` + `template_generation_plan.remove_instruction_text` |
 | `unresolved_questions[]` | 当前较弱，主要散落在 unknowns / warnings，目标需要集中表达 |
 
-所以如果说“当前阶段二和阶段三合并了”，更准确地说是：它们的目标职责已经拆开描述，但当前产物和代码边界仍是兼容承载，还没有完全收敛成两个稳定阶段产物。本文后续提到阶段二/阶段三时，优先指目标职责；谈到当前代码时会单独用“当前实现”标出。
+所以如果说“当前阶段二和阶段三合并了”，更准确地说是：它们的目标职责已经拆开描述，但当前产物和代码边界仍由旧产物承载，还没有完全收敛成两个稳定阶段产物。本文后续提到阶段二/阶段三时，优先指目标职责；谈到当前代码时会单独用“当前实现”标出。目标改造不需要旧名相互兼容，应同步替换产物生产者和消费者。
 
 ## 阶段四：生成 action plan
 
@@ -829,7 +829,7 @@ remove_instruction_text
 | `07_copy_source_docx.docx` | 调试快照：只做整包复制后的 Word |
 | `08_generated_template.docx` | 调试快照：执行所有 action 后的 Word |
 
-目标调试快照命名应按阶段编号，而不是按流水步骤编号。整数部分对应阶段，点后面表示该阶段内的子产物或兼容产物；`00` 留给运行输入、请求和上下文，`99` 留给索引、汇总和非阶段性说明。
+目标调试快照命名应按阶段编号，而不是按流水步骤编号。整数部分对应阶段，点后面表示该阶段内的子产物；`00` 留给运行输入、请求和上下文，`99` 留给索引、汇总和非阶段性说明。目标命名不为旧产物名额外保留兼容文件。
 
 建议命名：
 
@@ -839,10 +839,7 @@ remove_instruction_text
 | `00` | `00_template_generation_request.json` | 运行请求：记录源文件、输出目录和策略 |
 | `01` | `01_source_template_tree.json` | 阶段一：源 Word 事实 |
 | `02` | `02_template_structure_candidates.json` | 阶段二：候选结构识别的目标主产物 |
-| `02.1` | `02.1_discovered_template_rules_compat.json` | 阶段二：兼容旧产物名或辅助解释产物 |
 | `03` | `03_template_generation_model.json` | 阶段三：生成模板模型与策略的目标主产物 |
-| `03.1` | `03.1_template_artifact_compat.json` | 阶段三：兼容旧 `template_artifact.json` |
-| `03.2` | `03.2_template_unit_decisions_compat.json` | 阶段三：兼容旧 `template_unit_decisions.json` |
 | `04` | `04_template_generation_plan.json` | 阶段四：动作计划 |
 | `05.0` | `05.0_copy_source_docx.docx` | 阶段五：只执行整包复制后的停点 |
 | `05.1` | `05.1_generated_template.docx` | 阶段五：执行全部 action 后的 Word |
