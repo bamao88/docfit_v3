@@ -13,8 +13,8 @@ Last updated: 2026-06-22
 | `docs/current/template-generation.md` | 当前模板生成支撑流程的主说明，说明命令、产物、字段规则和 `template-gap` 边界 | 改模板生成字段、产物、manifest、gap 报告前先读 |
 | `docs/current/template-generation-stage-optimization.md` | 本文；把阶段优化计划归纳成一份当前执行地图 | 讨论“各阶段代码下一步怎么改”时读 |
 | `docs/current/template-generation-evaluation.md` | 模板生成评测与测试架构，说明最终 gap、阶段检查骨架和测试边界 | 讨论“怎么验、哪些阶段先登记、哪些检查器还没配置”时读 |
-| `docs/plans/template-generation-flow-optimization.md` | 更长的方案和执行记录，保留历史旧产物、阶段评测设想和细节推演 | 需要查设计背景、旧方案为什么改掉时读 |
-| `docs/plans/template-generate-runner-split.md` | runner 拆分后的模块地图和剩余工作清单 | 查当前模块职责或下一轮验证建议时读 |
+| `docs/plans/template-generation-flow-optimization.md` | 历史方案和执行记录，保留旧产物、阶段评测设想和细节推演 | 需要查设计背景、旧方案为什么改掉时读；不要采用其中“学校标准或学生内容台账作为生成输入”的旧设想 |
+| `docs/plans/template-generate-runner-split.md` | runner 拆分后的模块地图和历史剩余工作清单 | 查当前模块职责或拆分证据时读；剩余工作以本文和待核实差距清单为准 |
 
 本文只写当前应该相信的主线，不把历史旧产物当成当前实现。历史旧产物名只在说明迁移背景时出现。
 
@@ -146,9 +146,9 @@ manifest = build_template_generation_manifest(
 
 | 要改什么 | 应该改哪里 | 验收重点 |
 | --- | --- | --- |
-| 接入学校标准 | `generation_model.py` 和 CLI/e2e 输入边界 | 学校标准声明“来源=学生内容”时，不能继续仅复制模板空壳 |
-| 明确模板内容责任 | generation model 输入 | 致谢、附录等条件单元先按源模板和学校标准识别为固定保留、用户填写、系统生成或需要人工确认；模板生成阶段不读取某一次学生源内容台账 |
-| 强化 `unresolved_questions[]` | `_unresolved_questions_from_candidates` 和策略构建 | 强填写信号、缺标准、unknown visible objects 都要集中表达 |
+| 强化源模板责任推断 | `generation_model.py` 和阶段二候选证据 | 不把 `standards/schools/**` 当成生成输入；只根据源模板里的结构、文字、样式、占位符、表格、字段和通用规则决定 copy-only / patch |
+| 明确模板内容责任 | generation model 输入 | 致谢、附录等条件单元先按源模板自身证据识别为固定保留、用户填写、系统生成或需要人工确认；模板生成阶段不读取某一次学生源内容台账，也不读取学校签收标准 |
+| 强化 `unresolved_questions[]` | `_unresolved_questions_from_candidates` 和策略构建 | 强填写信号、源模板证据不足、unknown visible objects 都要集中表达 |
 | 把策略理由写成人能读懂的证据 | `unit_strategies[]`、cleanup、protected zones | 人工能看懂为什么元素 3、4、5 被合并并删除，或为什么元素 12 被保护 |
 
 ### 阶段四：动作计划
@@ -198,7 +198,7 @@ manifest = build_template_generation_manifest(
 | unit 没识别或边界错 | `02_template_structure_candidates.json` | `02_structure_discovery` | `structure_candidates.py` |
 | logical element 合并错 | `02` 的 `entry_refs[]`、`source_seq_refs[]`、`merge` | `02_structure_discovery` | `_logical_entry_groups` |
 | 源模板元素 12 不该删除 | 先查 `by_source_seq["12"]`，再查阶段二/三/四引用链 | `02_structure_discovery` / `03_generation_model` / `04_plan_build` | 找到第一次把 12 判错的阶段再改 |
-| 应 copy-only 的单元生成了 slot | `03_template_generation_model.json` 的 `unit_strategies[]` 和 `slots[]` | `03_generation_model` | copy-only 基线、学校标准或学生内容责任 |
+| 应 copy-only 的单元生成了 slot | `03_template_generation_model.json` 的 `unit_strategies[]` 和 `slots[]` | `03_generation_model` | copy-only 基线、源模板责任推断规则或不确定性表达 |
 | plan 对但 Word 没变 | `04_template_generation_plan.json`、`05.0`、`05.1` | `05_action_execution` | `executor.py` |
 | Word 看起来不合格 | `generated_template_tree.json`、`template_gap_report.*` | `06_final_template_gap` 或更早阶段 | 先看 gap 指向的源证据，再回查 01-05 |
 
@@ -220,9 +220,13 @@ manifest = build_template_generation_manifest(
 | 优先级 | 工作包 | 目标文件 | 状态 |
 | --- | --- | --- | --- |
 | 1 | 补阶段二更深 logical element 合并 | `structure_candidates.py`、`tests/contract/test_template_generate.py` | 已完成；表格 label/value、跨段落 continuation 能合并并保留全部来源序号 |
-| 2 | 阶段三接入学校标准和模板内容责任 | `generation_model.py`、相关 CLI/e2e 输入 | copy-only / patch 不只靠全局 unit_id 基线，也不依赖某一次学生源内容台账 |
+| 2 | 阶段三强化源模板责任推断和模板内容责任 | `generation_model.py`、`structure_candidates.py` | copy-only / patch 不只靠全局 unit_id 基线，也不依赖某一次学生源内容台账或学校签收标准 |
 | 3 | 阶段检查归因落地 | harness/report 层 | 能表达 `input_check`、`output_check`、`first_bad_phase`、下游症状 |
 | 4 | 报告可读性增强 | manifest、pm report、debug index | 人工能从报告直接定位到源模板元素序号和 action |
+
+当前待核实差距清单见：
+
+- `docs/current/template-generation-open-gaps.md`
 
 每做一个工作包，至少运行：
 

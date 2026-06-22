@@ -3,11 +3,13 @@
 Status: Implemented
 Last updated: 2026-06-22
 
-一句话结论：`src/docfit/stages/template_generate/runner.py` 的机械拆分已经完成，阶段二/三目标产物、debug 编号和 `source_seq` 追踪字段也已经切到当前契约；当前剩余工作是更深的 logical element 合并、学校标准和学生内容台账接入，以及阶段检查归因。
+当前口径提示：本文是 runner 拆分完成时的历史记录；其中“学校标准和学生内容台账接入”这个剩余工作说法已经废弃。当前正常生成输入只有学校原始模板 Word；后续目标是强化源模板自动推断和不确定性表达。当前主线见 `docs/current/template-generation.md`，待核实差距见 `docs/current/template-generation-open-gaps.md`。
+
+一句话结论：`src/docfit/stages/template_generate/runner.py` 的机械拆分已经完成，阶段二/三目标产物、debug 编号和 `source_seq` 追踪字段也已经切到当前契约；当前剩余工作以 `docs/current/template-generation-open-gaps.md` 为准。
 
 ## 这个文件做什么
 
-这个文件记录模板生成模块拆分后的当前状态、已经完成的证据，以及下一轮代码优化要改哪里。
+这个文件记录模板生成模块拆分后的当前状态和已经完成的证据。下一轮代码优化要改哪里，以 current 文档和待核实差距清单为准。
 
 它不再作为“待拆模块清单”。模板生成五阶段目标方案以
 `docs/plans/template-generation-flow-optimization.md` 为准；当前长期流程说明以
@@ -79,7 +81,7 @@ Last updated: 2026-06-22
 | 剩余工作 | 应该改哪里 | 验收重点 |
 | --- | --- | --- |
 | 更深的 logical element 合并 | `structure_candidates.py` | 在当前连续说明文字合并之外，继续补表格行 label+blank、句子 continuation 等规则 |
-| 学校标准和学生内容台账接入 | `generation_model.py`、CLI/e2e 输入边界 | copy-only / copy_then_patch 不再只靠全局 unit_id 基线 |
+| 源模板责任推断和不确定性表达 | `generation_model.py`、`structure_candidates.py` | copy-only / copy_then_patch 不再只靠全局 unit_id 基线，也不依赖学校标准或学生内容台账作为生成输入 |
 | 报告和长期文档引用同步更新 | current docs、plan docs、人工排查说明 | 人工排查入口全部使用新产物名 |
 | 阶段检查结果落地 | 评测层和报告层 | 能表达 `first_bad_phase`、上游阻断和下游症状 |
 

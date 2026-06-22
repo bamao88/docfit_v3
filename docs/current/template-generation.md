@@ -10,13 +10,15 @@ Last updated: 2026-06-22
 学校原始模板 Word -> generated_template.docx + 生成过程证据
 ```
 
-`template-generate` 当前只接受 `--template` 和 `--out`，不接受 `--school`，也不读取学校签收标准。
+`template-generate` 当前只接受 `--template` 和 `--out`，不接受 `--school`，也不读取学校签收标准。这个边界不是临时缺口：正常产品生成流程应只要求用户提供学校原始模板 Word，不能要求每个学校先准备 `standards/schools/**` 里的人工签收标准。
 
 学校标准检查在生成后运行：
 
 ```text
 generated_template.docx + template_unit_contract.yaml -> template_gap_report.*
 ```
+
+这里的 `template_unit_contract.yaml` 是开发期和验收期的裁判标准，用来检查已知样例，不是 `template-generate` 的正常业务输入。
 
 ## 模板生成策略优化
 
@@ -30,9 +32,11 @@ generated_template.docx + template_unit_contract.yaml -> template_gap_report.*
 
 - `docs/current/template-generation-evaluation.md`
 
-更长的方案、历史迁移原因和执行记录见：
+历史方案、迁移原因和执行记录见：
 
 - `docs/plans/template-generation-flow-optimization.md`
+
+注意：历史方案中关于“学校标准或学生内容台账作为生成策略输入”的设想已经废弃。当前口径以本文和 `docs/current/template-generation-open-gaps.md` 为准。
 
 当前默认 copy-only 仍按 `unit_id` 排除列表作为全局基线。排除默认仅复制的单元：
 
@@ -44,7 +48,7 @@ generated_template.docx + template_unit_contract.yaml -> template_gap_report.*
 | `body_main` | 正文 | 继续逐元素分析和局部 patch |
 | `references` | 参考文献 | 继续逐元素分析和局部 patch |
 
-模板生成支撑流程当前不读取学生源 Word，也不根据某一次学生源内容台账决定 copy-only / patch。下一层判断要看模板自身、学校标准和产品规则里的内容责任：学校标准要求承载学生填写内容的单元不能仅复制模板空壳；签名、日期、教师意见、成绩评定等线下人工填写区域可以继续仅复制。`generation_mode = whole_unit_copy` 不是验收结论，只说明生成流程不会为该单元生成自动填充 slot；内部说明文字、格式要求和示例仍可以被识别并清理。真实 Word 是否合格仍由 `template-gap` 判定。
+模板生成支撑流程当前不读取学生源 Word，也不根据某一次学生源内容台账决定 copy-only / patch。下一层判断也不应依赖 `standards/schools/**` 作为生成输入；它应该从学校原始模板自身的可见结构、文字、样式、占位符、表格、字段和通用产品规则推断内容责任。签名、日期、教师意见、成绩评定等线下人工填写区域可以继续仅复制；源模板中明确承载学生内容或系统生成内容的区域，才应进入局部 patch、slot 或 generated field 路径。`generation_mode = whole_unit_copy` 不是验收结论，只说明生成流程不会为该单元生成自动填充 slot；内部说明文字、格式要求和示例仍可以被识别并清理。真实 Word 是否合格仍由 `template-gap` 判定。
 
 ## 模板生成流程图
 
@@ -298,8 +302,13 @@ evidence_refs
 
 ## 当前最小下一步
 
-如果继续推进模板生成质量，下一步不是再切产物名，而是把 copy-only / patch 的策略输入从全局 `unit_id` 基线升级到学校标准和模板内容责任：
+如果继续推进模板生成质量，下一步不是再切产物名，也不是让生成器依赖学校签收标准，而是强化“只从源模板推断”的能力：
 
-- 学校签收标准明确承载学生内容时，不能继续按默认 copy-only 保留；
-- 致谢、附录等条件单元先按源模板和学校标准识别为固定保留、用户填写、系统生成或需要人工确认，不读取某一次学生源内容台账；
-- `template-gap` 仍负责判断生成 Word 是否满足学校签收标准，不能用 manifest 或 `template_generation_model` 替代。
+- copy-only / patch 不能只靠全局 `unit_id` 基线，要结合源模板里的结构、占位符、字段、表格和上下文判断；
+- 致谢、附录等条件单元先按源模板自身证据识别为固定保留、用户填写、系统生成或需要人工确认，不读取某一次学生源内容台账，也不读取 `standards/schools/**`；
+- 源模板证据不足时要写入 `unresolved_questions[]` 或待复核动作，不能伪装成确定策略；
+- `template-gap` 仍负责用已签收样例标准检查生成 Word，不能用 manifest 或 `template_generation_model` 替代。
+
+当前待核实差距清单见：
+
+- `docs/current/template-generation-open-gaps.md`

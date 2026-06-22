@@ -164,7 +164,7 @@ test_outputs/debug/template_generation/<case>/<debug_snapshot>/  # template-gene
 | --- | --- | --- | --- |
 | `01_source_parse` | `source_template_tree.json` 是否完整表达源 Word 事实 | `not_configured` | 先登记输入输出，等解析标准明确后再启用 |
 | `02_structure_discovery` | `template_structure_candidates.json` 是否正确识别候选 unit 和 logical element | `not_configured` | 先登记输入输出，不把当前启发式当标准 |
-| `03_generation_model` | `template_generation_model.json` 是否把候选结构转成正确策略 | `not_configured` | 先登记输入输出，等学校标准和策略标准明确 |
+| `03_generation_model` | `template_generation_model.json` 是否把候选结构转成正确策略 | `not_configured` | 先登记输入输出，等源模板责任推断规则和策略标准明确 |
 | `04_plan_build` | `template_generation_plan.json` 是否完整表达要执行的 Word action | `not_configured` | 先登记输入输出，后续检查 action 来源和冲突 |
 | `05_action_execution` | `generated_template.docx` 和 `template_generation_manifest.json` 是否与 plan 对齐 | `not_configured` | 先登记输入输出，后续检查 action 是否真的执行 |
 | `06_final_template_gap` | `generated_template.docx` 是否满足 `template_unit_contract.yaml` | `enabled` | 当前第一个可运行示例，继续使用现有 `template-gap` |
@@ -192,7 +192,8 @@ test_outputs/debug/template_generation/<case>/<debug_snapshot>/  # template-gene
 ## 关键边界
 
 - `template_generate` 当前不读取学生源 Word，也不应该用“学生源内容台账里有没有某段内容”来决定生成模板策略。
-- 如果识别出某个位置是用户填写位，它就是模板里的填写位；这件事来自源模板、学校标准或产品规则，不来自某一次学生源文档是否有内容。
+- `template_generate` 也不应该把 `standards/schools/**` 当成正常生成输入；这些标准是已知样例的评测和验收材料。
+- 如果识别出某个位置是用户填写位，它就是模板里的填写位；这件事来自源模板自身的结构、文字、样式、占位符、字段和产品规则，不来自某一次学生源文档是否有内容，也不要求先存在学校签收标准。
 - 学生内容是否存在、是否放置、是否渲染正确，属于后续内容提取、内容放置和最终渲染评测，不属于生成模板评测。
 - `template_generation_manifest.json` 只能证明生成器执行了什么，不能证明最终 Word 符合学校标准。
 - `generated_template_tree.json` 是从被测 Word 解析出来的事实证据；`template_gap_report.*` 是检查结果；两者都不是学校标准本身。

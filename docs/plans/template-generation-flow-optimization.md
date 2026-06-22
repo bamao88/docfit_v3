@@ -2,6 +2,8 @@
 
 Last updated: 2026-06-22
 
+当前口径提示：本文是历史方案和执行记录，其中关于“学校标准、学生内容台账作为模板生成策略输入”的设想已经废弃。当前正常生成输入只有学校原始模板 Word；`standards/schools/**` 和学生内容台账不作为 `template-generate` 的输入。当前主线见 `docs/current/template-generation.md`，待核实差距见 `docs/current/template-generation-open-gaps.md`。
+
 一句话结论：模板生成支撑流程应该收敛成五个逻辑步骤：源 Word 事实、候选结构识别、生成模板模型与策略、动作计划、执行与 manifest；其中阶段三产出系统后续要消费的模板业务地图，阶段四才把业务地图翻译成可执行 action。
 
 拆分现状文档：`docs/plans/template-generate-runner-split.md` 记录
@@ -22,7 +24,7 @@ Last updated: 2026-06-22
 
 所以，“阶段二：候选结构识别”和“阶段三：生成模板模型与策略”在本文里首先是职责拆分。当前代码已经切到 `template_structure_candidates.json -> template_generation_model.json`：阶段二由 `structure_candidates.py` 写候选结构、logical element、`source_seq_refs` 和 `source_context`；阶段三由 `generation_model.py` 写单一生成模型、`unit_strategies`、slots、protected zones 和 cleanup。历史旧产物 `discovered_template_rules.json`、template-generate 内部的 `template_artifact.json` 和 `template_unit_decisions.json` 不再作为本支撑流程的 public artifacts 写出。
 
-如果只想看当前真实流程，以 `docs/current/template-generation.md` 为准；如果要讨论下一步怎么改阶段边界、字段和责任，以本文为准。
+如果只想看当前真实流程，以 `docs/current/template-generation.md` 为准；如果要讨论下一步怎么核实当前差距，以 `docs/current/template-generation-open-gaps.md` 为准。本文只保留历史背景和已经发生的执行记录，不再作为当前下一步目标的唯一来源。
 
 ## 评测层追责原则（先读）
 
@@ -145,7 +147,7 @@ Last updated: 2026-06-22
 | 问题 | 本文件回答 |
 | --- | --- |
 | 这是新方案还是现状 | 主体写目标方案和执行结果；凡是现状都用“当前真实实现 / 当前代码”单独标出，历史实现用“历史旧产物承载”标出 |
-| 模板生成要优化什么 | 从“按 unit_id 排除列表”升级为“硬编码基线 + 内容责任 + 学生源内容 + 学校标准”的策略选择 |
+| 模板生成要优化什么 | 从“按 unit_id 排除列表”升级为“硬编码基线 + 源模板内容责任 + 证据不足时待复核”的策略选择 |
 | 哪些区域可以仅复制 | 学校固定正文、签名日期、教师意见、成绩评定等不由机器填写的区域 |
 | 哪些区域不能默认仅复制 | 中文摘要、英文摘要、目录族、正文、参考文献，以及有学生内容的致谢/附录 |
 | 判定发生在哪一步 | 阶段三“生成模板模型与策略”里确认 `generation_mode = whole_unit_copy` / `copy_then_patch` / `needs_review` |
@@ -344,9 +346,8 @@ manifest = build_template_generation_manifest(
 
 ```text
 硬编码基线
-  + 单元语义和内容责任
-  + 学校标准里的 policy / source / handling
-  + 学生源文档是否真的有对应内容
+  + 源模板里的单元语义和内容责任证据
+  + 源模板里的占位符、字段、表格、样式和上下文
   + 证据不足时的 UNKNOWN / needs_review
 ```
 
@@ -357,12 +358,12 @@ manifest = build_template_generation_manifest(
 | 单元责任 | 例子 | 处理 |
 | --- | --- | --- |
 | 系统生成/更新 | 普通目录、图目录、表目录、页码、编号 | 不是默认仅复制；需要字段、占位或更新机制 |
-| 学生内容写入 | 摘要、正文、参考文献、学生致谢、学生附录 | 不是默认仅复制；需要 slot 或 placement 去向 |
+| 学生内容写入 | 摘要、正文、参考文献，以及源模板自身表明应承载学生内容的致谢、附录 | 不是默认仅复制；需要 slot 或 placement 去向 |
 | 线下人工填写 | 签名、年月日、教师意见、成绩评定、答辩记录 | 可以仅复制；机器不为这些线下填写线生成 slot |
 | 学校固定正文 | 原创性声明、授权说明、固定表单正文 | 可以仅复制；保留固定文本和结构 |
-| 条件单元 | 致谢、附录、封面元数据 | 取决于学生源内容、学校标准和产品是否负责自动填写 |
+| 条件单元 | 致谢、附录、封面元数据 | 取决于源模板自身证据和产品是否负责自动填写 |
 
-例如 `acknowledgement` 不能永远写成 copy-only：如果学生源文档有致谢内容，或学校标准要求最终文档承载学生致谢正文，它应进入学生内容写入路径；如果学生没有致谢内容，当前可以保留模板里的标题、占位和人工提示，并把是否删除或保留写成条件规则或 `open_questions`。
+例如 `acknowledgement` 不能永远写成 copy-only：如果源模板自身提供了致谢标题、正文占位或明确填写痕迹，它应进入学生内容写入路径或待复核路径；如果源模板只给固定说明或人工确认区域，可以保留模板里的标题、占位和人工提示，并把是否删除或保留写成条件规则或 `open_questions`。
 
 如果后续新增 unit，先判断内容责任，再决定是否仅复制。不要只因为它不在排除列表里就默认仅复制。
 
@@ -372,20 +373,17 @@ manifest = build_template_generation_manifest(
 
 | 优先级 | 证据来源 | 判定方式 | 输出 |
 | --- | --- | --- | --- |
-| 1 | 学校签收标准明确声明 `policy`、`source`、`handling` | 标准优先；例如“来源=学生内容”不能仅复制，“来源=学校模板固定表单”可仅复制 | `copy_then_patch` 或 `whole_unit_copy` |
-| 2 | 学生源文档内容台账 | 如果学生源里有该单元内容，例如致谢、附录、成果、参考文献，则不能仅复制模板空壳 | `copy_then_patch` |
-| 3 | 通用硬编码基线 | 对稳定通用单元给默认责任：目录族=生成，摘要/正文/参考文献=学生内容，声明/签名表单=固定或人工 | 初始策略 |
-| 4 | 单元名称和元素语义 | 看标题、字段、占位、签名日期、教师意见、成绩评定等语义信号，对硬编码基线做校正 | 策略修正 |
-| 5 | 解析证据是否充分 | 缺 source_ref、边界不稳定、有 unknown visible objects 时，不把猜测当成功 | `needs_review` / `UNKNOWN` |
+| 1 | 源模板明确结构和元素证据 | 标题、字段、占位、表格、签名日期、教师意见、成绩评定等语义信号优先 | `copy_then_patch`、`whole_unit_copy` 或 `needs_review` |
+| 2 | 通用硬编码基线 | 对稳定通用单元给默认责任：目录族=生成，摘要/正文/参考文献=学生内容，声明/签名表单=固定或人工 | 初始策略 |
+| 3 | 单元名称和上下文语义 | 用标题、邻近段落、表格边界和样式信号修正硬编码基线 | 策略修正 |
+| 4 | 解析证据是否充分 | 缺 source_ref、边界不稳定、有 unknown visible objects 时，不把猜测当成功 | `needs_review` / `UNKNOWN` |
 
 推荐的判定伪流程：
 
 ```text
-如果学校标准明确说该单元承载学生内容：
+如果源模板明确说该单元承载学生内容或系统生成内容：
   copy_then_patch
-否则如果学生源内容台账里有该单元内容：
-  copy_then_patch
-否则如果学校标准明确说该单元是固定模板或线下人工填写：
+否则如果源模板明确说该单元是固定模板或线下人工填写：
   whole_unit_copy
 否则使用通用硬编码基线给出初始策略
 再用单元名称和元素语义修正
@@ -397,7 +395,7 @@ manifest = build_template_generation_manifest(
 
 ## 上游输入
 
-当前真实实现里，`docfit eval template-generate` 只接收源 Word 和输出目录；它还没有把学校签收标准和学生源内容作为正式输入。
+当前真实实现里，`docfit eval template-generate` 只接收源 Word 和输出目录；这也是当前产品输入边界。它不应该把学校签收标准和学生源内容作为正式输入。
 
 | 当前输入 | 来源 | 作用 |
 | --- | --- | --- |
@@ -406,14 +404,13 @@ manifest = build_template_generation_manifest(
 | `strategy` | 默认 `source_copy_scaffold` | 记录本次生成策略；当前没有多策略分支 |
 | `debug_root` | eval / e2e 包装层传入 | 写 00-10 调试快照 |
 
-目标优化后，策略选择至少还需要消费这些上游信息：
+目标优化后，策略选择仍只消费源模板解析链路里的信息：
 
 | 目标输入 | 来源 | 用途 |
 | --- | --- | --- |
-| 学校结构化标准 | `template_unit_contract.yaml` 或其生成阶段中间产物 | 判断单元来源、处理方式、是否承载学生内容、是否线下人工填写 |
-| 学生内容台账摘要 | content extract 输出，或 e2e 已知学生源内容摘要 | 判断致谢、附录、成果、参考文献等条件单元是否真的有学生内容 |
+| 源模板结构证据 | `source_template_tree.json`、`template_structure_candidates.json` | 判断单元来源、处理方式、是否承载学生内容、是否线下人工填写 |
+| 源模板元素语义 | 标题、占位符、字段、表格、样式、上下文 | 判断致谢、附录、成果、参考文献等条件单元是否应进入自动填写或待复核路径 |
 | 通用单元责任基线 | 代码或配置中的稳定表 | 给常见单元一个默认责任，例如目录族偏生成、正文偏学生内容、声明偏固定 |
-| 学校例外配置 | 已签收标准或受控配置 | 覆盖通用基线，例如某校封面题目是否机器填写 |
 | 不确定证据 | 解析器 warning、unknown visible objects、未识别单元 | 决定进入 `UNKNOWN` / `needs_review`，而不是硬猜 |
 
 输入检查规则：
@@ -548,8 +545,7 @@ flowchart TD
 | --- | --- |
 | 通用单元定义和关键词表 | 辅助识别 `cover`、`abstract_cn`、`body_main` 等 unit |
 | 通用内容责任基线 | 给 `role_hint` 和 evidence 一个默认解释起点 |
-| 学校结构化标准 | 如果已接入，可覆盖通用规则；如果未接入，应在输出里明确证据不足 |
-| 学生内容台账摘要 | 如果已接入，可判断致谢/附录等条件单元是否承载学生内容 |
+| 源模板不确定性规则 | 当标题、占位符、表格边界或字段证据不足时，输出 `open_questions` 或 `needs_review` |
 
 阶段二不应该依赖这些输入：
 

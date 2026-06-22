@@ -93,6 +93,7 @@ flowchart TD
 | `docs/current/template-generation.md` | 模板生成支撑流程：字段、执行、证据、template-gap |
 | `docs/current/template-generation-stage-optimization.md` | 模板生成各阶段代码优化地图：当前实现、下一步改哪里、first_bad_stage 定位 |
 | `docs/current/template-generation-evaluation.md` | 模板生成评测与测试架构：最终 gap、阶段检查骨架、测试边界 |
+| `docs/current/template-generation-open-gaps.md` | 模板生成当前待核实差距：哪些是已确认问题，哪些还要逐项验证 |
 | `docs/current/project-directory-structure.md` | 新增文件时才需要看的目录职责 |
 
 ## 读文档顺序
@@ -103,6 +104,7 @@ flowchart TD
 | 判断状态能不能通过 | `docs/current/contracts-and-gates.md` |
 | 修改模板生成、字段或 gap 报告 | `docs/current/template-generation.md` |
 | 讨论模板生成各阶段代码怎么优化 | `docs/current/template-generation-stage-optimization.md` |
+| 核实模板生成当前差距 | `docs/current/template-generation-open-gaps.md` |
 | 讨论模板生成评测或测试架构 | `docs/current/template-generation-evaluation.md` |
 | 看当前进展和下一步 | `STATUS.md` |
 | 新增输入、输出、标准、测试或文档 | `DIRECTORY_STRUCTURE.md`，它会指向完整规则 `docs/current/project-directory-structure.md` |
