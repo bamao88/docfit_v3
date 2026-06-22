@@ -22,7 +22,11 @@ generated_template.docx + template_unit_contract.yaml -> template_gap_report.*
 
 一句话结论：当前生成器先整包复制源 Word，再按计划局部 patch；代码已经按五步证据链拆成模块，阶段一会给可见元素分配 `source_seq`，阶段二写 `template_structure_candidates`，阶段三写单一 `template_generation_model`，copy-only 单元会做受限内部识别，说明文字可以进入 cleanup，但填写痕迹不会自动变成学生内容 slot。
 
-完整计划、流程图、产物流转和排查入口见：
+各阶段代码优化地图、下一步改哪里和 `first_bad_stage` 快速定位见：
+
+- `docs/current/template-generation-stage-optimization.md`
+
+更长的方案、历史迁移原因和执行记录见：
 
 - `docs/plans/template-generation-flow-optimization.md`
 
