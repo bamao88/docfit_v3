@@ -4,8 +4,8 @@ Last updated: 2026-06-22
 
 一句话结论：模板生成支撑流程应该收敛成五个逻辑步骤：源 Word 事实、候选结构识别、生成模板模型与策略、动作计划、执行与 manifest；其中阶段三产出系统后续要消费的模板业务地图，阶段四才把业务地图翻译成可执行 action。
 
-拆分实施文档：`docs/plans/template-generate-runner-split.md` 记录
-`src/docfit/stages/template_generate/runner.py` 应如何按这个五步流程拆成多个 Python 文件。
+拆分现状文档：`docs/plans/template-generate-runner-split.md` 记录
+`src/docfit/stages/template_generate/runner.py` 已完成拆分后的当前模块地图、仍在使用的旧产物名，以及下一轮需要同步切换的目标契约。
 
 ## 文档定位（先读）
 
