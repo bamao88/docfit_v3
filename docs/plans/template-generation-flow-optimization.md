@@ -104,7 +104,7 @@ Last updated: 2026-06-22
 | 规定每个阶段的完整 artifact schema | 当前产物名和 JSON 形状仍由旧产物层承载，具体形状要等业务阶段边界稳定 |
 | 判断某个 unit 应该 copy-only 还是 copy-then-patch | 这是业务策略，不是评测层底座 |
 | 判断阶段二应该如何合并 logical element | 这是业务识别逻辑，评测层只先定义“将来要能检查输入可信和输出可信” |
-| 修改 `template_generate` 业务代码 | 当前目标是评测层原则和架构，不改生成逻辑 |
+| 用评测层底座直接改 `template_generate` 业务代码 | 评测层只定义归因和检查结构；业务代码怎么改见上面的“代码改造执行计划” |
 | 把中间阶段纳入最终 gate | 没有标准和 verifier 前不能 gate，也不能伪装成 PASS |
 
 ### 阶段标准将来必须包含什么
@@ -203,6 +203,139 @@ Last updated: 2026-06-22
 | `toc` | 目录族 | 通常需要系统生成或保留字段机制；图目录、表目录当前可能作为 `toc` 内元素或字段要求出现 |
 | `body_main` | 正文 | 学生正文内容的主要写入区域 |
 | `references` | 参考文献 | 通常来自学生文档，不能默认把源模板里的参考文献区域当成最终内容 |
+
+## 代码改造执行计划（按阶段）
+
+一句话结论：下一轮代码优化不是继续拆模块，而是在现有模块里把阶段产物切到目标形态。最核心的改动是阶段二先把原始 entry 合并成 logical element，阶段三再把旧的 `template_artifact + template_unit_decisions` 合并成单一 `template_generation_model`。
+
+### 总调用链怎么改
+
+当前 `runner.py` 调用链是：
+
+```python
+request = build_template_generation_request(...)
+source_tree = inspect_source_template_docx(source_template_docx)
+discovered_rules = infer_template_rules(source_tree)
+template_artifact = build_template_artifact(request, source_tree, discovered_rules)
+decisions = build_template_unit_decisions(template_artifact)
+plan = build_template_generation_plan(
+    request,
+    template_artifact=template_artifact,
+    decisions=decisions,
+)
+manifest = build_template_generation_manifest(
+    request=request,
+    source_tree=source_tree,
+    discovered_rules=discovered_rules,
+    template_artifact=template_artifact,
+    decisions=decisions,
+    plan=plan,
+    ...
+)
+```
+
+目标调用链应改成：
+
+```python
+request = build_template_generation_request(...)
+source_tree = inspect_source_template_docx(source_template_docx)
+structure_candidates = build_template_structure_candidates(source_tree)
+generation_model = build_template_generation_model(
+    request,
+    structure_candidates=structure_candidates,
+)
+plan = build_template_generation_plan(
+    request,
+    generation_model=generation_model,
+)
+manifest = build_template_generation_manifest(
+    request=request,
+    source_tree=source_tree,
+    structure_candidates=structure_candidates,
+    generation_model=generation_model,
+    plan=plan,
+    ...
+)
+```
+
+这次切换只针对 `template_generate` 支撑流程。业务四阶段里的模板解析产物 `template_artifact.json` 仍是 `template_parse`、placement、render 当前使用的业务产物，不在这次重命名范围里。
+
+### 阶段一代码怎么改
+
+| 文件 / 函数 | 具体改动 | 验收断言 |
+| --- | --- | --- |
+| `source_tree.py::_body_flow_from_inspection` | 先收集并按 `order/source_ref` 排好所有可见 entry，再统一分配 `source_seq = 1..n` 和 `source_seq_label = 源模板元素 001`；不要在排序前编号 | `layers.body_flow[].source_seq` 连续、唯一，顺序和 debug 里看到的可见流一致 |
+| `source_tree.py::inspect_source_template_docx` | 在 `indexes` 里新增 `by_source_seq`，每个序号可回查 `node_id`、`source_ref`、`text_preview`、`structure_layer` | 人工说“源模板元素 12”时，可以直接定位到原始节点 |
+| `tests/contract/test_template_generate.py` | 新增阶段一断言：有 `source_seq`、有 `source_seq_label`、有 `indexes.by_source_seq`，且没有重复序号 | 后续阶段有稳定定位锚点 |
+
+### 阶段二代码怎么改
+
+| 文件 / 函数 | 具体改动 | 验收断言 |
+| --- | --- | --- |
+| `structure_candidates.py::infer_template_rules` | 改为 `build_template_structure_candidates`，产物 `artifact_type` 改为 `template_structure_candidates`；public artifact key 改成 `template_structure_candidates` | `--out/artifacts/template_structure_candidates.json` 存在；不再写 `discovered_template_rules.json` |
+| `_body_entries` | 要求每个 entry 带 `source_seq`；过滤页眉页脚的同时保留它们到 `source_context.header_footer` | 正文 unit 不混入页眉页脚，但阶段三仍能拿到页眉页脚上下文 |
+| `_infer_units` / `_unit_anchors` | unit 增加 `source_range`、`source_seq_range`、`source_seq_refs[]`、`anchors[]`；anchor 证据写 `source_ref + source_seq` | 单元范围能用原始序号解释，例如 cover 覆盖 1-6 |
+| `_infer_elements` | 拆成三步：`entry -> fragment -> logical element -> role_hint/evidence`；先实现表格同一行 label+blank、连续说明文字、句子/段落 continuation 三类合并 | 合并后的 element 保留全部 `source_refs[]`、`entry_refs[]`、`source_seq_refs[]` 和 `merge.reason` |
+| `_copy_only_unit_elements` | 不再把 copy-only 写成最终策略；输出单元级 `copy_region_candidate` 和内部受限 logical elements。内部 `student_field_candidate` 只能作为证据，不能在阶段二变成 slot | copy-only 封面里的 `论文题目：____` 仍有候选证据，但阶段二不输出最终 `generation_mode` |
+| `_element_policy` | 保留为内部启发式也可以，但输出字段应改成 `role_hint` / `candidate_policy`，不要让阶段二的 `policy` 被误读成最终处理策略 | 阶段二 schema 中没有最终 `whole_unit_copy` / `copy_then_patch` |
+| 新增 `_source_context_from_source_tree` | 把 `body_order`、`by_source_ref`、`by_source_seq`、`style_inventory`、`numbering_definitions`、`section_rules`、`header_footer`、`unknown_objects` 从阶段一整理到 `source_context` | 阶段三不再为了页面、样式、编号、页眉页脚直接回读完整 `source_tree` |
+| `tests/contract/test_template_generate.py` | 更新旧断言：读 `template_structure_candidates.json`；新增 logical element 合并、`source_seq_refs[]`、阶段二不输出最终策略的断言 | 阶段二真正变成“候选结构和证据” |
+
+### 阶段三代码怎么改
+
+| 文件 / 函数 | 具体改动 | 验收断言 |
+| --- | --- | --- |
+| `generation_model.py::build_template_artifact` | 改成或包成 `build_template_generation_model(request, structure_candidates=...)`，产物 `artifact_type = template_generation_model` | `--out/artifacts/template_generation_model.json` 存在；不再写 template-generate 的 `template_artifact.json` |
+| `generation_model.py::build_template_unit_decisions` | 不再作为单独 public 产物；逻辑并入 `template_generation_model.unit_strategies[]` 和 `generation_model.decisions[]` 或 `action_intents[]` | 没有 `template_unit_decisions.json`；每个 unit 的策略仍可追踪 |
+| `_materialize_template_units` | 改为消费阶段二的 logical elements 和 `role_hint`；输出确认后的 `units[]`、最终 `policy` 或 `final_disposition` | 阶段三才出现最终 `generation_mode`、slot、cleanup、protected zone |
+| 新增 `_build_unit_strategies` | 集中决定 `whole_unit_copy` / `copy_then_patch` / `needs_review`；当前先沿用 `COPY_ONLY_DEFAULT_EXCLUDED_UNIT_IDS`，后续再接学校标准和学生内容台账 | cover 默认 whole copy，references 默认 copy_then_patch |
+| 新增 `_build_cleanup` | 把 `role_hint = instruction_candidate` 的 logical element 转成 `cleanup[]`，保留 `source_refs[]`、`source_seq_refs[]`、evidence | copy-only 内部说明文字能进入 cleanup |
+| 新增 `_build_protected_zones` | 把固定学校内容、人工填写区、copy-only 保留范围写入 `protected_zones[]` | copy-only 内部固定/人工内容不会被误删，也不会生成 slot |
+| 新增 `_build_slots` | 只对 `copy_then_patch` 单元里的学生内容位和系统生成位生成 slot / generated field；copy-only 内部填空默认只写证据或 unresolved question | 封面 `论文题目：____` 不生成 cover slot；参考文献仍能生成 slot |
+| 新增 `_build_unresolved_questions` | 汇总阶段二 conflicts、unknowns、copy-only 内部强填写信号、缺标准判断等 | 证据不足时不假装成功，后续能定位 |
+| `tests/contract/test_template_generate.py` | 旧的 `template_artifact` / `template_unit_decisions` 断言改成读 `template_generation_model`；新增 cleanup、protected zone、unit strategy、source_seq trace 断言 | 阶段三是单一业务模型口径 |
+
+### 阶段四代码怎么改
+
+| 文件 / 函数 | 具体改动 | 验收断言 |
+| --- | --- | --- |
+| `plan.py::build_template_generation_plan` | 签名改成 `build_template_generation_plan(request, generation_model=...)`，不再接 `template_artifact` 和 `decisions` 两个输入 | plan 的 `input_hashes` 只引用 `template_generation_model` |
+| page / section action 生成 | 从 `generation_model.units[]` 或 `unit_strategies[]` 读取页面规则；不重新判断 unit 语义 | 页面动作仍存在，但来源是阶段三模型 |
+| slot / generated / manual action 生成 | 从 `generation_model.slots[]`、`required_fields[]`、`protected_zones[]` 生成 action | plan 不再读取阶段二候选字段来判断业务 |
+| cleanup action 生成 | 从 `generation_model.cleanup[]` 生成 `remove_instruction_text` | copy-only 内部说明文字仍能删除 |
+| 所有 action | 增加 `affected_source_seq_refs[]` 和可选 `source_seq_reason`；从阶段三对象直接透传 | manifest 可回答“删除/保留的是源模板元素几” |
+| `tests/contract/test_template_generate.py` | 检查 `remove_instruction_text`、`preserve_whole_unit_copy`、`create_fillable_slot` 等 action 都带来源序号 | 误删、误合并可以按序号追责 |
+
+### 阶段五和输出代码怎么改
+
+| 文件 / 函数 | 具体改动 | 验收断言 |
+| --- | --- | --- |
+| `executor.py::_executed` / `_needs_review` | 已经会保留 action 字段；确认不要丢 `affected_source_seq_refs[]` | `actions_executed[]` 和 `actions_requiring_review[]` 都带来源序号 |
+| `executor.py::_slot_from_action` | slot 记录补 `source_seq_refs[]` 或 `affected_source_seq_refs[]` | manifest.slots 能回到原始元素 |
+| generated field 记录 | generated field 记录补来源序号 | manifest.generated_fields 能回到原始元素 |
+| `manifest.py::build_template_generation_manifest` | 输入改成 `structure_candidates` 和 `generation_model`；`input_hashes` 改成 `template_structure_candidates`、`template_generation_model`、`template_generation_plan` | manifest 不再引用旧 `discovered_template_rules/template_artifact/template_unit_decisions` |
+| `outputs.py::write_template_generation_outputs` | public artifacts 改成 `template_generation_request`、`source_template_tree`、`template_structure_candidates`、`template_generation_model`、`template_generation_plan`、`template_generation_manifest` | artifacts 目录没有旧阶段二/三文件 |
+| `outputs.py::write_template_generation_debug_snapshot` | debug 快照改成 `00_*`、`01_source_template_tree`、`02_template_structure_candidates`、`03_template_generation_model`、`04_template_generation_plan`、`05.0/05.1/05.2`、`99_index` | debug 文件名按阶段编号，不按旧流水编号 |
+| `runner.py::_coverage` | coverage key 改成 `template_generation.structure_candidates`、`template_generation.generation_model` 等目标名 | summary 里不再出现旧产物 coverage key |
+
+### 消费者和测试怎么同步
+
+| 位置 | 具体改动 |
+| --- | --- |
+| `tests/contract/test_template_generate.py` | 这是主测试改动点：更新文件名、artifact_type、debug 编号、source_seq、阶段二合并、阶段三模型、action trace 断言 |
+| `src/docfit/convert/orchestrator.py` | `_artifact_refs` 自动读 `StageResult.artifact_paths`，通常只要 runner/artifact key 更新即可；但要检查 e2e summary 里是否有旧 key 断言 |
+| `docs/current/template-generation.md` | 代码真正切换后再从“当前旧产物承载”更新为“当前真实实现”；不要在代码未改前提前写成已实现 |
+| 全仓搜索 | 用 `rg "discovered_template_rules|template_unit_decisions|03_discovered|04_template_artifact|05_template_unit"` 找残留；`template_parse` 业务产物里的 `template_artifact` 不属于本次清理 |
+
+### 最小提交切分
+
+| 提交 | 内容 | 先跑什么 |
+| --- | --- | --- |
+| 1 | 阶段一 `source_seq` + 测试 | `uv run pytest tests/contract/test_template_generate.py -q` |
+| 2 | 阶段二 `template_structure_candidates` + logical element 合并 + 测试 | 同上 |
+| 3 | 阶段三 `template_generation_model` 替代旧双产物 + 测试 | 同上 |
+| 4 | 阶段四/五 trace、manifest、outputs/debug 重命名 + 测试 | 同上 |
+| 5 | 全仓消费者和文档同步 | `uv run pytest tests/contract/test_template_generate.py -q`，必要时补 `uv run pytest tests/contract -q` |
 
 ## 目标判断口径
 
