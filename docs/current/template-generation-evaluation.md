@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-22
 
-一句话结论：这份文档只说明模板生成相关的“怎么验、测试怎么组织、报告怎么聚合”；它不定义模板生成五步怎么优化，也不决定某个单元最终应该怎么生成。
+一句话结论：这份文档只说明模板生成相关的“怎么验、测试怎么组织、报告怎么聚合”；评测层应优先复用业务生成已经落盘的过程产物，不为了对齐评测再跑一次模板生成。
 
 ## 文档范围
 
@@ -14,6 +14,7 @@ Last updated: 2026-06-22
 | 每个阶段产物将来如何接检查器 | 每个阶段最终有哪些业务字段 |
 | 检查结果如何表达 `PASS` / `FAIL` / `UNKNOWN` | 某个 unit 应该 `whole_unit_copy` 还是局部 patch |
 | 如何从最终 gap 追溯到可能出错的阶段 | 用学生源内容决定模板生成策略 |
+| 业务生成产物如何作为评测输入复用 | 让评测代码改写业务生成产物 |
 | 测试应该证明哪些评测行为 | 自动更新学校标准、golden 或 expected snapshot |
 
 这里说的“阶段检查器”在代码里可以叫 verifier。它的普通含义是：读取某个阶段的输入和输出，用已定义标准判断这个阶段是否可证明正确，然后产出状态和问题列表。
@@ -29,12 +30,43 @@ Last updated: 2026-06-22
 
 最终结果验证可以先跑，因为它的检查对象和标准已经存在。阶段产物验证要等每个阶段的输入、输出和输出标准明确后再逐个补，不应该提前把临时实现写成验收标准。
 
+## 业务产物如何进入评测
+
+一句话结论：`template-generate` 跑完后留下的 `generated_template.docx`、`artifacts/*.json`、manifest 和 debug 快照，就是后续模板评测应该消费的证据；已有这些文件时，评测对齐不应该再调用生成器造一套新文件。
+
+当前真实实现和目标边界要分开看：
+
+| 情况 | 当前真实实现 | 应该表达的边界 |
+| --- | --- | --- |
+| 单独跑业务模板生成 | `docfit eval template-generate` 会运行 00-05，并写出正式产物和 debug 快照 | 这是产物生产者，不是学校标准裁判 |
+| 单独跑最终 gap | `docfit eval template-gap --generated-template <已有 Word>` 可以直接检查已有 `generated_template.docx` | 评测可以消费已有 Word，不需要重新跑 00-05 |
+| real-core 的 `template` / `e2e` 流程 | 当前会在同一个 pipeline 里重新跑模板生成，再把这次生成的 Word 交给 gap | 这是“新跑一遍完整链路”的模式，不等于已有产物包复用模式 |
+| 01-05 阶段产物评测聚合 | 当前还没有统一入口消费已有 `template-generate` run 目录 | 后续应读取已有产物包、hash 和 manifest；缺产物时返回 `UNKNOWN`，不能静默重跑 |
+
+复用已有产物包时，评测层只做三件事：
+
+| 动作 | 说明 |
+| --- | --- |
+| 读取 | 读取同一次 `template-generate` 运行留下的 `summary.json`、`generated_template.docx`、`artifacts/*.json` 和 debug 快照 |
+| 绑定 | 记录被检查文件的路径、hash、生产者阶段和 run 目录，证明检查的是哪一次业务输出 |
+| 判定 | 用已配置 verifier 检查已有产物；标准缺失、文件缺失、hash 对不上或检查器未配置时输出 `UNKNOWN` |
+
+复用模式下不要做这些事：
+
+| 不要做什么 | 为什么 |
+| --- | --- |
+| 不要为了补齐缺失中间产物自动重跑 `generate_template` | 新跑会产生另一套证据，不能证明原始 run 的 first_bad_stage |
+| 不要把 `template-generate` 的执行 `PASS` 当成阶段验收 `PASS` | 执行成功只证明文件写出来，不证明符合学校标准 |
+| 不要让 AI 补造 manifest、hash、`source_seq_refs[]` 或阶段状态 | 这些是运行证据，只能由产品代码或检查器产生 |
+| 不要用 manifest 替代最终 gap | manifest 说明生成器做了什么，最终 Word 是否合格仍要看 `template-gap` |
+
 ## 当前真实实现
 
 | 能力 | 当前真实情况 | 说明 |
 | --- | --- | --- |
 | 模板生成命令 | `docfit eval template-generate` 能写出 `source_template_tree.json`、`template_structure_candidates.json`、`template_generation_model.json`、`template_generation_plan.json`、`generated_template.docx` 和 `template_generation_manifest.json` | 这个命令返回 `PASS` 只说明生成流程完成，不说明 Word 已符合学校标准 |
 | 最终 gap 检查 | `docfit eval template-gap` 会检查被测 `generated_template.docx` | 这是当前可作为阶段化评测示例的真实检查器 |
+| 已有产物复用 | 现在只有最终 gap 已经能直接消费已有 `generated_template.docx`；01-05 还没有“读取已有 run 目录并聚合阶段检查”的统一入口 | 所以当前如果只想检查已有 Word，跑 `template-gap`；如果要验证整个新链路，才跑 `template` / `e2e` |
 | 阶段检查聚合 | 当前没有统一的“阶段产物 -> 检查器 -> 状态/问题 -> 聚合报告”骨架 | 所以现在更像是有阶段产物和最终 gap，缺少中间统一评测层 |
 | 合同测试 | `tests/contract/test_template_generate.py` 覆盖模板生成产物链；`tests/contract/test_real_core_generated_template_gap.py` 覆盖最终 gap | 现有测试还没有证明阶段检查聚合架构存在 |
 
@@ -84,6 +116,7 @@ test_outputs/debug/template_generation/<case>/eval_runs/<run>/  # template-gener
   artifacts/template_generation_model.json  # 03_generation_model 的 public artifact。
   artifacts/template_generation_plan.json  # 04_plan_build 的 public artifact。
   artifacts/template_generation_manifest.json  # 05_action_execution 的 public artifact。
+  # 这整个目录是后续阶段评测应优先复用的 artifact bundle。
 test_outputs/debug/template_generation/<case>/<debug_snapshot>/  # template-generate 调试快照目录；按阶段编号保存可对照文件。
   00_input_source_template.docx  # 00_input_request 的源模板副本。
   00_template_generation_request.json  # 00_input_request 的请求记录副本。
@@ -139,6 +172,18 @@ test_outputs/debug/template_generation/<case>/<debug_snapshot>/  # template-gene
 
 这意味着：评测代码有一部分确实属于产品能力，例如 inspector、gap checker、orchestrator；测试只是调用这些能力来锁住行为。
 
+最容易混淆的是“评测代码”和“测试代码”不是同一个东西：
+
+| 代码或文件 | 业务/评测身份 | 复用关系 |
+| --- | --- | --- |
+| `src/docfit/stages/template_generate/**` | 业务支撑流程 | 负责生产 00-05 的 Word、JSON 和 manifest |
+| `src/docfit/harness/generated_template_*` | 产品评测能力 | 负责读取已有 Word 和标准，产出 tree、gap report 和状态 |
+| `src/docfit/convert/orchestrator.py` | 产品编排层 | 可以选择跑新 pipeline，也可以作为后续“消费已有产物包”的入口位置 |
+| `tests/contract/**` | 测试代码 | 只调用产品能力证明行为稳定，不拥有业务产物语义 |
+| `test_outputs/**` | 运行证据 | 不是测试 fixture；它记录某次业务运行和评测运行的结果 |
+
+所以后续做阶段化评测时，正确方向是让评测入口接收一个已有 `template-generate` run 目录或明确的 artifact 列表，再读取其中的产物。只有用户明确要做一次新的业务回归或 e2e 时，才应该重新跑模板生成。
+
 ## 目标骨架
 
 阶段化评测需要一张统一清单。每一项至少说清：
@@ -156,6 +201,16 @@ test_outputs/debug/template_generation/<case>/<debug_snapshot>/  # template-gene
 
 建议先把它写成类似 `template_generation_stage_checks.json` 的聚合产物。名字可以后续定，但语义必须保持：未配置检查器不是 `PASS`，也不是 `FAIL`，它只能说明这个阶段暂时没有纳入 gate。
 
+为了支持“评测复用业务产物”，聚合产物还需要记录产物来源。以下是建议字段，不是当前已实现输出：
+
+| 字段 | 含义 | 生产者 | 消费者 | 判定影响 | 缺失后果 | AI 边界 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `artifact_source.kind` | 本次检查消费已有产物包，还是新跑了一次完整 pipeline；建议值如 `existing_template_generate_run`、`fresh_pipeline_run` | 阶段检查聚合入口 | 报告、coverage、人工审计 | 不直接决定 `PASS`，但决定证据解释方式 | 缺失时无法说明评测是不是重跑，应为 `UNKNOWN` | AI 只能解释，不能改写 |
+| `artifact_source.run_dir` | 被消费的 `template-generate` 运行目录，里面应有 `summary.json`、顶层 Word 和 `artifacts/*.json` | `template-generate` 运行输出或聚合入口绑定 | 阶段检查器、报告、first_bad_stage 排查 | 证明检查对象来自哪次业务运行 | 复用模式下缺失应为 `UNKNOWN` | AI 不能补造路径或目录内容 |
+| `artifact_hashes` | 聚合入口实际读取的关键文件 hash，例如 `generated_template.docx` 和 manifest | 阶段检查聚合入口计算 | 阶段检查器、报告、审计 | hash 不一致时不能证明检查对象一致，应阻断 | 缺失应为 `UNKNOWN` | AI 不能手工编辑 |
+| `stage_checks[].input_artifacts` | 每个阶段检查器实际读取的输入文件列表 | 阶段检查聚合入口 | 对应阶段 verifier、报告 | 用来证明 verifier 没有偷换输入 | 已启用 verifier 缺输入时应为 `UNKNOWN` | AI 只能引用 |
+| `stage_checks[].output_artifacts` | 每个阶段检查器实际检查的输出文件列表 | 阶段检查聚合入口 | 对应阶段 verifier、报告 | 用来证明检查的是哪个阶段产物 | 已启用 verifier 缺输出时应为 `UNKNOWN` | AI 只能引用 |
+
 ## 阶段清单
 
 这一节只写 verifier 视角，避免和上面的执行链混淆。
@@ -171,6 +226,8 @@ test_outputs/debug/template_generation/<case>/<debug_snapshot>/  # template-gene
 
 这张表的重点是先把“有产物”和“产物已验收”分开。前五个阶段现在可以有产物、可以有 debug、可以被人工排查，但不能因为命令跑完就算阶段验证通过。
 
+阶段清单的输入应该来自同一个 artifact bundle。比如 `02_structure_discovery` 读取的 `source_template_tree.json`，必须和 `05_action_execution` 的 manifest 指向同一次源模板运行；如果聚合入口只能找到零散文件但不能证明它们属于同一次 run，状态应是 `UNKNOWN`，不是自动拼起来继续判定。
+
 ## 聚合状态规则
 
 | 情况 | 聚合时怎么表达 |
@@ -180,6 +237,8 @@ test_outputs/debug/template_generation/<case>/<debug_snapshot>/  # template-gene
 | 已启用检查器全部 `PASS`，但有阶段 `not_configured` | 可以说明“当前已启用检查通过”，但不能声称所有阶段都已验证 |
 | 阶段没有标准或检查器 | 写 `verifier_state = not_configured` 或 `missing_standard`，不要写 `PASS` |
 | 最终 gap 失败但中间阶段未配置检查器 | 报告先给最终失败，再用现有产物帮助人工追溯，不伪造中间阶段结论 |
+| 复用已有产物包但关键文件缺失 | 对缺失文件对应阶段写 `UNKNOWN`，不要自动重跑生成器补文件 |
+| 复用已有产物包但 hash 或 manifest 对不上 | 聚合结果必须阻断，先提示证据串错或来源不一致 |
 
 `template_generate` 自己的执行状态和评测状态也要分开：
 
@@ -197,6 +256,8 @@ test_outputs/debug/template_generation/<case>/<debug_snapshot>/  # template-gene
 - 学生内容是否存在、是否放置、是否渲染正确，属于后续内容提取、内容放置和最终渲染评测，不属于生成模板评测。
 - `template_generation_manifest.json` 只能证明生成器执行了什么，不能证明最终 Word 符合学校标准。
 - `generated_template_tree.json` 是从被测 Word 解析出来的事实证据；`template_gap_report.*` 是检查结果；两者都不是学校标准本身。
+- 评测复用已有产物时，只能消费已有 Word、JSON、manifest 和 hash；缺失证据要暴露为 `UNKNOWN`，不能用重新生成来填洞。
+- 重新跑模板生成只适用于明确的 fresh pipeline / e2e 回归；它会产生新证据，不能反过来证明旧 run 的中间阶段。
 - AI 可以读报告帮助解释和归因，不能决定 `PASS`、`FAIL` 或 `UNKNOWN`。
 
 ## 测试策略
@@ -228,15 +289,18 @@ test_outputs/debug/template_generation/<case>/<debug_snapshot>/  # template-gene
 | 阶段清单稳定 | 报告里列出 `01_source_parse` 到 `06_final_template_gap` |
 | 未配置阶段不伪装成通过 | `verifier_state = not_configured` 时没有 `status = PASS` |
 | 最终 gap 作为示例接入 | `06_final_template_gap` 能复用现有 gap 检查结果 |
+| 已有产物包复用 | 给定一个已有 `template-generate` run 目录时，聚合检查读取现有文件，不重新调用生成器 |
 | 缺最终 gap 输入 | 返回 `UNKNOWN`，不能跳过检查后成功 |
+| 缺中间产物或 hash 不一致 | 返回 `UNKNOWN` 或阻断失败，报告说明证据来源不一致 |
 | 聚合报告可读 | 人能看到哪些检查启用、哪些只是等待标准 |
 
 ## 当前最小落地顺序
 
-1. 先新增阶段检查聚合结构，只登记阶段和检查状态。
-2. 把现有 `template-gap` 挂成 `06_final_template_gap` 的第一个已启用检查器。
-3. 让未配置阶段明确显示 `not_configured`，不参与 gate，也不显示成 `PASS`。
-4. 等每个阶段的输入和输出标准定下来后，再逐个补阶段检查器。
-5. 每补一个检查器，都补合同测试证明它的 `PASS` / `FAIL` / `UNKNOWN` 行为。
+1. 先定义“已有 `template-generate` run 目录 / artifact bundle”作为阶段检查聚合的输入。
+2. 新增阶段检查聚合结构，只登记阶段、产物路径、hash 和检查状态。
+3. 把现有 `template-gap` 挂成 `06_final_template_gap` 的第一个已启用检查器，并让它消费同一个 bundle 里的 `generated_template.docx`。
+4. 让未配置阶段明确显示 `not_configured`，不参与 gate，也不显示成 `PASS`。
+5. 等每个阶段的输入和输出标准定下来后，再逐个补阶段检查器。
+6. 每补一个检查器，都补合同测试证明它的 `PASS` / `FAIL` / `UNKNOWN` 行为，以及复用已有产物时不会偷偷重跑生成器。
 
 这样做的目的不是把架构写大，而是防止两个误判：一是最终 gap 失败时不知道从哪里追；二是中间阶段只有产物却被误认为已经验收通过。
