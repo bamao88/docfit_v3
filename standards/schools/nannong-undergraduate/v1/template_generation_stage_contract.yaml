@@ -1,0 +1,484 @@
+baseline_type: template_generation_stage_contract
+profile_id: real-core-v0
+school_id: nannong-undergraduate
+review_metadata:
+  reviewed_by: user-reviewed-source-fact-packet
+  review_source: docs/human/real-core-v0-review-packet.md#source-nannong-undergraduate
+  source_docx_sha256: sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536
+  change_reason: derive template generation stage standards from reviewed template source facts
+  auto_update_allowed: false
+accepted_source_facts:
+  review_packet: docs/human/real-core-v0-review-packet.md
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  source_section_id: nannong-undergraduate
+  source_section_sha256: sha256:a4bdd5a4cb6cfcf9ad6396586c9330381681d50e998675ab5a8078fdbd83025f
+  template_docx: test_inputs/template_generation/school-nannong-undergraduate-template.docx
+  template_docx_sha256: sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536
+  original_review_source: test_inputs/template_generation/school-nannong-undergraduate-template-review.txt
+  original_review_source_sha256: sha256:d6dc0d49dac3e2b83fa63ee92e76965c1cec995d56eb3e27b3ea4d5f45acdb87
+  upstream_template_unit_contract: template_unit_contract.yaml
+  upstream_template_unit_contract_sha256: sha256:1540a59b012e88c5d7b48491919154d92ac9815d13c829939b3983b5fed95486
+purpose: 为模板生成 01-05 阶段提供人工签收的输入/输出标准。这些标准来自 template_unit_contract.yaml 的 expected.units 和完整人工 review；在阶段 verifier 接入前只表示标准已存在，不表示阶段已 PASS。
+ai_boundary:
+  ai_may_explain: true
+  ai_may_edit_status_or_standard_without_human_review: false
+  auto_update_allowed: false
+gate_policy:
+  enabled_verifier_required_for_pass: true
+  not_configured_is_not_pass: true
+  missing_standard_result: UNKNOWN
+  missing_artifact_result: UNKNOWN
+expected:
+  school_id: nannong-undergraduate
+  source_section_sha256: sha256:a4bdd5a4cb6cfcf9ad6396586c9330381681d50e998675ab5a8078fdbd83025f
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  stage_model: 00_input_request -> 01_source_parse -> 02_structure_discovery -> 03_generation_model -> 04_plan_build -> 05_action_execution -> 06_final_template_gap
+  unit_tree_source: template_unit_contract.yaml#/expected/units
+  unit_order:
+  - cover
+  - originality_statement
+  - authorization_statement
+  - toc
+  - abstract_cn
+  - abstract_en
+  - body_main
+  - references
+  - appendix
+  - academic_achievements
+  - acknowledgement
+  unit_summaries:
+  - unit_id: cover
+    name: 封面
+    order: 1
+    status: required
+    policy: fixed
+    element_count: 1
+    element_policies:
+    - fixed
+    source_refs:
+    - review_text:1.1
+    - review_text:2.1
+    handling: 当前阶段保留学校封面模块；不填任何封面字段；不做字段文字锚点匹配。
+  - unit_id: originality_statement
+    name: 原创性声明
+    order: 2
+    status: manual_only
+    policy: manual_only
+    element_count: 3
+    element_policies:
+    - manual_only
+    source_refs:
+    - review_text:1.2
+    - review_text:2.2
+    handling: 保留固定声明页；不自动填姓名、日期、签名。
+  - unit_id: authorization_statement
+    name: 使用授权声明
+    order: 3
+    status: manual_only
+    policy: manual_only
+    element_count: 4
+    element_policies:
+    - manual_only
+    source_refs:
+    - review_text:1.3
+    - review_text:2.3
+    handling: 保留固定授权声明；不自动填作者签名、导师签名、日期。
+  - unit_id: toc
+    name: 目录
+    order: 4
+    status: required
+    policy: fixed
+    element_count: 3
+    element_policies:
+    - fixed
+    - generated
+    source_refs:
+    - review_text:1.4
+    - review_text:2.4
+    handling: 使用 Word TOC 字段生成目录；目录层级到 3 级。
+  - unit_id: abstract_cn
+    name: 中文摘要
+    order: 5
+    status: required
+    policy: fixed
+    element_count: 5
+    element_policies:
+    - fill
+    - fixed
+    source_refs:
+    - review_text:1.5
+    - review_text:2.5
+    handling: 填中文题名、中文摘要、中文关键词；固定“摘  要”和“关键词：”标签。
+  - unit_id: abstract_en
+    name: 英文摘要
+    order: 6
+    status: required
+    policy: fixed
+    element_count: 5
+    element_policies:
+    - fill
+    - fixed
+    source_refs:
+    - review_text:1.6
+    - review_text:2.6
+    handling: 填英文题名、英文摘要、英文关键词；固定“ABSTRACT”和“KEY WORDS：/KEY WORDS:”标签。
+  - unit_id: body_main
+    name: 正文主体
+    order: 7
+    status: required
+    policy: fixed
+    element_count: 8
+    element_policies:
+    - fill
+    - generated
+    source_refs:
+    - review_text:1.7
+    - review_text:2.7
+    handling: 按学校模板保留章、节、正文、图、表、公式等规则；包含固定类型结尾章“第X章 结论与展望”。
+  - unit_id: references
+    name: 参考文献
+    order: 8
+    status: required
+    policy: fixed
+    element_count: 2
+    element_policies:
+    - fill
+    - fixed
+    source_refs:
+    - review_text:1.8
+    - review_text:2.8
+    handling: 保留标题“参考文献”；填参考文献条目。
+  - unit_id: appendix
+    name: 附录
+    order: 9
+    status: template_default_optional
+    policy: template_default_optional
+    element_count: 2
+    element_policies:
+    - fill
+    source_refs:
+    - review_text:1.9
+    - review_text:2.9
+    handling: 源模板标注“此项非必需项”，但草稿/审阅输出默认保留；无内容时保留标题、占位和评论。
+  - unit_id: academic_achievements
+    name: 相关的学术成果目录
+    order: 10
+    status: template_default_optional
+    policy: template_default_optional
+    element_count: 2
+    element_policies:
+    - fill
+    - template_default_optional
+    source_refs:
+    - review_text:1.10
+    - review_text:2.10
+    handling: 源模板标注“此项非必需项”，但草稿/审阅输出默认保留；无内容时保留标题、占位和评论。
+  - unit_id: acknowledgement
+    name: 致谢
+    order: 11
+    status: template_default
+    policy: fixed
+    element_count: 98
+    element_policies:
+    - fill
+    - fixed
+    source_refs:
+    - review_text:1.11
+    - review_text:2.11
+    handling: 默认保留学校模板中的致谢模块；填致谢正文；无内容时保留标题、占位和评论。
+  policy_groups:
+    manual_only_units:
+    - originality_statement
+    - authorization_statement
+    fillable_units:
+    - abstract_cn
+    - abstract_en
+    - body_main
+    - references
+    - appendix
+    - academic_achievements
+    - acknowledgement
+    generated_units:
+    - toc
+    - body_main
+    template_default_units:
+    - appendix
+    - academic_achievements
+    - acknowledgement
+    fixed_or_protected_units:
+    - cover
+    - originality_statement
+    - authorization_statement
+    - toc
+    - abstract_cn
+    - abstract_en
+    - body_main
+    - references
+    - acknowledgement
+  stage_boundaries:
+  - stage_id: 01_source_parse
+    artifact: source_template_tree.json
+    input_artifacts:
+    - template_generation_request.json
+    - 00_input_source_template.docx
+    output_artifacts:
+    - source_template_tree.json
+    checks_against_review:
+    - 源模板可见段落、表格、页眉页脚、分节和未知对象必须保留为事实证据
+    - 每个后续可引用的可见节点必须有稳定 source_seq/source_ref
+    - 源文件 hash 必须绑定到 signed_standard.source.template_docx_sha256
+    not_allowed:
+    - 不得在本阶段裁定 unit_id、policy 或最终生成策略
+    - 不得删除人工 review 中后续需要判断的可见模板事实
+    missing_or_unreadable_result: UNKNOWN
+  - stage_id: 02_structure_discovery
+    artifact: template_structure_candidates.json
+    input_artifacts:
+    - source_template_tree.json
+    output_artifacts:
+    - template_structure_candidates.json
+    checks_against_review:
+    - 候选 unit 顺序必须能覆盖人工 review 的 expected.unit_order
+    - logical element 必须保留 source_seq_refs，合并关系必须可追溯
+    - 固定、填充、生成、manual_only、template_default_optional 的角色提示必须来自源模板证据
+    not_allowed:
+    - 不得把学校说明文字当作学生正文候选
+    - 不得把 manual_only 固定表单误标成学生内容 slot
+    - 不得把缺证据的启发式写成已验收结论
+    missing_or_unreadable_result: UNKNOWN
+  - stage_id: 03_generation_model
+    artifact: template_generation_model.json
+    input_artifacts:
+    - template_generation_request.json
+    - template_structure_candidates.json
+    output_artifacts:
+    - template_generation_model.json
+    checks_against_review:
+    - unit 策略必须保持人工 review 的单元顺序、status、policy 和处理口径
+    - manual_only/fixed/template_default 单元必须被保护或保留，不得静默删除
+    - 学生内容、元数据、Word 生成字段和人工填写区域必须区分
+    not_allowed:
+    - 不得读取学校标准作为 template-generate 正常业务输入
+    - 不得用某次学生内容决定学校模板单元是否存在
+    - 不得用 manifest 或模型替代最终 gap 判断
+    missing_or_unreadable_result: UNKNOWN
+  - stage_id: 04_plan_build
+    artifact: template_generation_plan.json
+    input_artifacts:
+    - template_generation_model.json
+    output_artifacts:
+    - template_generation_plan.json
+    checks_against_review:
+    - 每个修改型 action 必须声明 affected_source_seq_refs
+    - cleanup action 只能处理人工 review 允许剥离的说明文字或示例痕迹
+    - 字段、目录、图目录、表目录、页眉页码等生成动作必须能回到人工 review 的对应单元
+    not_allowed:
+    - 不得生成无法回溯来源的删除、替换或 slot action
+    - 不得把 copy-only/protected 单元拆成普通正文动作
+    missing_or_unreadable_result: UNKNOWN
+  - stage_id: 05_action_execution
+    artifact: generated_template.docx + template_generation_manifest.json
+    input_artifacts:
+    - 00_input_source_template.docx
+    - template_generation_plan.json
+    output_artifacts:
+    - 05.0_copy_source_docx.docx
+    - generated_template.docx
+    - template_generation_manifest.json
+    checks_against_review:
+    - manifest 必须记录执行动作、输入输出 hash 和 affected_source_seq_refs
+    - 生成 Word 必须先能作为 DOCX 打开并进入 06_final_template_gap
+    - 固定模板块、人工表单和签名日期区必须按人工 review 的保留策略处理
+    not_allowed:
+    - 不得把生成命令执行成功当成最终模板合格
+    - 不得在缺 manifest/hash 时用重新生成补旧 run 的证据
+    missing_or_unreadable_result: UNKNOWN
+  stage_standards:
+    01_source_parse:
+      standard_state: signed_pending_verifier
+      verifier_state: not_configured
+      gate_enabled: false
+      expected_from_review:
+        source_template_hash_bound: true
+        visible_source_facts_required:
+        - paragraphs
+        - tables
+        - headers_footers
+        - sections
+        - fields
+        - numbering_definitions
+        - unknown_objects
+        stable_locator_fields:
+        - source_seq
+        - source_seq_refs
+        - source_ref
+    02_structure_discovery:
+      standard_state: signed_pending_verifier
+      verifier_state: not_configured
+      gate_enabled: false
+      expected_from_review:
+        required_unit_order:
+        - cover
+        - originality_statement
+        - authorization_statement
+        - toc
+        - abstract_cn
+        - abstract_en
+        - body_main
+        - references
+        - appendix
+        - academic_achievements
+        - acknowledgement
+        policy_groups:
+          manual_only_units:
+          - originality_statement
+          - authorization_statement
+          fillable_units:
+          - abstract_cn
+          - abstract_en
+          - body_main
+          - references
+          - appendix
+          - academic_achievements
+          - acknowledgement
+          generated_units:
+          - toc
+          - body_main
+          template_default_units:
+          - appendix
+          - academic_achievements
+          - acknowledgement
+          fixed_or_protected_units:
+          - cover
+          - originality_statement
+          - authorization_statement
+          - toc
+          - abstract_cn
+          - abstract_en
+          - body_main
+          - references
+          - acknowledgement
+        candidate_trace_fields:
+        - source_seq_refs
+        - role_hint
+        - evidence
+    03_generation_model:
+      standard_state: signed_pending_verifier
+      verifier_state: not_configured
+      gate_enabled: false
+      expected_from_review:
+        required_unit_strategies:
+        - unit_id: cover
+          status: required
+          policy: fixed
+          handling: 当前阶段保留学校封面模块；不填任何封面字段；不做字段文字锚点匹配。
+        - unit_id: originality_statement
+          status: manual_only
+          policy: manual_only
+          handling: 保留固定声明页；不自动填姓名、日期、签名。
+        - unit_id: authorization_statement
+          status: manual_only
+          policy: manual_only
+          handling: 保留固定授权声明；不自动填作者签名、导师签名、日期。
+        - unit_id: toc
+          status: required
+          policy: fixed
+          handling: 使用 Word TOC 字段生成目录；目录层级到 3 级。
+        - unit_id: abstract_cn
+          status: required
+          policy: fixed
+          handling: 填中文题名、中文摘要、中文关键词；固定“摘  要”和“关键词：”标签。
+        - unit_id: abstract_en
+          status: required
+          policy: fixed
+          handling: 填英文题名、英文摘要、英文关键词；固定“ABSTRACT”和“KEY WORDS：/KEY WORDS:”标签。
+        - unit_id: body_main
+          status: required
+          policy: fixed
+          handling: 按学校模板保留章、节、正文、图、表、公式等规则；包含固定类型结尾章“第X章 结论与展望”。
+        - unit_id: references
+          status: required
+          policy: fixed
+          handling: 保留标题“参考文献”；填参考文献条目。
+        - unit_id: appendix
+          status: template_default_optional
+          policy: template_default_optional
+          handling: 源模板标注“此项非必需项”，但草稿/审阅输出默认保留；无内容时保留标题、占位和评论。
+        - unit_id: academic_achievements
+          status: template_default_optional
+          policy: template_default_optional
+          handling: 源模板标注“此项非必需项”，但草稿/审阅输出默认保留；无内容时保留标题、占位和评论。
+        - unit_id: acknowledgement
+          status: template_default
+          policy: fixed
+          handling: 默认保留学校模板中的致谢模块；填致谢正文；无内容时保留标题、占位和评论。
+        must_distinguish_policy_groups:
+          manual_only_units:
+          - originality_statement
+          - authorization_statement
+          fillable_units:
+          - abstract_cn
+          - abstract_en
+          - body_main
+          - references
+          - appendix
+          - academic_achievements
+          - acknowledgement
+          generated_units:
+          - toc
+          - body_main
+          template_default_units:
+          - appendix
+          - academic_achievements
+          - acknowledgement
+          fixed_or_protected_units:
+          - cover
+          - originality_statement
+          - authorization_statement
+          - toc
+          - abstract_cn
+          - abstract_en
+          - body_main
+          - references
+          - acknowledgement
+    04_plan_build:
+      standard_state: signed_pending_verifier
+      verifier_state: not_configured
+      gate_enabled: false
+      expected_from_review:
+        required_action_trace_fields:
+        - affected_source_seq_refs
+        - unit_id
+        - action_type
+        cleanup_requires_review_basis: true
+        protected_unit_ids:
+        - originality_statement
+        - authorization_statement
+    05_action_execution:
+      standard_state: signed_pending_verifier
+      verifier_state: not_configured
+      gate_enabled: false
+      expected_from_review:
+        required_outputs:
+        - generated_template.docx
+        - template_generation_manifest.json
+        - 05.0_copy_source_docx.docx
+        manifest_must_bind_hashes: true
+        manifest_must_preserve_source_refs: true
+        final_quality_gate: 06_final_template_gap
+dimensions:
+- dimension_id: template_generation_stage.source_section_hash
+  required: true
+  comparator_mode: exact
+  expected_path: source_section_sha256
+  actual_path: source_section_sha256
+- dimension_id: template_generation_stage.stage_model
+  required: true
+  comparator_mode: exact
+  expected_path: stage_model
+  actual_path: stage_model
+- dimension_id: template_generation_stage.unit_order
+  required: true
+  comparator_mode: ordered_sequence
+  expected_path: unit_order
+  actual_path: unit_order

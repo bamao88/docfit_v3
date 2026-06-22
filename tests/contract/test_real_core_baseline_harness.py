@@ -5,6 +5,8 @@ import json
 import os
 from pathlib import Path
 
+import yaml
+
 from docfit.convert.orchestrator import run_e2e_eval, run_template_eval
 from docfit.core.io import read_json
 from docfit.core.status import Status
@@ -41,6 +43,49 @@ def test_real_core_profile_declares_fixed_case_matrix() -> None:
     assert {
         case.student_id for case in cases if case.stage in {"content", "e2e"}
     } == {"real-student-001", "real-student-002", "real-student-003"}
+
+
+def test_real_core_template_generation_stage_standards_are_registered() -> None:
+    expected_stage_ids = {
+        "01_source_parse",
+        "02_structure_discovery",
+        "03_generation_model",
+        "04_plan_build",
+        "05_action_execution",
+    }
+
+    for school in REAL_CORE_SCHOOLS:
+        school_id = str(school["school_id"])
+        school_dir = ROOT / "standards/schools" / school_id / "v1"
+        signed_standard = yaml.safe_load(
+            (school_dir / "signed_standard.yaml").read_text(encoding="utf-8")
+        )
+        stage_contract_ref = signed_standard["evidence_baselines"][
+            "template_generation_stage_contract"
+        ]
+        stage_contract_path = school_dir / stage_contract_ref
+        stage_contract = yaml.safe_load(stage_contract_path.read_text(encoding="utf-8"))
+        template_unit_contract = yaml.safe_load(
+            (school_dir / "template_unit_contract.yaml").read_text(encoding="utf-8")
+        )
+
+        assert stage_contract_ref == "template_generation_stage_contract.yaml"
+        assert stage_contract["baseline_type"] == "template_generation_stage_contract"
+        assert stage_contract["school_id"] == school_id
+        assert stage_contract["gate_policy"]["not_configured_is_not_pass"] is True
+        assert stage_contract["accepted_source_facts"][
+            "upstream_template_unit_contract"
+        ] == "template_unit_contract.yaml"
+        assert stage_contract["expected"]["unit_order"] == [
+            unit["unit_id"] for unit in template_unit_contract["expected"]["units"]
+        ]
+        assert set(stage_contract["expected"]["stage_standards"]) == expected_stage_ids
+        assert all(
+            stage["verifier_state"] == "not_configured"
+            and stage["gate_enabled"] is False
+            for stage in stage_contract["expected"]["stage_standards"].values()
+        )
+        assert validate_baseline_document(stage_contract, stage="standards") == []
 
 
 def test_real_core_coverage_is_unknown_until_word_image_evidence_exists(tmp_path) -> None:

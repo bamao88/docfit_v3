@@ -22,6 +22,105 @@ PROFILE_ID = REAL_CORE_PROFILE.profile_id
 DEFAULT_PACKET = Path("docs/human/real-core-v0-review-packet.md")
 DEFAULT_REVIEWER = "user-reviewed-source-fact-packet"
 APPROVED_AT = "2026-06-15T00:00:00+08:00"
+TEMPLATE_GENERATION_STAGE_MODEL = (
+    "00_input_request -> 01_source_parse -> 02_structure_discovery -> "
+    "03_generation_model -> 04_plan_build -> 05_action_execution -> "
+    "06_final_template_gap"
+)
+TEMPLATE_GENERATION_STAGE_BOUNDARIES: list[dict[str, Any]] = [
+    {
+        "stage_id": "01_source_parse",
+        "artifact": "source_template_tree.json",
+        "input_artifacts": [
+            "template_generation_request.json",
+            "00_input_source_template.docx",
+        ],
+        "output_artifacts": ["source_template_tree.json"],
+        "checks_against_review": [
+            "源模板可见段落、表格、页眉页脚、分节和未知对象必须保留为事实证据",
+            "每个后续可引用的可见节点必须有稳定 source_seq/source_ref",
+            "源文件 hash 必须绑定到 signed_standard.source.template_docx_sha256",
+        ],
+        "not_allowed": [
+            "不得在本阶段裁定 unit_id、policy 或最终生成策略",
+            "不得删除人工 review 中后续需要判断的可见模板事实",
+        ],
+        "missing_or_unreadable_result": "UNKNOWN",
+    },
+    {
+        "stage_id": "02_structure_discovery",
+        "artifact": "template_structure_candidates.json",
+        "input_artifacts": ["source_template_tree.json"],
+        "output_artifacts": ["template_structure_candidates.json"],
+        "checks_against_review": [
+            "候选 unit 顺序必须能覆盖人工 review 的 expected.unit_order",
+            "logical element 必须保留 source_seq_refs，合并关系必须可追溯",
+            "固定、填充、生成、manual_only、template_default_optional 的角色提示必须来自源模板证据",
+        ],
+        "not_allowed": [
+            "不得把学校说明文字当作学生正文候选",
+            "不得把 manual_only 固定表单误标成学生内容 slot",
+            "不得把缺证据的启发式写成已验收结论",
+        ],
+        "missing_or_unreadable_result": "UNKNOWN",
+    },
+    {
+        "stage_id": "03_generation_model",
+        "artifact": "template_generation_model.json",
+        "input_artifacts": [
+            "template_generation_request.json",
+            "template_structure_candidates.json",
+        ],
+        "output_artifacts": ["template_generation_model.json"],
+        "checks_against_review": [
+            "unit 策略必须保持人工 review 的单元顺序、status、policy 和处理口径",
+            "manual_only/fixed/template_default 单元必须被保护或保留，不得静默删除",
+            "学生内容、元数据、Word 生成字段和人工填写区域必须区分",
+        ],
+        "not_allowed": [
+            "不得读取学校标准作为 template-generate 正常业务输入",
+            "不得用某次学生内容决定学校模板单元是否存在",
+            "不得用 manifest 或模型替代最终 gap 判断",
+        ],
+        "missing_or_unreadable_result": "UNKNOWN",
+    },
+    {
+        "stage_id": "04_plan_build",
+        "artifact": "template_generation_plan.json",
+        "input_artifacts": ["template_generation_model.json"],
+        "output_artifacts": ["template_generation_plan.json"],
+        "checks_against_review": [
+            "每个修改型 action 必须声明 affected_source_seq_refs",
+            "cleanup action 只能处理人工 review 允许剥离的说明文字或示例痕迹",
+            "字段、目录、图目录、表目录、页眉页码等生成动作必须能回到人工 review 的对应单元",
+        ],
+        "not_allowed": [
+            "不得生成无法回溯来源的删除、替换或 slot action",
+            "不得把 copy-only/protected 单元拆成普通正文动作",
+        ],
+        "missing_or_unreadable_result": "UNKNOWN",
+    },
+    {
+        "stage_id": "05_action_execution",
+        "artifact": "generated_template.docx + template_generation_manifest.json",
+        "input_artifacts": ["00_input_source_template.docx", "template_generation_plan.json"],
+        "output_artifacts": [
+            "05.0_copy_source_docx.docx",
+            "generated_template.docx",
+            "template_generation_manifest.json",
+        ],
+        "checks_against_review": [
+            "manifest 必须记录执行动作、输入输出 hash 和 affected_source_seq_refs",
+            "生成 Word 必须先能作为 DOCX 打开并进入 06_final_template_gap",
+            "固定模板块、人工表单和签名日期区必须按人工 review 的保留策略处理",
+        ],
+        "not_allowed": [
+            "不得把生成命令执行成功当成最终模板合格",
+            "不得在缺 manifest/hash 时用重新生成补旧 run 的证据",
+        ],
+        "missing_or_unreadable_result": "UNKNOWN",
+    },
+]
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -96,6 +195,7 @@ def _write_school_standards(
         template_docx = Path(school["template_docx"])
         review_source = Path(school["review_source"])
         template_hash = sha256_file(ROOT / template_docx)
+        existing_units = _existing_template_units(school_dir / "template_unit_contract.yaml")
         _write_yaml(
             school_dir / "signed_standard.yaml",
             {
@@ -122,6 +222,9 @@ def _write_school_standards(
                 },
                 "evidence_baselines": {
                     "template_unit_contract": "template_unit_contract.yaml",
+                    "template_generation_stage_contract": (
+                        "template_generation_stage_contract.yaml"
+                    ),
                 },
                 "coverage_requirements": {
                     "profile": PROFILE_ID,
@@ -162,6 +265,7 @@ def _write_school_standards(
                     "source_section_sha256": section_sha,
                     "review_packet_sha256": packet_sha,
                     "unit_model": "document_unit -> unit_element -> sub_element",
+                    "units": existing_units,
                     "full_review_text": section_text,
                 },
                 "dimensions": [
@@ -179,11 +283,279 @@ def _write_school_standards(
                 ],
             },
         )
+        _write_template_generation_stage_contract(
+            school_dir=school_dir,
+            school_id=school_id,
+            packet_path=packet_path,
+            packet_sha=packet_sha,
+            reviewed_by=reviewed_by,
+            section_sha=section_sha,
+            template_docx=template_docx,
+            template_hash=template_hash,
+            review_source=review_source,
+            template_units=existing_units,
+        )
         for stage, capabilities, invariants, verifier_refs in _contract_specs():
             write_json(
                 school_dir / f"{stage}_contract.json",
                 _contract_json(stage, capabilities, invariants, verifier_refs),
             )
+
+
+def _existing_template_units(template_unit_contract_path: Path) -> list[dict[str, Any]]:
+    if not template_unit_contract_path.exists():
+        return []
+    loaded = yaml.safe_load(template_unit_contract_path.read_text(encoding="utf-8")) or {}
+    units = loaded.get("expected", {}).get("units", [])
+    return units if isinstance(units, list) else []
+
+
+def _write_template_generation_stage_contract(
+    *,
+    school_dir: Path,
+    school_id: str,
+    packet_path: Path,
+    packet_sha: str,
+    reviewed_by: str,
+    section_sha: str,
+    template_docx: Path,
+    template_hash: str,
+    review_source: Path,
+    template_units: list[dict[str, Any]],
+) -> None:
+    template_unit_contract_path = school_dir / "template_unit_contract.yaml"
+    _write_yaml(
+        school_dir / "template_generation_stage_contract.yaml",
+        {
+            "baseline_type": "template_generation_stage_contract",
+            "profile_id": PROFILE_ID,
+            "school_id": school_id,
+            "review_metadata": _review_metadata(
+                reviewed_by=reviewed_by,
+                review_source=f"{packet_path}#source-{school_id}",
+                source_hash=template_hash,
+                change_reason=(
+                    "derive template generation stage standards from reviewed "
+                    "template source facts"
+                ),
+            ),
+            "accepted_source_facts": {
+                "review_packet": str(packet_path),
+                "review_packet_sha256": packet_sha,
+                "source_section_id": school_id,
+                "source_section_sha256": section_sha,
+                "template_docx": str(template_docx),
+                "template_docx_sha256": template_hash,
+                "original_review_source": str(review_source),
+                "original_review_source_sha256": sha256_file(ROOT / review_source),
+                "upstream_template_unit_contract": "template_unit_contract.yaml",
+                "upstream_template_unit_contract_sha256": sha256_file(
+                    template_unit_contract_path
+                ),
+            },
+            "purpose": (
+                "为模板生成 01-05 阶段提供人工签收的输入/输出标准。"
+                "这些标准来自 template_unit_contract.yaml 的 expected.units 和完整人工 review；"
+                "在阶段 verifier 接入前只表示标准已存在，不表示阶段已 PASS。"
+            ),
+            "ai_boundary": {
+                "ai_may_explain": True,
+                "ai_may_edit_status_or_standard_without_human_review": False,
+                "auto_update_allowed": False,
+            },
+            "gate_policy": {
+                "enabled_verifier_required_for_pass": True,
+                "not_configured_is_not_pass": True,
+                "missing_standard_result": "UNKNOWN",
+                "missing_artifact_result": "UNKNOWN",
+            },
+            "expected": {
+                "school_id": school_id,
+                "source_section_sha256": section_sha,
+                "review_packet_sha256": packet_sha,
+                "stage_model": TEMPLATE_GENERATION_STAGE_MODEL,
+                "unit_tree_source": "template_unit_contract.yaml#/expected/units",
+                "unit_order": [unit["unit_id"] for unit in template_units],
+                "unit_summaries": _unit_summaries(template_units),
+                "policy_groups": _policy_groups(template_units),
+                "stage_boundaries": TEMPLATE_GENERATION_STAGE_BOUNDARIES,
+                "stage_standards": {
+                    stage["stage_id"]: _template_generation_stage_standard(
+                        stage["stage_id"], template_units
+                    )
+                    for stage in TEMPLATE_GENERATION_STAGE_BOUNDARIES
+                },
+            },
+            "dimensions": [
+                _dimension(
+                    "template_generation_stage.source_section_hash",
+                    "exact",
+                    "source_section_sha256",
+                ),
+                _dimension(
+                    "template_generation_stage.stage_model",
+                    "exact",
+                    "stage_model",
+                ),
+                _dimension(
+                    "template_generation_stage.unit_order",
+                    "ordered_sequence",
+                    "unit_order",
+                ),
+            ],
+        },
+    )
+
+
+def _unit_summaries(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summaries: list[dict[str, Any]] = []
+    for unit in units:
+        element_policies = sorted(
+            {
+                str(element.get("policy"))
+                for element in unit.get("elements", [])
+                if element.get("policy")
+            }
+        )
+        summaries.append(
+            {
+                "unit_id": unit["unit_id"],
+                "name": unit.get("name"),
+                "order": unit.get("order"),
+                "status": unit.get("status"),
+                "policy": unit.get("policy"),
+                "element_count": len(unit.get("elements", [])),
+                "element_policies": element_policies,
+                "source_refs": unit.get("source_refs", []),
+                "handling": unit.get("handling"),
+            }
+        )
+    return summaries
+
+
+def _policy_groups(units: list[dict[str, Any]]) -> dict[str, list[str]]:
+    groups: dict[str, list[str]] = {
+        "manual_only_units": [],
+        "fillable_units": [],
+        "generated_units": [],
+        "template_default_units": [],
+        "fixed_or_protected_units": [],
+    }
+    for unit in units:
+        unit_id = str(unit["unit_id"])
+        unit_policy = str(unit.get("policy") or "")
+        unit_status = str(unit.get("status") or "")
+        element_policies = {
+            str(element.get("policy"))
+            for element in unit.get("elements", [])
+            if element.get("policy")
+        }
+        if (
+            unit_policy == "manual_only"
+            or unit_status == "manual_only"
+            or "manual_only" in element_policies
+        ):
+            groups["manual_only_units"].append(unit_id)
+        if "fill" in element_policies:
+            groups["fillable_units"].append(unit_id)
+        if "generated" in element_policies:
+            groups["generated_units"].append(unit_id)
+        if unit_policy.startswith("template_default") or unit_status.startswith(
+            "template_default"
+        ):
+            groups["template_default_units"].append(unit_id)
+        if unit_policy in {"fixed", "manual_only"} or "fixed" in element_policies:
+            groups["fixed_or_protected_units"].append(unit_id)
+    return groups
+
+
+def _template_generation_stage_standard(
+    stage_id: str,
+    units: list[dict[str, Any]],
+) -> dict[str, Any]:
+    base = {
+        "standard_state": "signed_pending_verifier",
+        "verifier_state": "not_configured",
+        "gate_enabled": False,
+    }
+    if stage_id == "01_source_parse":
+        return {
+            **base,
+            "expected_from_review": {
+                "source_template_hash_bound": True,
+                "visible_source_facts_required": [
+                    "paragraphs",
+                    "tables",
+                    "headers_footers",
+                    "sections",
+                    "fields",
+                    "numbering_definitions",
+                    "unknown_objects",
+                ],
+                "stable_locator_fields": [
+                    "source_seq",
+                    "source_seq_refs",
+                    "source_ref",
+                ],
+            },
+        }
+    if stage_id == "02_structure_discovery":
+        return {
+            **base,
+            "expected_from_review": {
+                "required_unit_order": [unit["unit_id"] for unit in units],
+                "policy_groups": _policy_groups(units),
+                "candidate_trace_fields": [
+                    "source_seq_refs",
+                    "role_hint",
+                    "evidence",
+                ],
+            },
+        }
+    if stage_id == "03_generation_model":
+        return {
+            **base,
+            "expected_from_review": {
+                "required_unit_strategies": [
+                    {
+                        "unit_id": unit["unit_id"],
+                        "status": unit.get("status"),
+                        "policy": unit.get("policy"),
+                        "handling": unit.get("handling"),
+                    }
+                    for unit in units
+                ],
+                "must_distinguish_policy_groups": _policy_groups(units),
+            },
+        }
+    if stage_id == "04_plan_build":
+        return {
+            **base,
+            "expected_from_review": {
+                "required_action_trace_fields": [
+                    "affected_source_seq_refs",
+                    "unit_id",
+                    "action_type",
+                ],
+                "cleanup_requires_review_basis": True,
+                "protected_unit_ids": _policy_groups(units)["manual_only_units"],
+            },
+        }
+    if stage_id == "05_action_execution":
+        return {
+            **base,
+            "expected_from_review": {
+                "required_outputs": [
+                    "generated_template.docx",
+                    "template_generation_manifest.json",
+                    "05.0_copy_source_docx.docx",
+                ],
+                "manifest_must_bind_hashes": True,
+                "manifest_must_preserve_source_refs": True,
+                "final_quality_gate": "06_final_template_gap",
+            },
+        }
+    raise ValueError(stage_id)
 
 
 def _write_profile_expected_baselines(
