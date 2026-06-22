@@ -64,6 +64,28 @@ Last updated: 2026-06-21
 | `09` | `09_template_generation_manifest.json` | 阶段五：执行记录和输出 hash |
 | `10` | `10_template_generation_debug_index.json` | 本 debug 目录的文件索引 |
 
+下一轮重命名目标：调试快照编号应按阶段命名，而不是按流水步骤命名。整数部分对应阶段，点后面对应该阶段内的子产物或兼容产物；`00` 留给输入、请求和运行上下文，`99` 留给索引、汇总和非阶段性说明。
+
+目标命名示例：
+
+| 编号 | 目标文件 | 含义 |
+| --- | --- | --- |
+| `00` | `00_input_source_template.docx` | 运行输入：学校原始模板 Word，不属于阶段一 |
+| `00` | `00_template_generation_request.json` | 运行请求：记录源文件、输出目录和策略，不属于阶段一 |
+| `01` | `01_source_template_tree.json` | 阶段一：源 Word 事实 |
+| `02` | `02_template_structure_candidates.json` | 阶段二：候选结构识别的目标主产物 |
+| `02.1` | `02.1_discovered_template_rules_compat.json` | 阶段二：兼容旧产物名或辅助解释产物 |
+| `03` | `03_template_generation_model.json` | 阶段三：生成模板模型与策略的目标主产物 |
+| `03.1` | `03.1_template_artifact_compat.json` | 阶段三：兼容旧 `template_artifact.json` |
+| `03.2` | `03.2_template_unit_decisions_compat.json` | 阶段三：兼容旧 `template_unit_decisions.json` |
+| `04` | `04_template_generation_plan.json` | 阶段四：动作计划 |
+| `05.0` | `05.0_copy_source_docx.docx` | 阶段五：只执行整包复制后的停点 |
+| `05.1` | `05.1_generated_template.docx` | 阶段五：执行全部 action 后的 Word |
+| `05.2` | `05.2_template_generation_manifest.json` | 阶段五：执行记录和输出 hash |
+| `99` | `99_template_generation_debug_index.json` | 非阶段文件：本 debug 目录索引 |
+
+小数点不是数学小数，而是 `阶段.子步骤` 标号。后续如果某阶段内子产物超过 9 个，可以改用 `02.01`、`02.02` 这种两位子步骤，避免文件排序混乱。
+
 重要边界：
 
 | 边界 | 说明 |

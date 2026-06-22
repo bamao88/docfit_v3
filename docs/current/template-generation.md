@@ -264,6 +264,13 @@ evidence_refs
 | diff / 对比证据 | `07_copy_source_docx.docx` vs `08_generated_template.docx` | 判断整包复制后被哪些局部 action 改变 |
 | gap 报告 | `template-gap --out/artifacts/template_gap_report.*` | 证明生成 Word 是否满足学校签收标准 |
 
+当前调试快照仍使用 `00-10` 流水编号。下一步目标是改成阶段对齐编号：
+`00` 表示运行输入、请求和上下文；`01` 到 `05` 分别对应
+`source_parse`、`structure_discovery`、`generation_model`、`plan_build`、
+`action_execution`；小数点表示阶段内子产物或兼容产物，例如
+`03.1_template_artifact_compat.json`。如果同一目录后续纳入最终模板差距检查，
+可用 `06` 表示 `final_template_gap`；`99` 留给 debug index 这类非阶段索引文件。
+
 ## 最近一次验证记录
 
 | 日期 | 目的 | 命令 | 状态 | 结论 |
