@@ -26,6 +26,10 @@ generated_template.docx + template_unit_contract.yaml -> template_gap_report.*
 
 - `docs/current/template-generation-stage-optimization.md`
 
+评测和测试架构、阶段检查骨架、最终 gap 如何接入见：
+
+- `docs/current/template-generation-evaluation.md`
+
 更长的方案、历史迁移原因和执行记录见：
 
 - `docs/plans/template-generation-flow-optimization.md`
@@ -40,7 +44,7 @@ generated_template.docx + template_unit_contract.yaml -> template_gap_report.*
 | `body_main` | 正文 | 继续逐元素分析和局部 patch |
 | `references` | 参考文献 | 继续逐元素分析和局部 patch |
 
-模板生成支撑流程整理标准时，下一层判断要看内容责任：学生源文档中有致谢或附录内容、或学校标准要求这些单元承载学生内容时，它们也不应被当成固定 copy-only 单元；签名、日期、教师意见、成绩评定等线下人工填写区域可以继续仅复制。`generation_mode = whole_unit_copy` 不是验收结论，只说明生成流程不会为该单元生成学生内容 slot；内部说明文字、格式要求和示例仍可以被识别并清理。真实 Word 是否合格仍由 `template-gap` 判定。
+模板生成支撑流程当前不读取学生源 Word，也不根据某一次学生源内容台账决定 copy-only / patch。下一层判断要看模板自身、学校标准和产品规则里的内容责任：学校标准要求承载学生填写内容的单元不能仅复制模板空壳；签名、日期、教师意见、成绩评定等线下人工填写区域可以继续仅复制。`generation_mode = whole_unit_copy` 不是验收结论，只说明生成流程不会为该单元生成自动填充 slot；内部说明文字、格式要求和示例仍可以被识别并清理。真实 Word 是否合格仍由 `template-gap` 判定。
 
 ## 模板生成流程图
 
@@ -291,8 +295,8 @@ evidence_refs
 
 ## 当前最小下一步
 
-如果继续推进模板生成质量，下一步不是再切产物名，而是把 copy-only / copy_then_patch 的策略输入从全局 `unit_id` 基线升级到学校标准和学生内容责任：
+如果继续推进模板生成质量，下一步不是再切产物名，而是把 copy-only / patch 的策略输入从全局 `unit_id` 基线升级到学校标准和模板内容责任：
 
 - 学校签收标准明确承载学生内容时，不能继续按默认 copy-only 保留；
-- 致谢、附录等条件单元要接入学生内容台账后再决定是否 copy-only；
+- 致谢、附录等条件单元先按源模板和学校标准识别为固定保留、用户填写、系统生成或需要人工确认，不读取某一次学生源内容台账；
 - `template-gap` 仍负责判断生成 Word 是否满足学校签收标准，不能用 manifest 或 `template_generation_model` 替代。

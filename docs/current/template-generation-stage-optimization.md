@@ -12,6 +12,7 @@ Last updated: 2026-06-22
 | --- | --- | --- |
 | `docs/current/template-generation.md` | 当前模板生成支撑流程的主说明，说明命令、产物、字段规则和 `template-gap` 边界 | 改模板生成字段、产物、manifest、gap 报告前先读 |
 | `docs/current/template-generation-stage-optimization.md` | 本文；把阶段优化计划归纳成一份当前执行地图 | 讨论“各阶段代码下一步怎么改”时读 |
+| `docs/current/template-generation-evaluation.md` | 模板生成评测与测试架构，说明最终 gap、阶段检查骨架和测试边界 | 讨论“怎么验、哪些阶段先登记、哪些检查器还没配置”时读 |
 | `docs/plans/template-generation-flow-optimization.md` | 更长的方案和执行记录，保留历史旧产物、阶段评测设想和细节推演 | 需要查设计背景、旧方案为什么改掉时读 |
 | `docs/plans/template-generate-runner-split.md` | runner 拆分后的模块地图和剩余工作清单 | 查当前模块职责或下一轮验证建议时读 |
 
@@ -148,7 +149,7 @@ manifest = build_template_generation_manifest(
 | 要改什么 | 应该改哪里 | 验收重点 |
 | --- | --- | --- |
 | 接入学校标准 | `generation_model.py` 和 CLI/e2e 输入边界 | 学校标准声明“来源=学生内容”时，不能继续仅复制模板空壳 |
-| 接入学生内容台账摘要 | generation model 输入 | 致谢、附录等条件单元要根据学生源文档是否有内容决定 copy-only / copy_then_patch |
+| 明确模板内容责任 | generation model 输入 | 致谢、附录等条件单元先按源模板和学校标准识别为固定保留、用户填写、系统生成或需要人工确认；模板生成阶段不读取某一次学生源内容台账 |
 | 强化 `unresolved_questions[]` | `_unresolved_questions_from_candidates` 和策略构建 | 强填写信号、缺标准、unknown visible objects 都要集中表达 |
 | 把策略理由写成人能读懂的证据 | `unit_strategies[]`、cleanup、protected zones | 人工能看懂为什么元素 3、4、5 被合并并删除，或为什么元素 12 被保护 |
 
@@ -218,7 +219,7 @@ manifest = build_template_generation_manifest(
 | 优先级 | 工作包 | 目标文件 | 完成标准 |
 | --- | --- | --- | --- |
 | 1 | 补阶段二更深 logical element 合并 | `structure_candidates.py`、`tests/contract/test_template_generate.py` | 表格 label/value、跨段落 continuation 能合并并保留全部来源序号 |
-| 2 | 阶段三接入学校标准和学生内容责任 | `generation_model.py`、相关 CLI/e2e 输入 | copy-only / copy_then_patch 不只靠全局 unit_id 基线 |
+| 2 | 阶段三接入学校标准和模板内容责任 | `generation_model.py`、相关 CLI/e2e 输入 | copy-only / patch 不只靠全局 unit_id 基线，也不依赖某一次学生源内容台账 |
 | 3 | 阶段检查归因落地 | harness/report 层 | 能表达 `input_check`、`output_check`、`first_bad_phase`、下游症状 |
 | 4 | 报告可读性增强 | manifest、pm report、debug index | 人工能从报告直接定位到源模板元素序号和 action |
 
