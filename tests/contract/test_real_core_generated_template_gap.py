@@ -84,7 +84,7 @@ def write_minimal_gap_standard(
             "render_contract": "render_contract.json",
         },
         "evidence_baselines": {
-            "template_unit_contract": "template_unit_contract.yaml",
+            "template_generation_final": "template_generation_final.yaml",
         },
         "coverage_requirements": {
             "profile": REAL_CORE_PROFILE.profile_id,
@@ -108,7 +108,7 @@ def write_minimal_gap_standard(
     for name in signed_standard["contracts"].values():
         (school_dir / name).write_text(json.dumps(contract), encoding="utf-8")
     baseline = {
-        "baseline_type": "template_unit_contract",
+        "baseline_type": "template_generation_final",
         "profile_id": "test",
         "school_id": school_id,
         "review_metadata": {
@@ -123,7 +123,7 @@ def write_minimal_gap_standard(
         ],
         "expected": {"units": expected_units},
     }
-    (school_dir / "template_unit_contract.yaml").write_text(
+    (school_dir / "template_generation_final.yaml").write_text(
         _simple_yaml(baseline),
         encoding="utf-8",
     )

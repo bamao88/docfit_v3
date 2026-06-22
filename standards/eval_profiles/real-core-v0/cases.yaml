@@ -70,7 +70,7 @@ cases:
       school_id: pku-graduate
       student_id: real-student-003
 expected_artifacts:
-  template_unit_contracts: standards/schools/<school_id>/v1/template_unit_contract.yaml
+  template_generation_final: standards/schools/<school_id>/v1/template_generation_final.yaml
   student_content_trees: standards/eval_profiles/real-core-v0/expected/student_content_trees/<student_id>.yaml
   render_plans: standards/eval_profiles/real-core-v0/expected/render_plans/<case_id>.yaml
   render_feature_snapshots: standards/eval_profiles/real-core-v0/expected/render_feature_snapshots/<case_id>.json

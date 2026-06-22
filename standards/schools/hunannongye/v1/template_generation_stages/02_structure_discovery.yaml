@@ -1,8 +1,8 @@
 baseline_type: template_generation_stage_contract
 profile_id: real-core-v0
 school_id: hunannongye
-stage_id: 04_plan_build
-standard_id: hunannongye-v1-template-generation-04
+stage_id: 02_structure_discovery
+standard_id: hunannongye-v1-template-generation-02
 standard_scope: single_template_generation_stage
 standard_state: signed_pending_verifier
 verifier_state: not_configured
@@ -22,8 +22,6 @@ accepted_source_facts:
   template_docx_sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
   original_review_source: test_inputs/template_generation/school-hunannongye-template-review.txt
   original_review_source_sha256: sha256:65bb89715ad40cc8e2948f65441312d3da7efb56b5973d8f2c4c507c177c9794
-  upstream_template_unit_contract: ../template_unit_contract.yaml
-  upstream_template_unit_contract_sha256: sha256:bf5e428ccdf0f435c4c1313d7dd5c10df8cbd591f53ce6be50c05902d96ba535
   final_review_units_sha256: sha256:059fffc889f29cb735bfd36d14c9f9b20339c2e5a2edb83ee30465a0fbc7e776
   calibration_run:
     kind: fresh_template_generate_run
@@ -33,11 +31,13 @@ accepted_source_facts:
     debug_snapshot_root: test_outputs/debug/template_generation/stage-standard-calibration-hunannongye/20260622T201029500208+0800
     template_generation_request: test_outputs/debug/template_generation/stage-standard-calibration-hunannongye/eval_runs/template_generate/artifacts/template_generation_request.json
     template_generation_request_sha256: sha256:4f487f595c3910cc0195f8b25723dad7cc3e7c356ee8a61ef5f247619e85d8b2
-    formal_artifact: test_outputs/debug/template_generation/stage-standard-calibration-hunannongye/eval_runs/template_generate/artifacts/template_generation_plan.json
-    formal_artifact_sha256: sha256:906c1ba5a55537675ab0ca91ed1b5104223ccb3e1718178ab9ae941f0648df10
-    debug_snapshot: test_outputs/debug/template_generation/stage-standard-calibration-hunannongye/20260622T201029500208+0800/04_template_generation_plan.json
-    debug_snapshot_sha256: sha256:906c1ba5a55537675ab0ca91ed1b5104223ccb3e1718178ab9ae941f0648df10
-purpose: 检查生成模型是否被转换成可追溯的 Word action 计划；本阶段不直接修改 Word。
+    formal_artifact: test_outputs/debug/template_generation/stage-standard-calibration-hunannongye/eval_runs/template_generate/artifacts/template_structure_candidates.json
+    formal_artifact_sha256: sha256:2edf804ad76e0a2d61e972318a3f011ae14994f14c1e582440e4abd5806d74c1
+    debug_snapshot: test_outputs/debug/template_generation/stage-standard-calibration-hunannongye/20260622T201029500208+0800/02_template_structure_candidates.json
+    debug_snapshot_sha256: sha256:2edf804ad76e0a2d61e972318a3f011ae14994f14c1e582440e4abd5806d74c1
+  upstream_template_generation_final: ../template_generation_final.yaml
+  upstream_template_generation_final_sha256: sha256:bf5e428ccdf0f435c4c1313d7dd5c10df8cbd591f53ce6be50c05902d96ba535
+purpose: 检查源事实树是否被识别成候选单元和逻辑元素；本阶段必须对齐人工单元边界，但还不执行 Word 修改。
 ai_boundary:
   ai_may_explain: true
   ai_may_edit_status_or_standard_without_human_review: false
@@ -49,12 +49,12 @@ gate_policy:
   missing_artifact_result: UNKNOWN
 expected:
   school_id: hunannongye
-  stage_id: 04_plan_build
-  artifact_type: template_generation_plan
+  stage_id: 02_structure_discovery
+  artifact_type: template_structure_candidates
   source_section_sha256: sha256:e3a0d411c694df992467c6dfc009125192be56ba265a3e240405879fc5d264b3
   review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
   source_template_docx_sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
-  unit_tree_source: ../template_unit_contract.yaml#/expected/units
+  unit_tree_source: ../template_generation_final.yaml#/expected/units
   final_review_unit_order:
   - cover
   - integrity_statement
@@ -266,13 +266,6 @@ expected:
     - topic_change_approval
     - grade_form
   verifier_requirements:
-    required_action_trace_fields:
-    - action_id
-    - action_type
-    - status
-    - unit_id
-    - source_ref
-    - affected_source_seq_refs
     required_unit_order:
     - cover
     - integrity_statement
@@ -290,28 +283,53 @@ expected:
     - defense_record
     - topic_change_approval
     - grade_form
-    cleanup_requires_review_basis: true
-    protected_unit_ids:
-    - cover
-    - integrity_statement
-    - design_task
-    - proposal
-    - proposal_record
-    - defense_record
-    - topic_change_approval
-    - grade_form
-    boundary_rule: plan action 只能表达模型已经决定的 Word 操作；缺少来源序号或跨越 manual_only 保护边界时不能通过。
+    required_policy_groups:
+      manual_only_units:
+      - cover
+      - integrity_statement
+      - design_task
+      - proposal
+      - proposal_record
+      - defense_record
+      - topic_change_approval
+      - grade_form
+      fillable_units:
+      - cover
+      - body_title_block
+      - abstract_cn
+      - abstract_en
+      - body_main
+      - references
+      - acknowledgement
+      - appendix
+      generated_units:
+      - toc
+      template_default_units:
+      - acknowledgement
+      - appendix
+      fixed_or_protected_units:
+      - cover
+      - integrity_statement
+      - toc
+      - body_title_block
+      - abstract_cn
+      - abstract_en
+      - body_main
+      - references
+      - design_task
+      - proposal
+      - proposal_record
+      - defense_record
+      - topic_change_approval
+      - grade_form
+    candidate_trace_fields:
+    - source_seq_refs
+    - role_hint
+    - evidence
+    unit_boundary_rule: 候选 unit 必须能覆盖最终人工校准单元；不得把多个独立固定表单合并成一个不可验收的泛化单元。
   calibration_observation:
-    artifact_created_at: '2026-06-22T12:10:29.651691+00:00'
-    observed_action_count: 84
-    observed_action_type_counts:
-      copy_source_docx: 1
-      create_fillable_slot: 30
-      create_generated_field_placeholder: 5
-      ensure_body_slot: 1
-      preserve_whole_unit_copy: 4
-      remove_instruction_text: 43
-    observed_unit_order_from_actions:
+    artifact_created_at: '2026-06-22T12:10:29.621184+00:00'
+    observed_unit_order:
     - cover
     - integrity_statement
     - toc
@@ -321,7 +339,8 @@ expected:
     - abstract_en
     - appendix
     - post_forms
-    - template_instructions
+    observed_unit_count: 9
+    observed_element_count: 315
     missing_final_review_units:
     - body_title_block
     - acknowledgement
@@ -333,27 +352,21 @@ expected:
     - grade_form
     extra_observed_units:
     - post_forms
-    - template_instructions
-    first_bad_stage_if_model_was_correct_but_plan_drops_unit: 04_plan_build
+    first_bad_stage_if_unit_order_still_differs: 02_structure_discovery
     observation_is_not_pass_evidence: true
 dimensions:
-- dimension_id: template_generation.04.artifact_type
+- dimension_id: template_generation.02.artifact_type
   required: true
   comparator_mode: exact
   expected_path: artifact_type
   actual_path: artifact_type
-- dimension_id: template_generation.04.source_section_hash
+- dimension_id: template_generation.02.source_section_hash
   required: true
   comparator_mode: exact
   expected_path: source_section_sha256
   actual_path: source_section_sha256
-- dimension_id: template_generation.04.final_review_unit_order
+- dimension_id: template_generation.02.final_review_unit_order
   required: true
   comparator_mode: ordered_sequence
   expected_path: final_review_unit_order
   actual_path: unit_order
-- dimension_id: template_generation.04.action_trace_fields
-  required: true
-  comparator_mode: subset
-  expected_path: verifier_requirements.required_action_trace_fields
-  actual_path: trace_fields

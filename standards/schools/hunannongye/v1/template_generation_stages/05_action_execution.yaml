@@ -22,8 +22,6 @@ accepted_source_facts:
   template_docx_sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
   original_review_source: test_inputs/template_generation/school-hunannongye-template-review.txt
   original_review_source_sha256: sha256:65bb89715ad40cc8e2948f65441312d3da7efb56b5973d8f2c4c507c177c9794
-  upstream_template_unit_contract: ../template_unit_contract.yaml
-  upstream_template_unit_contract_sha256: sha256:bf5e428ccdf0f435c4c1313d7dd5c10df8cbd591f53ce6be50c05902d96ba535
   final_review_units_sha256: sha256:059fffc889f29cb735bfd36d14c9f9b20339c2e5a2edb83ee30465a0fbc7e776
   calibration_run:
     kind: fresh_template_generate_run
@@ -43,6 +41,8 @@ accepted_source_facts:
     copy_source_docx_snapshot_sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
     generated_template_debug_snapshot: test_outputs/debug/template_generation/stage-standard-calibration-hunannongye/20260622T201029500208+0800/05.1_generated_template.docx
     generated_template_debug_snapshot_sha256: sha256:136af13a9a566fe0f75fc68501f22a771312ff00a4aa16fa76d5a194be1059e9
+  upstream_template_generation_final: ../template_generation_final.yaml
+  upstream_template_generation_final_sha256: sha256:bf5e428ccdf0f435c4c1313d7dd5c10df8cbd591f53ce6be50c05902d96ba535
 purpose: 检查 action 执行记录、生成 Word 和 manifest 是否完整；最终质量仍交给 06_final_template_gap。
 ai_boundary:
   ai_may_explain: true
@@ -60,7 +60,7 @@ expected:
   source_section_sha256: sha256:e3a0d411c694df992467c6dfc009125192be56ba265a3e240405879fc5d264b3
   review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
   source_template_docx_sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
-  unit_tree_source: ../template_unit_contract.yaml#/expected/units
+  unit_tree_source: ../template_generation_final.yaml#/expected/units
   final_review_unit_order:
   - cover
   - integrity_statement

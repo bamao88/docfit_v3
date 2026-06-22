@@ -47,11 +47,11 @@ def test_real_core_profile_declares_fixed_case_matrix() -> None:
 
 def test_real_core_template_generation_stage_standards_are_registered() -> None:
     expected_stage_refs = {
-        "01_source_parse": "template_generation/01_source_parse_contract.yaml",
-        "02_structure_discovery": "template_generation/02_structure_discovery_contract.yaml",
-        "03_generation_model": "template_generation/03_generation_model_contract.yaml",
-        "04_plan_build": "template_generation/04_plan_build_contract.yaml",
-        "05_action_execution": "template_generation/05_action_execution_contract.yaml",
+        "01_source_parse": "template_generation_stages/01_source_parse.yaml",
+        "02_structure_discovery": "template_generation_stages/02_structure_discovery.yaml",
+        "03_generation_model": "template_generation_stages/03_generation_model.yaml",
+        "04_plan_build": "template_generation_stages/04_plan_build.yaml",
+        "05_action_execution": "template_generation_stages/05_action_execution.yaml",
     }
 
     for school in REAL_CORE_SCHOOLS:
@@ -61,10 +61,10 @@ def test_real_core_template_generation_stage_standards_are_registered() -> None:
             (school_dir / "signed_standard.yaml").read_text(encoding="utf-8")
         )
         stage_contract_refs = signed_standard["evidence_baselines"][
-            "template_generation_stage_contracts"
+            "template_generation_stages"
         ]
-        template_unit_contract = yaml.safe_load(
-            (school_dir / "template_unit_contract.yaml").read_text(encoding="utf-8")
+        template_generation_final = yaml.safe_load(
+            (school_dir / "template_generation_final.yaml").read_text(encoding="utf-8")
         )
 
         assert stage_contract_refs == expected_stage_refs
@@ -84,10 +84,10 @@ def test_real_core_template_generation_stage_standards_are_registered() -> None:
             assert stage_contract["gate_enabled"] is False
             assert stage_contract["gate_policy"]["not_configured_is_not_pass"] is True
             assert stage_contract["accepted_source_facts"][
-                "upstream_template_unit_contract"
-            ] == "../template_unit_contract.yaml"
+                "upstream_template_generation_final"
+            ] == "../template_generation_final.yaml"
             assert stage_contract["expected"]["final_review_unit_order"] == [
-                unit["unit_id"] for unit in template_unit_contract["expected"]["units"]
+                unit["unit_id"] for unit in template_generation_final["expected"]["units"]
             ]
             assert stage_contract["expected"]["artifact_type"]
             assert validate_baseline_document(stage_contract, stage="standards") == []
@@ -359,7 +359,7 @@ def test_required_dimension_without_comparator_policy_is_unknown() -> None:
 
 def test_numeric_dimension_requires_explicit_tolerance() -> None:
     baseline = {
-        "baseline_type": "template_unit_contract",
+        "baseline_type": "template_generation_final",
         "review_metadata": {
             "reviewed_by": "product-owner",
             "review_source": "test_inputs/template_generation/review.txt",
@@ -416,7 +416,7 @@ def test_review_packet_generator_writes_drafts_outside_standards(tmp_path) -> No
     module.main(["--out", str(tmp_path / "packet")])
 
     assert (tmp_path / "packet/review_packet.md").exists()
-    assert len(list((tmp_path / "packet/drafts/template_unit_contracts").glob("*.yaml"))) == 3
+    assert len(list((tmp_path / "packet/drafts/template_generation_final_drafts").glob("*.yaml"))) == 3
     assert len(list((tmp_path / "packet/drafts/student_content_trees").glob("*.yaml"))) == 3
     assert len(list((tmp_path / "packet/drafts/render_plans").glob("*.yaml"))) == 9
     assert not (tmp_path / "standards").exists()

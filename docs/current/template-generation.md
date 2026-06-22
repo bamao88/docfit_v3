@@ -15,10 +15,10 @@ Last updated: 2026-06-22
 学校标准检查在生成后运行：
 
 ```text
-generated_template.docx + template_unit_contract.yaml -> template_gap_report.*
+generated_template.docx + template_generation_final.yaml -> template_gap_report.*
 ```
 
-这里的 `template_unit_contract.yaml` 是开发期和验收期的裁判标准，用来检查已知样例，不是 `template-generate` 的正常业务输入。
+这里的 `template_generation_final.yaml` 是开发期和验收期的裁判标准，用来检查已知样例，不是 `template-generate` 的正常业务输入。
 
 ## 模板生成策略优化
 

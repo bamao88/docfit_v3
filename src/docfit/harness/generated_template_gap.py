@@ -64,7 +64,7 @@ def evaluate_generated_template_gap(
     )
     expected = accepted_expected_artifact(baseline or {})
     expected_units = expected.get("units", []) if isinstance(expected, dict) else []
-    standard_path = _template_unit_contract_path(bundle)
+    standard_path = _template_generation_final_path(bundle)
     report = build_template_gap_report(
         bundle=bundle,
         generated_template=inspected_path,
@@ -173,7 +173,7 @@ def build_template_gap_report(
             "template_generation.unit_match",
             Status.UNKNOWN,
             "template_generation_expected_units_missing",
-            "模板差距检查缺少 template_unit_contract.yaml 中的 expected.units",
+            "模板差距检查缺少 template_generation_final.yaml 中的 expected.units",
             "expected.units",
             "missing",
             evidence_refs=[str(standard_path)],
@@ -3866,12 +3866,20 @@ def _matched_evidence(checks: list[dict[str, Any]]) -> list[str]:
     return _dedupe(refs)[:5]
 
 
-def _template_unit_contract_path(bundle: StandardBundle) -> Path:
-    rel_path = bundle.signed_standard.get("evidence_baselines", {}).get(
-        "template_unit_contract",
-        "template_unit_contract.yaml",
+def _template_generation_final_path(bundle: StandardBundle) -> Path:
+    evidence_baselines = bundle.signed_standard.get("evidence_baselines", {})
+    rel_path = (
+        evidence_baselines.get("template_generation_final")
+        or evidence_baselines.get("template_unit_contract")
+        or "template_generation_final.yaml"
     )
-    return bundle.school_dir / rel_path
+    path = bundle.school_dir / rel_path
+    if path.exists():
+        return path
+    legacy_path = bundle.school_dir / "template_unit_contract.yaml"
+    if legacy_path.exists():
+        return legacy_path
+    return path
 
 
 def _check(

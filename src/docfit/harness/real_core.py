@@ -47,8 +47,8 @@ def load_template_unit_baseline(
     start_index: int = 1,
 ) -> tuple[dict[str, Any] | None, list]:
     rel_path = bundle.signed_standard.get("evidence_baselines", {}).get(
-        "template_unit_contract",
-        "template_unit_contract.yaml",
+        "template_generation_final",
+        "template_generation_final.yaml",
     )
     return load_baseline_file(
         bundle.school_dir / rel_path,

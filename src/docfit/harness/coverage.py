@@ -321,7 +321,7 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
             )
             next_index += 1
         template_contract = (
-            root / "standards/schools" / school_id / "v1/template_unit_contract.yaml"
+            root / "standards/schools" / school_id / "v1/template_generation_final.yaml"
         )
         _, baseline_findings = load_baseline_file(
             template_contract,

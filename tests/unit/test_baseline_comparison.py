@@ -6,7 +6,7 @@ from docfit.harness.baselines import compare_baseline_to_artifact
 
 def _baseline() -> dict:
     return {
-        "baseline_type": "template_unit_contract",
+        "baseline_type": "template_generation_final",
         "review_metadata": {
             "reviewed_by": "product-owner",
             "review_source": "test_inputs/template_generation/review.txt",

@@ -1,8 +1,8 @@
 baseline_type: template_generation_stage_contract
 profile_id: real-core-v0
 school_id: nannong-undergraduate
-stage_id: 05_action_execution
-standard_id: nannong-undergraduate-v1-template-generation-05
+stage_id: 01_source_parse
+standard_id: nannong-undergraduate-v1-template-generation-01
 standard_scope: single_template_generation_stage
 standard_state: signed_pending_verifier
 verifier_state: not_configured
@@ -22,8 +22,6 @@ accepted_source_facts:
   template_docx_sha256: sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536
   original_review_source: test_inputs/template_generation/school-nannong-undergraduate-template-review.txt
   original_review_source_sha256: sha256:d6dc0d49dac3e2b83fa63ee92e76965c1cec995d56eb3e27b3ea4d5f45acdb87
-  upstream_template_unit_contract: ../template_unit_contract.yaml
-  upstream_template_unit_contract_sha256: sha256:1540a59b012e88c5d7b48491919154d92ac9815d13c829939b3983b5fed95486
   final_review_units_sha256: sha256:6e5b6c7929045e820e2b4f5424667009e7ea622ab048aabc3becec253255686e
   calibration_run:
     kind: fresh_template_generate_run
@@ -33,17 +31,13 @@ accepted_source_facts:
     debug_snapshot_root: test_outputs/debug/template_generation/stage-standard-calibration-nannong-undergraduate/20260622T201029500234+0800
     template_generation_request: test_outputs/debug/template_generation/stage-standard-calibration-nannong-undergraduate/eval_runs/template_generate/artifacts/template_generation_request.json
     template_generation_request_sha256: sha256:887da53092585a69ac0938e671913851218350403592d573e51767c47ea8081f
-    formal_artifact: test_outputs/debug/template_generation/stage-standard-calibration-nannong-undergraduate/eval_runs/template_generate/artifacts/template_generation_manifest.json
-    formal_artifact_sha256: sha256:243d346497414acebde938b8ffb60472167ec8b18c647534d3c5c0cda3826ba5
-    debug_snapshot: test_outputs/debug/template_generation/stage-standard-calibration-nannong-undergraduate/20260622T201029500234+0800/05.2_template_generation_manifest.json
-    debug_snapshot_sha256: sha256:243d346497414acebde938b8ffb60472167ec8b18c647534d3c5c0cda3826ba5
-    generated_template_docx: test_outputs/debug/template_generation/stage-standard-calibration-nannong-undergraduate/eval_runs/template_generate/generated_template.docx
-    generated_template_docx_sha256: sha256:4db82c30b1b13b52a46484a55b9dddc74db0b8783febe6497598728686146b51
-    copy_source_docx_snapshot: test_outputs/debug/template_generation/stage-standard-calibration-nannong-undergraduate/20260622T201029500234+0800/05.0_copy_source_docx.docx
-    copy_source_docx_snapshot_sha256: sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536
-    generated_template_debug_snapshot: test_outputs/debug/template_generation/stage-standard-calibration-nannong-undergraduate/20260622T201029500234+0800/05.1_generated_template.docx
-    generated_template_debug_snapshot_sha256: sha256:4db82c30b1b13b52a46484a55b9dddc74db0b8783febe6497598728686146b51
-purpose: 检查 action 执行记录、生成 Word 和 manifest 是否完整；最终质量仍交给 06_final_template_gap。
+    formal_artifact: test_outputs/debug/template_generation/stage-standard-calibration-nannong-undergraduate/eval_runs/template_generate/artifacts/source_template_tree.json
+    formal_artifact_sha256: sha256:640c3d03ca8ffe3a4e0d538ddfd239c2f4c734b9681c0e32677bfdedc39ae047
+    debug_snapshot: test_outputs/debug/template_generation/stage-standard-calibration-nannong-undergraduate/20260622T201029500234+0800/01_source_template_tree.json
+    debug_snapshot_sha256: sha256:640c3d03ca8ffe3a4e0d538ddfd239c2f4c734b9681c0e32677bfdedc39ae047
+  upstream_template_generation_final: ../template_generation_final.yaml
+  upstream_template_generation_final_sha256: sha256:1540a59b012e88c5d7b48491919154d92ac9815d13c829939b3983b5fed95486
+purpose: 检查源模板 Word 是否被解析成可追溯的源事实树；本阶段只保存事实，不裁定 unit 或生成策略。
 ai_boundary:
   ai_may_explain: true
   ai_may_edit_status_or_standard_without_human_review: false
@@ -55,12 +49,12 @@ gate_policy:
   missing_artifact_result: UNKNOWN
 expected:
   school_id: nannong-undergraduate
-  stage_id: 05_action_execution
-  artifact_type: template_generation_manifest
+  stage_id: 01_source_parse
+  artifact_type: source_template_tree
   source_section_sha256: sha256:a4bdd5a4cb6cfcf9ad6396586c9330381681d50e998675ab5a8078fdbd83025f
   review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
   source_template_docx_sha256: sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536
-  unit_tree_source: ../template_unit_contract.yaml#/expected/units
+  unit_tree_source: ../template_generation_final.yaml#/expected/units
   final_review_unit_order:
   - cover
   - originality_statement
@@ -210,67 +204,52 @@ expected:
     - references
     - acknowledgement
   verifier_requirements:
-    required_outputs:
-    - generated_template.docx
-    - template_generation_manifest.json
-    - 05.0_copy_source_docx.docx
-    - 05.1_generated_template.docx
-    - 05.2_template_generation_manifest.json
-    manifest_must_bind_hashes: true
-    manifest_must_preserve_source_refs: true
-    final_quality_gate: 06_final_template_gap
-    boundary_rule: 执行成功只能证明 Word 和 manifest 写出；最终是否符合学校标准必须由 06_final_template_gap 判断。
+    required_source_fact_layers:
+    - package_global
+    - section_rules
+    - header_footer
+    - body_flow
+    - embedded_resources
+    - unknown_objects
+    stable_locator_fields:
+    - source_seq
+    - source_ref
+    - source_seq_label
+    - structure_layer
+    must_not_decide:
+    - unit_id
+    - policy
+    - final_generation_strategy
   calibration_observation:
-    artifact_created_at: '2026-06-22T12:10:29.600803+00:00'
-    observed_actions_executed_count: 58
-    observed_action_type_counts:
-      copy_source_docx: 1
-      create_fillable_slot: 9
-      create_generated_field_placeholder: 1
-      ensure_body_slot: 1
-      preserve_whole_unit_copy: 4
-      remove_instruction_text: 42
-    observed_unit_order_from_actions:
-    - cover
-    - integrity_statement
-    - toc
-    - body_main
-    - appendix
-    - acknowledgement
-    - template_instructions
-    observed_slots_count: 10
-    observed_generated_fields_count: 1
-    observed_actions_requiring_review_count: 0
-    missing_final_review_units:
-    - originality_statement
-    - authorization_statement
-    - abstract_cn
-    - abstract_en
-    - references
-    - academic_achievements
-    extra_observed_units:
-    - integrity_statement
-    - template_instructions
-    first_bad_stage_if_plan_was_correct_but_manifest_drops_unit: 05_action_execution
-    observation_is_not_pass_evidence: true
+    artifact_created_at: '2026-06-22T12:10:29.561905+00:00'
+    observed_layer_names:
+    - body_flow
+    - embedded_resources
+    - header_footer
+    - package_global
+    - section_rules
+    - unknown_objects
+    body_flow_count: 124
+    paragraph_count: 114
+    table_count: 1
+    header_footer_count: 19
+    section_break_count: 14
+    field_count: 3
+    image_count: 2
+    warning_count: 0
 dimensions:
-- dimension_id: template_generation.05.artifact_type
+- dimension_id: template_generation.01.artifact_type
   required: true
   comparator_mode: exact
   expected_path: artifact_type
   actual_path: artifact_type
-- dimension_id: template_generation.05.source_section_hash
+- dimension_id: template_generation.01.source_section_hash
   required: true
   comparator_mode: exact
   expected_path: source_section_sha256
   actual_path: source_section_sha256
-- dimension_id: template_generation.05.final_review_unit_order
-  required: true
-  comparator_mode: ordered_sequence
-  expected_path: final_review_unit_order
-  actual_path: unit_order
-- dimension_id: template_generation.05.action_trace_fields
+- dimension_id: template_generation.01.required_source_fact_layers
   required: true
   comparator_mode: subset
-  expected_path: verifier_requirements.required_outputs
-  actual_path: outputs
+  expected_path: verifier_requirements.required_source_fact_layers
+  actual_path: observed_layer_names

@@ -1,8 +1,8 @@
 baseline_type: template_generation_stage_contract
 profile_id: real-core-v0
 school_id: pku-graduate
-stage_id: 01_source_parse
-standard_id: pku-graduate-v1-template-generation-01
+stage_id: 04_plan_build
+standard_id: pku-graduate-v1-template-generation-04
 standard_scope: single_template_generation_stage
 standard_state: signed_pending_verifier
 verifier_state: not_configured
@@ -22,8 +22,6 @@ accepted_source_facts:
   template_docx_sha256: sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14
   original_review_source: test_inputs/template_generation/school-pku-graduate-template-review.txt
   original_review_source_sha256: sha256:631c7a839a1745af605fa1d5ddcffbc60b9325d506a9f8098b1a0d01ff6ad923
-  upstream_template_unit_contract: ../template_unit_contract.yaml
-  upstream_template_unit_contract_sha256: sha256:07bf90114b358e25aae73e2e5daad759878902494918c8cf6a88ce7b96fee7b2
   final_review_units_sha256: sha256:b95f18051989512815fd101f34b8d96cf6424e0b00dff6cf42881309f5867133
   calibration_run:
     kind: fresh_template_generate_run
@@ -33,11 +31,13 @@ accepted_source_facts:
     debug_snapshot_root: test_outputs/debug/template_generation/stage-standard-calibration-pku-graduate/20260622T201029500246+0800
     template_generation_request: test_outputs/debug/template_generation/stage-standard-calibration-pku-graduate/eval_runs/template_generate/artifacts/template_generation_request.json
     template_generation_request_sha256: sha256:c7d395e3168e48153f28319cd1f8b7688d6c656b082d27220e613e774aa50885
-    formal_artifact: test_outputs/debug/template_generation/stage-standard-calibration-pku-graduate/eval_runs/template_generate/artifacts/source_template_tree.json
-    formal_artifact_sha256: sha256:c277be705f3b05f7ab213b1606a27df109d40ec476658d757876642cc940e078
-    debug_snapshot: test_outputs/debug/template_generation/stage-standard-calibration-pku-graduate/20260622T201029500246+0800/01_source_template_tree.json
-    debug_snapshot_sha256: sha256:c277be705f3b05f7ab213b1606a27df109d40ec476658d757876642cc940e078
-purpose: 检查源模板 Word 是否被解析成可追溯的源事实树；本阶段只保存事实，不裁定 unit 或生成策略。
+    formal_artifact: test_outputs/debug/template_generation/stage-standard-calibration-pku-graduate/eval_runs/template_generate/artifacts/template_generation_plan.json
+    formal_artifact_sha256: sha256:7726bc6799969320dff05cf584cd87f27dc3e3009a2b4af0568d7d3994587fd9
+    debug_snapshot: test_outputs/debug/template_generation/stage-standard-calibration-pku-graduate/20260622T201029500246+0800/04_template_generation_plan.json
+    debug_snapshot_sha256: sha256:7726bc6799969320dff05cf584cd87f27dc3e3009a2b4af0568d7d3994587fd9
+  upstream_template_generation_final: ../template_generation_final.yaml
+  upstream_template_generation_final_sha256: sha256:07bf90114b358e25aae73e2e5daad759878902494918c8cf6a88ce7b96fee7b2
+purpose: 检查生成模型是否被转换成可追溯的 Word action 计划；本阶段不直接修改 Word。
 ai_boundary:
   ai_may_explain: true
   ai_may_edit_status_or_standard_without_human_review: false
@@ -49,12 +49,12 @@ gate_policy:
   missing_artifact_result: UNKNOWN
 expected:
   school_id: pku-graduate
-  stage_id: 01_source_parse
-  artifact_type: source_template_tree
+  stage_id: 04_plan_build
+  artifact_type: template_generation_plan
   source_section_sha256: sha256:c4067e225d83e45fc96b9ae82f6a222f6315c8d32ff7c7618d2fc21cb8ea4638
   review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
   source_template_docx_sha256: sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14
-  unit_tree_source: ../template_unit_contract.yaml#/expected/units
+  unit_tree_source: ../template_generation_final.yaml#/expected/units
   final_review_unit_order:
   - cover
   - copyright_notice
@@ -217,52 +217,82 @@ expected:
     - acknowledgement
     - originality_authorization_statement
   verifier_requirements:
-    required_source_fact_layers:
-    - package_global
-    - section_rules
-    - header_footer
-    - body_flow
-    - embedded_resources
-    - unknown_objects
-    stable_locator_fields:
-    - source_seq
-    - source_ref
-    - source_seq_label
-    - structure_layer
-    must_not_decide:
+    required_action_trace_fields:
+    - action_id
+    - action_type
+    - status
     - unit_id
-    - policy
-    - final_generation_strategy
+    - source_ref
+    - affected_source_seq_refs
+    required_unit_order:
+    - cover
+    - copyright_notice
+    - abstract_cn
+    - abstract_en
+    - toc
+    - figure_list
+    - table_list
+    - body_main
+    - references
+    - academic_achievements
+    - acknowledgement
+    - originality_authorization_statement
+    cleanup_requires_review_basis: true
+    protected_unit_ids:
+    - copyright_notice
+    - originality_authorization_statement
+    boundary_rule: plan action 只能表达模型已经决定的 Word 操作；缺少来源序号或跨越 manual_only 保护边界时不能通过。
   calibration_observation:
-    artifact_created_at: '2026-06-22T12:10:29.641612+00:00'
-    observed_layer_names:
-    - body_flow
-    - embedded_resources
-    - header_footer
-    - package_global
-    - section_rules
-    - unknown_objects
-    body_flow_count: 366
-    paragraph_count: 202
-    table_count: 8
-    header_footer_count: 16
-    section_break_count: 17
-    field_count: 139
-    image_count: 15
-    warning_count: 0
+    artifact_created_at: '2026-06-22T12:10:29.692056+00:00'
+    observed_action_count: 158
+    observed_action_type_counts:
+      copy_source_docx: 1
+      create_fillable_slot: 84
+      create_generated_field_placeholder: 38
+      ensure_body_slot: 1
+      preserve_whole_unit_copy: 4
+      remove_instruction_text: 30
+    observed_unit_order_from_actions:
+    - cover
+    - integrity_statement
+    - abstract_cn
+    - toc
+    - body_main
+    - abstract_en
+    - references
+    - appendix
+    - acknowledgement
+    - template_instructions
+    missing_final_review_units:
+    - copyright_notice
+    - figure_list
+    - table_list
+    - academic_achievements
+    - originality_authorization_statement
+    extra_observed_units:
+    - integrity_statement
+    - appendix
+    - template_instructions
+    first_bad_stage_if_model_was_correct_but_plan_drops_unit: 04_plan_build
+    observation_is_not_pass_evidence: true
 dimensions:
-- dimension_id: template_generation.01.artifact_type
+- dimension_id: template_generation.04.artifact_type
   required: true
   comparator_mode: exact
   expected_path: artifact_type
   actual_path: artifact_type
-- dimension_id: template_generation.01.source_section_hash
+- dimension_id: template_generation.04.source_section_hash
   required: true
   comparator_mode: exact
   expected_path: source_section_sha256
   actual_path: source_section_sha256
-- dimension_id: template_generation.01.required_source_fact_layers
+- dimension_id: template_generation.04.final_review_unit_order
+  required: true
+  comparator_mode: ordered_sequence
+  expected_path: final_review_unit_order
+  actual_path: unit_order
+- dimension_id: template_generation.04.action_trace_fields
   required: true
   comparator_mode: subset
-  expected_path: verifier_requirements.required_source_fact_layers
-  actual_path: observed_layer_names
+  expected_path: verifier_requirements.required_action_trace_fields
+  actual_path: trace_fields

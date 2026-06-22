@@ -22,8 +22,6 @@ accepted_source_facts:
   template_docx_sha256: sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536
   original_review_source: test_inputs/template_generation/school-nannong-undergraduate-template-review.txt
   original_review_source_sha256: sha256:d6dc0d49dac3e2b83fa63ee92e76965c1cec995d56eb3e27b3ea4d5f45acdb87
-  upstream_template_unit_contract: ../template_unit_contract.yaml
-  upstream_template_unit_contract_sha256: sha256:1540a59b012e88c5d7b48491919154d92ac9815d13c829939b3983b5fed95486
   final_review_units_sha256: sha256:6e5b6c7929045e820e2b4f5424667009e7ea622ab048aabc3becec253255686e
   calibration_run:
     kind: fresh_template_generate_run
@@ -37,6 +35,8 @@ accepted_source_facts:
     formal_artifact_sha256: sha256:d1c23840beec2b06133e04d5cb5cdede2b3fd31ef0d848112d72c5a8276c7790
     debug_snapshot: test_outputs/debug/template_generation/stage-standard-calibration-nannong-undergraduate/20260622T201029500234+0800/02_template_structure_candidates.json
     debug_snapshot_sha256: sha256:d1c23840beec2b06133e04d5cb5cdede2b3fd31ef0d848112d72c5a8276c7790
+  upstream_template_generation_final: ../template_generation_final.yaml
+  upstream_template_generation_final_sha256: sha256:1540a59b012e88c5d7b48491919154d92ac9815d13c829939b3983b5fed95486
 purpose: 检查源事实树是否被识别成候选单元和逻辑元素；本阶段必须对齐人工单元边界，但还不执行 Word 修改。
 ai_boundary:
   ai_may_explain: true
@@ -54,7 +54,7 @@ expected:
   source_section_sha256: sha256:a4bdd5a4cb6cfcf9ad6396586c9330381681d50e998675ab5a8078fdbd83025f
   review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
   source_template_docx_sha256: sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536
-  unit_tree_source: ../template_unit_contract.yaml#/expected/units
+  unit_tree_source: ../template_generation_final.yaml#/expected/units
   final_review_unit_order:
   - cover
   - originality_statement

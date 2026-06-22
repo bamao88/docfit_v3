@@ -318,7 +318,7 @@ def verify_template_units_against_expected(
                 repr(expected_ids),
                 repr(actual_ids),
                 affected_ids=["template.units"],
-                root_cause_bucket="template_unit_contract_mismatch",
+                root_cause_bucket="template_generation_final_mismatch",
             )
         )
         next_index += 1
@@ -593,7 +593,7 @@ def _compare_elements(
                 repr(expected_ids),
                 repr(actual_ids),
                 affected_ids=[unit_id],
-                root_cause_bucket="template_unit_contract_mismatch",
+                root_cause_bucket="template_generation_final_mismatch",
             )
         )
         next_index += 1
@@ -661,7 +661,7 @@ def _compare_slot_ids(
         repr(expected_slot_ids),
         repr(actual_slot_ids),
         affected_ids=["template.slots"],
-        root_cause_bucket="template_unit_contract_mismatch",
+        root_cause_bucket="template_generation_final_mismatch",
     )
 
 
@@ -675,7 +675,7 @@ def _missing_finding(index: int, kind: str, identifier: str) -> Finding:
         identifier,
         "missing",
         affected_ids=[identifier],
-        root_cause_bucket="template_unit_contract_mismatch",
+        root_cause_bucket="template_generation_final_mismatch",
     )
 
 
@@ -689,7 +689,7 @@ def _unexpected_finding(index: int, kind: str, identifier: str) -> Finding:
         "not present",
         identifier,
         affected_ids=[identifier],
-        root_cause_bucket="template_unit_contract_mismatch",
+        root_cause_bucket="template_generation_final_mismatch",
     )
 
 
@@ -709,7 +709,7 @@ def _field_mismatch_finding(
         _preview(expected),
         _preview(actual),
         affected_ids=[path],
-        root_cause_bucket="template_unit_contract_mismatch",
+        root_cause_bucket="template_generation_final_mismatch",
     )
 
 

@@ -9,7 +9,7 @@ Last updated: 2026-06-22
 | 项 | 当前定义 |
 | --- | --- |
 | 正常生成输入 | 学校原始模板 Word |
-| 不作为生成输入 | `standards/schools/**`、`template_unit_contract.yaml`、某一次学生源 Word、学生内容台账 |
+| 不作为生成输入 | `standards/schools/**`、`template_generation_final.yaml`、某一次学生源 Word、学生内容台账 |
 | 标准文件用途 | 开发期和验收期的裁判标准，用于 `template-gap` 检查已知样例 |
 | 生成器应该做什么 | 从源模板自身的结构、文字、样式、占位符、表格、字段和通用产品规则推断单元和内容责任 |
 | 证据不足时怎么办 | 写入 `unresolved_questions[]`、`actions_requiring_review[]` 或后续阶段检查结果；不能伪装成确定策略 |
@@ -50,7 +50,7 @@ Last updated: 2026-06-22
 | 不应该做什么 | 原因 |
 | --- | --- |
 | 不应该让 `template-generate` 强制接收 `--school` | 后续 100/1000 学校规模下不能要求每个学校先准备签收标准 |
-| 不应该把 `template_unit_contract.yaml` 当成生成器策略输入 | 它是评测裁判，不是正常业务输入 |
+| 不应该把 `template_generation_final.yaml` 当成生成器策略输入 | 它是评测裁判，不是正常业务输入 |
 | 不应该用某一次学生源内容台账决定模板生成策略 | 模板生成只处理学校模板；学生内容属于后续内容提取和放置 |
 | 不应该为了让 gap 变绿修改 standards | 标准只能按人工签收流程变更，不能被当前输出反向驱动 |
 | 不应该看到最终 Word 不合格就直接改 gap 报告 | 先定位 first_bad_stage，再决定改源模板解析、结构发现、策略、计划、执行还是 gap locator |

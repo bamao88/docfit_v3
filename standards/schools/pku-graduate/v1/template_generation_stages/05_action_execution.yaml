@@ -22,8 +22,6 @@ accepted_source_facts:
   template_docx_sha256: sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14
   original_review_source: test_inputs/template_generation/school-pku-graduate-template-review.txt
   original_review_source_sha256: sha256:631c7a839a1745af605fa1d5ddcffbc60b9325d506a9f8098b1a0d01ff6ad923
-  upstream_template_unit_contract: ../template_unit_contract.yaml
-  upstream_template_unit_contract_sha256: sha256:07bf90114b358e25aae73e2e5daad759878902494918c8cf6a88ce7b96fee7b2
   final_review_units_sha256: sha256:b95f18051989512815fd101f34b8d96cf6424e0b00dff6cf42881309f5867133
   calibration_run:
     kind: fresh_template_generate_run
@@ -43,6 +41,8 @@ accepted_source_facts:
     copy_source_docx_snapshot_sha256: sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14
     generated_template_debug_snapshot: test_outputs/debug/template_generation/stage-standard-calibration-pku-graduate/20260622T201029500246+0800/05.1_generated_template.docx
     generated_template_debug_snapshot_sha256: sha256:058a9b3f8297fc2d75d7795e566f67a823a4251a9808b75da8bb41d87ee10a6a
+  upstream_template_generation_final: ../template_generation_final.yaml
+  upstream_template_generation_final_sha256: sha256:07bf90114b358e25aae73e2e5daad759878902494918c8cf6a88ce7b96fee7b2
 purpose: 检查 action 执行记录、生成 Word 和 manifest 是否完整；最终质量仍交给 06_final_template_gap。
 ai_boundary:
   ai_may_explain: true
@@ -60,7 +60,7 @@ expected:
   source_section_sha256: sha256:c4067e225d83e45fc96b9ae82f6a222f6315c8d32ff7c7618d2fc21cb8ea4638
   review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
   source_template_docx_sha256: sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14
-  unit_tree_source: ../template_unit_contract.yaml#/expected/units
+  unit_tree_source: ../template_generation_final.yaml#/expected/units
   final_review_unit_order:
   - cover
   - copyright_notice

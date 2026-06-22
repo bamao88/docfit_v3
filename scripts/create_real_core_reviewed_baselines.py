@@ -202,7 +202,7 @@ def _write_school_standards(
         template_docx = Path(school["template_docx"])
         review_source = Path(school["review_source"])
         template_hash = sha256_file(ROOT / template_docx)
-        existing_units = _existing_template_units(school_dir / "template_unit_contract.yaml")
+        existing_units = _existing_template_units(school_dir / "template_generation_final.yaml")
         _write_yaml(
             school_dir / "signed_standard.yaml",
             {
@@ -228,10 +228,10 @@ def _write_school_standards(
                     "render_contract": "render_contract.json",
                 },
                 "evidence_baselines": {
-                    "template_unit_contract": "template_unit_contract.yaml",
-                    "template_generation_stage_contracts": {
+                    "template_generation_final": "template_generation_final.yaml",
+                    "template_generation_stages": {
                         stage["stage_id"]: (
-                            f"template_generation/{stage['stage_id']}_contract.yaml"
+                            f"template_generation_stages/{stage['stage_id']}.yaml"
                         )
                         for stage in TEMPLATE_GENERATION_STAGE_BOUNDARIES
                     },
@@ -248,9 +248,9 @@ def _write_school_standards(
             },
         )
         _write_yaml(
-            school_dir / "template_unit_contract.yaml",
+            school_dir / "template_generation_final.yaml",
             {
-                "baseline_type": "template_unit_contract",
+                "baseline_type": "template_generation_final",
                 "profile_id": PROFILE_ID,
                 "school_id": school_id,
                 "review_metadata": _review_metadata(
@@ -293,7 +293,7 @@ def _write_school_standards(
                 ],
             },
         )
-        _write_template_generation_stage_contracts(
+        _write_template_generation_stages(
             school_dir=school_dir,
             school_id=school_id,
             packet_path=packet_path,
@@ -312,15 +312,15 @@ def _write_school_standards(
             )
 
 
-def _existing_template_units(template_unit_contract_path: Path) -> list[dict[str, Any]]:
-    if not template_unit_contract_path.exists():
+def _existing_template_units(template_generation_final_path: Path) -> list[dict[str, Any]]:
+    if not template_generation_final_path.exists():
         return []
-    loaded = yaml.safe_load(template_unit_contract_path.read_text(encoding="utf-8")) or {}
+    loaded = yaml.safe_load(template_generation_final_path.read_text(encoding="utf-8")) or {}
     units = loaded.get("expected", {}).get("units", [])
     return units if isinstance(units, list) else []
 
 
-def _write_template_generation_stage_contracts(
+def _write_template_generation_stages(
     *,
     school_dir: Path,
     school_id: str,
@@ -333,12 +333,12 @@ def _write_template_generation_stage_contracts(
     review_source: Path,
     template_units: list[dict[str, Any]],
 ) -> None:
-    template_unit_contract_path = school_dir / "template_unit_contract.yaml"
+    template_generation_final_path = school_dir / "template_generation_final.yaml"
     legacy_contract = school_dir / "template_generation_stage_contract.yaml"
     if legacy_contract.exists():
         legacy_contract.unlink()
 
-    stage_dir = school_dir / "template_generation"
+    stage_dir = school_dir / "template_generation_stages"
     ensure_dir(stage_dir)
     common_source_facts = {
         "review_packet": str(packet_path),
@@ -349,9 +349,9 @@ def _write_template_generation_stage_contracts(
         "template_docx_sha256": template_hash,
         "original_review_source": str(review_source),
         "original_review_source_sha256": sha256_file(ROOT / review_source),
-        "upstream_template_unit_contract": "../template_unit_contract.yaml",
-        "upstream_template_unit_contract_sha256": sha256_file(
-            template_unit_contract_path
+        "upstream_template_generation_final": "../template_generation_final.yaml",
+        "upstream_template_generation_final_sha256": sha256_file(
+            template_generation_final_path
         ),
     }
     for stage in TEMPLATE_GENERATION_STAGE_BOUNDARIES:
@@ -359,7 +359,7 @@ def _write_template_generation_stage_contracts(
         stage_standard = _template_generation_stage_standard(stage_id, template_units)
         expected_from_review = stage_standard["expected_from_review"]
         _write_yaml(
-            stage_dir / f"{stage_id}_contract.yaml",
+            stage_dir / f"{stage_id}.yaml",
             {
                 "baseline_type": "template_generation_stage_contract",
                 "profile_id": PROFILE_ID,
@@ -382,7 +382,7 @@ def _write_template_generation_stage_contracts(
                 "accepted_source_facts": common_source_facts,
                 "purpose": (
                     f"为模板生成 {stage_id} 阶段提供人工签收的输入/输出标准。"
-                    "这个标准来自 ../template_unit_contract.yaml 的 expected.units 和完整人工 review；"
+                    "这个标准来自 ../template_generation_final.yaml 的 expected.units 和完整人工 review；"
                     "在该阶段 verifier 接入前只表示标准已存在，不表示阶段已 PASS。"
                 ),
                 "ai_boundary": {
@@ -403,7 +403,7 @@ def _write_template_generation_stage_contracts(
                     "source_section_sha256": section_sha,
                     "review_packet_sha256": packet_sha,
                     "stage_model": TEMPLATE_GENERATION_STAGE_MODEL,
-                    "unit_tree_source": "../template_unit_contract.yaml#/expected/units",
+                    "unit_tree_source": "../template_generation_final.yaml#/expected/units",
                     "final_review_unit_order": [
                         unit["unit_id"] for unit in template_units
                     ],
