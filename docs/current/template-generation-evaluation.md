@@ -13,7 +13,7 @@ Last updated: 2026-06-22
 | 最终 `generated_template.docx` 是否符合学校标准 | 模板生成五步内部应该怎么重写 |
 | 每个阶段产物将来如何接检查器 | 每个阶段最终有哪些业务字段 |
 | 检查结果如何表达 `PASS` / `FAIL` / `UNKNOWN` | 某个 unit 应该 `whole_unit_copy` 还是局部 patch |
-| 如何从最终 gap 追溯到可能出错的阶段 | 用学生源内容决定模板生成策略 |
+| 如何从最终模板 gap 追溯到 01-05 哪个模板生成阶段先出错 | 用最终 gap 直接改写源模板事实、manifest 或生成策略 |
 | 业务生成产物如何作为评测输入复用 | 让评测代码改写业务生成产物 |
 | 测试应该证明哪些评测行为 | 自动更新学校标准、golden 或 expected snapshot |
 
@@ -250,10 +250,11 @@ test_outputs/debug/template_generation/<case>/<debug_snapshot>/  # template-gene
 
 ## 关键边界
 
-- `template_generate` 当前不读取学生源 Word，也不应该用“学生源内容台账里有没有某段内容”来决定生成模板策略。
+- 本文说的模板最终产物只指 `generated_template.docx`、`generated_template_tree.json` 和 `template_gap_report.*`。
+- `template_generate` 的输入只有学校原始模板 Word；不读取内容提取产物、放置计划或最终论文渲染结果。
 - `template_generate` 也不应该把 `standards/schools/**` 当成正常生成输入；这些标准是已知样例的评测和验收材料。
-- 如果识别出某个位置是用户填写位，它就是模板里的填写位；这件事来自源模板自身的结构、文字、样式、占位符、字段和产品规则，不来自某一次学生源文档是否有内容，也不要求先存在学校签收标准。
-- 学生内容是否存在、是否放置、是否渲染正确，属于后续内容提取、内容放置和最终渲染评测，不属于生成模板评测。
+- 如果识别出某个位置是用户填写位，它就是生成模板里的填写位；这件事来自源模板自身的结构、文字、样式、占位符、字段和产品规则，不来自后续业务阶段。
+- 内容提取、内容放置和最终论文渲染属于后续业务评测，不作为模板生成评测的输入、裁判依据或最终产物。
 - `template_generation_manifest.json` 只能证明生成器执行了什么，不能证明最终 Word 符合学校标准。
 - `generated_template_tree.json` 是从被测 Word 解析出来的事实证据；`template_gap_report.*` 是检查结果；两者都不是学校标准本身。
 - 评测复用已有产物时，只能消费已有 Word、JSON、manifest 和 hash；缺失证据要暴露为 `UNKNOWN`，不能用重新生成来填洞。
