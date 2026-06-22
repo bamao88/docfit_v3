@@ -7,6 +7,110 @@ Last updated: 2026-06-21
 拆分实施文档：`docs/plans/template-generate-runner-split.md` 记录
 `src/docfit/stages/template_generate/runner.py` 应如何按这个五步流程拆成多个 Python 文件。
 
+## 评测层追责原则（先读）
+
+这部分先定义评测层要解决的问题，不定义业务代码应该怎么实现。
+
+当前最终 `template-gap` 能告诉我们“生成模板不符合标准”，但不能稳定说明问题最早出在哪个生成阶段。后续评测层要解决的是：
+
+```text
+每个阶段拿到的输入是否可信？
+如果输入可信，本阶段输出错了，才能追责到本阶段。
+如果输入不可信，本阶段及后续失败只能标成下游症状，不能直接追责本阶段。
+```
+
+### 评测层只负责什么
+
+| 评测层负责 | 不负责 |
+| --- | --- |
+| 定义阶段评测对象：看哪些输入产物、输出产物和报告 | 不决定业务阶段内部怎么拆函数或模块 |
+| 定义通用检查结构：输入检查、输出检查、状态、证据和归因 | 不修改业务阶段产物 |
+| 定义每个阶段将来如何挂标准和 verifier | 不在标准未确定时硬写语义结论 |
+| 聚合 `first_bad_phase` 和下游症状 | 不把最终 gap 的所有问题都归到最后阶段 |
+| 记录未配置 verifier 的阶段 | 不把未配置阶段伪装成 PASS |
+
+### 通用评测结构
+
+每个阶段评测结果都应该分成两部分：
+
+| 检查 | 作用 |
+| --- | --- |
+| `input_check` | 判断本阶段拿到的输入产物是否可信，是否满足本阶段可以工作的前提 |
+| `output_check` | 在输入可信的前提下，判断本阶段输出是否满足本阶段自己的职责 |
+
+追责规则：
+
+| 情况 | 归因 |
+| --- | --- |
+| `input_check != PASS` | 不追责当前阶段；当前阶段标为 `downstream_blocked` 或 `upstream` |
+| `input_check == PASS` 且 `output_check != PASS` | 追责当前阶段，`root_cause_phase = 当前阶段` |
+| `input_check == PASS` 且 `output_check == PASS` | 当前阶段可信，允许下游继续追责 |
+| verifier 或标准不足以判断 | `UNKNOWN`，并标明 `unknown_due_to_missing_standard` 或 `not_configured` |
+
+状态仍然只使用 `PASS / FAIL / UNKNOWN`。不要新增最终状态。追责信息放在额外字段里：
+
+```json
+{
+  "phase_id": "structure_discovery",
+  "input_check": {"status": "PASS"},
+  "output_check": {"status": "FAIL"},
+  "status": "FAIL",
+  "attribution": {
+    "root_cause_phase": "structure_discovery",
+    "kind": "current_phase",
+    "confidence": "high",
+    "reason": "input passed, output violated this phase contract"
+  }
+}
+```
+
+### 当前可以先做什么
+
+这些事项只依赖评测层设计，不依赖业务阶段最终产物细节，可以先做：
+
+| 可做事项 | 说明 |
+| --- | --- |
+| 定义 `phase_check` 结果结构 | 包含 `phase_id`、`input_check`、`output_check`、`status`、`gate_enabled`、`verification_state`、`attribution` |
+| 定义 `first_bad_phase` 聚合规则 | 按阶段顺序找第一个输入可信但输出失败/未知的阶段；后续失败标为下游症状 |
+| 定义通用 finding 字段 | 复用现有 `Finding` 思路：`type`、`message`、`expected`、`actual`、`evidence_refs`、`affected_ids` |
+| 定义标准文件模板 | 先规定每个阶段标准将来必须写哪些栏目，不填具体业务条件 |
+| 定义未配置 verifier 的表达方式 | `gate_enabled=false`、`verification_state=not_configured`、`status=null`，不参与 gate |
+| 把最终 `template-gap` 作为示例阶段 | 它已经有真实 verifier，可以作为 `final_template_gap` 的示例，不代表其他阶段都已可验收 |
+| 明确报告展示规则 | 报告必须区分 `root_cause_phase`、`downstream_symptom`、`not_configured` 和 `unknown_due_to_missing_standard` |
+
+### 现在先不做什么
+
+这些事项依赖业务阶段职责、输出产物或代码边界，先停下来：
+
+| 暂缓事项 | 为什么暂缓 |
+| --- | --- |
+| 给每个业务阶段写完整语义 verifier | 阶段职责和标准还未最终确定，提前写会把临时实现固化成标准 |
+| 规定每个阶段的完整 artifact schema | 当前产物名和 JSON 形状仍有兼容层，具体形状要等业务阶段边界稳定 |
+| 判断某个 unit 应该 copy-only 还是 copy-then-patch | 这是业务策略，不是评测层底座 |
+| 判断阶段二应该如何合并 logical element | 这是业务识别逻辑，评测层只先定义“将来要能检查输入可信和输出可信” |
+| 修改 `template_generate` 业务代码 | 当前目标是评测层原则和架构，不改生成逻辑 |
+| 把中间阶段纳入最终 gate | 没有标准和 verifier 前不能 gate，也不能伪装成 PASS |
+
+### 阶段标准将来必须包含什么
+
+每个阶段标准确定时，至少要写清楚这些栏目：
+
+| 栏目 | 说明 |
+| --- | --- |
+| `phase_id` | 阶段稳定 ID |
+| `owned_boundary` | 本阶段负责验收什么，不负责什么 |
+| `input_artifacts` | verifier 读取哪些输入产物 |
+| `output_artifacts` | verifier 检查哪些输出产物 |
+| `input_assumptions` | 输入必须满足什么，当前阶段才可以被追责 |
+| `output_guarantees` | 本阶段输出必须保证什么 |
+| `pass_conditions` | 什么证据足以判定 PASS |
+| `fail_conditions` | 什么证据足以判定 FAIL |
+| `unknown_conditions` | 什么情况不能证明正确，必须 UNKNOWN |
+| `evidence_requirements` | 必须保留哪些 source_ref、hash、路径或 action id |
+| `gate_policy` | 是否参与最终 gate，何时启用 |
+
+标准未确定前，只允许做接口级检查和归因框架，不做阶段语义结论。
+
 ## 这个文件做什么
 
 这个文件是模板生成流程优化计划。它不是只讨论“默认仅复制单元”，而是把模板生成阶段里几个关键决策放到同一个流程里对齐：
@@ -397,7 +501,7 @@ flowchart TD
 
 | 单元类型 | 当前代码 | 目标口径 |
 | --- | --- | --- |
-| 默认仅复制单元 | 写出一个单元级 `whole_unit_copy` 元素，并逐 entry 做受限候选识别；说明文字可进入 cleanup，填空/系统生成信号不直接生成 slot | 后续还应把碎片 entry 合并成更稳定的 logical element，并接入学校标准/学生内容责任 |
+| 默认仅复制单元 | 只写出一个单元级 `whole_unit_copy` 元素，当前还没有稳定的内部受限候选识别 | 保留单元级 copy 元素，同时逐 entry 做受限候选识别；说明文字可进入 cleanup，填空/系统生成信号不直接生成 slot |
 | 排除列表里的单元 | 逐个可见节点分析元素 policy | 继续逐 entry 做完整元素识别；可生成 slot、generated marker、删除说明文字或插入固定文本 |
 
 当前代码里，默认仅复制单元的单元级 copy 元素形状大致是：
@@ -419,7 +523,7 @@ flowchart TD
 
 这个元素不是说“封面里只有一个真实元素”，而是说当前实现把整个单元作为一个复制保留区域。
 
-当前实现里，copy-only 单元已经同时有两层信息：
+目标实现里，copy-only 单元应该同时有两层信息：
 
 | 层级 | 作用 |
 | --- | --- |
