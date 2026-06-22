@@ -114,16 +114,31 @@ test_inputs/template_gap/
 
 评测阶段命名必须带数字前缀，并且和模板生成阶段产物编号对齐。这样人看报告时，可以直接从检查结果跳到同编号的产物文件。当前只有 `06_final_template_gap` 已经有稳定 verifier；`01` 到 `05` 有产物和合同测试，但还没有阶段产物 verifier。
 
-| 编号 | 阶段 ID | 这个节点做什么 | 主要输入 | 主要输出 | 当前测试 | verifier 状态 |
+读这张表前，先把三个容易混淆的词分开：
+
+| 表里的列 | 实际意思 |
+| --- | --- |
+| `主要输出` | 这一编号结束后留下的证据文件。它说明“系统写出了什么”，不等于“这个阶段已经验收通过”。 |
+| `当前测试在检查什么` | 当前自动测试守住的行为，例如文件有没有写出、状态有没有误判、报告字段是否稳定。测试代码不是业务产物，也不是 verifier。 |
+| `verifier 状态` | 这个阶段有没有正式检查器参与评测 gate。`not_configured` 表示还没有阶段验收检查器，不能写成 `PASS`。 |
+
+当前测试文件可以这样理解：
+
+| 测试文件 | 它在这里的用途 |
+| --- | --- |
+| `tests/contract/test_template_generate.py` | 检查 00-05 的业务生成链路能稳定写出过程产物，并保留 source_seq、manifest、debug 文件等排查证据。它不证明 01-05 已经逐阶段验收通过。 |
+| `tests/contract/test_real_core_generated_template_gap.py` | 检查 06 的最终模板 gap verifier 能按学校标准输出 `PASS` / `FAIL` / `UNKNOWN`，并写出 tree 和 gap 报告。 |
+
+| 编号 | 阶段 ID | 这个节点做什么 | 主要输入 | 主要输出 | 当前测试在检查什么 | verifier 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `00` | `00_input_request` | 记录本次运行的源模板、输出目录和请求上下文 | `--template` 指向的学校原始模板 Word、`--out` 输出目录 | `artifacts/template_generation_request.json`、debug `00_input_source_template.docx`、debug `00_template_generation_request.json` | `test_template_generate_writes_full_stage_artifact_chain`、`test_template_generate_cli_writes_public_outputs`、`test_template_generate_cli_rejects_school_standard_input` | 输入记录；不作为质量 verifier |
-| `01` | `01_source_parse` | 把学校原始模板 Word 解析成源 Word 事实 | `00_input_request` 里的源模板 Word | `artifacts/source_template_tree.json`、debug `01_source_template_tree.json` | `test_template_generate_writes_full_stage_artifact_chain` 检查 artifact_type、`source_seq` 连续和 `indexes.by_source_seq` | `not_configured` |
-| `02` | `02_structure_discovery` | 从源 Word 事实识别候选 unit、logical element、role_hint 和来源证据 | `source_template_tree.json` | `artifacts/template_structure_candidates.json`、debug `02_template_structure_candidates.json` | 表格 label/value 合并、跨段落业务句合并、copy-only 内部候选、说明文字清理相关测试 | `not_configured` |
-| `03` | `03_generation_model` | 把候选结构整理成模板业务模型、unit 策略、slots、cleanup 和 unresolved questions | `template_generation_request.json`、`template_structure_candidates.json` | `artifacts/template_generation_model.json`、debug `03_template_generation_model.json` | whole-unit copy、references fillable、copy-only 内部 candidate materialize 相关测试 | `not_configured` |
-| `04` | `04_plan_build` | 把生成模型转成具体 Word action 列表 | `template_generation_model.json` | `artifacts/template_generation_plan.json`、debug `04_template_generation_plan.json` | full chain 检查每个 action 有 `affected_source_seq_refs[]`；copy-only 和 references 测试检查 action 类型 | `not_configured` |
-| `05` | `05_action_execution` | 先整包复制源 Word，再执行 action，写出生成模板和执行记录 | 源模板 Word、`template_generation_plan.json` | 顶层 `generated_template.docx`、`artifacts/template_generation_manifest.json`、debug `05.0_copy_source_docx.docx`、debug `05.1_generated_template.docx`、debug `05.2_template_generation_manifest.json` | full chain、保留已有 body slot、表格说明文字清理、invalid docx fail 等测试 | `not_configured` |
-| `06` | `06_final_template_gap` | 检查被测 `generated_template.docx` 是否符合学校 `template_unit_contract.yaml` | 被测 `generated_template.docx`、`standards/schools/<school_id>/v1/template_unit_contract.yaml` | `artifacts/generated_template.docx`、`artifacts/generated_template_tree.json`、`artifacts/template_gap_report.json`、`.md`、`.docx` | `test_real_core_generated_template_gap.py` 共 33 个测试，覆盖三校输出、树解析、样式、页眉页脚、字段、编号和状态组合 | `enabled` |
-| `99` | `99_debug_index` | 给调试目录列文件索引，方便人找证据 | debug 目录里的 `00` 到 `05` 快照文件 | `99_template_generation_debug_index.json` | `test_template_generate_writes_full_stage_artifact_chain` 检查索引包含关键快照 | 调试索引；不作为质量 verifier |
+| `00` | `00_input_request` | 记录本次运行拿的是哪个学校原始模板、输出到哪里 | `--template` 指向的学校原始模板 Word、`--out` 输出目录 | 请求记录 JSON、源模板副本 | CLI 能写出请求记录；CLI 只接受模板输入，不接受学校标准作为生成输入 | 输入记录；不作为质量 verifier |
+| `01` | `01_source_parse` | 把学校原始模板 Word 解析成源 Word 事实 | `00_input_request` 里的源模板 Word | `source_template_tree.json`；说明源 Word 里实际观察到了哪些段落、表格、页眉页脚和来源序号 | 源元素有连续 `source_seq`，可以通过索引反查原始位置 | `not_configured` |
+| `02` | `02_structure_discovery` | 从源 Word 事实识别候选 unit、logical element、角色提示和来源证据 | `source_template_tree.json` | `template_structure_candidates.json`；说明系统把哪些源元素看成候选封面、摘要、正文、说明文字或填写位 | 表格 label/value 合并、跨段落业务句合并、copy-only 内部候选和说明文字识别行为稳定 | `not_configured` |
+| `03` | `03_generation_model` | 把候选结构整理成模板业务模型和处理策略 | `template_generation_request.json`、`template_structure_candidates.json` | `template_generation_model.json`；说明每个 unit 最终倾向复制、局部 patch、生成 slot、cleanup 或 unresolved question | whole-unit copy、references fillable、copy-only 内部 candidate materialize 等策略行为稳定 | `not_configured` |
+| `04` | `04_plan_build` | 把生成模型转成具体 Word action 列表 | `template_generation_model.json` | `template_generation_plan.json`；说明生成器准备对 Word 做哪些动作、每个动作影响哪些源元素 | 每个 action 带 `affected_source_seq_refs[]`；copy-only 和 references 相关 action 类型稳定 | `not_configured` |
+| `05` | `05_action_execution` | 先整包复制源 Word，再执行 action，写出生成模板和执行记录 | 源模板 Word、`template_generation_plan.json` | `generated_template.docx`、`template_generation_manifest.json`、copy-only 停点和完整执行后的 debug Word | 生成模板能写出；已有 body slot 不重复；表格说明文字能清理；无效 DOCX 会失败而不是伪装成功 | `not_configured` |
+| `06` | `06_final_template_gap` | 检查被测 `generated_template.docx` 是否符合学校 `template_unit_contract.yaml` | 被测 `generated_template.docx`、学校模板单元标准 | `generated_template_tree.json`、`template_gap_report.json/.md/.docx`、最终状态 | gap verifier 能对真实学校和聚焦 fixture 输出 `PASS` / `FAIL` / `UNKNOWN`；样式、页眉页脚、字段、编号等检查不误判 | `enabled` |
+| `99` | `99_debug_index` | 给调试目录列文件索引，方便人找证据 | debug 目录里的 `00` 到 `05` 快照文件 | `99_template_generation_debug_index.json` | debug 索引包含关键快照，方便从报告跳回过程证据 | 调试索引；不作为质量 verifier |
 
 读这张表时要注意两个边界：
 
