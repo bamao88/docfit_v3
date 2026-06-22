@@ -40,6 +40,23 @@ Last updated: 2026-06-22
 
 因此，当前最小目标不是马上写完所有阶段检查器，而是先把评测架构留出正确位置：哪些阶段已配置检查器，哪些阶段只是有产物但还没有标准，最终 gap 如何作为第一个可运行示例接入。
 
+## 阶段编号
+
+评测阶段命名必须带数字前缀，并且和模板生成阶段产物编号对齐。这样人看报告时，可以直接从检查结果跳到同编号的产物文件。
+
+| 编号 | 评测阶段 ID | 对应产物 | 当前检查状态 |
+| --- | --- | --- | --- |
+| `00` | `00_input_request` | `template_generation_request.json`、`00_input_source_template.docx` | 先登记输入，不作为独立质量验收 |
+| `01` | `01_source_parse` | `source_template_tree.json` | `not_configured` |
+| `02` | `02_structure_discovery` | `template_structure_candidates.json` | `not_configured` |
+| `03` | `03_generation_model` | `template_generation_model.json` | `not_configured` |
+| `04` | `04_plan_build` | `template_generation_plan.json` | `not_configured` |
+| `05` | `05_action_execution` | `05.0_copy_source_docx.docx`、`05.1_generated_template.docx`、`generated_template.docx`、`05.2_template_generation_manifest.json` | `not_configured` |
+| `06` | `06_final_template_gap` | `generated_template_tree.json`、`template_gap_report.json`、`template_gap_report.md`、`template_gap_report.docx` | `enabled` |
+| `99` | `99_debug_index` | `99_template_generation_debug_index.json` | 调试索引，不是 verifier 阶段 |
+
+`00` 和 `99` 是运行上下文和索引，不应该被写成业务质量 `PASS`。真正会逐步接检查器的是 `01` 到 `06`；当前只有 `06_final_template_gap` 已经有稳定检查器。
+
 ## 产品评测能力和测试代码边界
 
 | 文件或目录 | 身份 | 当前用途 |
@@ -60,7 +77,7 @@ Last updated: 2026-06-22
 
 | 字段 | 含义 |
 | --- | --- |
-| `stage_id` | 阶段 ID，例如 `source_parse` 或 `final_template_gap` |
+| `stage_id` | 带编号的阶段 ID，例如 `01_source_parse` 或 `06_final_template_gap` |
 | `input_artifacts` | 检查器读取哪些输入产物 |
 | `output_artifacts` | 检查器检查哪些输出产物 |
 | `verifier_state` | 检查器是否已配置，例如 `enabled`、`not_configured`、`missing_standard` |
@@ -75,12 +92,12 @@ Last updated: 2026-06-22
 
 | 阶段 | 检查对象 | 当前检查状态 | 当前建议 |
 | --- | --- | --- | --- |
-| `source_parse` | `source_template_tree.json` 是否完整表达源 Word 事实 | `not_configured` | 先登记输入输出，等解析标准明确后再启用 |
-| `structure_discovery` | `template_structure_candidates.json` 是否正确识别候选 unit 和 logical element | `not_configured` | 先登记输入输出，不把当前启发式当标准 |
-| `generation_model` | `template_generation_model.json` 是否把候选结构转成正确策略 | `not_configured` | 先登记输入输出，等学校标准和策略标准明确 |
-| `plan_build` | `template_generation_plan.json` 是否完整表达要执行的 Word action | `not_configured` | 先登记输入输出，后续检查 action 来源和冲突 |
-| `action_execution` | `generated_template.docx` 和 `template_generation_manifest.json` 是否与 plan 对齐 | `not_configured` | 先登记输入输出，后续检查 action 是否真的执行 |
-| `final_template_gap` | `generated_template.docx` 是否满足 `template_unit_contract.yaml` | `enabled` | 当前第一个可运行示例，继续使用现有 `template-gap` |
+| `01_source_parse` | `source_template_tree.json` 是否完整表达源 Word 事实 | `not_configured` | 先登记输入输出，等解析标准明确后再启用 |
+| `02_structure_discovery` | `template_structure_candidates.json` 是否正确识别候选 unit 和 logical element | `not_configured` | 先登记输入输出，不把当前启发式当标准 |
+| `03_generation_model` | `template_generation_model.json` 是否把候选结构转成正确策略 | `not_configured` | 先登记输入输出，等学校标准和策略标准明确 |
+| `04_plan_build` | `template_generation_plan.json` 是否完整表达要执行的 Word action | `not_configured` | 先登记输入输出，后续检查 action 来源和冲突 |
+| `05_action_execution` | `generated_template.docx` 和 `template_generation_manifest.json` 是否与 plan 对齐 | `not_configured` | 先登记输入输出，后续检查 action 是否真的执行 |
+| `06_final_template_gap` | `generated_template.docx` 是否满足 `template_unit_contract.yaml` | `enabled` | 当前第一个可运行示例，继续使用现有 `template-gap` |
 
 这张表的重点是先把“有产物”和“产物已验收”分开。前五个阶段现在可以有产物、可以有 debug、可以被人工排查，但不能因为命令跑完就算阶段验证通过。
 
@@ -124,16 +141,16 @@ Last updated: 2026-06-22
 
 | 测试目标 | 期望 |
 | --- | --- |
-| 阶段清单稳定 | 报告里列出 `source_parse` 到 `final_template_gap` |
+| 阶段清单稳定 | 报告里列出 `01_source_parse` 到 `06_final_template_gap` |
 | 未配置阶段不伪装成通过 | `verifier_state = not_configured` 时没有 `status = PASS` |
-| 最终 gap 作为示例接入 | `final_template_gap` 能复用现有 gap 检查结果 |
+| 最终 gap 作为示例接入 | `06_final_template_gap` 能复用现有 gap 检查结果 |
 | 缺最终 gap 输入 | 返回 `UNKNOWN`，不能跳过检查后成功 |
 | 聚合报告可读 | 人能看到哪些检查启用、哪些只是等待标准 |
 
 ## 当前最小落地顺序
 
 1. 先新增阶段检查聚合结构，只登记阶段和检查状态。
-2. 把现有 `template-gap` 挂成 `final_template_gap` 的第一个已启用检查器。
+2. 把现有 `template-gap` 挂成 `06_final_template_gap` 的第一个已启用检查器。
 3. 让未配置阶段明确显示 `not_configured`，不参与 gate，也不显示成 `PASS`。
 4. 等每个阶段的输入和输出标准定下来后，再逐个补阶段检查器。
 5. 每补一个检查器，都补合同测试证明它的 `PASS` / `FAIL` / `UNKNOWN` 行为。

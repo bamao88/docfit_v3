@@ -148,7 +148,7 @@ generation_model = build_template_generation_model(request, structure_candidates
 | 不证明 `generated_template.docx` 最终真的长对了 | `generated_template_tree.json` 和 `template_gap_report.*` |
 | 不让 AI 改写事实或状态 | 只能由确定性解析和后续检查器产出证据 |
 
-如果 `source_template_tree.json` 缺内容，`first_bad_stage` 是 `source_parse`，应该优先看 `inspect_source_template_docx` 和底层 Word / OOXML inspector；不应该先改 action plan、manifest 或 gap 报告。
+如果 `source_template_tree.json` 缺内容，`first_bad_stage` 是 `01_source_parse`，应该优先看 `inspect_source_template_docx` 和底层 Word / OOXML inspector；不应该先改 action plan、manifest 或 gap 报告。
 
 ## 当前真实命令
 
@@ -242,17 +242,17 @@ evidence_refs
 
 | 现象 | 先看什么 | first_bad_stage | 应该改哪里 |
 | --- | --- | --- | --- |
-| 输入文件拿错 | `00_input_source_template.docx` | input | 调用命令或 profile 绑定 |
-| 源 Word 内容没被解析出来 | `01_source_template_tree.json` | source_parse | `inspect_source_template_docx` |
-| unit 没识别或识别错 | `02_template_structure_candidates.json` | unit_detection | `build_template_structure_candidates` |
-| 人工指出“源模板元素 12 不该被删或合并错” | 先用 `source_seq = 12` 查阶段二 `source_seq_refs[]`，再查阶段三 cleanup / plan action | structure_discovery / model_materialize / plan_build | 先定位 12 第一次被标成什么角色，再改对应阶段 |
-| 候选角色或最终策略错 | `02_template_structure_candidates.json` 的 `role_hint` / `candidate_policy`，以及 `03_template_generation_model.json` 的最终 `policy` / `unit_strategies` | candidate_policy 或 model_materialize | `structure_candidates.py` 或 `generation_model.py` |
-| 应整体复制却变成 patch | `03_template_generation_model.json` 的 `unit_strategies[]` | mode_selection | `build_template_generation_model` |
-| 决策对但 action 错 | `04_template_generation_plan.json` | plan_build | `build_template_generation_plan` |
-| `05.0_copy_source_docx.docx` 已经不对 | 打开 `05.0` | copy_execution | 整包复制和输入 DOCX |
-| `05.0` 对但 `05.1_generated_template.docx` 不对 | 对比 `05.0` 和 `05.1` | action_execution | `execute_template_generation_plan` |
-| manifest 看不出做了什么 | `05.2_template_generation_manifest.json` | trace_missing | `build_template_generation_manifest` |
-| gap 报告大面积误报 | 先看 `generated_template_tree.json` 和 unit 定位 | gap_region_or_evidence | generated-template inspector / gap checker |
+| 输入文件拿错 | `00_input_source_template.docx` | `00_input_request` | 调用命令或 profile 绑定 |
+| 源 Word 内容没被解析出来 | `01_source_template_tree.json` | `01_source_parse` | `inspect_source_template_docx` |
+| unit 没识别或识别错 | `02_template_structure_candidates.json` | `02_structure_discovery` | `build_template_structure_candidates` |
+| 人工指出“源模板元素 12 不该被删或合并错” | 先用 `source_seq = 12` 查阶段二 `source_seq_refs[]`，再查阶段三 cleanup / plan action | `02_structure_discovery` / `03_generation_model` / `04_plan_build` | 先定位 12 第一次被标成什么角色，再改对应阶段 |
+| 候选角色或最终策略错 | `02_template_structure_candidates.json` 的 `role_hint` / `candidate_policy`，以及 `03_template_generation_model.json` 的最终 `policy` / `unit_strategies` | `02_structure_discovery` 或 `03_generation_model` | `structure_candidates.py` 或 `generation_model.py` |
+| 应整体复制却变成 patch | `03_template_generation_model.json` 的 `unit_strategies[]` | `03_generation_model` | `build_template_generation_model` |
+| 决策对但 action 错 | `04_template_generation_plan.json` | `04_plan_build` | `build_template_generation_plan` |
+| `05.0_copy_source_docx.docx` 已经不对 | 打开 `05.0` | `05_action_execution` | 整包复制和输入 DOCX |
+| `05.0` 对但 `05.1_generated_template.docx` 不对 | 对比 `05.0` 和 `05.1` | `05_action_execution` | `execute_template_generation_plan` |
+| manifest 看不出做了什么 | `05.2_template_generation_manifest.json` | `05_action_execution` | `build_template_generation_manifest` |
+| gap 报告大面积误报 | 先看 `generated_template_tree.json` 和 unit 定位 | `06_final_template_gap` | generated-template inspector / gap checker |
 
 不要看到最终 Word 不对就直接改 gap 报告或最终渲染；先定位问题第一次出现在哪一步。
 
@@ -273,10 +273,10 @@ evidence_refs
 
 当前调试快照使用阶段对齐编号：
 `00` 表示运行输入、请求和上下文；`01` 到 `05` 分别对应
-`source_parse`、`structure_discovery`、`generation_model`、`plan_build`、
-`action_execution`；小数点只表示阶段内子产物，不用于保留旧产物名兼容文件。
+`01_source_parse`、`02_structure_discovery`、`03_generation_model`、`04_plan_build`、
+`05_action_execution`；小数点只表示阶段内子产物，不用于保留旧产物名兼容文件。
 如果同一目录后续纳入最终模板差距检查，可用 `06` 表示
-`final_template_gap`；`99` 留给 debug index 这类非阶段索引文件。
+`06_final_template_gap`；`99` 留给 debug index 这类非阶段索引文件。
 
 ## 最近一次验证记录
 
