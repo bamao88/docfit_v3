@@ -118,15 +118,13 @@ manifest = build_template_generation_manifest(
 | --- | --- |
 | 模块 | `src/docfit/stages/template_generate/structure_candidates.py` |
 | 产物 | `template_structure_candidates.json` |
-| 已完成 | 识别候选 unit；生成第一版 logical element；连续说明文字可以合并；输出 `candidate_policy`、`role_hint`、`evidence[]`、`source_seq_refs[]`、`source_context` |
+| 已完成 | 识别候选 unit；生成 logical element；连续说明文字、表格同一行 label/value、跨段落业务句 continuation 可以合并；输出 `candidate_policy`、`role_hint`、`evidence[]`、`source_seq_refs[]`、`source_context` |
 | 不负责 | 不决定最终 `generation_mode`，不生成 slot，不生成 Word action |
 
 下一步优化：
 
 | 要改什么 | 应该改哪里 | 验收重点 |
 | --- | --- | --- |
-| 表格同一行 label + blank 合并 | `_logical_entry_groups` / element 构建逻辑 | 例如“论文题目：____”这类表格行能成为一个 logical element，并保留全部 `source_seq_refs[]` |
-| 跨段落业务句 continuation 合并 | `_logical_entry_groups` | 视觉上一句话被拆成多段时，能说明是合并而来，而不是把每片误判成不同角色 |
 | 固定枚举化 `role_hint` | element policy 规则 | 阶段三不消费自由文本猜测 |
 | 补 `conflicts[]` 和 `open_questions[]` | structure candidates 顶层和 unit/element 层 | 证据不足不伪装成确定策略 |
 | 更明确的 copy-only 内部候选边界 | `_copy_only_unit_elements` | 说明文字可进入 cleanup，填写痕迹只作为证据，不能在阶段二变 slot |
@@ -211,14 +209,17 @@ manifest = build_template_generation_manifest(
 | 2026-06-22 | `uv run python -m py_compile src/docfit/stages/template_generate/*.py` | `PASS` | 模板生成阶段模块语法检查通过 |
 | 2026-06-22 | `uv run pytest tests/contract/test_template_generate.py -q` | `PASS`，9 passed | 覆盖新阶段产物、debug 编号、`source_seq`、action 来源追踪 |
 | 2026-06-22 | `uv run pytest tests/contract -q` | `PASS`，71 passed | 合同测试矩阵通过，真实 real-core 链路没有说明文字泄漏回归 |
+| 2026-06-22 | `uv run pytest tests/contract/test_template_generate.py -q` | `PASS`，11 passed | 覆盖阶段二表格 label/value 合并、跨段落业务句 continuation 合并和来源序号保留 |
+| 2026-06-22 | `uv run pytest tests/contract -q` | `PASS`，73 passed | 合同测试矩阵通过，阶段二合并增强没有破坏现有消费者 |
+| 2026-06-22 | `uv run docfit eval template-generate --template test_inputs/template_generation/school-hunannongye-requirement.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_generate_stage2_merge_check` | `PASS` | 真实湖南农业大学模板生成命令仍能写出生成模板和阶段产物 |
 
 这些验证只证明模板生成支撑流程按当前合同工作；不证明任何真实学校生成模板已经满足最终学校格式标准。真实学校合格性仍必须看 `template-gap` 的 `PASS / FAIL / UNKNOWN`。
 
-## 下一步最小工作包
+## 工作包状态
 
-| 优先级 | 工作包 | 目标文件 | 完成标准 |
+| 优先级 | 工作包 | 目标文件 | 状态 |
 | --- | --- | --- | --- |
-| 1 | 补阶段二更深 logical element 合并 | `structure_candidates.py`、`tests/contract/test_template_generate.py` | 表格 label/value、跨段落 continuation 能合并并保留全部来源序号 |
+| 1 | 补阶段二更深 logical element 合并 | `structure_candidates.py`、`tests/contract/test_template_generate.py` | 已完成；表格 label/value、跨段落 continuation 能合并并保留全部来源序号 |
 | 2 | 阶段三接入学校标准和模板内容责任 | `generation_model.py`、相关 CLI/e2e 输入 | copy-only / patch 不只靠全局 unit_id 基线，也不依赖某一次学生源内容台账 |
 | 3 | 阶段检查归因落地 | harness/report 层 | 能表达 `input_check`、`output_check`、`first_bad_phase`、下游症状 |
 | 4 | 报告可读性增强 | manifest、pm report、debug index | 人工能从报告直接定位到源模板元素序号和 action |

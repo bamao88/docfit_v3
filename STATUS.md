@@ -1,6 +1,6 @@
 # DocFit Status
 
-Last updated: 2026-06-21
+Last updated: 2026-06-22
 
 Current focus:
 
@@ -16,14 +16,15 @@ Current state:
 
 - `real-core-v0` 已注册三所学校、三份学生文档、九个学校/学生组合。
 - `docfit eval template-generate --template ... --out ...` 已经跑通模板生成支撑流程：
-  它会写出 `source_template_tree.json`、`discovered_template_rules.json`、
-  `template_artifact.json`、`template_unit_decisions.json`、
-  `template_generation_plan.json`、顶层 `generated_template.docx` 和
-  `template_generation_manifest.json`。这证明生成支撑流程的证据链已经存在；
+  它会写出 `source_template_tree.json`、`template_structure_candidates.json`、
+  `template_generation_model.json`、`template_generation_plan.json`、
+  顶层 `generated_template.docx` 和 `template_generation_manifest.json`。
+  这证明生成支撑流程的证据链已经存在；
   学校格式质量仍要交给 `template-gap` 和 real-core gate 判定。
   生成器代码现在已经按源 Word 事实、候选结构、生成模型、动作计划、执行/manifest
   拆成模块；copy-only 单元会做受限内部识别，内部说明文字可以进入 cleanup，
-  但内部填写痕迹不会自动生成学生内容 slot。
+  表格同一行 label/value 和跨段落业务句 continuation 会在阶段二合并并保留
+  `source_seq_refs[]`，但内部填写痕迹不会自动生成学生内容 slot。
   单独的 `template-generate` 不接受 `--school`，也不读取学校签收标准；
   real-core 的 template/e2e 编排会在生成后把本次 `generated_template.docx`
   交给 `template-gap`，由签收标准里的 `expected.units` 判定学校格式质量。

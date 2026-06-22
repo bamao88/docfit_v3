@@ -156,6 +156,75 @@ def test_template_generate_cleans_instruction_text_inside_table_cells(tmp_path) 
     assert any("[[DOCFIT_SLOT:" in text for text in table_texts(generated))
 
 
+def test_template_generate_merges_table_label_value_candidates(tmp_path) -> None:
+    source = tmp_path / "test_inputs/template_generation/school-template-table-label.docx"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    doc = Document()
+    doc.add_paragraph("摘要")
+    table = doc.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "学生姓名："
+    table.cell(0, 1).text = "____"
+    doc.add_paragraph("正文")
+    doc.save(source)
+
+    result = run_template_generate_eval(tmp_path, source, tmp_path / "template_generate")
+    structure_candidates = read_json(
+        tmp_path / "template_generate/artifacts/template_structure_candidates.json"
+    )
+    merged = next(
+        element
+        for unit in structure_candidates["units"]
+        for element in unit["elements"]
+        if element.get("source_refs")
+        == [
+            "word/document.xml:tbl[1]/tr[1]/tc[1]",
+            "word/document.xml:tbl[1]/tr[1]/tc[2]",
+        ]
+    )
+
+    assert result.status == Status.PASS
+    assert merged["candidate_policy"] == "fill"
+    assert merged["role_hint"] == "student_field_candidate"
+    assert len(merged["source_seq_refs"]) == 2
+    assert len(merged["entry_refs"]) == 2
+    assert merged["merge"]["type"] == "table_row_label_value"
+    assert merged["merge"]["merged_source_seq_refs"] == merged["source_seq_refs"]
+
+
+def test_template_generate_merges_business_sentence_continuation(tmp_path) -> None:
+    source = tmp_path / "test_inputs/template_generation/school-template-continuation.docx"
+    out_dir = tmp_path / "template_generate"
+    write_source_docx(
+        source,
+        [
+            "摘要",
+            "摘要正文：本研究围绕生成流程，",
+            "重点讨论阶段证据链。",
+            "正文",
+        ],
+    )
+
+    result = run_template_generate_eval(tmp_path, source, out_dir)
+    structure_candidates = read_json(out_dir / "artifacts/template_structure_candidates.json")
+    abstract = next(
+        unit for unit in structure_candidates["units"] if unit["unit_id"] == "abstract_cn"
+    )
+    merged = next(
+        element
+        for element in abstract["elements"]
+        if element.get("source_refs")
+        == ["word/document.xml:p[2]", "word/document.xml:p[3]"]
+    )
+
+    assert result.status == Status.PASS
+    assert merged["candidate_policy"] == "fill"
+    assert merged["role_hint"] == "student_field_candidate"
+    assert merged["source_seq_refs"] == [2, 3]
+    assert merged["entry_refs"] == ["body_0002", "body_0003"]
+    assert merged["merge"]["type"] == "business_sentence_continuation"
+    assert merged["merge"]["merged_source_seq_refs"] == [2, 3]
+
+
 def test_template_generate_invalid_docx_fails_without_output(tmp_path) -> None:
     source = tmp_path / "test_inputs/template_generation/not-a-docx.docx"
     source.parent.mkdir(parents=True, exist_ok=True)

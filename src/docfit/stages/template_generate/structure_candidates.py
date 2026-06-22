@@ -327,21 +327,145 @@ def _logical_entry_groups(entries: list[dict[str, Any]]) -> list[list[dict[str, 
         if not text:
             index += 1
             continue
-        if _looks_like_instruction(text):
-            group = [entry]
-            index += 1
-            while index < len(entries):
-                candidate = entries[index]
-                candidate_text = str(candidate.get("text", "")).strip()
-                if not candidate_text or not _looks_like_instruction(candidate_text):
-                    break
-                group.append(candidate)
-                index += 1
-            groups.append(group)
+
+        table_pair = _table_label_value_pair(entries, index)
+        if table_pair:
+            groups.append(table_pair)
+            index += len(table_pair)
             continue
-        groups.append([entry])
+
+        group = [entry]
         index += 1
+        while index < len(entries):
+            candidate = entries[index]
+            if not _should_merge_entry_continuation(group[-1], candidate):
+                break
+            group.append(candidate)
+            index += 1
+        groups.append(group)
     return groups
+
+
+def _table_label_value_pair(
+    entries: list[dict[str, Any]],
+    index: int,
+) -> list[dict[str, Any]]:
+    if index + 1 >= len(entries):
+        return []
+    entry = entries[index]
+    candidate = entries[index + 1]
+    if not (_is_table_cell(entry) and _is_table_cell(candidate)):
+        return []
+    if _table_row_ref(entry) != _table_row_ref(candidate):
+        return []
+
+    text = str(entry.get("text", "")).strip()
+    candidate_text = str(candidate.get("text", "")).strip()
+    if not text or not candidate_text:
+        return []
+    if _looks_like_instruction(text) or _looks_like_instruction(candidate_text):
+        return []
+    if not _looks_like_fillable_label_fragment(text):
+        return []
+    if not _looks_like_table_value_fragment(candidate):
+        return []
+    return [entry, candidate]
+
+
+def _should_merge_entry_continuation(
+    previous: dict[str, Any],
+    candidate: dict[str, Any],
+) -> bool:
+    previous_text = str(previous.get("text", "")).strip()
+    candidate_text = str(candidate.get("text", "")).strip()
+    if not previous_text or not candidate_text:
+        return False
+    if _is_table_cell(previous) or _is_table_cell(candidate):
+        return False
+
+    previous_is_instruction = _looks_like_instruction(previous_text)
+    candidate_is_instruction = _looks_like_instruction(candidate_text)
+    if previous_is_instruction and candidate_is_instruction:
+        return not _starts_new_logical_entry(candidate)
+    if candidate_is_instruction:
+        return False
+    if _starts_new_logical_entry(candidate):
+        return False
+    if _looks_like_fillable_label_fragment(candidate_text):
+        return False
+
+    if previous_is_instruction:
+        return _continues_business_sentence(previous_text, candidate_text)
+    return _continues_business_sentence(previous_text, candidate_text)
+
+
+def _continues_business_sentence(previous_text: str, candidate_text: str) -> bool:
+    previous = previous_text.strip()
+    candidate = candidate_text.strip()
+    if not previous or not candidate:
+        return False
+    if previous.endswith(("，", ",", "、", "；", ";", "：", ":")):
+        return True
+    if _has_unclosed_bracket(previous):
+        return True
+    if previous.endswith(("。", "！", "？", ".", "!", "?")):
+        return False
+    return candidate.startswith(("，", ",", "、", "；", ";", "）", ")"))
+
+
+def _has_unclosed_bracket(text: str) -> bool:
+    return (
+        text.count("（") > text.count("）")
+        or text.count("(") > text.count(")")
+        or text.count("《") > text.count("》")
+    )
+
+
+def _is_table_cell(entry: dict[str, Any]) -> bool:
+    return entry.get("kind") == "table_cell" or "/tc[" in str(
+        entry.get("source_ref") or ""
+    )
+
+
+def _table_row_ref(entry: dict[str, Any]) -> str | None:
+    match = re.search(
+        r"(word/document\.xml:tbl\[\d+\]/tr\[\d+\])",
+        str(entry.get("source_ref") or ""),
+    )
+    if not match:
+        return None
+    return match.group(1)
+
+
+def _looks_like_fillable_label_fragment(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if not any(label in stripped for label in FILLABLE_LABELS):
+        return False
+    return stripped.endswith((":", "：")) or any(
+        marker in stripped for marker in FILLABLE_MARKERS
+    )
+
+
+def _looks_like_table_value_fragment(entry: dict[str, Any]) -> bool:
+    text = str(entry.get("text", "")).strip()
+    if not text:
+        return False
+    if _starts_new_logical_entry(entry):
+        return False
+    if _looks_like_fillable_label_fragment(text):
+        return False
+    value_markers = ("××", "□□", "____", "——", "___")
+    return any(marker in text for marker in value_markers) or len(text) <= 40
+
+
+def _starts_new_logical_entry(entry: dict[str, Any]) -> bool:
+    text = str(entry.get("text", "")).strip()
+    if not text:
+        return False
+    unit_id, _ = _unit_for_text(text, int(float(entry.get("order") or 0)))
+    return bool(unit_id) or _looks_like_heading(entry)
 
 
 def _merged_text(entries: list[dict[str, Any]]) -> str:
@@ -366,21 +490,7 @@ def _element_from_entries(
     source_seq_refs = _source_seq_refs_for_entries(entries)
     source_ref = source_refs[0] if source_refs else ""
     candidate_policy = policy_hint or policy
-    merge = {
-        "type": "single_source_entry",
-        "merged_source_seq_refs": source_seq_refs,
-        "reason": "单个阶段一元素形成候选元素",
-    }
-    if len(entries) > 1:
-        merge = {
-            "type": "instruction_block_continuation"
-            if all(_looks_like_instruction(str(entry.get("text", ""))) for entry in entries)
-            else "entry_continuation",
-            "merged_source_seq_refs": source_seq_refs,
-            "reason": "连续说明文字合并"
-            if all(_looks_like_instruction(str(entry.get("text", ""))) for entry in entries)
-            else "连续源元素合并",
-        }
+    merge = _merge_details_for_entries(entries, source_seq_refs)
     return {
         "element_id": element_id,
         "name": _element_name(anchor["unit_id"], text, candidate_policy),
@@ -415,6 +525,46 @@ def _element_from_entries(
         "confidence": "medium",
         "review_notes": [],
     }
+
+
+def _merge_details_for_entries(
+    entries: list[dict[str, Any]],
+    source_seq_refs: list[int],
+) -> dict[str, Any]:
+    if len(entries) == 1:
+        return {
+            "type": "single_source_entry",
+            "merged_source_seq_refs": source_seq_refs,
+            "reason": "单个阶段一元素形成候选元素",
+        }
+    if _entries_are_same_table_row(entries):
+        return {
+            "type": "table_row_label_value",
+            "merged_source_seq_refs": source_seq_refs,
+            "reason": "同一表格行的标签和值合并为一个候选元素",
+        }
+    if all(_looks_like_instruction(str(entry.get("text", ""))) for entry in entries):
+        return {
+            "type": "instruction_block_continuation",
+            "merged_source_seq_refs": source_seq_refs,
+            "reason": "连续说明文字合并",
+        }
+    if any(_looks_like_instruction(str(entry.get("text", ""))) for entry in entries):
+        return {
+            "type": "instruction_block_continuation",
+            "merged_source_seq_refs": source_seq_refs,
+            "reason": "说明文字和后续延续片段合并",
+        }
+    return {
+        "type": "business_sentence_continuation",
+        "merged_source_seq_refs": source_seq_refs,
+        "reason": "跨段落业务句延续合并",
+    }
+
+
+def _entries_are_same_table_row(entries: list[dict[str, Any]]) -> bool:
+    row_refs = {_table_row_ref(entry) for entry in entries}
+    return len(entries) > 1 and None not in row_refs and len(row_refs) == 1
 
 
 def _role_hint_for_policy(policy: str) -> str:

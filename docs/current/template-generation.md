@@ -20,7 +20,7 @@ generated_template.docx + template_unit_contract.yaml -> template_gap_report.*
 
 ## 模板生成策略优化
 
-一句话结论：当前生成器先整包复制源 Word，再按计划局部 patch；代码已经按五步证据链拆成模块，阶段一会给可见元素分配 `source_seq`，阶段二写 `template_structure_candidates`，阶段三写单一 `template_generation_model`，copy-only 单元会做受限内部识别，说明文字可以进入 cleanup，但填写痕迹不会自动变成学生内容 slot。
+一句话结论：当前生成器先整包复制源 Word，再按计划局部 patch；代码已经按五步证据链拆成模块，阶段一会给可见元素分配 `source_seq`，阶段二写 `template_structure_candidates` 并能合并连续说明文字、表格同一行 label/value 和跨段落业务句，阶段三写单一 `template_generation_model`，copy-only 单元会做受限内部识别，说明文字可以进入 cleanup，但填写痕迹不会自动变成学生内容 slot。
 
 各阶段代码优化地图、下一步改哪里和 `first_bad_stage` 快速定位见：
 
@@ -290,6 +290,9 @@ evidence_refs
 | 2026-06-21 | 验证生成 Word 进入 gap | `uv run docfit eval template-gap --school hunannongye --generated-template test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/doc_reorg_template_generate_hunannongye_20260621/generated_template.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/doc_reorg_template_gap_hunannongye_20260621` | `FAIL` | gap summary 为 `FAIL + UNKNOWN`，`passed=128`、`failed=27`、`unknown=137` |
 | 2026-06-22 | 验证阶段二/三目标产物切换和 `source_seq` 追踪 | `uv run pytest tests/contract/test_template_generate.py -q` | `PASS` | `9 passed`；覆盖 `template_structure_candidates`、`template_generation_model`、阶段编号 debug、action 来源序号 |
 | 2026-06-22 | 验证合同测试矩阵 | `uv run pytest tests/contract -q` | `PASS` | `71 passed`；真实 real-core 链路没有说明文字泄漏回归 |
+| 2026-06-22 | 验证阶段二 logical element 合并增强 | `uv run pytest tests/contract/test_template_generate.py -q` | `PASS` | `11 passed`；覆盖表格 label/value 合并、跨段落业务句 continuation 合并和 `source_seq_refs[]` 保留 |
+| 2026-06-22 | 验证合同测试矩阵 | `uv run pytest tests/contract -q` | `PASS` | `73 passed`；阶段二合并增强没有破坏现有消费者 |
+| 2026-06-22 | 验证真实模板生成命令 | `uv run docfit eval template-generate --template test_inputs/template_generation/school-hunannongye-requirement.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_generate_stage2_merge_check` | `PASS` | 真实湖南农业大学模板生成命令仍能写出生成模板和阶段产物 |
 
 这说明模板生成支撑流程能跑并能进入学校标准检查；不说明湖南农业大学生成模板已经合格。
 
