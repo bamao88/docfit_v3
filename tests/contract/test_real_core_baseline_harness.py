@@ -25,7 +25,7 @@ ROOT = Path.cwd()
 
 
 def _link_real_core_inputs(root: Path) -> None:
-    for name in ["standards", "test_inputs", "docs"]:
+    for name in ["standards", "inputs", "eval_profiles", "docs"]:
         os.symlink(ROOT / name, root / name, target_is_directory=True)
 
 
@@ -47,24 +47,26 @@ def test_real_core_profile_declares_fixed_case_matrix() -> None:
 
 def test_real_core_template_generation_stage_standards_are_registered() -> None:
     expected_stage_refs = {
-        "01_source_parse": "template_generation_stages/01_source_parse.yaml",
-        "02_structure_discovery": "template_generation_stages/02_structure_discovery.yaml",
-        "03_generation_model": "template_generation_stages/03_generation_model.yaml",
-        "04_plan_build": "template_generation_stages/04_plan_build.yaml",
-        "05_action_execution": "template_generation_stages/05_action_execution.yaml",
+        "01_source_parse": "template_generation/01_source_parse.expected.yaml",
+        "02_structure_discovery": "template_generation/02_structure_discovery.expected.yaml",
+        "03_generation_model": "template_generation/03_generation_model.expected.yaml",
+        "04_plan_build": "template_generation/04_plan_build.expected.yaml",
+        "05_action_execution": "template_generation/05_action_execution.expected.yaml",
     }
 
     for school in REAL_CORE_SCHOOLS:
         school_id = str(school["school_id"])
-        school_dir = ROOT / "standards/schools" / school_id / "v1"
+        school_dir = ROOT / "standards/targets" / school_id / "v1"
         signed_standard = yaml.safe_load(
-            (school_dir / "signed_standard.yaml").read_text(encoding="utf-8")
+            (school_dir / "target.standard.yaml").read_text(encoding="utf-8")
         )
         stage_contract_refs = signed_standard["evidence_baselines"][
             "template_generation_stages"
         ]
         template_generation_final = yaml.safe_load(
-            (school_dir / "template_generation_final.yaml").read_text(encoding="utf-8")
+            (school_dir / "template_quality/final_template.expected.yaml").read_text(
+                encoding="utf-8"
+            )
         )
 
         assert stage_contract_refs == expected_stage_refs
@@ -85,7 +87,7 @@ def test_real_core_template_generation_stage_standards_are_registered() -> None:
             assert stage_contract["gate_policy"]["not_configured_is_not_pass"] is True
             assert stage_contract["accepted_source_facts"][
                 "upstream_template_generation_final"
-            ] == "../template_generation_final.yaml"
+            ] == "../template_quality/final_template.expected.yaml"
             assert stage_contract["expected"]["final_review_unit_order"] == [
                 unit["unit_id"] for unit in template_generation_final["expected"]["units"]
             ]
@@ -120,7 +122,7 @@ def test_real_core_coverage_does_not_pass_with_only_bound_word_image_evidence(tm
     _link_real_core_inputs(tmp_path)
     cases = [case for case in get_eval_cases_for_profile("real-core-v0") if case.stage == "e2e"]
     for case in cases:
-        case_dir = tmp_path / "test_outputs/debug/template_eval_runs/real-core-v0" / case.case_id
+        case_dir = tmp_path / "runs/eval/real-core-v0" / case.case_id
         evidence_dir = case_dir / "evidence"
         final_docx = case_dir / "final.docx"
         page_png = evidence_dir / "page-1.png"
@@ -197,7 +199,7 @@ def test_real_core_template_parse_outputs_reviewed_unit_tree_for_all_schools(tmp
             / "template_generation/artifacts/template_generation_manifest.json"
         ).exists()
         assert gap_report["generated_template"]["source_path"] == str(generated_from_stage)
-        assert "test_inputs/template_gap" not in gap_report[
+        assert "inputs/targets/" not in gap_report[
             "generated_template"
         ]["source_path"]
         assert artifact["provenance"]["source_template_docx"] == str(
@@ -248,7 +250,7 @@ def test_real_core_template_contract_verifier_reports_element_style_mismatch(
     result = run_template_eval(
         ROOT,
         "hunannongye",
-        ROOT / "test_inputs/template_generation/school-hunannongye-requirement.docx",
+        ROOT / "inputs/targets/hunannongye/raw/source_template.docx",
         tmp_path / "hunannongye",
     )
     assert result.status == Status.FAIL
@@ -273,7 +275,7 @@ def test_real_core_template_contract_requires_structured_expected_units(
     result = run_template_eval(
         ROOT,
         "hunannongye",
-        ROOT / "test_inputs/template_generation/school-hunannongye-requirement.docx",
+        ROOT / "inputs/targets/hunannongye/raw/source_template.docx",
         tmp_path / "hunannongye",
     )
     assert result.status == Status.FAIL
@@ -293,7 +295,7 @@ def test_real_core_e2e_reaches_render_and_writes_bound_final_docx(tmp_path) -> N
     result = run_e2e_eval(
         ROOT,
         "hunannongye",
-        ROOT / "test_inputs/content_extraction/real-student-001-source.docx",
+        ROOT / "inputs/students/real-student-001/raw/source_document.docx",
         tmp_path / "real_core_case",
     )
 
@@ -343,7 +345,7 @@ def test_required_dimension_without_comparator_policy_is_unknown() -> None:
         "baseline_type": "student_content_tree",
         "review_metadata": {
             "reviewed_by": "product-owner",
-            "review_source": "test_inputs/content_extraction/review.md",
+            "review_source": "inputs/students/review.md",
             "source_docx_sha256": "sha256:abc",
             "change_reason": "initial baseline",
             "auto_update_allowed": False,
@@ -362,7 +364,7 @@ def test_numeric_dimension_requires_explicit_tolerance() -> None:
         "baseline_type": "template_generation_final",
         "review_metadata": {
             "reviewed_by": "product-owner",
-            "review_source": "test_inputs/template_generation/review.txt",
+            "review_source": "inputs/targets/review.md",
             "source_docx_sha256": "sha256:abc",
             "change_reason": "initial baseline",
             "auto_update_allowed": False,
@@ -386,7 +388,7 @@ def test_baseline_cannot_allow_auto_update() -> None:
         "baseline_type": "render_feature_snapshot",
         "review_metadata": {
             "reviewed_by": "product-owner",
-            "review_source": "test_inputs/template_generation/review.txt",
+            "review_source": "inputs/targets/review.md",
             "source_docx_sha256": "sha256:abc",
             "change_reason": "initial baseline",
             "auto_update_allowed": True,

@@ -38,21 +38,22 @@ def test_unknown_when_standard_missing() -> None:
 def test_school_standard_tree_contains_only_runnable_standards() -> None:
     version_dirs = [
         path
-        for school_dir in (ROOT / "standards/schools").iterdir()
-        if school_dir.is_dir()
-        for path in school_dir.iterdir()
+        for target_dir in (ROOT / "standards/targets").iterdir()
+        if target_dir.is_dir()
+        for path in target_dir.iterdir()
         if path.is_dir()
     ]
 
     assert version_dirs
-    assert all((path / "signed_standard.yaml").exists() for path in version_dirs)
+    assert all((path / "target.standard.yaml").exists() for path in version_dirs)
 
 
 def test_unknown_when_signed_standard_capability_profile_drifts(tmp_path) -> None:
-    copied_school_root = tmp_path / "standards/schools/demo-school"
-    copied_school_root.parent.mkdir(parents=True)
-    shutil.copytree(ROOT / "standards/schools/demo-school", copied_school_root)
-    signed_standard = copied_school_root / "v1/signed_standard.yaml"
+    copied_target_root = tmp_path / "standards/targets/demo-school"
+    copied_target_root.parent.mkdir(parents=True)
+    shutil.copytree(ROOT / "standards/targets/demo-school", copied_target_root)
+    shutil.copytree(ROOT / "standards/contracts", tmp_path / "standards/contracts")
+    signed_standard = copied_target_root / "v1/target.standard.yaml"
     signed_standard.write_text(
         signed_standard.read_text(encoding="utf-8").replace(
             "  - content.visible_tables\n",
@@ -81,7 +82,7 @@ def test_fail_when_template_slot_missing(tmp_path) -> None:
 
 def test_fail_when_visible_content_missing_from_ledger() -> None:
     result = extract_student_content(
-        ROOT / "test_inputs/content_extraction/bootstrap-demo-student-pass.docx",
+        ROOT / "inputs/students/bootstrap-demo-pass/raw/source_document.docx",
         omit_content_id_for_test="c_002",
     )
 
@@ -91,7 +92,7 @@ def test_fail_when_visible_content_missing_from_ledger() -> None:
 
 def test_unknown_when_unsupported_visible_object() -> None:
     result = extract_student_content(
-        ROOT / "test_inputs/content_extraction/bootstrap-demo-student-unsupported-textbox.docx"
+        ROOT / "inputs/students/bootstrap-demo-unsupported-textbox/raw/source_document.docx"
     )
 
     assert result.status == Status.UNKNOWN
@@ -133,8 +134,8 @@ def test_numbered_body_headings_get_semantic_candidates(tmp_path) -> None:
 
 
 def test_bootstrap_coverage_checks_fixture_content_not_just_paths(tmp_path) -> None:
-    template = tmp_path / "test_inputs/template_generation/bootstrap-demo-school-template.docx"
-    student = tmp_path / "test_inputs/content_extraction/bootstrap-demo-student-pass.docx"
+    template = tmp_path / "inputs/targets/demo-school/raw/source_template.docx"
+    student = tmp_path / "inputs/students/bootstrap-demo-pass/raw/source_document.docx"
     expected_paths = BOOTSTRAP_PROFILE.expected_paths(tmp_path)
     expected_snapshot = expected_paths["feature_snapshot"]
     expected_placement = expected_paths["placement_plan"]
@@ -165,7 +166,7 @@ def test_bootstrap_coverage_checks_fixture_content_not_just_paths(tmp_path) -> N
 def test_fail_when_content_unplaced() -> None:
     bundle = _bundle()
     template = parse_template(bundle.template_docx, bundle)
-    content = extract_student_content(ROOT / "test_inputs/content_extraction/bootstrap-demo-student-pass.docx")
+    content = extract_student_content(ROOT / "inputs/students/bootstrap-demo-pass/raw/source_document.docx")
 
     result = build_placement_plan(
         template.artifacts["template_artifact"],

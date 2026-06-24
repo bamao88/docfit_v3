@@ -65,8 +65,8 @@ uv run pytest
 ```bash
 uv run docfit eval e2e \
   --school demo-school \
-  --student test_inputs/content_extraction/bootstrap-demo-student-pass.docx \
-  --out test_outputs/debug/template_eval_runs/bootstrap_pass
+  --student inputs/students/bootstrap-demo-pass/raw/source_document.docx \
+  --out runs/eval/bootstrap_pass
 ```
 
 运行 real-core-v0 coverage gate：

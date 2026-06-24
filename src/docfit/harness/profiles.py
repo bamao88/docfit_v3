@@ -71,30 +71,30 @@ BOOTSTRAP_PROFILE = EvalProfile(
             "render.content_hash_coverage",
         ),
     },
-    expected_dir=Path("standards/eval_profiles/bootstrap-core/expected"),
+    expected_dir=Path("standards/cases/demo-school__bootstrap-demo/v1"),
     expected_placement_plan=Path(
-        "standards/eval_profiles/bootstrap-core/expected/placement_plan.json"
+        "standards/cases/demo-school__bootstrap-demo/v1/placement/placement_plan.expected.json"
     ),
     expected_feature_snapshot=Path(
-        "standards/eval_profiles/bootstrap-core/expected/feature_snapshot.json"
+        "standards/cases/demo-school__bootstrap-demo/v1/render/feature_snapshot.expected.json"
     ),
 )
 
 BOOTSTRAP_TEMPLATE_DOCX = Path(
-    "test_inputs/template_generation/bootstrap-demo-school-template.docx"
+    "inputs/targets/demo-school/raw/source_template.docx"
 )
 BOOTSTRAP_PASS_STUDENT_DOCX = Path(
-    "test_inputs/content_extraction/bootstrap-demo-student-pass.docx"
+    "inputs/students/bootstrap-demo-pass/raw/source_document.docx"
 )
 BOOTSTRAP_UNSUPPORTED_TEXTBOX_DOCX = Path(
-    "test_inputs/content_extraction/bootstrap-demo-student-unsupported-textbox.docx"
+    "inputs/students/bootstrap-demo-unsupported-textbox/raw/source_document.docx"
 )
 BOOTSTRAP_SILENT_DROP_DOCX = Path(
-    "test_inputs/content_extraction/bootstrap-demo-student-silent-drop.docx"
+    "inputs/students/bootstrap-demo-silent-drop/raw/source_document.docx"
 )
 
 BOOTSTRAP_E2E_PASS_CASE = EvalCase(
-    case_id="bootstrap_e2e_demo_001",
+    case_id="demo-school__bootstrap-demo",
     school_id="demo-school",
     student_docx=BOOTSTRAP_PASS_STUDENT_DOCX,
     expected_status="PASS",
@@ -133,52 +133,47 @@ REAL_CORE_PROFILE = EvalProfile(
             "render.ai_advisory_boundary",
         ),
     },
-    expected_dir=Path("standards/eval_profiles/real-core-v0/expected"),
-    expected_placement_plan=Path(
-        "standards/eval_profiles/real-core-v0/expected/render_plans"
-    ),
-    expected_feature_snapshot=Path(
-        "standards/eval_profiles/real-core-v0/expected/render_feature_snapshots"
-    ),
+    expected_dir=Path("standards"),
+    expected_placement_plan=Path("standards/cases"),
+    expected_feature_snapshot=Path("standards/cases"),
 )
 
 REAL_CORE_SCHOOLS = (
     {
         "school_id": "hunannongye",
         "template_docx": Path(
-            "test_inputs/template_generation/school-hunannongye-requirement.docx"
+            "inputs/targets/hunannongye/raw/source_template.docx"
         ),
         "generated_template_docx": Path(
-            "test_inputs/template_gap/real-core-v0-hunannongye-generated-template.docx"
+            "inputs/targets/hunannongye/fixtures/template_gap/generated_template.input.docx"
         ),
         "review_source": Path(
-            "test_inputs/template_generation/school-hunannongye-template-review.txt"
+            "inputs/targets/hunannongye/raw/source_review.md"
         ),
     },
     {
         "school_id": "nannong-undergraduate",
         "template_docx": Path(
-            "test_inputs/template_generation/school-nannong-undergraduate-template.docx"
+            "inputs/targets/nannong-undergraduate/raw/source_template.docx"
         ),
         "generated_template_docx": Path(
-            "test_inputs/template_gap/"
-            "real-core-v0-nannong-undergraduate-generated-template.docx"
+            "inputs/targets/nannong-undergraduate/fixtures/template_gap/"
+            "generated_template.input.docx"
         ),
         "review_source": Path(
-            "test_inputs/template_generation/"
-            "school-nannong-undergraduate-template-review.txt"
+            "inputs/targets/nannong-undergraduate/raw/source_review.md"
         ),
     },
     {
         "school_id": "pku-graduate",
         "template_docx": Path(
-            "test_inputs/template_generation/school-pku-graduate-template.docx"
+            "inputs/targets/pku-graduate/raw/source_template.docx"
         ),
         "generated_template_docx": Path(
-            "test_inputs/template_gap/real-core-v0-pku-graduate-generated-template.docx"
+            "inputs/targets/pku-graduate/fixtures/template_gap/generated_template.input.docx"
         ),
         "review_source": Path(
-            "test_inputs/template_generation/school-pku-graduate-template-review.txt"
+            "inputs/targets/pku-graduate/raw/source_review.md"
         ),
     },
 )
@@ -186,24 +181,18 @@ REAL_CORE_SCHOOLS = (
 REAL_CORE_STUDENTS = (
     {
         "student_id": "real-student-001",
-        "student_docx": Path("test_inputs/content_extraction/real-student-001-source.docx"),
-        "review_source": Path(
-            "test_inputs/content_extraction/real-student-001-content-review.md"
-        ),
+        "student_docx": Path("inputs/students/real-student-001/raw/source_document.docx"),
+        "review_source": Path("inputs/students/real-student-001/raw/content_review.md"),
     },
     {
         "student_id": "real-student-002",
-        "student_docx": Path("test_inputs/content_extraction/real-student-002-source.docx"),
-        "review_source": Path(
-            "test_inputs/content_extraction/real-student-002-content-review.md"
-        ),
+        "student_docx": Path("inputs/students/real-student-002/raw/source_document.docx"),
+        "review_source": Path("inputs/students/real-student-002/raw/content_review.md"),
     },
     {
         "student_id": "real-student-003",
-        "student_docx": Path("test_inputs/content_extraction/real-student-003-source.docx"),
-        "review_source": Path(
-            "test_inputs/content_extraction/real-student-003-content-review.md"
-        ),
+        "student_docx": Path("inputs/students/real-student-003/raw/source_document.docx"),
+        "review_source": Path("inputs/students/real-student-003/raw/content_review.md"),
     },
 )
 
@@ -245,7 +234,7 @@ def _real_core_e2e_cases() -> tuple[EvalCase, ...]:
         cases.append(
             EvalCase(
                 case_id=(
-                    f"real_core_v0_{school['school_id']}_{student['student_id']}"
+                    f"{school['school_id']}__{student['student_id']}"
                 ),
                 school_id=str(school["school_id"]),
                 student_docx=student["student_docx"],

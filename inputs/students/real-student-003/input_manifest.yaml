@@ -1,0 +1,12 @@
+manifest_type: input_manifest
+manifest_version: 1
+student_id: real-student-003
+owner: docfit-core
+ai_may_edit: false
+files:
+  - path: raw/source_document.docx
+    role: source_student_document
+    sha256: sha256:cf49d90832c44d2f28e7fe6940217f4afe7c637f179b3610c75801b900e7d290
+  - path: raw/content_review.md
+    role: human_review_source
+    sha256: sha256:a444c2826368c75c10e7e6df780fdc496e7ab139ee5ae55de0100f9b79c6583c

@@ -10,12 +10,15 @@ from docx.shared import Pt
 from docfit.convert.orchestrator import run_template_gap_eval
 from docfit.core.io import read_json, sha256_file
 from docfit.core.status import Status
-from docfit.harness.generated_template_gap import summarize_template_gap_report
-from docfit.harness.generated_template_inspector import (
+from docfit.template_gap.gap import summarize_template_gap_report
+from docfit.template_gap.inspector import (
     inspect_generated_template_docx,
     iter_visible_text_entries,
 )
-from docfit.harness.profiles import REAL_CORE_PROFILE, REAL_CORE_SCHOOLS
+from docfit.harness.profiles import (
+    BOOTSTRAP_PROFILE,
+    REAL_CORE_SCHOOLS,
+)
 
 
 ROOT = Path.cwd()
@@ -64,9 +67,9 @@ def write_minimal_gap_standard(
     school_id: str,
     expected_units: list[dict],
 ) -> None:
-    school_dir = root / "standards/schools" / school_id / "v1"
+    school_dir = root / "standards/targets" / school_id / "v1"
     school_dir.mkdir(parents=True)
-    required = list(REAL_CORE_PROFILE.all_required_capabilities())
+    required = list(BOOTSTRAP_PROFILE.all_required_capabilities())
     signed_standard = {
         "standard_id": f"{school_id}-v1",
         "school_id": school_id,
@@ -74,24 +77,26 @@ def write_minimal_gap_standard(
         "status": "test_fixture",
         "owner": "docfit-tests",
         "source": {
-            "template_docx": "test_inputs/template_generation/minimal-template.docx",
+            "template_docx": "inputs/targets/demo-school/raw/source_template.docx",
             "template_docx_sha256": "sha256:test",
         },
         "contracts": {
             "template_contract": "template_contract.json",
+            "template_generation_contract": "template_generation_contract.json",
+            "template_quality_contract": "template_quality_contract.json",
             "student_content_contract": "student_content_contract.json",
             "placement_contract": "placement_contract.json",
             "render_contract": "render_contract.json",
         },
         "evidence_baselines": {
-            "template_generation_final": "template_generation_final.yaml",
+            "template_generation_final": "template_quality/final_template.expected.yaml",
         },
         "coverage_requirements": {
-            "profile": REAL_CORE_PROFILE.profile_id,
+            "profile": BOOTSTRAP_PROFILE.profile_id,
             "required_capabilities": required,
         },
     }
-    (school_dir / "signed_standard.yaml").write_text(
+    (school_dir / "target.standard.yaml").write_text(
         _simple_yaml(signed_standard),
         encoding="utf-8",
     )
@@ -123,7 +128,9 @@ def write_minimal_gap_standard(
         ],
         "expected": {"units": expected_units},
     }
-    (school_dir / "template_generation_final.yaml").write_text(
+    final_path = school_dir / "template_quality/final_template.expected.yaml"
+    final_path.parent.mkdir(parents=True, exist_ok=True)
+    final_path.write_text(
         _simple_yaml(baseline),
         encoding="utf-8",
     )
@@ -227,7 +234,7 @@ def minimal_expected_units(*, style: str = "") -> list[dict]:
 def test_template_gap_minimal_fixture_can_pass_cleanly(tmp_path) -> None:
     school_id = "minimal-school"
     write_minimal_gap_standard(tmp_path, school_id, minimal_expected_units())
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx(
         generated_template,
         ["测试大学", "学生姓名：", "第一章 绪论"],
@@ -255,7 +262,7 @@ def test_template_gap_treats_document_start_as_first_page_break(tmp_path) -> Non
     expected = minimal_expected_units()
     expected[0]["page"] = {"page_break": "是"}
     write_minimal_gap_standard(tmp_path, school_id, expected)
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx(
         generated_template,
         ["测试大学", "学生姓名：", "第一章 绪论"],
@@ -323,7 +330,7 @@ def test_template_gap_accepts_docfit_slot_and_generated_markers(tmp_path) -> Non
         },
     ]
     write_minimal_gap_standard(tmp_path, school_id, expected)
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx(
         generated_template,
         [
@@ -385,7 +392,7 @@ def test_template_gap_accepts_explicit_marker_outside_located_unit_range(
         },
     ]
     write_minimal_gap_standard(tmp_path, school_id, expected)
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx(
         generated_template,
         [
@@ -448,7 +455,7 @@ def test_template_gap_starts_first_unit_at_first_body_entry_when_anchor_is_ambig
         },
     ]
     write_minimal_gap_standard(tmp_path, school_id, expected)
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx(
         generated_template,
         [
@@ -509,7 +516,7 @@ def test_template_gap_does_not_use_header_footer_as_unit_anchor(tmp_path) -> Non
         },
     ]
     write_minimal_gap_standard(tmp_path, school_id, expected)
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx_with_header(generated_template, ["测试大学"], "致谢")
 
     result = run_template_gap_eval(
@@ -570,7 +577,7 @@ def test_template_gap_keeps_body_anchor_at_earlier_slot_before_placeholder_chapt
         },
     ]
     write_minimal_gap_standard(tmp_path, school_id, expected)
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx(
         generated_template,
         [
@@ -667,7 +674,7 @@ def test_template_gap_reports_out_of_order_toc_marker_instead_of_missing(
         },
     ]
     write_minimal_gap_standard(tmp_path, school_id, expected)
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx(
         generated_template,
         [
@@ -700,7 +707,7 @@ def test_template_gap_single_style_mutation_fails_only_that_element(tmp_path) ->
     school_id = "style-school"
     expected = minimal_expected_units(style="宋体；12pt；加粗；居中。")
     write_minimal_gap_standard(tmp_path, school_id, expected)
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx(
         generated_template,
         [
@@ -731,7 +738,7 @@ def test_template_gap_single_style_mutation_fails_only_that_element(tmp_path) ->
 def test_template_gap_missing_required_element_is_presence_fail(tmp_path) -> None:
     school_id = "missing-element-school"
     write_minimal_gap_standard(tmp_path, school_id, minimal_expected_units())
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx(generated_template, ["测试大学", "第一章 绪论"])
 
     result = run_template_gap_eval(
@@ -777,7 +784,7 @@ def test_template_gap_unsearchable_fixed_element_is_unknown_not_fail(tmp_path) -
         }
     ]
     write_minimal_gap_standard(tmp_path, school_id, expected)
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx(generated_template, ["测试大学"])
 
     result = run_template_gap_eval(
@@ -826,7 +833,7 @@ def test_template_gap_checks_page_rule_text_against_ooxml(
         }
     ]
     write_minimal_gap_standard(tmp_path, school_id, expected)
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx(generated_template, ["测试大学"])
 
     result = run_template_gap_eval(
@@ -872,7 +879,7 @@ def test_template_gap_treats_word_paragraph_options_as_uncheckable(
         }
     ]
     write_minimal_gap_standard(tmp_path, school_id, expected)
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx(generated_template, ["测试大学"])
 
     result = run_template_gap_eval(
@@ -916,7 +923,7 @@ def test_template_gap_still_fails_missing_visible_fixed_text(tmp_path) -> None:
         }
     ]
     write_minimal_gap_standard(tmp_path, school_id, expected)
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx(generated_template, ["测试大学"])
 
     result = run_template_gap_eval(
@@ -960,7 +967,7 @@ def test_template_gap_normalizes_template_noise(tmp_path) -> None:
         }
     ]
     write_minimal_gap_standard(tmp_path, school_id, expected)
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx(
         generated_template,
         [
@@ -1006,7 +1013,7 @@ def test_template_gap_matches_repeated_text_inside_unit_range(tmp_path) -> None:
         },
     ]
     write_minimal_gap_standard(tmp_path, school_id, expected)
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx(
         generated_template,
         ["第一单元", "重复标签", "第二单元", "重复标签"],
@@ -1061,7 +1068,7 @@ def test_template_gap_checks_out_of_order_units_in_their_actual_regions(
         },
     ]
     write_minimal_gap_standard(tmp_path, school_id, expected)
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx(generated_template, ["第一单元", "第三单元", "第二单元"])
 
     result = run_template_gap_eval(
@@ -1109,7 +1116,7 @@ def test_template_gap_matches_form_element_across_multiple_nodes(tmp_path) -> No
         }
     ]
     write_minimal_gap_standard(tmp_path, school_id, expected)
-    generated_template = tmp_path / "test_inputs/template_gap/generated_template.docx"
+    generated_template = tmp_path / "inputs/targets/demo-school/fixtures/template_gap/generated_template.input.docx"
     write_docx(
         generated_template,
         ["测试大学", "学生姓名：", "学号：", "年级专业及班级："],
@@ -1178,7 +1185,9 @@ def test_real_core_template_gap_outputs_tree_and_reports_for_all_schools(
         assert report["generated_template"]["source_path"] == str(
             ROOT / school["generated_template_docx"]
         )
-        assert "test_inputs/template_generation/school-" not in report["generated_template"]["source_path"]
+        assert "/fixtures/template_gap/generated_template.input.docx" in report[
+            "generated_template"
+        ]["source_path"]
         assert "check_items" not in report
         assert collect_checks(report)
         assert any(
@@ -1214,7 +1223,7 @@ def test_generated_template_gap_reports_ooxml_style_details(tmp_path) -> None:
     result = run_template_gap_eval(
         ROOT,
         "hunannongye",
-        ROOT / "test_inputs/template_generation/school-hunannongye-requirement.docx",
+        ROOT / "inputs/targets/hunannongye/raw/source_template.docx",
         tmp_path / "style_gap",
     )
     tree = read_json(tmp_path / "style_gap/artifacts/generated_template_tree.json")
@@ -1243,7 +1252,7 @@ def test_generated_template_gap_resolves_ooxml_style_inheritance(tmp_path) -> No
     result = run_template_gap_eval(
         ROOT,
         "nannong-undergraduate",
-        ROOT / "test_inputs/template_generation/school-nannong-undergraduate-template.docx",
+        ROOT / "inputs/targets/nannong-undergraduate/raw/source_template.docx",
         tmp_path / "style_inheritance_gap",
     )
     tree = read_json(
@@ -1277,7 +1286,7 @@ def test_generated_template_gap_binds_page_rules_to_ooxml_sources(tmp_path) -> N
     result = run_template_gap_eval(
         ROOT,
         "hunannongye",
-        ROOT / "test_inputs/template_generation/school-hunannongye-requirement.docx",
+        ROOT / "inputs/targets/hunannongye/raw/source_template.docx",
         tmp_path / "page_gap",
     )
     report = read_json(tmp_path / "page_gap/artifacts/template_gap_report.json")
@@ -1306,7 +1315,7 @@ def test_generated_template_gap_binds_keep_together_to_table_sources(tmp_path) -
     result = run_template_gap_eval(
         ROOT,
         "nannong-undergraduate",
-        ROOT / "test_inputs/template_generation/school-nannong-undergraduate-template.docx",
+        ROOT / "inputs/targets/nannong-undergraduate/raw/source_template.docx",
         tmp_path / "table_keep_gap",
     )
     tree = read_json(tmp_path / "table_keep_gap/artifacts/generated_template_tree.json")
@@ -1366,7 +1375,7 @@ def test_generated_template_inspector_keeps_merged_cell_copies_in_row_order(
 
 def test_generated_template_inspector_models_footnotes_in_generated_tree() -> None:
     tree = inspect_generated_template_docx(
-        ROOT / "test_inputs/template_generation/school-pku-graduate-template.docx"
+        ROOT / "inputs/targets/pku-graduate/raw/source_template.docx"
     )
 
     assert tree["data"]["footnotes"]
@@ -1378,7 +1387,7 @@ def test_generated_template_inspector_models_footnotes_in_generated_tree() -> No
 
 def test_generated_template_inspector_models_text_boxes_in_generated_tree() -> None:
     tree = inspect_generated_template_docx(
-        ROOT / "test_inputs/template_generation/school-nannong-undergraduate-template.docx"
+        ROOT / "inputs/targets/nannong-undergraduate/raw/source_template.docx"
     )
 
     assert any("规范化要求" in item["text"] for item in tree["data"]["text_boxes"])
@@ -1390,7 +1399,7 @@ def test_generated_template_inspector_models_text_boxes_in_generated_tree() -> N
 
 def test_generated_template_inspector_models_images_in_generated_tree() -> None:
     tree = inspect_generated_template_docx(
-        ROOT / "test_inputs/template_generation/school-nannong-undergraduate-template.docx"
+        ROOT / "inputs/targets/nannong-undergraduate/raw/source_template.docx"
     )
 
     assert {
@@ -1407,7 +1416,7 @@ def test_generated_template_gap_binds_header_footer_rules_to_sections(tmp_path) 
     result = run_template_gap_eval(
         ROOT,
         "nannong-undergraduate",
-        ROOT / "test_inputs/template_generation/school-nannong-undergraduate-template.docx",
+        ROOT / "inputs/targets/nannong-undergraduate/raw/source_template.docx",
         tmp_path / "header_footer_gap",
     )
     tree = read_json(tmp_path / "header_footer_gap/artifacts/generated_template_tree.json")
@@ -1454,7 +1463,7 @@ def test_generated_template_gap_binds_word_fields_to_units(tmp_path) -> None:
     nannong_result = run_template_gap_eval(
         ROOT,
         "nannong-undergraduate",
-        ROOT / "test_inputs/template_generation/school-nannong-undergraduate-template.docx",
+        ROOT / "inputs/targets/nannong-undergraduate/raw/source_template.docx",
         tmp_path / "nannong_field_gap",
     )
     nannong_tree = read_json(
@@ -1487,7 +1496,7 @@ def test_generated_template_gap_binds_word_fields_to_units(tmp_path) -> None:
     pku_result = run_template_gap_eval(
         ROOT,
         "pku-graduate",
-        ROOT / "test_inputs/template_generation/school-pku-graduate-template.docx",
+        ROOT / "inputs/targets/pku-graduate/raw/source_template.docx",
         tmp_path / "pku_field_gap",
     )
     pku_tree = read_json(
@@ -1568,7 +1577,7 @@ def test_generated_template_gap_binds_numbering_rules_to_units(tmp_path) -> None
     result = run_template_gap_eval(
         ROOT,
         "pku-graduate",
-        ROOT / "test_inputs/template_generation/school-pku-graduate-template.docx",
+        ROOT / "inputs/targets/pku-graduate/raw/source_template.docx",
         tmp_path / "pku_numbering_gap",
     )
     tree = read_json(

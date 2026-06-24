@@ -59,8 +59,8 @@ def load_standard_bundle(
     *,
     finding_stage: str = "standards",
 ) -> tuple[StandardBundle | None, list[Finding]]:
-    school_dir = root / "standards" / "schools" / school_id / template_version
-    signed_standard_path = school_dir / "signed_standard.yaml"
+    school_dir = root / "standards" / "targets" / school_id / template_version
+    signed_standard_path = school_dir / "target.standard.yaml"
     findings: list[Finding] = []
     if not signed_standard_path.exists():
         findings.append(
@@ -70,7 +70,7 @@ def load_standard_bundle(
                 Status.UNKNOWN,
                 "missing_signed_standard",
                 f"Signed standard is missing for {school_id}/{template_version}",
-                "signed_standard.yaml exists and is review-approved",
+                "target.standard.yaml exists and is review-approved",
                 str(signed_standard_path),
                 root_cause_bucket="standard_missing",
             )

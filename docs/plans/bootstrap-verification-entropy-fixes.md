@@ -119,10 +119,10 @@ Status: complete.
 uv run pytest -q
 uv run docfit eval standards --school demo-school --out /tmp/docfit_standards
 uv run docfit eval e2e --school demo-school \
-  --student test_test_inputs/content_extraction/bootstrap-demo-student-pass.docx \
+  --student test_inputs/students/bootstrap-demo-pass/raw/source_document.docx \
   --out /tmp/docfit_bootstrap_pass
 uv run docfit eval content \
-  --student test_test_inputs/content_extraction/bootstrap-demo-student-unsupported-textbox.docx \
+  --student test_inputs/students/bootstrap-demo-unsupported-textbox/raw/source_document.docx \
   --out /tmp/docfit_bootstrap_unknown
 uv run docfit eval placement --school demo-school \
   --template-artifact /tmp/docfit_bootstrap_pass/artifacts/template_artifact.json \

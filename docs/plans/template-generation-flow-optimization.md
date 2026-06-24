@@ -7,7 +7,7 @@ Last updated: 2026-06-22
 一句话结论：模板生成支撑流程应该收敛成五个逻辑步骤：源 Word 事实、候选结构识别、生成模板模型与策略、动作计划、执行与 manifest；其中阶段三产出系统后续要消费的模板业务地图，阶段四才把业务地图翻译成可执行 action。
 
 拆分现状文档：`docs/plans/template-generate-runner-split.md` 记录
-`src/docfit/stages/template_generate/runner.py` 已完成拆分后的当前模块地图、仍在使用的旧产物名，以及下一轮需要同步切换的目标契约。
+`src/docfit/template_generation/runner.py` 已完成拆分后的当前模块地图、仍在使用的旧产物名，以及下一轮需要同步切换的目标契约。
 
 ## 文档定位（先读）
 
@@ -428,7 +428,7 @@ flowchart TD
   A["输入：学校原始模板 Word<br/>代码: src/docfit/cli/main.py<br/>src/docfit/convert/orchestrator.py"] --> B{"输入存在且是有效 DOCX？<br/>代码: template_generate/runner.py<br/>src/docfit/ooxml/package.py"}
   B -->|否：不存在| U["UNKNOWN：缺源模板<br/>代码: template_generate/runner.py"]
   B -->|否：不是 DOCX| V["FAIL：源模板无效<br/>代码: template_generate/runner.py"]
-  B -->|是| C["解析源 Word<br/>source_template_tree<br/>代码: template_generate/source_tree.py<br/>src/docfit/harness/generated_template_inspector.py"]
+  B -->|是| C["解析源 Word<br/>source_template_tree<br/>代码: template_generate/source_tree.py<br/>src/docfit/template_gap/inspector.py"]
   C --> D["阶段二：候选结构识别<br/>unit / element / source_ref / role_hint / evidence<br/>代码: template_generate/structure_candidates.py"]
   D --> E["阶段三：生成模板模型与策略<br/>generation_mode / slots / protected_zones / cleanup / unresolved_questions<br/>代码: template_generate/generation_model.py"]
   E --> F["阶段四：动作计划<br/>把业务地图翻译成 copy / preserve / slot / cleanup action<br/>代码: template_generate/plan.py"]
@@ -441,13 +441,13 @@ flowchart TD
 | 流程节点 | 当前主要代码文件 | 当前状态 |
 | --- | --- | --- |
 | CLI 输入和 eval 包装 | `src/docfit/cli/main.py`、`src/docfit/convert/orchestrator.py` | 已实现 |
-| 输入存在性和 DOCX 有效性检查 | `src/docfit/stages/template_generate/runner.py`、`src/docfit/ooxml/package.py` | 已实现 |
-| 源 Word 解析 | `src/docfit/stages/template_generate/source_tree.py`、`src/docfit/harness/generated_template_inspector.py` | 已实现 |
-| 候选结构识别 | `src/docfit/stages/template_generate/structure_candidates.py` | 已实现第一版；输出 entry 级候选元素、`role_hint` 和 evidence |
-| 生成模板模型与策略 | `src/docfit/stages/template_generate/generation_model.py`、`src/docfit/harness/template_units.py` | 已切到 `template_generation_model.json`；materialize 最终 `policy`，学校标准和学生内容台账尚未正式接入 |
-| 动作计划生成 | `src/docfit/stages/template_generate/plan.py` | 已实现；消费阶段三 generation model，不重新决定 copy-only / fill / generated 语义 |
-| Word 复制和 action 执行 | `src/docfit/stages/template_generate/executor.py` | 已实现 |
-| 产物写出和 summary/debug | `src/docfit/stages/template_generate/manifest.py`、`src/docfit/stages/template_generate/outputs.py`、`src/docfit/convert/orchestrator.py` | 已实现 |
+| 输入存在性和 DOCX 有效性检查 | `src/docfit/template_generation/runner.py`、`src/docfit/ooxml/package.py` | 已实现 |
+| 源 Word 解析 | `src/docfit/template_generation/source_tree.py`、`src/docfit/template_gap/inspector.py` | 已实现 |
+| 候选结构识别 | `src/docfit/template_generation/structure_candidates.py` | 已实现第一版；输出 entry 级候选元素、`role_hint` 和 evidence |
+| 生成模板模型与策略 | `src/docfit/template_generation/generation_model.py`、`src/docfit/harness/template_units.py` | 已切到 `template_generation_model.json`；materialize 最终 `policy`，学校标准和学生内容台账尚未正式接入 |
+| 动作计划生成 | `src/docfit/template_generation/plan.py` | 已实现；消费阶段三 generation model，不重新决定 copy-only / fill / generated 语义 |
+| Word 复制和 action 执行 | `src/docfit/template_generation/executor.py` | 已实现 |
+| 产物写出和 summary/debug | `src/docfit/template_generation/manifest.py`、`src/docfit/template_generation/outputs.py`、`src/docfit/convert/orchestrator.py` | 已实现 |
 
 ## 阶段一：解析源 Word
 
@@ -515,7 +515,7 @@ flowchart TD
 
 | 项 | 当前情况 |
 | --- | --- |
-| 代码位置 | `src/docfit/stages/template_generate/structure_candidates.py` |
+| 代码位置 | `src/docfit/template_generation/structure_candidates.py` |
 | 当前产物 | `template_structure_candidates.json` |
 | 已有能力 | 识别候选 unit；把连续说明文字合并成 logical element；给 element 写 `candidate_policy`、`role_hint`、evidence、`source_seq_refs`；copy-only 单元已有第一版受限内部候选；集中输出 `source_context`、`unknowns[]`、`open_questions[]` |
 | 还不是目标的地方 | 表格 label/value、跨段落业务句、文本框等更复杂 logical element 合并仍需继续增强；学校标准和学生内容台账尚未正式接入 |
@@ -837,7 +837,7 @@ body_flow entries
 
 | 项 | 当前情况 |
 | --- | --- |
-| 代码位置 | `src/docfit/stages/template_generate/generation_model.py` |
+| 代码位置 | `src/docfit/template_generation/generation_model.py` |
 | 当前产物 | `template_generation_model.json` |
 | 已有能力 | 把阶段二候选 `candidate_policy` materialize 成最终 `policy`；为 copy-only 单元生成 `whole_unit_copy` 策略；把说明文字转成 `cleanup[]`；集中输出 slots、required_fields、protected_zones、unsupported、unresolved_questions |
 | 还不是目标的地方 | 学校标准和学生内容台账尚未作为正式输入接入；`unresolved_questions[]` 还比较弱 |

@@ -1,0 +1,290 @@
+baseline_type: template_generation_stage_contract
+profile_id: real-core-v0
+school_id: nannong-undergraduate
+stage_id: 02_structure_discovery
+standard_id: nannong-undergraduate-v1-template-generation-02
+standard_scope: single_template_generation_stage
+standard_state: signed_pending_verifier
+verifier_state: not_configured
+gate_enabled: false
+review_metadata:
+  reviewed_by: user-reviewed-source-fact-packet
+  review_source: docs/human/real-core-v0-review-packet.md#source-nannong-undergraduate
+  source_docx_sha256: sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536
+  change_reason: manual stage calibration from fresh template-generate artifacts and reviewed final template unit standard
+  auto_update_allowed: false
+accepted_source_facts:
+  review_packet: docs/human/real-core-v0-review-packet.md
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  source_section_id: nannong-undergraduate
+  source_section_sha256: sha256:a4bdd5a4cb6cfcf9ad6396586c9330381681d50e998675ab5a8078fdbd83025f
+  template_docx: inputs/targets/nannong-undergraduate/raw/source_template.docx
+  template_docx_sha256: sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536
+  original_review_source: inputs/targets/nannong-undergraduate/raw/source_review.md
+  original_review_source_sha256: sha256:d6dc0d49dac3e2b83fa63ee92e76965c1cec995d56eb3e27b3ea4d5f45acdb87
+  final_review_units_sha256: sha256:6e5b6c7929045e820e2b4f5424667009e7ea622ab048aabc3becec253255686e
+  calibration_run:
+    kind: fresh_template_generate_run
+    cli_command: uv run docfit eval template-generate --template inputs/targets/nannong-undergraduate/raw/source_template.docx --out runs/template_generation/stage-standard-calibration-nannong-undergraduate/eval_runs/template_generate
+    run_status_observed: PASS
+    run_output_root: runs/template_generation/stage-standard-calibration-nannong-undergraduate/eval_runs/template_generate
+    debug_snapshot_root: runs/template_generation/stage-standard-calibration-nannong-undergraduate/20260622T201029500234+0800
+    template_generation_request: runs/template_generation/stage-standard-calibration-nannong-undergraduate/eval_runs/template_generate/artifacts/template_generation_request.json
+    template_generation_request_sha256: sha256:887da53092585a69ac0938e671913851218350403592d573e51767c47ea8081f
+    formal_artifact: runs/template_generation/stage-standard-calibration-nannong-undergraduate/eval_runs/template_generate/artifacts/template_structure_candidates.json
+    formal_artifact_sha256: sha256:d1c23840beec2b06133e04d5cb5cdede2b3fd31ef0d848112d72c5a8276c7790
+    debug_snapshot: runs/template_generation/stage-standard-calibration-nannong-undergraduate/20260622T201029500234+0800/02_template_structure_candidates.json
+    debug_snapshot_sha256: sha256:d1c23840beec2b06133e04d5cb5cdede2b3fd31ef0d848112d72c5a8276c7790
+  upstream_template_generation_final: ../template_quality/final_template.expected.yaml
+  upstream_template_generation_final_sha256: sha256:1540a59b012e88c5d7b48491919154d92ac9815d13c829939b3983b5fed95486
+purpose: 检查源事实树是否被识别成候选单元和逻辑元素；本阶段必须对齐人工单元边界，但还不执行 Word 修改。
+ai_boundary:
+  ai_may_explain: true
+  ai_may_edit_status_or_standard_without_human_review: false
+  auto_update_allowed: false
+gate_policy:
+  enabled_verifier_required_for_pass: true
+  not_configured_is_not_pass: true
+  missing_standard_result: UNKNOWN
+  missing_artifact_result: UNKNOWN
+expected:
+  school_id: nannong-undergraduate
+  stage_id: 02_structure_discovery
+  artifact_type: template_structure_candidates
+  source_section_sha256: sha256:a4bdd5a4cb6cfcf9ad6396586c9330381681d50e998675ab5a8078fdbd83025f
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  source_template_docx_sha256: sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536
+  unit_tree_source: ../template_quality/final_template.expected.yaml#/expected/units
+  final_review_unit_order:
+  - cover
+  - originality_statement
+  - authorization_statement
+  - toc
+  - abstract_cn
+  - abstract_en
+  - body_main
+  - references
+  - appendix
+  - academic_achievements
+  - acknowledgement
+  final_review_unit_summaries:
+  - unit_id: cover
+    order: 1
+    name: 封面
+    status: required
+    policy: fixed
+    handling: 当前阶段保留学校封面模块；不填任何封面字段；不做字段文字锚点匹配。
+    element_count: 1
+    element_policies:
+    - fixed
+  - unit_id: originality_statement
+    order: 2
+    name: 原创性声明
+    status: manual_only
+    policy: manual_only
+    handling: 保留固定声明页；不自动填姓名、日期、签名。
+    element_count: 3
+    element_policies:
+    - manual_only
+  - unit_id: authorization_statement
+    order: 3
+    name: 使用授权声明
+    status: manual_only
+    policy: manual_only
+    handling: 保留固定授权声明；不自动填作者签名、导师签名、日期。
+    element_count: 4
+    element_policies:
+    - manual_only
+  - unit_id: toc
+    order: 4
+    name: 目录
+    status: required
+    policy: fixed
+    handling: 使用 Word TOC 字段生成目录；目录层级到 3 级。
+    element_count: 3
+    element_policies:
+    - fixed
+    - generated
+  - unit_id: abstract_cn
+    order: 5
+    name: 中文摘要
+    status: required
+    policy: fixed
+    handling: 填中文题名、中文摘要、中文关键词；固定“摘  要”和“关键词：”标签。
+    element_count: 5
+    element_policies:
+    - fill
+    - fixed
+  - unit_id: abstract_en
+    order: 6
+    name: 英文摘要
+    status: required
+    policy: fixed
+    handling: 填英文题名、英文摘要、英文关键词；固定“ABSTRACT”和“KEY WORDS：/KEY WORDS:”标签。
+    element_count: 5
+    element_policies:
+    - fill
+    - fixed
+  - unit_id: body_main
+    order: 7
+    name: 正文主体
+    status: required
+    policy: fixed
+    handling: 按学校模板保留章、节、正文、图、表、公式等规则；包含固定类型结尾章“第X章 结论与展望”。
+    element_count: 8
+    element_policies:
+    - fill
+    - generated
+  - unit_id: references
+    order: 8
+    name: 参考文献
+    status: required
+    policy: fixed
+    handling: 保留标题“参考文献”；填参考文献条目。
+    element_count: 2
+    element_policies:
+    - fill
+    - fixed
+  - unit_id: appendix
+    order: 9
+    name: 附录
+    status: template_default_optional
+    policy: template_default_optional
+    handling: 源模板标注“此项非必需项”，但草稿/审阅输出默认保留；无内容时保留标题、占位和评论。
+    element_count: 2
+    element_policies:
+    - fill
+  - unit_id: academic_achievements
+    order: 10
+    name: 相关的学术成果目录
+    status: template_default_optional
+    policy: template_default_optional
+    handling: 源模板标注“此项非必需项”，但草稿/审阅输出默认保留；无内容时保留标题、占位和评论。
+    element_count: 2
+    element_policies:
+    - fill
+    - template_default_optional
+  - unit_id: acknowledgement
+    order: 11
+    name: 致谢
+    status: template_default
+    policy: fixed
+    handling: 默认保留学校模板中的致谢模块；填致谢正文；无内容时保留标题、占位和评论。
+    element_count: 98
+    element_policies:
+    - fill
+    - fixed
+  final_review_policy_groups:
+    manual_only_units:
+    - originality_statement
+    - authorization_statement
+    fillable_units:
+    - abstract_cn
+    - abstract_en
+    - body_main
+    - references
+    - appendix
+    - academic_achievements
+    - acknowledgement
+    generated_units:
+    - toc
+    - body_main
+    template_default_units:
+    - appendix
+    - academic_achievements
+    - acknowledgement
+    fixed_or_protected_units:
+    - cover
+    - originality_statement
+    - authorization_statement
+    - toc
+    - abstract_cn
+    - abstract_en
+    - body_main
+    - references
+    - acknowledgement
+  verifier_requirements:
+    required_unit_order:
+    - cover
+    - originality_statement
+    - authorization_statement
+    - toc
+    - abstract_cn
+    - abstract_en
+    - body_main
+    - references
+    - appendix
+    - academic_achievements
+    - acknowledgement
+    required_policy_groups:
+      manual_only_units:
+      - originality_statement
+      - authorization_statement
+      fillable_units:
+      - abstract_cn
+      - abstract_en
+      - body_main
+      - references
+      - appendix
+      - academic_achievements
+      - acknowledgement
+      generated_units:
+      - toc
+      - body_main
+      template_default_units:
+      - appendix
+      - academic_achievements
+      - acknowledgement
+      fixed_or_protected_units:
+      - cover
+      - originality_statement
+      - authorization_statement
+      - toc
+      - abstract_cn
+      - abstract_en
+      - body_main
+      - references
+      - acknowledgement
+    candidate_trace_fields:
+    - source_seq_refs
+    - role_hint
+    - evidence
+    unit_boundary_rule: 候选 unit 必须能覆盖最终人工校准单元；不得把多个独立固定表单合并成一个不可验收的泛化单元。
+  calibration_observation:
+    artifact_created_at: '2026-06-22T12:10:29.566634+00:00'
+    observed_unit_order:
+    - cover
+    - integrity_statement
+    - toc
+    - abstract_cn
+    - abstract_en
+    - body_main
+    - references
+    - appendix
+    - acknowledgement
+    observed_unit_count: 9
+    observed_element_count: 101
+    missing_final_review_units:
+    - originality_statement
+    - authorization_statement
+    - academic_achievements
+    extra_observed_units:
+    - integrity_statement
+    first_bad_stage_if_unit_order_still_differs: 02_structure_discovery
+    observation_is_not_pass_evidence: true
+dimensions:
+- dimension_id: template_generation.02.artifact_type
+  required: true
+  comparator_mode: exact
+  expected_path: artifact_type
+  actual_path: artifact_type
+- dimension_id: template_generation.02.source_section_hash
+  required: true
+  comparator_mode: exact
+  expected_path: source_section_sha256
+  actual_path: source_section_sha256
+- dimension_id: template_generation.02.final_review_unit_order
+  required: true
+  comparator_mode: ordered_sequence
+  expected_path: final_review_unit_order
+  actual_path: unit_order

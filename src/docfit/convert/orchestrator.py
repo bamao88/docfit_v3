@@ -9,8 +9,8 @@ from docfit.core.io import read_json, sha256_file
 from docfit.core.models import Finding, StageResult
 from docfit.core.status import StageRunState, Status, merge_statuses
 from docfit.harness.coverage import coverage_gate_findings
-from docfit.harness.generated_template_gap import evaluate_generated_template_gap
-from docfit.harness.profiles import BOOTSTRAP_PROFILE
+from docfit.template_gap.gap import evaluate_generated_template_gap
+from docfit.harness.profiles import BOOTSTRAP_PROFILE, get_eval_profile
 from docfit.harness.product_quality import (
     BUSINESS_ACCEPTANCE_STAGES,
     audit_e2e_case,
@@ -26,7 +26,7 @@ from docfit.harness.standards import load_standard_bundle
 from docfit.stages.content_extract.runner import extract_student_content, write_content_outputs
 from docfit.stages.placement.runner import build_placement_plan, write_placement_outputs
 from docfit.stages.render.runner import render_docx, write_render_outputs
-from docfit.stages.template_generate.runner import (
+from docfit.template_generation.runner import (
     generate_template,
     write_template_generation_outputs,
 )
@@ -69,7 +69,7 @@ def _template_generation_project_dir(
     template_docx: Path | None = None,
     out_dir: Path | None = None,
 ) -> Path:
-    base = root / "test_outputs" / "debug" / "template_generation"
+    base = root / "runs" / "template_generation"
     if out_dir is not None and _is_relative_to(out_dir, base):
         relative = out_dir.resolve().relative_to(base.resolve())
         parts = relative.parts
@@ -80,9 +80,24 @@ def _template_generation_project_dir(
     return base
 
 
-def _required_capabilities(bundle: Any, contract_key: str, fallback: list[str]) -> list[str]:
+def _required_capabilities(
+    bundle: Any,
+    contract_key: str,
+    fallback: list[str],
+) -> list[str]:
     if bundle is None:
         return fallback
+    stage_by_contract = {
+        "template_contract": "template",
+        "student_content_contract": "content",
+        "placement_contract": "placement",
+        "render_contract": "render",
+    }
+    profile_id = bundle.signed_standard.get("coverage_requirements", {}).get("profile")
+    profile = get_eval_profile(profile_id or "")
+    stage = stage_by_contract.get(contract_key)
+    if profile is not None and stage is not None:
+        return profile.capabilities_for_stage(stage)
     contract = bundle.contracts.get(contract_key, {})
     if "required_capabilities" in contract:
         return list(contract.get("required_capabilities") or [])
@@ -246,7 +261,13 @@ def run_template_eval(root: Path, school_id: str, template_docx: Path, out_dir: 
             gap_result = evaluate_generated_template_gap(
                 bundle,
                 generated_template_docx
-                or root / "test_inputs" / "template_gap" / "generated_template.docx",
+                or root
+                / "inputs"
+                / "targets"
+                / school_id
+                / "fixtures"
+                / "template_gap"
+                / "generated_template.input.docx",
                 out_dir,
             )
             _merge_generated_template_gap(result, gap_result)
@@ -285,7 +306,7 @@ def run_template_gap_eval(
             result,
             _required_capabilities(
                 bundle,
-                "template_contract",
+                "template_quality_contract",
                 BOOTSTRAP_PROFILE.capabilities_for_stage("template"),
             ),
         )
@@ -486,7 +507,13 @@ def run_e2e_eval(
         gap_result = evaluate_generated_template_gap(
             bundle,
             generated_template_docx
-            or root / "test_inputs" / "template_gap" / "generated_template.docx",
+            or root
+            / "inputs"
+            / "targets"
+            / school_id
+            / "fixtures"
+            / "template_gap"
+            / "generated_template.input.docx",
             out_dir,
         )
         _merge_generated_template_gap(template_result, gap_result)

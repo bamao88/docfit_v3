@@ -13,7 +13,7 @@ Current implementation contract:
 
 - Raw DOCX/DOC inputs and human review evidence live in `test_test_inputs/**`.
 - Bootstrap expected intermediate artifacts live in
-  `standards/eval_profiles/bootstrap-core/expected/`.
+  `eval_profiles/bootstrap-core/expected/`.
 - Runnable school standards under `standards/schools/**` must contain
   `signed_standard.yaml`; the real-school evidence packages are cataloged in
   `test_test_inputs/README.md` and no longer have placeholder standard directories.
@@ -38,15 +38,15 @@ Verification evidence:
   -> `PASS`.
 - `uv run docfit eval coverage --profile bootstrap-core --out /tmp/docfit_coverage`
   -> `PASS`.
-- `uv run docfit eval e2e --school demo-school --student test_test_inputs/content_extraction/bootstrap-demo-student-pass.docx --out /tmp/docfit_bootstrap_pass`
+- `uv run docfit eval e2e --school demo-school --student test_inputs/students/bootstrap-demo-pass/raw/source_document.docx --out /tmp/docfit_bootstrap_pass`
   -> `PASS`.
 - `uv run docfit eval e2e --case bootstrap_e2e_demo_001 --out /tmp/docfit_bootstrap_case`
   -> `PASS`.
-- `uv run docfit eval content --student test_test_inputs/content_extraction/bootstrap-demo-student-unsupported-textbox.docx --out /tmp/docfit_bootstrap_unknown`
+- `uv run docfit eval content --student test_inputs/students/bootstrap-demo-unsupported-textbox/raw/source_document.docx --out /tmp/docfit_bootstrap_unknown`
   -> `UNKNOWN`.
 - `uv run docfit eval standards --school hunannongye --out /tmp/docfit_hunannongye_standards`
   -> `UNKNOWN`.
-- `uv run docfit eval content --student test_test_inputs/content_extraction/real-student-001-source.docx --out /tmp/docfit_real_student_001_content`
+- `uv run docfit eval content --student test_inputs/students/real-student-001/raw/source_document.docx --out /tmp/docfit_real_student_001_content`
   -> `UNKNOWN`.
 - Focused stale-path searches over `src tests scripts docs/agents README.md
   AGENTS.md inputs standards SPEC.md DOCFIT_EVAL_HARNESS_FIRST_SPEC_CN.md`
@@ -58,7 +58,7 @@ Documentation alignment:
 
 - Updated `README.md`, `AGENTS.md`, `SPEC.md`, `test_test_inputs/README.md`, and
   `docs/agents/bootstrap-eval-runbook.md`.
-- Added `standards/eval_profiles/bootstrap-core/README.md`.
+- Added `eval_profiles/bootstrap-core/README.md`.
 - Checked for default `$intuitive-doc` human surface. This repo currently has
   no `ARCHITECTURE.md`, `STATUS.md`, or `docs/human/**`; current truth is
   covered by README/SPEC/input catalog/agent runbook for this cleanup.
@@ -71,7 +71,7 @@ Parked follow-ups:
   separate product slice.
 - Advanced real-school conversion support remains out of scope until a signed
   real-school standard exists.
-- Ignored local residue under `test_outputs/debug/template_eval_runs/**`, `test_outputs/workbench/**`, `.pytest_cache`,
+- Ignored local residue under `runs/eval/**`, `runs/workbench/**`, `.pytest_cache`,
   `.venv`, and `__pycache__` remains local cleanup only.
 
 Historical discovery and candidate sections below preserve the original planning
@@ -121,7 +121,7 @@ These decisions were accepted in the docs grilling pass on 2026-06-14:
    removed. Their raw files and human review status stay cataloged in
    `test_test_inputs/README.md`.
 3. Bootstrap expected artifacts should move to the eval profile surface:
-   `standards/eval_profiles/bootstrap-core/expected/`.
+   `eval_profiles/bootstrap-core/expected/`.
 4. This cleanup does not select, sign, or make any real-school standard pass.
    It only makes real-school source evidence clearly discoverable for the next
    product slice.
@@ -148,7 +148,7 @@ Evidence and contract plane:
 
 - `test_test_inputs/**`: raw school/student files and human review evidence.
 - `standards/schools/**`: runnable signed standards only after cleanup.
-- `standards/eval_profiles/**`: eval profile registry and expected harness
+- `eval_profiles/**`: eval profile registry and expected harness
   evidence.
 - `tests/**`: deterministic behavioral proof and private failure injection.
 - `scripts/create_bootstrap_fixtures.py`: current bootstrap asset generator.
@@ -220,7 +220,7 @@ node "$HOME/.codex/skills/intuitive-reduce-entropy/scripts/high-noise-summary.mj
 Findings:
 
 - `docs/plans/**` has one completed bootstrap plan.
-- `test_outputs/debug/template_eval_runs/**`, `test_outputs/workbench/**`, `.pytest_cache`, `.venv`, and `__pycache__` are
+- `runs/eval/**`, `runs/workbench/**`, `.pytest_cache`, `.venv`, and `__pycache__` are
   ignored local/generated surfaces.
 - `tests/**` is small enough to inspect around candidate seams.
 
@@ -246,8 +246,8 @@ Candidate evidence:
 Sampled:
 
 - `test_test_inputs/README.md`
-- `standards/schools/*/v1/README.md`
-- `standards/schools/demo-school/v1/**`
+- `standards/targets/*/v1/README.md`
+- `standards/targets/demo-school/v1/**`
 - `scripts/create_bootstrap_fixtures.py`
 - `docs/agents/bootstrap-eval-runbook.md`
 - `docs/plans/bootstrap-verification-entropy-fixes.md`
@@ -291,7 +291,7 @@ Candidate 1: Canonical eval profile/case registry
   rediscover every hard-coded path and capability list.
 - Affected paths: `src/docfit/harness/coverage.py`,
   `src/docfit/cli/main.py`, `scripts/create_bootstrap_fixtures.py`,
-  `tests/**`, `standards/schools/demo-school/v1/**`, `docs/**`
+  `tests/**`, `standards/targets/demo-school/v1/**`, `docs/**`
 - Owner skill: `$intuitive-refactor`
 - Zen hint: one obvious source of truth.
 - Pattern hint: small registry/factory; avoid broader framework ceremony.
@@ -309,9 +309,9 @@ Candidate 2: School standard boundary without deleting real schools
 - Impact radius: workflow
 - Maintainer test: a future agent must be able to tell which schools are source
   evidence and which are verified runnable standards.
-- Affected paths: `test_test_inputs/README.md`, `standards/schools/hunannongye/v1`,
-  `standards/schools/nannong-undergraduate/v1`,
-  `standards/schools/pku-graduate/v1`, `src/docfit/harness/standards.py`,
+- Affected paths: `test_test_inputs/README.md`, `standards/targets/hunannongye/v1`,
+  `standards/targets/nannong-undergraduate/v1`,
+  `standards/targets/pku-graduate/v1`, `src/docfit/harness/standards.py`,
   `SPEC.md`
 - Owner skill: this skill + `$intuitive-doc`
 - Zen hint: explicit current truth over directory implication.
@@ -332,10 +332,10 @@ Candidate 3: Bootstrap expected artifact boundary
   with harness-generated expected artifacts.
 - Affected paths: `test_test_inputs/content_extraction/bootstrap-demo-placement-plan.json`,
   `test_test_inputs/content_extraction/bootstrap-demo-feature-snapshot.json`,
-  `standards/eval_profiles/bootstrap-core/expected/**`,
+  `eval_profiles/bootstrap-core/expected/**`,
   `src/docfit/harness/coverage.py`, `tests/contract/test_contract_gates.py`,
   `scripts/create_bootstrap_fixtures.py`,
-  `standards/schools/demo-school/v1/golden/feature_snapshot.json`,
+  `standards/targets/demo-school/v1/golden/feature_snapshot.json`,
   `SPEC.md`
 - Owner skill: `$intuitive-tests` + `$intuitive-refactor`
 - Zen hint: raw inputs are raw; expected evidence has its own home.
@@ -393,7 +393,7 @@ Candidate 6: Guard bootstrap generator
 - Maintainer test: running a helper script should not silently rewrite reviewed
   evidence.
 - Affected paths: `scripts/create_bootstrap_fixtures.py`,
-  `standards/schools/demo-school/v1/**`, `test_test_inputs/**`
+  `standards/targets/demo-school/v1/**`, `test_test_inputs/**`
 - Owner skill: `$intuitive-refactor`
 - Zen hint: dangerous writes should be explicit.
 - Pattern hint: builder with dry-run/output-dir default; no compatibility shim.
@@ -428,7 +428,7 @@ Candidate 8: Dead/local surface pruning
 - Entropy source: repo surface layout
 - Materiality: stale surface, real workflow friction
 - Why now: `src/docfit/contracts/__init__.py` is an empty unused package, while
-  ignored local `test_outputs/debug/template_eval_runs/`, `test_outputs/workbench/`,
+  ignored local `runs/eval/`, `runs/workbench/`,
   pycache, and `.venv` residue can dominate file listings.
 - Impact radius: module
 - Maintainer test: a future agent should not inspect empty packages or local
@@ -460,7 +460,7 @@ Focused searches:
 ```bash
 rg -n "bootstrap-demo-placement-plan|bootstrap-demo-feature-snapshot" .
 rg -n "standards/schools/(hunannongye|nannong-undergraduate|pku-graduate)" .
-test -d standards/eval_profiles/bootstrap-core/expected
+test -d eval_profiles/bootstrap-core/expected
 rg -n "simulate-|simulate_" src tests docs
 rg -n "NOT_RUN" src tests docs SPEC.md
 rg -n "DOCFIT_EVAL_HARNESS_FIRST_SPEC_CN" .
@@ -479,10 +479,10 @@ Eval gates:
 uv run docfit eval standards --school demo-school --out /tmp/docfit_standards
 uv run docfit eval coverage --profile bootstrap-core --out /tmp/docfit_coverage
 uv run docfit eval e2e --school demo-school \
-  --student test_test_inputs/content_extraction/bootstrap-demo-student-pass.docx \
+  --student test_inputs/students/bootstrap-demo-pass/raw/source_document.docx \
   --out /tmp/docfit_bootstrap_pass
 uv run docfit eval content \
-  --student test_test_inputs/content_extraction/bootstrap-demo-student-unsupported-textbox.docx \
+  --student test_inputs/students/bootstrap-demo-unsupported-textbox/raw/source_document.docx \
   --out /tmp/docfit_bootstrap_unknown
 ```
 
@@ -493,7 +493,7 @@ Real-school sanity checks:
 
 ```bash
 uv run docfit eval standards --school hunannongye --out /tmp/docfit_hunannongye_standards
-uv run docfit eval content --student test_test_inputs/content_extraction/real-student-001-source.docx --out /tmp/docfit_real_student_001_content
+uv run docfit eval content --student test_inputs/students/real-student-001/raw/source_document.docx --out /tmp/docfit_real_student_001_content
 ```
 
 Expected near-term result: real-school standards remain `UNKNOWN` until one
@@ -521,7 +521,7 @@ The expected completed state:
 - `test_inputs/` is a raw-input and human-evidence catalog, not a home for expected
   intermediate JSON.
 - Bootstrap expected artifacts live under
-  `standards/eval_profiles/bootstrap-core/expected/`, with all code, tests, and
+  `eval_profiles/bootstrap-core/expected/`, with all code, tests, and
   docs using that path.
 - Runnable school standards have a signed standard and contracts. Real schools
   without signed standards remain discoverable in `test_test_inputs/README.md`, but do
@@ -580,7 +580,7 @@ Scope:
 
 - Implement all accepted decisions in this plan.
 - Move bootstrap expected JSON out of `test_inputs/` into
-  `standards/eval_profiles/bootstrap-core/expected/`.
+  `eval_profiles/bootstrap-core/expected/`.
 - Remove non-runnable real-school placeholder directories from
   `standards/schools/**`; keep real-school source status in `test_test_inputs/README.md`.
 - Add one canonical bootstrap profile/case/capability registry and update CLI,
@@ -609,7 +609,7 @@ Context:
   `scripts/create_bootstrap_fixtures.py`, and `tests/**`.
 - Useful: `docs/agents/bootstrap-eval-runbook.md` and
   `docs/plans/bootstrap-verification-entropy-fixes.md`.
-- Avoid unless needed: `test_outputs/debug/template_eval_runs/**`, `test_outputs/workbench/**`, `.venv/**`,
+- Avoid unless needed: `runs/eval/**`, `runs/workbench/**`, `.venv/**`,
   `.pytest_cache/**`, and `__pycache__/**`.
 
 Acceptance:
@@ -619,7 +619,7 @@ Acceptance:
   expected artifacts, and public gate statuses.
 - SUCCESS: `test_inputs/` contains no expected intermediate JSON.
 - SUCCESS: `standards/schools/**` contains only runnable signed standards.
-- SUCCESS: `standards/eval_profiles/bootstrap-core/expected/` owns bootstrap
+- SUCCESS: `eval_profiles/bootstrap-core/expected/` owns bootstrap
   expected artifacts.
 - SUCCESS: public CLI help/search has no `simulate` switches.
 - SUCCESS: public gate status is only `PASS` / `FAIL` / `UNKNOWN`; not-run is
@@ -640,7 +640,7 @@ Verification:
 - Integration:
   - `rg -n "bootstrap-demo-placement-plan|bootstrap-demo-feature-snapshot" .`
   - `rg -n "standards/schools/(hunannongye|nannong-undergraduate|pku-graduate)" .`
-  - `test -d standards/eval_profiles/bootstrap-core/expected`
+  - `test -d eval_profiles/bootstrap-core/expected`
   - `rg -n "simulate-|simulate_" src tests docs`
   - `rg -n "NOT_RUN" src tests docs SPEC.md`
   - `rg -n "DOCFIT_EVAL_HARNESS_FIRST_SPEC_CN" .`
@@ -648,12 +648,12 @@ Verification:
 - Product run:
   - `uv run docfit eval standards --school demo-school --out /tmp/docfit_standards`
   - `uv run docfit eval coverage --profile bootstrap-core --out /tmp/docfit_coverage`
-  - `uv run docfit eval e2e --school demo-school --student test_test_inputs/content_extraction/bootstrap-demo-student-pass.docx --out /tmp/docfit_bootstrap_pass`
-  - `uv run docfit eval content --student test_test_inputs/content_extraction/bootstrap-demo-student-unsupported-textbox.docx --out /tmp/docfit_bootstrap_unknown`
+  - `uv run docfit eval e2e --school demo-school --student test_inputs/students/bootstrap-demo-pass/raw/source_document.docx --out /tmp/docfit_bootstrap_pass`
+  - `uv run docfit eval content --student test_inputs/students/bootstrap-demo-unsupported-textbox/raw/source_document.docx --out /tmp/docfit_bootstrap_unknown`
   - `uv run docfit eval standards --school hunannongye --out /tmp/docfit_hunannongye_standards`
 - Local/live/manual: none.
 - Optional:
-  - `uv run docfit eval content --student test_test_inputs/content_extraction/real-student-001-source.docx --out /tmp/docfit_real_student_001_content`
+  - `uv run docfit eval content --student test_inputs/students/real-student-001/raw/source_document.docx --out /tmp/docfit_real_student_001_content`
 
 Execution:
 
@@ -678,7 +678,7 @@ The cleanup is complete when all of these are true:
   evidence, not expected intermediate JSON.
 - `standards/schools/**` contains only runnable signed standards; real-school
   source evidence is cataloged without pretending to be runnable.
-- `standards/eval_profiles/bootstrap-core/expected/` owns bootstrap expected
+- `eval_profiles/bootstrap-core/expected/` owns bootstrap expected
   artifacts.
 - Bootstrap profile/case/capability facts have one canonical registry.
 - Public gate statuses are only `PASS`, `FAIL`, and `UNKNOWN`; internal
@@ -693,7 +693,7 @@ The cleanup is complete when all of these are true:
 
 ## Parked Items
 
-- Ignored local residue (`test_outputs/debug/template_eval_runs/**`, `test_outputs/workbench/**`, `.pytest_cache`, `.venv`,
+- Ignored local residue (`runs/eval/**`, `runs/workbench/**`, `.pytest_cache`, `.venv`,
   `__pycache__`) can be cleaned locally, but it is not the main architecture
   work because `.gitignore` already excludes it.
 - Existing completed plan `docs/plans/bootstrap-verification-entropy-fixes.md`

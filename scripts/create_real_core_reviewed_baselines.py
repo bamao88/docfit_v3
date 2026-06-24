@@ -195,16 +195,17 @@ def _write_school_standards(
 ) -> None:
     for school in REAL_CORE_SCHOOLS:
         school_id = str(school["school_id"])
-        school_dir = ROOT / "standards/schools" / school_id / "v1"
+        school_dir = ROOT / "standards/targets" / school_id / "v1"
         ensure_dir(school_dir)
         section_text = school_sections[school_id]
         section_sha = sha256_text(section_text)
         template_docx = Path(school["template_docx"])
         review_source = Path(school["review_source"])
         template_hash = sha256_file(ROOT / template_docx)
-        existing_units = _existing_template_units(school_dir / "template_generation_final.yaml")
+        final_template_path = school_dir / "template_quality/final_template.expected.yaml"
+        existing_units = _existing_template_units(final_template_path)
         _write_yaml(
-            school_dir / "signed_standard.yaml",
+            school_dir / "target.standard.yaml",
             {
                 "standard_id": f"{school_id}-v1",
                 "school_id": school_id,
@@ -222,16 +223,18 @@ def _write_school_standards(
                     "accepted_template_review_section_sha256": section_sha,
                 },
                 "contracts": {
-                    "template_contract": "template_contract.json",
-                    "student_content_contract": "student_content_contract.json",
-                    "placement_contract": "placement_contract.json",
-                    "render_contract": "render_contract.json",
+                    "template_contract": "../../../contracts/template.contract.json",
+                    "template_generation_contract": "../../../contracts/template_generation.contract.json",
+                    "template_quality_contract": "../../../contracts/template_quality.contract.json",
+                    "student_content_contract": "../../../contracts/student_content.contract.json",
+                    "placement_contract": "../../../contracts/placement.contract.json",
+                    "render_contract": "../../../contracts/render.contract.json",
                 },
                 "evidence_baselines": {
-                    "template_generation_final": "template_generation_final.yaml",
+                    "template_generation_final": "template_quality/final_template.expected.yaml",
                     "template_generation_stages": {
                         stage["stage_id"]: (
-                            f"template_generation_stages/{stage['stage_id']}.yaml"
+                            f"template_generation/{stage['stage_id']}.expected.yaml"
                         )
                         for stage in TEMPLATE_GENERATION_STAGE_BOUNDARIES
                     },
@@ -247,8 +250,9 @@ def _write_school_standards(
                 },
             },
         )
+        ensure_dir(final_template_path.parent)
         _write_yaml(
-            school_dir / "template_generation_final.yaml",
+            final_template_path,
             {
                 "baseline_type": "template_generation_final",
                 "profile_id": PROFILE_ID,
@@ -305,11 +309,6 @@ def _write_school_standards(
             review_source=review_source,
             template_units=existing_units,
         )
-        for stage, capabilities, invariants, verifier_refs in _contract_specs():
-            write_json(
-                school_dir / f"{stage}_contract.json",
-                _contract_json(stage, capabilities, invariants, verifier_refs),
-            )
 
 
 def _existing_template_units(template_generation_final_path: Path) -> list[dict[str, Any]]:
@@ -333,12 +332,14 @@ def _write_template_generation_stages(
     review_source: Path,
     template_units: list[dict[str, Any]],
 ) -> None:
-    template_generation_final_path = school_dir / "template_generation_final.yaml"
+    template_generation_final_path = (
+        school_dir / "template_quality/final_template.expected.yaml"
+    )
     legacy_contract = school_dir / "template_generation_stage_contract.yaml"
     if legacy_contract.exists():
         legacy_contract.unlink()
 
-    stage_dir = school_dir / "template_generation_stages"
+    stage_dir = school_dir / "template_generation"
     ensure_dir(stage_dir)
     common_source_facts = {
         "review_packet": str(packet_path),
@@ -349,7 +350,7 @@ def _write_template_generation_stages(
         "template_docx_sha256": template_hash,
         "original_review_source": str(review_source),
         "original_review_source_sha256": sha256_file(ROOT / review_source),
-        "upstream_template_generation_final": "../template_generation_final.yaml",
+        "upstream_template_generation_final": "../template_quality/final_template.expected.yaml",
         "upstream_template_generation_final_sha256": sha256_file(
             template_generation_final_path
         ),
@@ -359,7 +360,7 @@ def _write_template_generation_stages(
         stage_standard = _template_generation_stage_standard(stage_id, template_units)
         expected_from_review = stage_standard["expected_from_review"]
         _write_yaml(
-            stage_dir / f"{stage_id}.yaml",
+            stage_dir / f"{stage_id}.expected.yaml",
             {
                 "baseline_type": "template_generation_stage_contract",
                 "profile_id": PROFILE_ID,
@@ -382,7 +383,7 @@ def _write_template_generation_stages(
                 "accepted_source_facts": common_source_facts,
                 "purpose": (
                     f"为模板生成 {stage_id} 阶段提供人工签收的输入/输出标准。"
-                    "这个标准来自 ../template_generation_final.yaml 的 expected.units 和完整人工 review；"
+                    "这个标准来自 ../template_quality/final_template.expected.yaml 的 expected.units 和完整人工 review；"
                     "在该阶段 verifier 接入前只表示标准已存在，不表示阶段已 PASS。"
                 ),
                 "ai_boundary": {
@@ -403,7 +404,7 @@ def _write_template_generation_stages(
                     "source_section_sha256": section_sha,
                     "review_packet_sha256": packet_sha,
                     "stage_model": TEMPLATE_GENERATION_STAGE_MODEL,
-                    "unit_tree_source": "../template_generation_final.yaml#/expected/units",
+                    "unit_tree_source": "../template_quality/final_template.expected.yaml#/expected/units",
                     "final_review_unit_order": [
                         unit["unit_id"] for unit in template_units
                     ],
@@ -622,7 +623,6 @@ def _write_profile_expected_baselines(
     shared_section: str,
     case_focus: dict[str, str],
 ) -> None:
-    expected_root = ROOT / REAL_CORE_PROFILE.expected_dir
     for student in REAL_CORE_STUDENTS:
         student_id = str(student["student_id"])
         section_text = student_sections[student_id]
@@ -631,7 +631,10 @@ def _write_profile_expected_baselines(
         review_source = Path(student["review_source"])
         student_hash = sha256_file(ROOT / student_docx)
         _write_yaml(
-            expected_root / "student_content_trees" / f"{student_id}.yaml",
+            ROOT
+            / "standards/students"
+            / student_id
+            / "v1/content_extract/student_content_artifact.expected.yaml",
             {
                 "baseline_type": "student_content_tree",
                 "profile_id": PROFILE_ID,
@@ -743,11 +746,10 @@ def _write_profile_expected_baselines(
                 ),
             ],
         }
-        _write_yaml(expected_root / "render_plans" / f"{case.case_id}.yaml", plan)
+        case_root = ROOT / "standards/cases" / case.case_id / "v1"
+        _write_yaml(case_root / "placement/placement_plan.expected.yaml", plan)
         write_json(
-            expected_root
-            / "render_feature_snapshots"
-            / f"{case.case_id}.json",
+            case_root / "render/feature_snapshot.expected.json",
             {
                 "baseline_type": "render_feature_snapshot",
                 "profile_id": PROFILE_ID,

@@ -1,0 +1,56 @@
+standard_id: pku-graduate-v1
+school_id: pku-graduate
+template_version: v1
+status: signed_source_facts
+owner: docfit-core
+approved_at: '2026-06-15T00:00:00+08:00'
+source:
+  template_docx: inputs/targets/pku-graduate/raw/source_template.docx
+  template_docx_sha256: sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14
+  review_packet: docs/human/real-core-v0-review-packet.md
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  template_review_source: inputs/targets/pku-graduate/raw/source_review.md
+  template_review_source_sha256: sha256:631c7a839a1745af605fa1d5ddcffbc60b9325d506a9f8098b1a0d01ff6ad923
+  accepted_template_review_section_sha256: sha256:c4067e225d83e45fc96b9ae82f6a222f6315c8d32ff7c7618d2fc21cb8ea4638
+contracts:
+  template_contract: ../../../contracts/template.contract.json
+  template_generation_contract: ../../../contracts/template_generation.contract.json
+  template_quality_contract: ../../../contracts/template_quality.contract.json
+  student_content_contract: ../../../contracts/student_content.contract.json
+  placement_contract: ../../../contracts/placement.contract.json
+  render_contract: ../../../contracts/render.contract.json
+evidence_baselines:
+  template_generation_final: template_quality/final_template.expected.yaml
+  template_generation_stages:
+    01_source_parse: template_generation/01_source_parse.expected.yaml
+    02_structure_discovery: template_generation/02_structure_discovery.expected.yaml
+    03_generation_model: template_generation/03_generation_model.expected.yaml
+    04_plan_build: template_generation/04_plan_build.expected.yaml
+    05_action_execution: template_generation/05_action_execution.expected.yaml
+coverage_requirements:
+  profile: real-core-v0
+  required_capabilities:
+  - template.unit_tree
+  - template.element_order
+  - template.style_dimensions
+  - template.review_metadata
+  - template.comparator_policy
+  - content.visible_content_tree
+  - content.body_flow
+  - content.source_hashes
+  - content.unsupported_disposition
+  - content.comparator_policy
+  - placement.disposition_coverage
+  - placement.no_silent_drop
+  - placement.fixed_content_policy
+  - placement.manual_only_policy
+  - placement.comparator_policy
+  - render.valid_docx_package
+  - render.manifest_coverage
+  - render.feature_snapshot
+  - render.word_image_evidence
+  - render.ai_advisory_boundary
+change_control:
+  auto_update_allowed: false
+  requires_review: true
+  change_reason: initial real-core-v0 reviewed source facts

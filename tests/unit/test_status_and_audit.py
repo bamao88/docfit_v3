@@ -14,7 +14,10 @@ def test_status_merge_order() -> None:
 
 
 def test_signed_standard_cannot_auto_update(tmp_path) -> None:
-    event = reject_golden_auto_update(tmp_path, "standards/schools/demo/golden/features.json")
+    event = reject_golden_auto_update(
+        tmp_path,
+        "standards/targets/demo/v1/golden/features.json",
+    )
     assert event["allowed"] is False
     assert event["event_type"] == "golden_auto_update_attempt"
 

@@ -32,7 +32,7 @@ Non-goals:
 
 ## Current Repo Reality
 
-`STATUS.md` now records that the nine `test_outputs/debug/template_eval_runs/real-core-v0/**/final.docx` files and Word image evidence packages exist, but evidence binding is no longer sufficient for `PASS`.
+`STATUS.md` now records that the nine `runs/eval/real-core-v0/**/final.docx` files and Word image evidence packages exist, but evidence binding is no longer sufficient for `PASS`.
 
 The product review in `docs/human/real-core-v0-product-quality-review.md` records that those same outputs are not business-acceptable: template instructions leak into the final DOCX, student content is appended after copied templates, and content is not placed in target school positions.
 

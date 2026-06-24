@@ -1,0 +1,30 @@
+{
+  "contract_type": "template_quality",
+  "contract_version": "1.0",
+  "coverage_requirements": {
+    "profile": "real-core-v0"
+  },
+  "owner": "docfit-core",
+  "required_capabilities": [
+    "template_generation.output_docx",
+    "template_generation.actual_tree",
+    "template_generation.unit_match",
+    "template_generation.element_match",
+    "template_generation.style_match",
+    "template_generation.header_footer_match",
+    "template_generation.page_rule_match",
+    "template_generation.field_match",
+    "template_generation.numbering_match",
+    "template_generation.report"
+  ],
+  "required_invariants": [
+    "generated template quality is checked against signed target template facts"
+  ],
+  "unsupported_policy": {
+    "blocking_unknown": true,
+    "unknown_is_blocking": true
+  },
+  "verifier_refs": [
+    "docfit.template_gap.gap.evaluate_generated_template_gap"
+  ]
+}

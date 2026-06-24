@@ -33,9 +33,9 @@ Owner: Product + Engineering
 ### 2. 学校来源事实输入
 
 - `docs/human/real-core-v0-review-packet.md`
-- `test_inputs/template_generation/school-hunannongye-template-review.txt`
-- `test_inputs/template_generation/school-nannong-undergraduate-template-review.txt`
-- `test_inputs/template_generation/school-pku-graduate-template-review.txt`
+- `inputs/targets/hunannongye/raw/source_review.md`
+- `inputs/targets/nannong-undergraduate/raw/source_review.md`
+- `inputs/targets/pku-graduate/raw/source_review.md`
 
 这些文件说明学校模板里实际有哪些单元、元素、页面规则、页眉页码规则和人工确认点。执行阶段一时，不能脱离这些来源事实凭空改标准。
 
@@ -47,22 +47,22 @@ Owner: Product + Engineering
 - 当前计划里的学校源模板、人工审查文本和 template-gap fixture 按 `test_inputs/` 身份读取；执行前先用 `rg "inputs/|test_inputs/|reports/|out/|test_outputs/|tests/template" standards src tests docs README.md SPEC.md` 重新确认没有把旧目录当成默认入口。
 - 不能把路径迁移当成学校标准语义变更；不能为了修路径而修改 `signed_standard.yaml` 的签收含义。
 - 如果 `src/docfit/harness/` 在目录重构中被改名为 `src/docfit/eval_harness/`，阶段一应修改当前真实模块，不要重新创建旧目录。
-- 验证输出默认写入 `test_outputs/debug/template_eval_runs/`；如果为了隔离本地调试临时写 `/tmp`，执行总结必须说明这是临时证明，不是目标目录结构。
+- 验证输出默认写入 `runs/eval/`；如果为了隔离本地调试临时写 `/tmp`，执行总结必须说明这是临时证明，不是目标目录结构。
 
 ### 3. 当前待整理的机器标准输入
 
-- `standards/schools/hunannongye/v1/template_unit_contract.yaml`
-- `standards/schools/nannong-undergraduate/v1/template_unit_contract.yaml`
-- `standards/schools/pku-graduate/v1/template_unit_contract.yaml`
+- `standards/targets/hunannongye/v1/template_unit_contract.yaml`
+- `standards/targets/nannong-undergraduate/v1/template_unit_contract.yaml`
+- `standards/targets/pku-graduate/v1/template_unit_contract.yaml`
 
 这三个文件是阶段一的主要修改对象。
 
 验证时还会读取：
 
-- `standards/eval_profiles/real-core-v0/cases.yaml`
-- `test_inputs/template_gap/real-core-v0-hunannongye-generated-template.docx`
-- `test_inputs/template_gap/real-core-v0-nannong-undergraduate-generated-template.docx`
-- `test_inputs/template_gap/real-core-v0-pku-graduate-generated-template.docx`
+- `eval_profiles/real-core-v0/profile.yaml`
+- `inputs/targets/hunannongye/fixtures/template_gap/generated_template.input.docx`
+- `inputs/targets/nannong-undergraduate/fixtures/template_gap/generated_template.input.docx`
+- `inputs/targets/pku-graduate/fixtures/template_gap/generated_template.input.docx`
 
 ## 先确定字段：和模板生成业务链路对齐
 
@@ -219,7 +219,7 @@ elements:
 
 ### 6. 检查器要尊重定位角色
 
-`src/docfit/harness/generated_template_gap.py` 中的单元定位逻辑必须满足：
+`src/docfit/template_gap/gap.py` 中的单元定位逻辑必须满足：
 
 - 优先使用 `anchor_role: primary` 的元素生成单元定位查询；
 - 跳过 `anchor_role: none`；
@@ -243,10 +243,10 @@ elements:
 
 ### 必须修改
 
-- `standards/schools/hunannongye/v1/template_unit_contract.yaml`
-- `standards/schools/nannong-undergraduate/v1/template_unit_contract.yaml`
-- `standards/schools/pku-graduate/v1/template_unit_contract.yaml`
-- `src/docfit/harness/generated_template_gap.py`
+- `standards/targets/hunannongye/v1/template_unit_contract.yaml`
+- `standards/targets/nannong-undergraduate/v1/template_unit_contract.yaml`
+- `standards/targets/pku-graduate/v1/template_unit_contract.yaml`
+- `src/docfit/template_gap/gap.py`
 - `tests/contract/test_real_core_generated_template_gap.py`
 
 ### 只读参考
@@ -258,15 +258,15 @@ elements:
 - `docs/human/template-gap-process-mainline.md`
 - `docs/human/template-generation-business-flow-current-state.md`
 - `docs/human/real-core-v0-review-packet.md`
-- `test_inputs/template_generation/school-hunannongye-template-review.txt`
-- `test_inputs/template_generation/school-nannong-undergraduate-template-review.txt`
-- `test_inputs/template_generation/school-pku-graduate-template-review.txt`
-- `standards/eval_profiles/real-core-v0/cases.yaml`
+- `inputs/targets/hunannongye/raw/source_review.md`
+- `inputs/targets/nannong-undergraduate/raw/source_review.md`
+- `inputs/targets/pku-graduate/raw/source_review.md`
+- `eval_profiles/real-core-v0/profile.yaml`
 
 ### 不得修改
 
-- `standards/schools/*/v1/signed_standard.yaml`
-- `standards/eval_profiles/**/expected/**`
+- `standards/targets/*/v1/target.standard.yaml`
+- `eval_profiles/**/expected/**`
 - `standards/schools/**/golden/**`
 - `test_inputs/template_generation/school-*.docx`
 - `test_inputs/template_gap/*generated-template.docx`
@@ -300,7 +300,7 @@ elements:
 
 | 下游位置 | 读取什么 | 对阶段一的影响 |
 | --- | --- | --- |
-| `src/docfit/harness/generated_template_gap.py` | 只正式读取 `expected.units` 作为 gap 检查标准 | `expected.global_rules` 目前不会直接生成 PASS/FAIL/UNKNOWN，只能先作为归位后的标准事实 |
+| `src/docfit/template_gap/gap.py` | 只正式读取 `expected.units` 作为 gap 检查标准 | `expected.global_rules` 目前不会直接生成 PASS/FAIL/UNKNOWN，只能先作为归位后的标准事实 |
 | `generated_template_gap._locate_units()` | 用 unit 名称和 `fixed/manual_only` 元素文本定位单元 | `elements` 里混入页码、页眉、section、页边距，会直接污染单元定位 |
 | `generated_template_gap._compare_elements()` | 在单元范围内检查 `elements` 的存在、样式、字段标记 | 删除或改名元素会改变报告结构和元素级结论 |
 | `generated_template_gap._header_footer_checks()` | 读取 `unit.header_footer.header/page_number` | 页眉页码规则应放这里，而不是普通元素里 |
@@ -308,7 +308,7 @@ elements:
 | `generated_template_gap._field_requirements()` | 从 `elements` 或 unit 文本里推断 TOC、PAGE、SEQ 等字段要求 | 生成字段仍需要保留在 `elements` 或 unit 可读字段中，不能全部移到 `global_rules` |
 | `generated_template_gap._numbering_requirements()` | 从 `elements` 文本里推断 Word 自动编号要求 | 标题编号、图表编号、公式编号若要被检查，仍需有元素级或后续维度级入口 |
 | `template_units.verify_template_units_against_expected()` | 按 unit 和 element 的 id、顺序、字段做对比 | 直接删除/重排元素会影响模板解析阶段的契约比对 |
-| `src/docfit/stages/template_generate/runner.py` | 当前不直接读取 `template_unit_contract.yaml`；它从学校源 Word 写出 `source_template_tree.json`、`discovered_template_rules.json`、`template_artifact.json`、`template_unit_decisions.json`、`template_generation_plan.json`、`generated_template.docx`、`template_generation_manifest.json` | 阶段一不能把标准字段写成和生成器业务字段不同义，否则后续自动识别、差距报告和人工解释会对不上 |
+| `src/docfit/template_generation/runner.py` | 当前不直接读取 `template_unit_contract.yaml`；它从学校源 Word 写出 `source_template_tree.json`、`discovered_template_rules.json`、`template_artifact.json`、`template_unit_decisions.json`、`template_generation_plan.json`、`generated_template.docx`、`template_generation_manifest.json` | 阶段一不能把标准字段写成和生成器业务字段不同义，否则后续自动识别、差距报告和人工解释会对不上 |
 
 因此阶段一不能只按“人读起来更干净”来移动字段。必须先保证每一项移动后，直接消费者仍知道它属于哪类检查，未被当前检查器消费的字段也要明确标记为“第一阶段只归位，暂不判定”。
 
@@ -372,7 +372,7 @@ elements:
 
 ### Step 6：小改检查器
 
-修改 `src/docfit/harness/generated_template_gap.py` 中的 `_unit_anchor_queries()`。
+修改 `src/docfit/template_gap/gap.py` 中的 `_unit_anchor_queries()`。
 
 目标行为：
 
@@ -416,19 +416,19 @@ uv run pytest tests/contract/test_real_core_generated_template_gap.py tests/cont
 ```
 
 ```bash
-uv run docfit eval template-gap --school hunannongye --generated-template test_inputs/template_gap/real-core-v0-hunannongye-generated-template.docx --out test_outputs/debug/template_eval_runs/docfit_phase1_gap_hunannongye
+uv run docfit eval template-gap --school hunannongye --generated-template inputs/targets/hunannongye/fixtures/template_gap/generated_template.input.docx --out runs/eval/docfit_phase1_gap_hunannongye
 ```
 
 ```bash
-uv run docfit eval template-gap --school nannong-undergraduate --generated-template test_inputs/template_gap/real-core-v0-nannong-undergraduate-generated-template.docx --out test_outputs/debug/template_eval_runs/docfit_phase1_gap_nannong
+uv run docfit eval template-gap --school nannong-undergraduate --generated-template inputs/targets/nannong-undergraduate/fixtures/template_gap/generated_template.input.docx --out runs/eval/docfit_phase1_gap_nannong
 ```
 
 ```bash
-uv run docfit eval template-gap --school pku-graduate --generated-template test_inputs/template_gap/real-core-v0-pku-graduate-generated-template.docx --out test_outputs/debug/template_eval_runs/docfit_phase1_gap_pku
+uv run docfit eval template-gap --school pku-graduate --generated-template inputs/targets/pku-graduate/fixtures/template_gap/generated_template.input.docx --out runs/eval/docfit_phase1_gap_pku
 ```
 
 ```bash
-uv run docfit eval coverage --profile real-core-v0 --out test_outputs/debug/template_eval_runs/docfit_phase1_coverage
+uv run docfit eval coverage --profile real-core-v0 --out runs/eval/docfit_phase1_coverage
 ```
 
 ## 阶段一完成后的产物
@@ -437,20 +437,20 @@ uv run docfit eval coverage --profile real-core-v0 --out test_outputs/debug/temp
 
 - 本计划文档：`docs/plans/template-gap-phase-1-school-standard-cleanup.md`
 - 清理后的三校标准：
-  - `standards/schools/hunannongye/v1/template_unit_contract.yaml`
-  - `standards/schools/nannong-undergraduate/v1/template_unit_contract.yaml`
-  - `standards/schools/pku-graduate/v1/template_unit_contract.yaml`
+  - `standards/targets/hunannongye/v1/template_unit_contract.yaml`
+  - `standards/targets/nannong-undergraduate/v1/template_unit_contract.yaml`
+  - `standards/targets/pku-graduate/v1/template_unit_contract.yaml`
 - 支持 `anchor_role` 的检查器：
-  - `src/docfit/harness/generated_template_gap.py`
+  - `src/docfit/template_gap/gap.py`
 - 防回退测试：
   - `tests/contract/test_real_core_generated_template_gap.py`
 
 ### 临时验证产物
 
-- `test_outputs/debug/template_eval_runs/docfit_phase1_gap_hunannongye/artifacts/template_gap_report.json`
-- `test_outputs/debug/template_eval_runs/docfit_phase1_gap_nannong/artifacts/template_gap_report.json`
-- `test_outputs/debug/template_eval_runs/docfit_phase1_gap_pku/artifacts/template_gap_report.json`
-- `test_outputs/debug/template_eval_runs/docfit_phase1_coverage/coverage_report.json`
+- `runs/eval/docfit_phase1_gap_hunannongye/artifacts/template_gap_report.json`
+- `runs/eval/docfit_phase1_gap_nannong/artifacts/template_gap_report.json`
+- `runs/eval/docfit_phase1_gap_pku/artifacts/template_gap_report.json`
+- `runs/eval/docfit_phase1_coverage/coverage_report.json`
 
 这些临时产物是执行证据，不作为 signed standard、golden 或 expected snapshot。
 

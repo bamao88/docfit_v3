@@ -1,0 +1,18 @@
+manifest_type: input_manifest
+manifest_version: 1
+target_id: hunannongye
+owner: docfit-core
+ai_may_edit: false
+files:
+  - path: raw/source_template.docx
+    role: source_template
+    sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
+  - path: raw/source_requirement_legacy.doc
+    role: source_requirement_legacy
+    sha256: sha256:4c0cd559073b83225500966fd67eb85b25b734203e8d72a21794178f0fa96d81
+  - path: raw/source_review.md
+    role: human_review_source
+    sha256: sha256:65bb89715ad40cc8e2948f65441312d3da7efb56b5973d8f2c4c507c177c9794
+  - path: fixtures/template_gap/generated_template.input.docx
+    role: template_gap_fixture
+    sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989

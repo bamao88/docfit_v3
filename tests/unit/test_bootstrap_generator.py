@@ -22,12 +22,12 @@ def test_bootstrap_generator_defaults_to_generated_output(tmp_path, monkeypatch)
 
     generator.main([])
 
-    assert (tmp_path / "test_outputs/workbench/bootstrap-fixtures/test_inputs/template_generation/bootstrap-demo-school-template.docx").exists()
+    assert (tmp_path / "runs/workbench/bootstrap-fixtures/inputs/targets/demo-school/raw/source_template.docx").exists()
     assert (
         tmp_path
-        / "test_outputs/workbench/bootstrap-fixtures/standards/eval_profiles/bootstrap-core/expected/feature_snapshot.json"
+        / "runs/workbench/bootstrap-fixtures/standards/cases/demo-school__bootstrap-demo/v1/render/feature_snapshot.expected.json"
     ).exists()
-    assert not (tmp_path / "standards/schools/demo-school/v1/signed_standard.yaml").exists()
+    assert not (tmp_path / "standards/targets/demo-school/v1/target.standard.yaml").exists()
 
 
 def test_bootstrap_generator_requires_explicit_reviewed_asset_overwrite(tmp_path, monkeypatch) -> None:
@@ -37,4 +37,4 @@ def test_bootstrap_generator_requires_explicit_reviewed_asset_overwrite(tmp_path
     with pytest.raises(SystemExit):
         generator.main(["--root", str(tmp_path)])
 
-    assert not (tmp_path / "standards/schools/demo-school/v1/signed_standard.yaml").exists()
+    assert not (tmp_path / "standards/targets/demo-school/v1/target.standard.yaml").exists()

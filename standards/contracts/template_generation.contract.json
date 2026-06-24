@@ -1,0 +1,29 @@
+{
+  "contract_type": "template_generation",
+  "contract_version": "1.0",
+  "coverage_requirements": {
+    "profile": "real-core-v0"
+  },
+  "owner": "docfit-core",
+  "required_capabilities": [
+    "template_generation.input_exists",
+    "template_generation.input_valid_docx",
+    "template_generation.source_tree",
+    "template_generation.structure_candidates",
+    "template_generation.generation_model",
+    "template_generation.plan",
+    "template_generation.output_docx",
+    "template_generation.manifest",
+    "template_generation.body_slot"
+  ],
+  "required_invariants": [
+    "template generation writes a generated template DOCX and manifest from a source template"
+  ],
+  "unsupported_policy": {
+    "blocking_unknown": true,
+    "unknown_is_blocking": true
+  },
+  "verifier_refs": [
+    "docfit.template_generation.runner.generate_template"
+  ]
+}

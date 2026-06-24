@@ -1,0 +1,9 @@
+manifest_type: input_manifest
+manifest_version: 1
+target_id: shared
+owner: docfit-core
+ai_may_edit: false
+files:
+  - path: raw/template_recognition_alignment_review.md
+    role: shared_human_review_source
+    sha256: sha256:8efd4bb76da5ac7f5aa0806b7fb97055146095c13a5673e991285ea6ba0d0069

@@ -111,7 +111,7 @@ generated_template.docx
 uv run pytest tests/contract/test_real_core_generated_template_gap.py -q
 
 uv run docfit eval template-gap --school pku-graduate \
-  --generated-template test_test_inputs/template_gap/real-core-v0-pku-graduate-generated-template.docx \
+  --generated-template test_inputs/targets/pku-graduate/fixtures/template_gap/generated_template.input.docx \
   --out /tmp/docfit_gap_pku_region_map
 ```
 
@@ -158,9 +158,9 @@ generated_template.docx  —— 业务生成模板（当前阶段：模拟输入
 
 | 学校 | 模拟业务生成模板 |
 |------|------------------|
-| 湖南农业 | `test_test_inputs/template_gap/real-core-v0-hunannongye-generated-template.docx` |
-| 南农本科 | `test_test_inputs/template_gap/real-core-v0-nannong-undergraduate-generated-template.docx` |
-| 北大研究生 | `test_test_inputs/template_gap/real-core-v0-pku-graduate-generated-template.docx` |
+| 湖南农业 | `test_inputs/targets/hunannongye/fixtures/template_gap/generated_template.input.docx` |
+| 南农本科 | `test_inputs/targets/nannong-undergraduate/fixtures/template_gap/generated_template.input.docx` |
+| 北大研究生 | `test_inputs/targets/pku-graduate/fixtures/template_gap/generated_template.input.docx` |
 
 这三份文件在系统中的**唯一产品身份**是：**模拟的业务生成结果**。
 
@@ -379,7 +379,7 @@ test_test_inputs/template_gap/
 | 文件 | 改动 |
 |------|------|
 | `test_test_inputs/README.md` | 新增「模拟业务生成模板输入」一节：说明三份文件是 gap 被测对象，不是学校原始模板 |
-| `standards/eval_profiles/real-core-v0/cases.yaml` | 每校增加 `generated_template_docx` |
+| `eval_profiles/real-core-v0/profile.yaml` | 每校增加 `generated_template_docx` |
 | `src/docfit/harness/profiles.py` | `EvalCase` 增加 `generated_template_docx`；`REAL_CORE_SCHOOLS` 同步 |
 | `src/docfit/convert/orchestrator.py` | real-core gap 检查改用 `generated_template_docx` |
 
@@ -404,7 +404,7 @@ evaluate_generated_template_gap(bundle, generated_template_docx, out_dir)
 uv run pytest tests/contract/test_real_core_generated_template_gap.py::test_real_core_template_gap_outputs_tree_and_reports_for_all_schools -q
 
 uv run docfit eval template-gap --school hunannongye \
-  --generated-template test_test_inputs/template_gap/real-core-v0-hunannongye-generated-template.docx \
+  --generated-template test_inputs/targets/hunannongye/fixtures/template_gap/generated_template.input.docx \
   --out /tmp/docfit_gap_hna
 ```
 
@@ -600,7 +600,7 @@ uv run pytest tests/contract/test_real_core_generated_template_gap.py \
   -k "normalizes_template_noise or unsearchable_fixed_element" -q
 
 uv run docfit eval template-gap --school hunannongye \
-  --generated-template test_test_inputs/template_gap/real-core-v0-hunannongye-generated-template.docx \
+  --generated-template test_inputs/targets/hunannongye/fixtures/template_gap/generated_template.input.docx \
   --out /tmp/docfit_gap_hna_after_match
 ```
 
@@ -714,8 +714,8 @@ uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_c
 
 | 文件 | 职责 |
 |------|------|
-| `src/docfit/harness/generated_template_gap.py` | 主战场：结果树、匹配、汇总、报告渲染 |
-| `src/docfit/harness/generated_template_inspector.py` | 解析树、`order`、`style_details` |
+| `src/docfit/template_gap/gap.py` | 主战场：结果树、匹配、汇总、报告渲染 |
+| `src/docfit/template_gap/inspector.py` | 解析树、`order`、`style_details` |
 | `src/docfit/harness/coverage.py` | 能力点派生、blocking 校验 |
 | `src/docfit/harness/profiles.py` | `generated_template_docx` 配置 |
 | `src/docfit/convert/orchestrator.py` | eval 入口切换被测对象 |

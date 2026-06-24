@@ -1,0 +1,9 @@
+manifest_type: input_manifest
+manifest_version: 1
+student_id: bootstrap-demo-silent-drop
+owner: docfit-core
+ai_may_edit: false
+files:
+  - path: raw/source_document.docx
+    role: source_student_document
+    sha256: sha256:6a278b2c34d1b5ce68e430b71f3284cf472e808714cf6a08fbfbcea6539e750e

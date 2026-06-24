@@ -14,7 +14,7 @@ Implementation evidence:
   均能产出 v2 分层报告，当前仍按真实差距和未知能力阻断为 `FAIL`。
 - `uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage`
   → `status = FAIL`，没有绕过 real-core gate。
-- `uv run docfit eval e2e --school hunannongye --student test_test_inputs/content_extraction/real-student-003-source.docx --out /tmp/docfit_real_core_e2e_hna`
+- `uv run docfit eval e2e --school hunannongye --student test_inputs/students/real-student-003/raw/source_document.docx --out /tmp/docfit_real_core_e2e_hna`
   → `status = FAIL`，仍在模板问题处阻断。
 
 Current result:
@@ -44,7 +44,7 @@ Scope:
 - 当前仓库里没有 test_inputs/simulated-generated-templates/.../generated_template.docx；执行时先创建或恢复这三份“虚拟业务生成模板”输入，并在 test_test_inputs/README.md 说清它们只是当前阶段的验收尺子输入，不是 golden。
 - 删除公开的 check_items 输出，迁移调用方和测试到结果树。
 Non-goals: 不实现真正模板生成器；不更新 signed standards、goldens、expected snapshots；不保留旧 check_items 兼容输出；不修内容抽取、内容放置、最终渲染；不加学校硬编码补丁。
-Context: must-read=docs/plans/template-gap-engine-layering-refactor.md, README.md, SPEC.md, docs/agents/bootstrap-eval-runbook.md, test_test_inputs/README.md, standards/eval_profiles/real-core-v0/cases.yaml, standards/schools/*/v1/template_unit_contract.yaml, src/docfit/harness/generated_template_gap.py, src/docfit/harness/generated_template_inspector.py, src/docfit/harness/coverage.py, src/docfit/harness/profiles.py, src/docfit/convert/orchestrator.py, tests/contract/test_real_core_generated_template_gap.py; useful=docs/human/real-core-v0-generated-template-gap-live-run-report.md, docs/human/real-core-v0-generated-template-gap-test-quality-review.md, docs/plans/template-gap-engine-optimization-guide.md; avoid-unless-needed=test_outputs/debug/template_eval_runs/** 页面图片证据和 test_outputs/workbench/** 生成物。
+Context: must-read=docs/plans/template-gap-engine-layering-refactor.md, README.md, SPEC.md, docs/agents/bootstrap-eval-runbook.md, test_test_inputs/README.md, eval_profiles/real-core-v0/profile.yaml, standards/targets/*/v1/template_unit_contract.yaml, src/docfit/template_gap/gap.py, src/docfit/template_gap/inspector.py, src/docfit/harness/coverage.py, src/docfit/harness/profiles.py, src/docfit/convert/orchestrator.py, tests/contract/test_real_core_generated_template_gap.py; useful=docs/human/real-core-v0-generated-template-gap-live-run-report.md, docs/human/real-core-v0-generated-template-gap-test-quality-review.md, docs/plans/template-gap-engine-optimization-guide.md; avoid-unless-needed=runs/eval/** 页面图片证据和 runs/workbench/** 生成物。
 
 Acceptance:
 - SUCCESS: 三校 real-core gap 使用 test_test_inputs/template_gap/real-core-v0-<school_id>-generated-template.docx 或 CLI 显式传入的 generated_template.docx；template_gap_report.json 为 v2 分层树并包含 summary.per_unit；最小 PASS 夹具得到 blocking_status == PASS；单样式变异、删 required 元素、无搜索词、跨单元同文都能定点证明；湖南农业和南农误报型 element_missing 明显下降，真差距仍是 FAIL。
@@ -53,7 +53,7 @@ Acceptance:
 - INTERMEDIATE_ONLY: 只有用户明确批准时，C0+C1 可作为阶段性检查点。
 - No regressions: 终态只允许 PASS/FAIL/UNKNOWN，UNKNOWN 仍阻断；不自动更新标准或金标；docfit convert/e2e 不绕过阶段检查。
 
-Verification: deterministic=uv run pytest tests/contract/test_real_core_generated_template_gap.py -q; uv run pytest tests/contract/test_real_core_generated_template_gap.py tests/contract/test_contract_gates.py tests/e2e/test_bootstrap_cli.py -q; final=uv run pytest tests/unit tests/contract tests/e2e -q; integration=uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage; product-run=三校分别运行 uv run docfit eval template-gap --school <school_id> --generated-template test_test_inputs/template_gap/real-core-v0-<school_id>-generated-template.docx --out /tmp/docfit_gap_<school_id>，并至少运行一个 real-core e2e：uv run docfit eval e2e --school hunannongye --student test_test_inputs/content_extraction/real-student-003-source.docx --out /tmp/docfit_real_core_e2e_hna; local-live-manual=none; optional=对比执行前后的 template_generation_element_missing 数量。
+Verification: deterministic=uv run pytest tests/contract/test_real_core_generated_template_gap.py -q; uv run pytest tests/contract/test_real_core_generated_template_gap.py tests/contract/test_contract_gates.py tests/e2e/test_bootstrap_cli.py -q; final=uv run pytest tests/unit tests/contract tests/e2e -q; integration=uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage; product-run=三校分别运行 uv run docfit eval template-gap --school <school_id> --generated-template test_test_inputs/template_gap/real-core-v0-<school_id>-generated-template.docx --out /tmp/docfit_gap_<school_id>，并至少运行一个 real-core e2e：uv run docfit eval e2e --school hunannongye --student test_inputs/students/real-student-003/raw/source_document.docx --out /tmp/docfit_real_core_e2e_hna; local-live-manual=none; optional=对比执行前后的 template_generation_element_missing 数量。
 Execution: main=主会话监督执行、保护标准/金标、按 C0-C5 分段验证；worker=none；worker-goal=none
 To execute: /goal execute docs/plans/template-gap-engine-layering-refactor.md with intuitive-flow
 Approval: LGTM/approve/go ahead approves; edits request revision.
@@ -104,9 +104,9 @@ generated_template.docx  —— 业务生成模板
 
 | 学校 | 当前被测 generated_template.docx |
 | --- | --- |
-| 湖南农业 | `test_test_inputs/template_gap/real-core-v0-hunannongye-generated-template.docx` |
-| 南农本科 | `test_test_inputs/template_gap/real-core-v0-nannong-undergraduate-generated-template.docx` |
-| 北大研究生 | `test_test_inputs/template_gap/real-core-v0-pku-graduate-generated-template.docx` |
+| 湖南农业 | `test_inputs/targets/hunannongye/fixtures/template_gap/generated_template.input.docx` |
+| 南农本科 | `test_inputs/targets/nannong-undergraduate/fixtures/template_gap/generated_template.input.docx` |
+| 北大研究生 | `test_inputs/targets/pku-graduate/fixtures/template_gap/generated_template.input.docx` |
 
 后续文档、报告、评审和排期里统一使用“虚拟业务生成模板”或“业务生成模板”这个口径，不再引入第二套被测对象概念。
 
@@ -257,13 +257,13 @@ generated_template.docx
 | 文件 | 改动 |
 | --- | --- |
 | `test_test_inputs/README.md` | 新增“虚拟业务生成模板输入”一节，说明这些文件是 gap 被测对象 |
-| `standards/eval_profiles/real-core-v0/cases.yaml` | 每校增加 `generated_template_docx` |
+| `eval_profiles/real-core-v0/profile.yaml` | 每校增加 `generated_template_docx` |
 | `src/docfit/harness/profiles.py` | `EvalCase` 增加 `generated_template_docx`；`REAL_CORE_SCHOOLS` 同步 |
 | `src/docfit/convert/orchestrator.py` | real-core gap 检查改用 `generated_template_docx` |
 
 ### 10.2 路径登记
 
-`standards/eval_profiles/real-core-v0/cases.yaml` 每个学校增加：
+`eval_profiles/real-core-v0/profile.yaml` 每个学校增加：
 
 ```yaml
 generated_template_docx: test_test_inputs/template_gap/real-core-v0-<school_id>-generated-template.docx
@@ -304,7 +304,7 @@ evaluate_generated_template_gap(bundle, generated_template_docx, out_dir)
 uv run pytest tests/contract/test_real_core_generated_template_gap.py::test_real_core_template_gap_outputs_tree_and_reports_for_all_schools -q
 
 uv run docfit eval template-gap --school hunannongye \
-  --generated-template test_test_inputs/template_gap/real-core-v0-hunannongye-generated-template.docx \
+  --generated-template test_inputs/targets/hunannongye/fixtures/template_gap/generated_template.input.docx \
   --out /tmp/docfit_gap_hna
 ```
 
@@ -505,7 +505,7 @@ uv run pytest tests/contract/test_real_core_generated_template_gap.py \
   -k "normalizes_template_noise or unsearchable_fixed_element" -q
 
 uv run docfit eval template-gap --school hunannongye \
-  --generated-template test_test_inputs/template_gap/real-core-v0-hunannongye-generated-template.docx \
+  --generated-template test_inputs/targets/hunannongye/fixtures/template_gap/generated_template.input.docx \
   --out /tmp/docfit_gap_hna_after_match
 ```
 
@@ -620,8 +620,8 @@ uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_c
 
 | 文件 | 职责 |
 | --- | --- |
-| `src/docfit/harness/generated_template_gap.py` | 主战场：结果树、匹配、汇总、报告渲染 |
-| `src/docfit/harness/generated_template_inspector.py` | 解析树、`order`、`style_details` |
+| `src/docfit/template_gap/gap.py` | 主战场：结果树、匹配、汇总、报告渲染 |
+| `src/docfit/template_gap/inspector.py` | 解析树、`order`、`style_details` |
 | `src/docfit/harness/coverage.py` | 能力点派生、blocking 校验 |
 | `src/docfit/harness/profiles.py` | `generated_template_docx` 配置 |
 | `src/docfit/convert/orchestrator.py` | eval 入口切换被测对象 |

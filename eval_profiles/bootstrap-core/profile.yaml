@@ -1,0 +1,22 @@
+profile_id: bootstrap-core
+status: signed
+source_evidence:
+  target_template: inputs/targets/demo-school/raw/source_template.docx
+students:
+  - student_id: bootstrap-demo-pass
+    source_docx: inputs/students/bootstrap-demo-pass/raw/source_document.docx
+  - student_id: bootstrap-demo-silent-drop
+    source_docx: inputs/students/bootstrap-demo-silent-drop/raw/source_document.docx
+  - student_id: bootstrap-demo-unsupported-textbox
+    source_docx: inputs/students/bootstrap-demo-unsupported-textbox/raw/source_document.docx
+cases:
+  e2e:
+    - case_id: demo-school__bootstrap-demo
+      school_id: demo-school
+      student_id: bootstrap-demo-pass
+expected_artifacts:
+  placement_plan: standards/cases/demo-school__bootstrap-demo/v1/placement/placement_plan.expected.json
+  render_feature_snapshot: standards/cases/demo-school__bootstrap-demo/v1/render/feature_snapshot.expected.json
+rules:
+  auto_update_allowed: false
+  ai_may_set_final_status: false

@@ -1,0 +1,15 @@
+manifest_type: input_manifest
+manifest_version: 1
+target_id: pku-graduate
+owner: docfit-core
+ai_may_edit: false
+files:
+  - path: raw/source_template.docx
+    role: source_template
+    sha256: sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14
+  - path: raw/source_review.md
+    role: human_review_source
+    sha256: sha256:631c7a839a1745af605fa1d5ddcffbc60b9325d506a9f8098b1a0d01ff6ad923
+  - path: fixtures/template_gap/generated_template.input.docx
+    role: template_gap_fixture
+    sha256: sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14

@@ -1,0 +1,189 @@
+baseline_type: student_content_tree
+profile_id: real-core-v0
+student_id: real-student-003
+review_metadata:
+  reviewed_by: user-reviewed-source-fact-packet
+  review_source: docs/human/real-core-v0-review-packet.md#source-real-student-003
+  source_docx_sha256: sha256:cf49d90832c44d2f28e7fe6940217f4afe7c637f179b3610c75801b900e7d290
+  change_reason: initial real-core-v0 reviewed student source facts
+  auto_update_allowed: false
+accepted_source_facts:
+  review_packet: docs/human/real-core-v0-review-packet.md
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  source_section_id: real-student-003
+  source_section_sha256: sha256:2705c1033bde215b8f905e9f8fb0a7b6e4306826f45d0f06a28ed535a0859059
+  student_docx: inputs/students/real-student-003/raw/source_document.docx
+  student_docx_sha256: sha256:cf49d90832c44d2f28e7fe6940217f4afe7c637f179b3610c75801b900e7d290
+  original_review_source: inputs/students/real-student-003/raw/content_review.md
+  original_review_source_sha256: sha256:a444c2826368c75c10e7e6df780fdc496e7ab139ee5ae55de0100f9b79c6583c
+  full_review_text: "# 关②人工内容识别标准说明：003.docx\n\n## 标题\n\n- 中文标题：磷肥不同施肥量对米粉稻产量性状的影响研究\n\
+    - 英文标题：Study on the effect of different amount of phosphate fertilizer on the\
+    \ yield traits of rice flour rice\n\n## 应忽略的 donor-school 或模板自带前置页\n\n```text\n\
+    - 湖南农业大学封面、诚信声明、作者/导师/学院/日期等固定前置页：忽略，不进入正文流。\n- 封面中的真实中英文题名：只作为标题/元信息保留，不作为正文段落。\n\
+    - 英文摘要前的 Title of Graduation Paper、Student、Tutor、英文单位地址：忽略，不作为英文标题或英文摘要正文。\n-\
+    \ 摘要正文和关键词：不进入正文流；分别保留在摘要/关键词标准模板中。\n```\n\n## 中文摘要\n\n存在中文摘要。原稿为 `摘 要：正文...`\
+    \ 同段格式；标准正文不包含 `摘 要：` 标签。正文应由下面 1 段组成：\n\n1. 在保障国家粮食安全和提高农产品质量的宏观战略下，优化肥料施用技术以推动水稻生产的高效与可持续发展，已成为农业领域的重点研究方向。作为重要的加工专用稻类型，米粉稻产量性状的稳定与提升，直接影响稻米加工产业的原料供应和经济效益。然而，在实际生产中，磷肥施用量常缺乏精准的调控依据，过量或不足不仅易导致资源浪费和环境污染，还会制约作物产量与品质潜力的发挥。为此，本研究以专用米粉稻品种中嘉早17与两系杂交稻品种株两优4024为材料，在长沙和沅陵两地进行大田实验。试验采用双因素随机区组设计，设置0kg/hm²（P0）、30kg/hm²P(30)、60kg/hm²(P60)、90kg/hm²(P90)4个不同的磷肥梯度，测定不同磷肥施用量对米粉稻产量及产量性状的影响。结果表明，磷肥施用在适当范围内会提高米粉稻产量，过量磷肥则不利于产量的进一步提高甚至导致减产，但在实验中这些影响均不显著。有效穗数同穗粒数与千粒重之间呈现负相关，水稻产量的提升是协调寻找这三者的大小关系来完成的。\n\
+    \n## 中文关键词\n\n按原顺序：\n\n1. 磷肥施用量\n2. 米粉稻\n3. 产量性状\n\n## 英文摘要\n\n存在英文摘要。原稿在英文摘要前有\
+    \ `Title of Graduation Paper`、`Student`、`Tutor` 和英文单位地址等模板前导；这些不作为英文摘要正文。`Abstract:`\
+    \ 标签也不进入正文。正文应由下面 1 段组成：\n\n1. Under the macro strategy of ensuring national food\
+    \ security and improving the quality of agricultural products, optimizing fertilizer\
+    \ application technology to promote the efficient and sustainable development\
+    \ of rice production has become a key research direction in the field of agriculture.\
+    \ As an important type of processing special rice, the stability and improvement\
+    \ of yield traits of rice flour rice directly affect the raw material supply and\
+    \ economic benefits of rice processing industry. However, in actual production,\
+    \ the application amount of phosphate fertilizer often lacks precise control basis.\
+    \ Excessive or insufficient application of phosphate fertilizer not only leads\
+    \ to waste of resources and environmental pollution, but also restricts the potential\
+    \ of crop yield and quality. In this study, a field experiment was conducted in\
+    \ Changsha and Yuanling with the special rice flour rice variety Zhongjiazao 17\
+    \ and two-line hybrid rice variety Zhuliangyou 4024 as materials. A two-factor\
+    \ randomized block design was used in the experiment. Four different phosphorus\
+    \ fertilizer gradients of 0 kg / hm2 ( P0 ), 30 kg / hm2 P ( 30 ), 60 kg / hm2\
+    \ ( P60 ) and 90 kg / hm2 ( P90 ) were set up to determine the effects of different\
+    \ phosphorus fertilizer application rates on the yield and yield traits of rice\
+    \ flour rice. The results showed that the application of phosphate fertilizer\
+    \ in an appropriate range would increase the yield of rice flour, and excessive\
+    \ phosphate fertilizer was not conducive to further increase the yield or even\
+    \ lead to yield reduction, but these effects were not significant in the experiment.\
+    \ There is a negative correlation between the number of effective panicles and\
+    \ the number of grains per panicle and 1000-grain weight. The improvement of rice\
+    \ yield is coordinated to find the relationship between the three.\n\n## 英文关键词\n\
+    \n按原顺序：\n\n1. Phosphate fertilizer application amount\n2. rice flour rice\n3.\
+    \ yield traits\n\n## 正文标题结构（不是原稿目录）\n\n```text\nlevel 1: 前言\n  level 2: 研究背景与意义\n\
+    \    level 3: 试验材料\n  level 2: 测定项目方法\n    level 3: 产量及产量构成性状测定\n    level 3:\
+    \ 数据统计与分析\nlevel 1: 结果与分析\n  level 2: 磷肥不同施用量对不同水稻品种的产量的影响\nlevel 1: 讨论\nlevel\
+    \ 1: 结论\n```\n\n## 正文段落顺序\n\n```text\n1. level 1: 前言\n2. level 2: 研究背景与意义\n3.\
+    \ paragraph: 水稻作为我国三大粮食作物之一，其种植面积约占粮食作物总面积的27%，稻谷产量约占粮食总产量的40%[1]，水稻不仅直接提供口粮，也是多种传统食品加工的重要原料。其中米粉稻是指稻米直链淀粉含量较高、适宜制作米粉等米制品的专用水稻。我国作为稻米消费大国，米粉等传统米制品市场需求持续增长，但长期以来，优质米粉专用稻品种相对缺乏，限制了米粉加工产业的原料升级与品质提升。近年来，育种工作取得显著进展，一系列高产且加工特性优良的米粉稻品种（如“特优269”、“湘早籼32号”等）相继育成并推广，为米粉稻产业发展奠定了品种基础[2]。水稻高产优质栽培是米粉稻产业发展的关键，而想要实现水稻高产，就要研究更好的施肥措施。大量研究表明，氮肥施用量显著影响米粉稻的产量、直链淀粉含量及加工品质[3]。然而，相较于氮肥，磷肥对米粉稻产量性状的调控效应尚不明确。磷素是水稻生长发育必需的营养元素，对根系发育、分蘖形成及籽粒灌浆具有重要作用。现有研究表明，适量施用磷肥能普遍促进水稻株高、有效分蘖数及产量增加，但过量则会降低磷肥利用效率甚至抑制产量[4][5]。在专用米粉稻生产中，磷肥的施用量如何影响其产量构成因素，从而影响水稻产量还缺乏系统性的依据。产量构成因子之间往往存在补偿机制，例如有效穗数增多可能导致每穗粒数下降，而千粒重的提高又可能伴随穗数的减少。此外，米粉稻对直链淀粉含量的特殊要求，使其产量形成过程中可能对不同磷肥施用表现出与普通水稻不同的规律。明确磷肥对米粉稻各产量形状的调控规律，有助于不牺牲稻米加工适宜性的前提下，充分发挥米粉稻的产量潜力，降低生产成本，提高种植效益，同时减少多余磷素排放，符合绿色、可持续发展的农业要求。\n\
+    4. level 3: 试验材料\n5. paragraph: 中嘉早17，株两优4024，其中中嘉早17是常规稻，直链淀粉含量较高，为专用于米粉加工的品种，株两优4024则是两系杂交稻，产量潜力较高。\n\
+    6. level 2: 测定项目方法\n7. level 3: 产量及产量构成性状测定\n8. paragraph: 成熟期收获时在每小区随机从一株开始连续调查30株的有效穗数，按每穴平均有效穗数取5穴，考查每穗总粒数、每穗实粒数、千粒重、结实率，计算理论产量。\n\
+    9. paragraph: 避免校区边上3行，随机收取100穴水稻，用谷物水分测定仪测定含水量，实际产量按照标准含水量13%折算。\n10. level 3:\
+    \ 数据统计与分析\n11. paragraph: 数据统计分析采用Microsoft Excel与Origin进行数据整理与图表绘制，所有试验数据的相关性分析均使用SPSS软件完成，不同磷肥处理间的差异显著性采用单因素方差分析，所有分析结果均以均值±标准差的形式呈现，显著性水平设定为α=0.05。\n\
+    12. level 1: 结果与分析\n13. level 2: 磷肥不同施用量对不同水稻品种的产量的影响\n14. paragraph: 如图 1 在长沙地区，中嘉早17的平均实际产量为6854.31kg/hm²，株两优4024的平均实际产量为8094.29kg/hm²，在不同施磷量下两品种产量差异不显著，中嘉早17在P60处理下产量最高，较P30处理和P90处理分别增产9.16%和8.39%。株两优4024在P0处理下产量达到最高，为8442.99kg/hm²，较P90增产8.28%，而P60处理的产量也要高于P30和P90。在沅陵地区，中嘉早17的平均产量为8981.60kg/hm²，在P30处理下的实际产量最高，为9676.0733kg/hm²，较P0增产7.76%。株两优4024的平均产量为8901.84kg/hm²，以P0为对照，P30和P60分别减产3.04%和0.29%，而P90增产10.76%。各磷水平下产量差异不明显。\n\
+    15. image 1: 不同水稻品种在不同施磷量下的实际产量；Actual yield of different rice varieties under\
+    \ different phosphorus application rates\n16. image 2: 不同磷肥施用量下水稻的理论产量\n17. table\
+    \ 1: 不同磷肥施用量下水稻的产量性状；Yield traits of rice under different phosphorus fertilizer\
+    \ application rates；17 行 x 6 列：第1行  | 处理 | 有效穗数(×105/hm2) | 每穗粒数 | 结实率（%） | 千粒重（g）；第2行\
+    \ 长沙-中嘉早17 | P0 | 25.51±3.62a | 137.68±8.39a | 75.82±4.21a | 25.73±1.15a；第3行 \
+    \ | P30 | 23.25±3.05a | 151.50±9.49a | 80.51±7.68a | 26.62±0.86a；第4行  | P60 |\
+    \ 24.54±2.86a | 136.98±4.86a | 74.56±8.61a | 24.17±1.68a；第5行  | P90 | 24.69±1.07a\
+    \ | 136.35±5.15a | 71.19±2.51a | 24.68±2.08a；第6行 长沙-株两优4024 | P0 | 31.07±4.67a\
+    \ | 92.34±8.68a | 85.82±1.59a | 30.42±3.43a；第7行  | P30 | 27.78±3.09a | 100.62±12.83a\
+    \ | 87.34±2.07a | 30.82±1.65a；第8行  | P60 | 27.78±4.66a | 104.84±18.07a | 88.99±0.93a\
+    \ | 28.60±2.92a；第9行  | P90 | 27.18±3.01a | 96.79±8.12a | 88.19±1.34a | 29.89±0.90a；第10行\
+    \ 沅陵-中嘉早17 | P0 | 41.00±5.68a | 144.77±25.03a | 72.38±4.46a | 26.01±1.84a；第11行\
+    \  | P30 | 40.12±6.18a | 165.59±40.89a | 75.33±0.69a | 25.90±2.45a；第12行  | P60\
+    \ | 38.34±10.21a | 168.43±20.00a | 76.47±4.36a | 24.95±0.99a；第13行  | P90 | 35.54±2.25a\
+    \ | 177.72±14.65a | 76.08±2.59a | 25.05±0.81a；第14行 沅陵-株两优4024 | P0 | 42.34±8.15a\
+    \ | 113.76±11.64a | 77.61±5.63a | 27.24±3.60a；第15行  | P30 | 48.76±6.14a | 142.15±16.02a\
+    \ | 76.66±2.05a | 24.42±3.81a；第16行  | P60 | 40.64±10.50a | 135.85±8.89a | 74.13±0.70a\
+    \ | 28.61±2.41a；第17行  | P90 | 42.59±3.44a | 125.14±21.44a | 73.14±2.55a | 27.04±2.02a。\n\
+    18. level 1: 讨论\n19. paragraph: 本研究表明，随着施磷量的增加，水稻总产量总体呈现先增加后下降的变化趋势，这与前人研究[22]得出的结论类似，反映了磷肥施用对水稻生长的有着双重调控作用。从产量结果来看，两个供试水稻品种对磷肥施用量的响应在长沙与沅陵两地表现出不同的趋势，且处理间差异均未达到显著水平。在长沙地区，中嘉早17在P60处理下产量最高，为7282.90\
+    \ kg/hm²，较P0增产8.01%，而P30和P90处理产量略低于P0，降幅分别为1.05%和0.35%，总体呈现为P60＞PO＞P90＞P30；株两优4024则在P0处理下产量最高，达到8442.99\
+    \ kg/hm²，所有施磷处理均表现出一定量的减产，但减产并不显著。在沅陵地区，中嘉早17在P30处理下产量最高达到9676.07 kg/hm²，较P0增产7.76%，而P60和P90处理则分别减产3.44%和4.23%；株两优4024在P90处理下产量最高，较P0增产10.76%，但P30和P60处理略有减产，另有实验表明[23]，施肥超过最佳水平时，产量反而下降，这也与本实验中产量呈现抛物线的变化趋势相吻合。而两个品种的最高产量均出现在不同的施磷水平，与闫金垚等[24]的实验结果相似，表明品种间对磷肥的吸收利用存在差异。从产量构成性状分析，有效穗数和每穗粒数对磷肥施用的反应相对敏感，磷肥施用过多（P90）会对水稻有效穗数整体呈抑制作用，在多数情况下会减少有效穗数，降幅约13-15%，磷肥施用量控制在P0-P30范围内即可维持或获得最高有效穗数，超过P30后穗数不增反降，P90为最差处理。磷肥施用量直接影响米粉稻的产量构成因子。本研究结果表明，磷肥用量过低或过高都会造成水稻的有效穗数的减少[25]，且千粒重随施磷量呈先增后减趋势[26]，这与前人研究结果一致。且有效穗数与每穗实粒数存在负相关[27]，有效穗数增多会使其他产量构成因素减少，这与前人研究相符[28]，表明产量性状构成因素之间不能全部同时增加，只有协调各产量构成因素，寻找最适施磷量，才能达到最佳产量。千粒重在本试验中受磷肥影响较小，符合前人研究结论[29]，施用磷肥后，水稻产量主要归因于单位面积有效穗数、每穗粒数的增加和结实率的提高。\n\
+    20. level 1: 结论\n21. paragraph: 在供试的两个地区中，长沙地区中嘉早17在P60处理下产量最高，较P0增产8.01%，而P30和P90处理产量略低于P0；株两优4024则在P0处理下产量最高，所有施磷处理均表现为减产，其中P90减产幅度最大（7.65%）。沅陵地区中嘉早17在P30处理下产量最高，较P0增产7.76%，P60和P90处理则表现为减产；株两优4024在P90处理下产量最高，较P0增产10.76%，P30和P60处理产量低于P90。两个品种对磷肥的响应特征存在明显差异，在实际生产中应根据土壤有效磷含量和品种对磷素的响应特性制定差异化的磷肥管理方案。水稻各产量性状不太可能实现同时增长，协调他们之间的关系，寻找最适施肥量是提高产量的可行步骤。\n\
+    ```\n\n## 图片\n\n应识别为正文图片 2 个；位置按上面“正文流正确答案模板”的编号定位：\n\n1. 正文流第 15 项；位于第 14 项之后、第\
+    \ 16 项开始之前。中文题名：不同水稻品种在不同施磷量下的实际产量。英文题名：Actual yield of different rice varieties\
+    \ under different phosphorus application rates。\n2. 正文流第 16 项；位于第 15 项之后、第 17\
+    \ 项开始之前。中文题名：不同磷肥施用量下水稻的理论产量。英文题名：未见独立英文图题。\n\n## 表格\n\n应作为论文内容识别的表格为 1 个：\n\n\
+    1. 正文流第 17 项；位于第 16 项之后、第 18 项开始之前。表格为 17 行 6 列。中文表名：不同磷肥施用量下水稻的产量性状。英文表名：Yield\
+    \ traits of rice under different phosphorus fertilizer application rates。\n\n\
+    ## 参考文献\n\n存在参考文献区，条目按原顺序为：\n\n1. FAO. FAOSTAT: FAO Statistical Databases[EB/OL].\
+    \ Rome: Food and Agriculture Organization of the United Nations, 2007.\n\n## 附录\n\
+    \n未见附录区。\n\n## 致谢\n\n未见致谢区。"
+expected:
+  student_id: real-student-003
+  source_section_sha256: sha256:2705c1033bde215b8f905e9f8fb0a7b6e4306826f45d0f06a28ed535a0859059
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  content_model: document_unit -> unit_element -> sub_element
+  full_review_text: "# 关②人工内容识别标准说明：003.docx\n\n## 标题\n\n- 中文标题：磷肥不同施肥量对米粉稻产量性状的影响研究\n\
+    - 英文标题：Study on the effect of different amount of phosphate fertilizer on the\
+    \ yield traits of rice flour rice\n\n## 应忽略的 donor-school 或模板自带前置页\n\n```text\n\
+    - 湖南农业大学封面、诚信声明、作者/导师/学院/日期等固定前置页：忽略，不进入正文流。\n- 封面中的真实中英文题名：只作为标题/元信息保留，不作为正文段落。\n\
+    - 英文摘要前的 Title of Graduation Paper、Student、Tutor、英文单位地址：忽略，不作为英文标题或英文摘要正文。\n-\
+    \ 摘要正文和关键词：不进入正文流；分别保留在摘要/关键词标准模板中。\n```\n\n## 中文摘要\n\n存在中文摘要。原稿为 `摘 要：正文...`\
+    \ 同段格式；标准正文不包含 `摘 要：` 标签。正文应由下面 1 段组成：\n\n1. 在保障国家粮食安全和提高农产品质量的宏观战略下，优化肥料施用技术以推动水稻生产的高效与可持续发展，已成为农业领域的重点研究方向。作为重要的加工专用稻类型，米粉稻产量性状的稳定与提升，直接影响稻米加工产业的原料供应和经济效益。然而，在实际生产中，磷肥施用量常缺乏精准的调控依据，过量或不足不仅易导致资源浪费和环境污染，还会制约作物产量与品质潜力的发挥。为此，本研究以专用米粉稻品种中嘉早17与两系杂交稻品种株两优4024为材料，在长沙和沅陵两地进行大田实验。试验采用双因素随机区组设计，设置0kg/hm²（P0）、30kg/hm²P(30)、60kg/hm²(P60)、90kg/hm²(P90)4个不同的磷肥梯度，测定不同磷肥施用量对米粉稻产量及产量性状的影响。结果表明，磷肥施用在适当范围内会提高米粉稻产量，过量磷肥则不利于产量的进一步提高甚至导致减产，但在实验中这些影响均不显著。有效穗数同穗粒数与千粒重之间呈现负相关，水稻产量的提升是协调寻找这三者的大小关系来完成的。\n\
+    \n## 中文关键词\n\n按原顺序：\n\n1. 磷肥施用量\n2. 米粉稻\n3. 产量性状\n\n## 英文摘要\n\n存在英文摘要。原稿在英文摘要前有\
+    \ `Title of Graduation Paper`、`Student`、`Tutor` 和英文单位地址等模板前导；这些不作为英文摘要正文。`Abstract:`\
+    \ 标签也不进入正文。正文应由下面 1 段组成：\n\n1. Under the macro strategy of ensuring national food\
+    \ security and improving the quality of agricultural products, optimizing fertilizer\
+    \ application technology to promote the efficient and sustainable development\
+    \ of rice production has become a key research direction in the field of agriculture.\
+    \ As an important type of processing special rice, the stability and improvement\
+    \ of yield traits of rice flour rice directly affect the raw material supply and\
+    \ economic benefits of rice processing industry. However, in actual production,\
+    \ the application amount of phosphate fertilizer often lacks precise control basis.\
+    \ Excessive or insufficient application of phosphate fertilizer not only leads\
+    \ to waste of resources and environmental pollution, but also restricts the potential\
+    \ of crop yield and quality. In this study, a field experiment was conducted in\
+    \ Changsha and Yuanling with the special rice flour rice variety Zhongjiazao 17\
+    \ and two-line hybrid rice variety Zhuliangyou 4024 as materials. A two-factor\
+    \ randomized block design was used in the experiment. Four different phosphorus\
+    \ fertilizer gradients of 0 kg / hm2 ( P0 ), 30 kg / hm2 P ( 30 ), 60 kg / hm2\
+    \ ( P60 ) and 90 kg / hm2 ( P90 ) were set up to determine the effects of different\
+    \ phosphorus fertilizer application rates on the yield and yield traits of rice\
+    \ flour rice. The results showed that the application of phosphate fertilizer\
+    \ in an appropriate range would increase the yield of rice flour, and excessive\
+    \ phosphate fertilizer was not conducive to further increase the yield or even\
+    \ lead to yield reduction, but these effects were not significant in the experiment.\
+    \ There is a negative correlation between the number of effective panicles and\
+    \ the number of grains per panicle and 1000-grain weight. The improvement of rice\
+    \ yield is coordinated to find the relationship between the three.\n\n## 英文关键词\n\
+    \n按原顺序：\n\n1. Phosphate fertilizer application amount\n2. rice flour rice\n3.\
+    \ yield traits\n\n## 正文标题结构（不是原稿目录）\n\n```text\nlevel 1: 前言\n  level 2: 研究背景与意义\n\
+    \    level 3: 试验材料\n  level 2: 测定项目方法\n    level 3: 产量及产量构成性状测定\n    level 3:\
+    \ 数据统计与分析\nlevel 1: 结果与分析\n  level 2: 磷肥不同施用量对不同水稻品种的产量的影响\nlevel 1: 讨论\nlevel\
+    \ 1: 结论\n```\n\n## 正文段落顺序\n\n```text\n1. level 1: 前言\n2. level 2: 研究背景与意义\n3.\
+    \ paragraph: 水稻作为我国三大粮食作物之一，其种植面积约占粮食作物总面积的27%，稻谷产量约占粮食总产量的40%[1]，水稻不仅直接提供口粮，也是多种传统食品加工的重要原料。其中米粉稻是指稻米直链淀粉含量较高、适宜制作米粉等米制品的专用水稻。我国作为稻米消费大国，米粉等传统米制品市场需求持续增长，但长期以来，优质米粉专用稻品种相对缺乏，限制了米粉加工产业的原料升级与品质提升。近年来，育种工作取得显著进展，一系列高产且加工特性优良的米粉稻品种（如“特优269”、“湘早籼32号”等）相继育成并推广，为米粉稻产业发展奠定了品种基础[2]。水稻高产优质栽培是米粉稻产业发展的关键，而想要实现水稻高产，就要研究更好的施肥措施。大量研究表明，氮肥施用量显著影响米粉稻的产量、直链淀粉含量及加工品质[3]。然而，相较于氮肥，磷肥对米粉稻产量性状的调控效应尚不明确。磷素是水稻生长发育必需的营养元素，对根系发育、分蘖形成及籽粒灌浆具有重要作用。现有研究表明，适量施用磷肥能普遍促进水稻株高、有效分蘖数及产量增加，但过量则会降低磷肥利用效率甚至抑制产量[4][5]。在专用米粉稻生产中，磷肥的施用量如何影响其产量构成因素，从而影响水稻产量还缺乏系统性的依据。产量构成因子之间往往存在补偿机制，例如有效穗数增多可能导致每穗粒数下降，而千粒重的提高又可能伴随穗数的减少。此外，米粉稻对直链淀粉含量的特殊要求，使其产量形成过程中可能对不同磷肥施用表现出与普通水稻不同的规律。明确磷肥对米粉稻各产量形状的调控规律，有助于不牺牲稻米加工适宜性的前提下，充分发挥米粉稻的产量潜力，降低生产成本，提高种植效益，同时减少多余磷素排放，符合绿色、可持续发展的农业要求。\n\
+    4. level 3: 试验材料\n5. paragraph: 中嘉早17，株两优4024，其中中嘉早17是常规稻，直链淀粉含量较高，为专用于米粉加工的品种，株两优4024则是两系杂交稻，产量潜力较高。\n\
+    6. level 2: 测定项目方法\n7. level 3: 产量及产量构成性状测定\n8. paragraph: 成熟期收获时在每小区随机从一株开始连续调查30株的有效穗数，按每穴平均有效穗数取5穴，考查每穗总粒数、每穗实粒数、千粒重、结实率，计算理论产量。\n\
+    9. paragraph: 避免校区边上3行，随机收取100穴水稻，用谷物水分测定仪测定含水量，实际产量按照标准含水量13%折算。\n10. level 3:\
+    \ 数据统计与分析\n11. paragraph: 数据统计分析采用Microsoft Excel与Origin进行数据整理与图表绘制，所有试验数据的相关性分析均使用SPSS软件完成，不同磷肥处理间的差异显著性采用单因素方差分析，所有分析结果均以均值±标准差的形式呈现，显著性水平设定为α=0.05。\n\
+    12. level 1: 结果与分析\n13. level 2: 磷肥不同施用量对不同水稻品种的产量的影响\n14. paragraph: 如图 1 在长沙地区，中嘉早17的平均实际产量为6854.31kg/hm²，株两优4024的平均实际产量为8094.29kg/hm²，在不同施磷量下两品种产量差异不显著，中嘉早17在P60处理下产量最高，较P30处理和P90处理分别增产9.16%和8.39%。株两优4024在P0处理下产量达到最高，为8442.99kg/hm²，较P90增产8.28%，而P60处理的产量也要高于P30和P90。在沅陵地区，中嘉早17的平均产量为8981.60kg/hm²，在P30处理下的实际产量最高，为9676.0733kg/hm²，较P0增产7.76%。株两优4024的平均产量为8901.84kg/hm²，以P0为对照，P30和P60分别减产3.04%和0.29%，而P90增产10.76%。各磷水平下产量差异不明显。\n\
+    15. image 1: 不同水稻品种在不同施磷量下的实际产量；Actual yield of different rice varieties under\
+    \ different phosphorus application rates\n16. image 2: 不同磷肥施用量下水稻的理论产量\n17. table\
+    \ 1: 不同磷肥施用量下水稻的产量性状；Yield traits of rice under different phosphorus fertilizer\
+    \ application rates；17 行 x 6 列：第1行  | 处理 | 有效穗数(×105/hm2) | 每穗粒数 | 结实率（%） | 千粒重（g）；第2行\
+    \ 长沙-中嘉早17 | P0 | 25.51±3.62a | 137.68±8.39a | 75.82±4.21a | 25.73±1.15a；第3行 \
+    \ | P30 | 23.25±3.05a | 151.50±9.49a | 80.51±7.68a | 26.62±0.86a；第4行  | P60 |\
+    \ 24.54±2.86a | 136.98±4.86a | 74.56±8.61a | 24.17±1.68a；第5行  | P90 | 24.69±1.07a\
+    \ | 136.35±5.15a | 71.19±2.51a | 24.68±2.08a；第6行 长沙-株两优4024 | P0 | 31.07±4.67a\
+    \ | 92.34±8.68a | 85.82±1.59a | 30.42±3.43a；第7行  | P30 | 27.78±3.09a | 100.62±12.83a\
+    \ | 87.34±2.07a | 30.82±1.65a；第8行  | P60 | 27.78±4.66a | 104.84±18.07a | 88.99±0.93a\
+    \ | 28.60±2.92a；第9行  | P90 | 27.18±3.01a | 96.79±8.12a | 88.19±1.34a | 29.89±0.90a；第10行\
+    \ 沅陵-中嘉早17 | P0 | 41.00±5.68a | 144.77±25.03a | 72.38±4.46a | 26.01±1.84a；第11行\
+    \  | P30 | 40.12±6.18a | 165.59±40.89a | 75.33±0.69a | 25.90±2.45a；第12行  | P60\
+    \ | 38.34±10.21a | 168.43±20.00a | 76.47±4.36a | 24.95±0.99a；第13行  | P90 | 35.54±2.25a\
+    \ | 177.72±14.65a | 76.08±2.59a | 25.05±0.81a；第14行 沅陵-株两优4024 | P0 | 42.34±8.15a\
+    \ | 113.76±11.64a | 77.61±5.63a | 27.24±3.60a；第15行  | P30 | 48.76±6.14a | 142.15±16.02a\
+    \ | 76.66±2.05a | 24.42±3.81a；第16行  | P60 | 40.64±10.50a | 135.85±8.89a | 74.13±0.70a\
+    \ | 28.61±2.41a；第17行  | P90 | 42.59±3.44a | 125.14±21.44a | 73.14±2.55a | 27.04±2.02a。\n\
+    18. level 1: 讨论\n19. paragraph: 本研究表明，随着施磷量的增加，水稻总产量总体呈现先增加后下降的变化趋势，这与前人研究[22]得出的结论类似，反映了磷肥施用对水稻生长的有着双重调控作用。从产量结果来看，两个供试水稻品种对磷肥施用量的响应在长沙与沅陵两地表现出不同的趋势，且处理间差异均未达到显著水平。在长沙地区，中嘉早17在P60处理下产量最高，为7282.90\
+    \ kg/hm²，较P0增产8.01%，而P30和P90处理产量略低于P0，降幅分别为1.05%和0.35%，总体呈现为P60＞PO＞P90＞P30；株两优4024则在P0处理下产量最高，达到8442.99\
+    \ kg/hm²，所有施磷处理均表现出一定量的减产，但减产并不显著。在沅陵地区，中嘉早17在P30处理下产量最高达到9676.07 kg/hm²，较P0增产7.76%，而P60和P90处理则分别减产3.44%和4.23%；株两优4024在P90处理下产量最高，较P0增产10.76%，但P30和P60处理略有减产，另有实验表明[23]，施肥超过最佳水平时，产量反而下降，这也与本实验中产量呈现抛物线的变化趋势相吻合。而两个品种的最高产量均出现在不同的施磷水平，与闫金垚等[24]的实验结果相似，表明品种间对磷肥的吸收利用存在差异。从产量构成性状分析，有效穗数和每穗粒数对磷肥施用的反应相对敏感，磷肥施用过多（P90）会对水稻有效穗数整体呈抑制作用，在多数情况下会减少有效穗数，降幅约13-15%，磷肥施用量控制在P0-P30范围内即可维持或获得最高有效穗数，超过P30后穗数不增反降，P90为最差处理。磷肥施用量直接影响米粉稻的产量构成因子。本研究结果表明，磷肥用量过低或过高都会造成水稻的有效穗数的减少[25]，且千粒重随施磷量呈先增后减趋势[26]，这与前人研究结果一致。且有效穗数与每穗实粒数存在负相关[27]，有效穗数增多会使其他产量构成因素减少，这与前人研究相符[28]，表明产量性状构成因素之间不能全部同时增加，只有协调各产量构成因素，寻找最适施磷量，才能达到最佳产量。千粒重在本试验中受磷肥影响较小，符合前人研究结论[29]，施用磷肥后，水稻产量主要归因于单位面积有效穗数、每穗粒数的增加和结实率的提高。\n\
+    20. level 1: 结论\n21. paragraph: 在供试的两个地区中，长沙地区中嘉早17在P60处理下产量最高，较P0增产8.01%，而P30和P90处理产量略低于P0；株两优4024则在P0处理下产量最高，所有施磷处理均表现为减产，其中P90减产幅度最大（7.65%）。沅陵地区中嘉早17在P30处理下产量最高，较P0增产7.76%，P60和P90处理则表现为减产；株两优4024在P90处理下产量最高，较P0增产10.76%，P30和P60处理产量低于P90。两个品种对磷肥的响应特征存在明显差异，在实际生产中应根据土壤有效磷含量和品种对磷素的响应特性制定差异化的磷肥管理方案。水稻各产量性状不太可能实现同时增长，协调他们之间的关系，寻找最适施肥量是提高产量的可行步骤。\n\
+    ```\n\n## 图片\n\n应识别为正文图片 2 个；位置按上面“正文流正确答案模板”的编号定位：\n\n1. 正文流第 15 项；位于第 14 项之后、第\
+    \ 16 项开始之前。中文题名：不同水稻品种在不同施磷量下的实际产量。英文题名：Actual yield of different rice varieties\
+    \ under different phosphorus application rates。\n2. 正文流第 16 项；位于第 15 项之后、第 17\
+    \ 项开始之前。中文题名：不同磷肥施用量下水稻的理论产量。英文题名：未见独立英文图题。\n\n## 表格\n\n应作为论文内容识别的表格为 1 个：\n\n\
+    1. 正文流第 17 项；位于第 16 项之后、第 18 项开始之前。表格为 17 行 6 列。中文表名：不同磷肥施用量下水稻的产量性状。英文表名：Yield\
+    \ traits of rice under different phosphorus fertilizer application rates。\n\n\
+    ## 参考文献\n\n存在参考文献区，条目按原顺序为：\n\n1. FAO. FAOSTAT: FAO Statistical Databases[EB/OL].\
+    \ Rome: Food and Agriculture Organization of the United Nations, 2007.\n\n## 附录\n\
+    \n未见附录区。\n\n## 致谢\n\n未见致谢区。"
+dimensions:
+- dimension_id: content.source_section_hash
+  required: true
+  comparator_mode: exact
+  expected_path: source_section_sha256
+  actual_path: source_section_sha256
+- dimension_id: content.full_review_text
+  required: true
+  comparator_mode: normalized_text
+  expected_path: full_review_text
+  actual_path: full_review_text
+- dimension_id: content.model
+  required: true
+  comparator_mode: exact
+  expected_path: content_model
+  actual_path: content_model

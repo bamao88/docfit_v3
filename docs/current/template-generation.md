@@ -10,15 +10,15 @@ Last updated: 2026-06-22
 学校原始模板 Word -> generated_template.docx + 生成过程证据
 ```
 
-`template-generate` 当前只接受 `--template` 和 `--out`，不接受 `--school`，也不读取学校签收标准。这个边界不是临时缺口：正常产品生成流程应只要求用户提供学校原始模板 Word，不能要求每个学校先准备 `standards/schools/**` 里的人工签收标准。
+`template-generate` 当前只接受 `--template` 和 `--out`，不接受 `--school`，也不读取学校签收标准。这个边界不是临时缺口：正常产品生成流程应只要求用户提供学校原始模板 Word，不能要求每个学校先准备 `standards/targets/**` 里的人工签收标准。
 
 学校标准检查在生成后运行：
 
 ```text
-generated_template.docx + template_generation_final.yaml -> template_gap_report.*
+generated_template.docx + final_template.expected.yaml -> template_gap_report.*
 ```
 
-这里的 `template_generation_final.yaml` 是开发期和验收期的裁判标准，用来检查已知样例，不是 `template-generate` 的正常业务输入。
+这里的 `final_template.expected.yaml` 是开发期和验收期的裁判标准，用来检查已知样例，不是 `template-generate` 的正常业务输入。
 
 ## 模板生成策略优化
 
@@ -48,7 +48,7 @@ generated_template.docx + template_generation_final.yaml -> template_gap_report.
 | `body_main` | 正文 | 继续逐元素分析和局部 patch |
 | `references` | 参考文献 | 继续逐元素分析和局部 patch |
 
-模板生成支撑流程当前不读取学生源 Word，也不根据某一次学生源内容台账决定 copy-only / patch。下一层判断也不应依赖 `standards/schools/**` 作为生成输入；它应该从学校原始模板自身的可见结构、文字、样式、占位符、表格、字段和通用产品规则推断内容责任。签名、日期、教师意见、成绩评定等线下人工填写区域可以继续仅复制；源模板中明确承载学生内容或系统生成内容的区域，才应进入局部 patch、slot 或 generated field 路径。`generation_mode = whole_unit_copy` 不是验收结论，只说明生成流程不会为该单元生成自动填充 slot；内部说明文字、格式要求和示例仍可以被识别并清理。真实 Word 是否合格仍由 `template-gap` 判定。
+模板生成支撑流程当前不读取学生源 Word，也不根据某一次学生源内容台账决定 copy-only / patch。下一层判断也不应依赖 `standards/targets/**` 作为生成输入；它应该从学校原始模板自身的可见结构、文字、样式、占位符、表格、字段和通用产品规则推断内容责任。签名、日期、教师意见、成绩评定等线下人工填写区域可以继续仅复制；源模板中明确承载学生内容或系统生成内容的区域，才应进入局部 patch、slot 或 generated field 路径。`generation_mode = whole_unit_copy` 不是验收结论，只说明生成流程不会为该单元生成自动填充 slot；内部说明文字、格式要求和示例仍可以被识别并清理。真实 Word 是否合格仍由 `template-gap` 判定。
 
 ## 模板生成流程图
 
@@ -76,11 +76,11 @@ flowchart TD
 | 项 | 当前真实实现 |
 | --- | --- |
 | 输入 | `--template` 指向的学校原始模板 Word |
-| 生产者 | `src/docfit/stages/template_generate/source_tree.py::inspect_source_template_docx` |
+| 生产者 | `src/docfit/template_generation/source_tree.py::inspect_source_template_docx` |
 | 上游 | `generate_template` 先调用 `build_template_generation_request` 记录源文件路径、hash、输出目录和生成策略 |
 | 下游 | `build_template_structure_candidates(source_tree)` 用它发现候选 unit / logical element；`build_template_generation_model` 用候选结构整理模板业务模型和处理策略 |
 | 正式输出 | `--out/artifacts/source_template_tree.json` |
-| 调试输出 | `test_outputs/debug/template_generation/<验证名>/.../02_source_template_tree.json` 或调试快照目录里的同名步骤文件 |
+| 调试输出 | `runs/template_generation/<验证名>/.../02_source_template_tree.json` 或调试快照目录里的同名步骤文件 |
 
 当前代码顺序是：
 
@@ -160,8 +160,8 @@ generation_model = build_template_generation_model(request, structure_candidates
 
 ```bash
 uv run docfit eval template-generate \
-  --template test_inputs/template_generation/school-hunannongye-requirement.docx \
-  --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_generate
+  --template inputs/targets/hunannongye/raw/source_template.docx \
+  --out runs/template_generation/school-hunannongye-requirement/eval_runs/template_generate
 ```
 
 生成模板差距检查：
@@ -169,8 +169,8 @@ uv run docfit eval template-generate \
 ```bash
 uv run docfit eval template-gap \
   --school hunannongye \
-  --generated-template test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_generate/generated_template.docx \
-  --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_gap_hunannongye
+  --generated-template runs/template_generation/school-hunannongye-requirement/eval_runs/template_generate/generated_template.docx \
+  --out runs/template_generation/school-hunannongye-requirement/eval_runs/template_gap_hunannongye
 ```
 
 模板生成聚焦测试：
@@ -271,7 +271,7 @@ evidence_refs
 | `findings.json` | `--out/findings.json` | 机器可读问题列表 |
 | `generated_template.docx` | `--out/generated_template.docx` | 模板生成支撑流程的正式 Word 输出 |
 | 模板生成 JSON 产物 | `--out/artifacts/*.json` | request、source tree、structure candidates、generation model、plan、manifest |
-| 阶段编号调试快照 | `test_outputs/debug/template_generation/<验证名>/` | first_bad_stage 排查 |
+| 阶段编号调试快照 | `runs/template_generation/<验证名>/` | first_bad_stage 排查 |
 | diff / 对比证据 | `05.0_copy_source_docx.docx` vs `05.1_generated_template.docx` | 判断整包复制后被哪些局部 action 改变 |
 | gap 报告 | `template-gap --out/artifacts/template_gap_report.*` | 证明生成 Word 是否满足学校签收标准 |
 
@@ -289,14 +289,14 @@ evidence_refs
 | 2026-06-21 | 验证 CLI 参数边界 | `uv run docfit eval template-generate --help` | `PASS` | 只支持 `--template`、`--out`、`--help` |
 | 2026-06-21 | 验证模板生成合同测试 | `uv run pytest tests/contract/test_template_generate.py -q` | `PASS` | `9 passed in 0.65s`；覆盖 copy-only 受限内部识别、说明文字 cleanup、填写痕迹不生成 cover slot |
 | 2026-06-21 | 验证合同测试矩阵 | `uv run pytest tests/contract -q` | `PASS` | `71 passed in 13.05s` |
-| 2026-06-21 | 验证拆分后模板生成产物链 | `uv run docfit eval template-generate --template test_inputs/template_generation/school-hunannongye-requirement.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_generate_split_check` | `PASS` | 写出 7 个 public JSON artifact 和 00-10 debug 快照；manifest 记录 84 个执行动作、31 个 slot、0 个待人工 review 动作、43 个 copy-only 内部 cleanup 动作 |
-| 2026-06-21 | 验证模板生成产物链 | `uv run docfit eval template-generate --template test_inputs/template_generation/school-hunannongye-requirement.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/doc_reorg_template_generate_hunannongye_20260621` | `PASS` | 写出 `generated_template.docx`、artifacts、manifest；manifest 记录 143 个执行动作、53 个 slot、0 个待人工 review 动作 |
-| 2026-06-21 | 验证生成 Word 进入 gap | `uv run docfit eval template-gap --school hunannongye --generated-template test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/doc_reorg_template_generate_hunannongye_20260621/generated_template.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/doc_reorg_template_gap_hunannongye_20260621` | `FAIL` | gap summary 为 `FAIL + UNKNOWN`，`passed=128`、`failed=27`、`unknown=137` |
+| 2026-06-21 | 验证拆分后模板生成产物链 | `uv run docfit eval template-generate --template inputs/targets/hunannongye/raw/source_template.docx --out runs/template_generation/school-hunannongye-requirement/eval_runs/template_generate_split_check` | `PASS` | 写出 7 个 public JSON artifact 和 00-10 debug 快照；manifest 记录 84 个执行动作、31 个 slot、0 个待人工 review 动作、43 个 copy-only 内部 cleanup 动作 |
+| 2026-06-21 | 验证模板生成产物链 | `uv run docfit eval template-generate --template inputs/targets/hunannongye/raw/source_template.docx --out runs/template_generation/school-hunannongye-requirement/eval_runs/doc_reorg_template_generate_hunannongye_20260621` | `PASS` | 写出 `generated_template.docx`、artifacts、manifest；manifest 记录 143 个执行动作、53 个 slot、0 个待人工 review 动作 |
+| 2026-06-21 | 验证生成 Word 进入 gap | `uv run docfit eval template-gap --school hunannongye --generated-template runs/template_generation/school-hunannongye-requirement/eval_runs/doc_reorg_template_generate_hunannongye_20260621/generated_template.docx --out runs/template_generation/school-hunannongye-requirement/eval_runs/doc_reorg_template_gap_hunannongye_20260621` | `FAIL` | gap summary 为 `FAIL + UNKNOWN`，`passed=128`、`failed=27`、`unknown=137` |
 | 2026-06-22 | 验证阶段二/三目标产物切换和 `source_seq` 追踪 | `uv run pytest tests/contract/test_template_generate.py -q` | `PASS` | `9 passed`；覆盖 `template_structure_candidates`、`template_generation_model`、阶段编号 debug、action 来源序号 |
 | 2026-06-22 | 验证合同测试矩阵 | `uv run pytest tests/contract -q` | `PASS` | `71 passed`；真实 real-core 链路没有说明文字泄漏回归 |
 | 2026-06-22 | 验证阶段二 logical element 合并增强 | `uv run pytest tests/contract/test_template_generate.py -q` | `PASS` | `11 passed`；覆盖表格 label/value 合并、跨段落业务句 continuation 合并和 `source_seq_refs[]` 保留 |
 | 2026-06-22 | 验证合同测试矩阵 | `uv run pytest tests/contract -q` | `PASS` | `73 passed`；阶段二合并增强没有破坏现有消费者 |
-| 2026-06-22 | 验证真实模板生成命令 | `uv run docfit eval template-generate --template test_inputs/template_generation/school-hunannongye-requirement.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_generate_stage2_merge_check` | `PASS` | 真实湖南农业大学模板生成命令仍能写出生成模板和阶段产物 |
+| 2026-06-22 | 验证真实模板生成命令 | `uv run docfit eval template-generate --template inputs/targets/hunannongye/raw/source_template.docx --out runs/template_generation/school-hunannongye-requirement/eval_runs/template_generate_stage2_merge_check` | `PASS` | 真实湖南农业大学模板生成命令仍能写出生成模板和阶段产物 |
 
 这说明模板生成支撑流程能跑并能进入学校标准检查；不说明湖南农业大学生成模板已经合格。
 
@@ -305,7 +305,7 @@ evidence_refs
 如果继续推进模板生成质量，下一步不是再切产物名，也不是让生成器依赖学校签收标准，而是强化“只从源模板推断”的能力：
 
 - copy-only / patch 不能只靠全局 `unit_id` 基线，要结合源模板里的结构、占位符、字段、表格和上下文判断；
-- 致谢、附录等条件单元先按源模板自身证据识别为固定保留、用户填写、系统生成或需要人工确认，不读取某一次学生源内容台账，也不读取 `standards/schools/**`；
+- 致谢、附录等条件单元先按源模板自身证据识别为固定保留、用户填写、系统生成或需要人工确认，不读取某一次学生源内容台账，也不读取 `standards/targets/**`；
 - 源模板证据不足时要写入 `unresolved_questions[]` 或待复核动作，不能伪装成确定策略；
 - `template-gap` 仍负责用已签收样例标准检查生成 Word，不能用 manifest 或 `template_generation_model` 替代。
 

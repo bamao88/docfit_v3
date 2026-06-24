@@ -23,7 +23,7 @@ Scope:
 
 Non-goals: 不修正学生内容抽取算法；不自动更新人工审查文档、student_content_trees、signed standard、golden 或 expected snapshot；不处理学校模板放置；不处理最终 Word 渲染质量；不用 AI 或人工临场判断替代确定性检查；不把 full_review_text 直接当作可执行验收标准。
 
-Context: must-read=docs/plans/student-content-eval-harness.md, README.md, SPEC.md, src/docfit/cli/main.py, src/docfit/convert/orchestrator.py, src/docfit/stages/content_extract/runner.py, src/docfit/harness/real_core.py, src/docfit/harness/baselines.py, src/docfit/harness/coverage.py, src/docfit/harness/product_quality.py, src/docfit/harness/reports.py, standards/eval_profiles/real-core-v0/expected/student_content_trees/*.yaml, test_test_inputs/content_extraction/real-student-*-content-review.md, tests/contract/test_contract_gates.py, tests/contract/test_real_core_baseline_harness.py, tests/contract/test_real_core_four_stage_problem_checks.py; useful=docs/human/real-core-v0-review-packet.md, docs/human/real-core-v0-four-stage-problem-checks.md, test_outputs/debug/template_eval_runs/real-core-v0/**/artifacts/student_content_artifact.json; avoid-unless-needed=test_outputs/debug/template_eval_runs/** 页面图片大文件和完整 final.docx 人工视觉审查材料。
+Context: must-read=docs/plans/student-content-eval-harness.md, README.md, SPEC.md, src/docfit/cli/main.py, src/docfit/convert/orchestrator.py, src/docfit/stages/content_extract/runner.py, src/docfit/harness/real_core.py, src/docfit/harness/baselines.py, src/docfit/harness/coverage.py, src/docfit/harness/product_quality.py, src/docfit/harness/reports.py, eval_profiles/real-core-v0/expected/student_content_trees/*.yaml, test_test_inputs/content_extraction/real-student-*-content-review.md, tests/contract/test_contract_gates.py, tests/contract/test_real_core_baseline_harness.py, tests/contract/test_real_core_four_stage_problem_checks.py; useful=docs/human/real-core-v0-review-packet.md, docs/human/real-core-v0-four-stage-problem-checks.md, runs/eval/real-core-v0/**/artifacts/student_content_artifact.json; avoid-unless-needed=runs/eval/** 页面图片大文件和完整 final.docx 人工视觉审查材料。
 
 Acceptance:
 - SUCCESS: 三份真实学生论文都能独立运行 student-content eval，生成 student_content_artifact、ExpectedContentTree、ActualContentTree、content_acceptance_report.json、content_acceptance_report.md；报告含 known_status、display_status、passed_count、failed_count、unknown_count、blocking_status；当前坏抽取不会 PASS；real-core-v0 e2e / coverage 不再把 full_review_text 绑定当作学生内容抽取正确性的充分证明。
@@ -32,7 +32,7 @@ Acceptance:
 - INTERMEDIATE_ONLY: none
 - No regressions: bootstrap-core 的 content eval 行为不变；auto_update_allowed 仍为 false；FAIL/UNKNOWN 不被降级；visible content ledger 完整性和 unsupported 可见对象规则不被绕过。
 
-Verification: deterministic=uv run pytest tests/contract/test_student_content_eval_harness.py tests/contract/test_contract_gates.py tests/contract/test_real_core_baseline_harness.py tests/contract/test_real_core_four_stage_problem_checks.py -q; integration=uv run docfit eval student-content --profile real-core-v0 --student test_test_inputs/content_extraction/real-student-001-source.docx --out /tmp/docfit_student_001_content; product-run=uv run docfit eval e2e --school hunannongye --student test_test_inputs/content_extraction/real-student-001-source.docx --out /tmp/docfit_real_case_student001 and uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage; local-live-manual=none; optional=uv run pytest -q.
+Verification: deterministic=uv run pytest tests/contract/test_student_content_eval_harness.py tests/contract/test_contract_gates.py tests/contract/test_real_core_baseline_harness.py tests/contract/test_real_core_four_stage_problem_checks.py -q; integration=uv run docfit eval student-content --profile real-core-v0 --student test_inputs/students/real-student-001/raw/source_document.docx --out /tmp/docfit_student_001_content; product-run=uv run docfit eval e2e --school hunannongye --student test_inputs/students/real-student-001/raw/source_document.docx --out /tmp/docfit_real_case_student001 and uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage; local-live-manual=none; optional=uv run pytest -q.
 Execution: main=监督 $intuitive-flow 按计划分阶段实现、检查报告语义、运行验证并判断 complete/blocked；worker=none；worker-goal=none
 To execute: /goal execute docs/plans/student-content-eval-harness.md with intuitive-flow
 Approval: LGTM/approve/go ahead approves; edits request revision.
@@ -65,23 +65,23 @@ Approval: LGTM/approve/go ahead approves; edits request revision.
 真实学生论文输入：
 
 ```text
-test_test_inputs/content_extraction/real-student-001-source.docx
-test_test_inputs/content_extraction/real-student-002-source.docx
-test_test_inputs/content_extraction/real-student-003-source.docx
+test_inputs/students/real-student-001/raw/source_document.docx
+test_inputs/students/real-student-002/raw/source_document.docx
+test_inputs/students/real-student-003/raw/source_document.docx
 ```
 
 人工内容审查文档：
 
 ```text
-test_test_inputs/content_extraction/real-student-001-content-review.md
-test_test_inputs/content_extraction/real-student-002-content-review.md
-test_test_inputs/content_extraction/real-student-003-content-review.md
+test_inputs/students/real-student-001/raw/content_review.md
+test_inputs/students/real-student-002/raw/content_review.md
+test_inputs/students/real-student-003/raw/content_review.md
 ```
 
 当前已签入的学生内容基准文件：
 
 ```text
-standards/eval_profiles/real-core-v0/expected/student_content_trees/
+eval_profiles/real-core-v0/expected/student_content_trees/
   real-student-001.yaml
   real-student-002.yaml
   real-student-003.yaml
@@ -91,8 +91,8 @@ standards/eval_profiles/real-core-v0/expected/student_content_trees/
 
 | 名词 | 含义 | 是否是本阶段被验收对象 |
 | --- | --- | --- |
-| 原始学生论文 Word | 学生输入或测试输入的论文源文件，例如 `test_test_inputs/content_extraction/real-student-001-source.docx` | 否。它是输入来源 |
-| 人工内容审查文档 | 人工把学生论文拆成标题、摘要、关键词、正文流、图表、参考文献、附录、致谢后的说明，例如 `test_test_inputs/content_extraction/real-student-001-content-review.md` | 否。它是标准来源 |
+| 原始学生论文 Word | 学生输入或测试输入的论文源文件，例如 `test_inputs/students/real-student-001/raw/source_document.docx` | 否。它是输入来源 |
+| 人工内容审查文档 | 人工把学生论文拆成标题、摘要、关键词、正文流、图表、参考文献、附录、致谢后的说明，例如 `test_inputs/students/real-student-001/raw/content_review.md` | 否。它是标准来源 |
 | 人工审查原文快照 | 人工内容审查文档的完整原文记录，即 YAML 里的 `full_review_text` | 否。它是可追溯来源，不是最终可执行标准 |
 | 学生内容验收基准 | 从人工审查原文快照转译出的机器可执行标准，即 `ExpectedContentTree` | 否。它是裁判标准 |
 | 代码抽取内容 | 代码从学生 Word 中抽取出的结果，例如 `student_content_artifact.json` / `visible_content_ledger` | 是。本阶段核心被测对象 |
@@ -120,7 +120,7 @@ docfit_v3/
 │   ├── real-student-003-source.docx
 │   └── real-student-003-content-review.md
 │
-├── standards/eval_profiles/real-core-v0/expected/student_content_trees/
+├── eval_profiles/real-core-v0/expected/student_content_trees/
 │   ├── real-student-001.yaml
 │   ├── real-student-002.yaml
 │   └── real-student-003.yaml
@@ -216,7 +216,7 @@ src/docfit/harness/student_content_eval/
   report.py
   runner.py
 
-standards/eval_profiles/real-core-v0/expected/student_content_trees/
+eval_profiles/real-core-v0/expected/student_content_trees/
   real-student-001.yaml
   real-student-002.yaml
   real-student-003.yaml
@@ -441,7 +441,7 @@ acknowledgement.001
 ```bash
 uv run docfit eval student-content \
   --profile real-core-v0 \
-  --student test_test_inputs/content_extraction/real-student-001-source.docx \
+  --student test_inputs/students/real-student-001/raw/source_document.docx \
   --out /tmp/docfit_student_001_content
 ```
 
@@ -486,12 +486,12 @@ uv run docfit eval student-content \
     "artifact_version": "1.0",
     "student": {
         "student_id": "real-student-001",
-        "source_docx": "test_test_inputs/content_extraction/real-student-001-source.docx",
+        "source_docx": "test_inputs/students/real-student-001/raw/source_document.docx",
         "source_sha256": "..."
     },
     "baseline": {
-        "path": "standards/eval_profiles/real-core-v0/expected/student_content_trees/real-student-001.yaml",
-        "source_review": "test_test_inputs/content_extraction/real-student-001-content-review.md",
+        "path": "standards/students/real-student-001/v1/content_extract/student_content_artifact.expected.yaml",
+        "source_review": "test_inputs/students/real-student-001/raw/content_review.md",
         "full_review_text_role": "source_snapshot",
         "effective_standard": "ExpectedContentTree"
     },
@@ -848,12 +848,12 @@ uv run pytest \
 
 uv run docfit eval student-content \
   --profile real-core-v0 \
-  --student test_test_inputs/content_extraction/real-student-001-source.docx \
+  --student test_inputs/students/real-student-001/raw/source_document.docx \
   --out /tmp/docfit_student_001_content
 
 uv run docfit eval e2e \
   --school hunannongye \
-  --student test_test_inputs/content_extraction/real-student-001-source.docx \
+  --student test_inputs/students/real-student-001/raw/source_document.docx \
   --out /tmp/docfit_real_case_student001
 
 uv run docfit eval coverage \

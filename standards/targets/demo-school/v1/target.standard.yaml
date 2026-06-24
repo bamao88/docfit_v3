@@ -1,0 +1,41 @@
+standard_id: demo-school-v1
+school_id: demo-school
+template_version: v1
+status: signed
+owner: docfit-core
+approved_at: '2026-06-14T00:00:00+00:00'
+source:
+  template_docx: inputs/targets/demo-school/raw/source_template.docx
+  template_docx_sha256: sha256:8a668e5acc991d6ae9c740ac0dd1fc96644ceb339e881177e484aeddecf19859
+contracts:
+  template_contract: ../../../contracts/template.contract.json
+  template_generation_contract: ../../../contracts/template_generation.contract.json
+  template_quality_contract: ../../../contracts/template_quality.contract.json
+  student_content_contract: ../../../contracts/student_content.contract.json
+  placement_contract: ../../../contracts/placement.contract.json
+  render_contract: ../../../contracts/render.contract.json
+goldens:
+  feature_snapshot: golden/feature_snapshot.json
+  expected_docx: golden/expected.docx
+coverage_requirements:
+  profile: bootstrap-core
+  required_capabilities:
+  - template.docx_openable
+  - template.required_regions
+  - template.required_slots
+  - template.styles_inventory
+  - content.visible_paragraphs
+  - content.visible_tables
+  - content.reading_order
+  - content.stable_ids
+  - placement.no_silent_drop
+  - placement.slot_compatibility
+  - placement.required_slots
+  - render.valid_docx_package
+  - render.plan_coverage
+  - render.feature_snapshot
+  - render.content_hash_coverage
+change_control:
+  auto_update_allowed: false
+  requires_review: true
+  change_reason: initial bootstrap standard with explicit capability profile

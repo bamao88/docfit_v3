@@ -50,7 +50,8 @@ DOCX”，而是用确定性证据证明转换结果满足已签收标准。
   `template_artifact` / `template_generation_manifest` 当成
   `generated_template.docx` 真实内容的证明。
 - `docs/agents/**`：面向代理的长流程手册；根文件放不下的代理操作流程放这里。
-- `standards/schools/**` 下的相关标准，以及 `tests/**` 下的相关测试。
+- `standards/{contracts,targets,students,cases}/**` 下的相关标准，以及 `tests/**`
+  下的相关测试。
 
 `SPEC.md` 是完整产品规范的主来源。
 `DOCFIT_EVAL_HARNESS_FIRST_SPEC_CN.md` 只是短兼容指针。
@@ -63,10 +64,13 @@ DOCX”，而是用确定性证据证明转换结果满足已签收标准。
 - `src/docfit/convert/`：串联已验证阶段的转换编排。
 - `src/docfit/stages/`：模板解析、内容提取、内容放置和 DOCX 渲染。
 - `src/docfit/harness/`：状态、标准、覆盖率、报告、问题聚类和审计辅助代码。
-- `standards/schools/**`：只放可运行的已签收标准、检查契约、金标和例外。
-- `standards/eval_profiles/**`：评测配置的期望产物。
+- `standards/contracts/**`：通用阶段检查契约。
+- `standards/targets/**`：目标模板标准、金标、例外和模板生成期望。
+- `standards/students/**`：学生源内容的已签收期望。
+- `standards/cases/**`：目标模板 × 学生文档组合的放置和渲染期望。
+- `eval_profiles/**`：评测组合配置，只引用标准路径，不存放 expected 本体。
 - `inputs/**`：原始 DOCX/DOC 输入、学生样例和人工复核证据。
-- `reports/**` 和 `out/**`：生成的证据或输出；除非任务明确要求保留，否则按生成物处理。
+- `runs/**`：本地运行证据和调试输出；除非任务明确要求保留，否则按生成物处理。
 
 ## 核心不变量
 

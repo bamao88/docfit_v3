@@ -143,7 +143,7 @@ def _has_required_content_hashes(path: Path) -> bool:
 
 def evaluate_bootstrap_coverage(root: Path) -> tuple[dict[str, Any], list[Finding]]:
     template_docx = root / BOOTSTRAP_TEMPLATE_DOCX
-    student_docx = root / "test_inputs/content_extraction/bootstrap-demo-student-pass.docx"
+    student_docx = root / "inputs/students/bootstrap-demo-pass/raw/source_document.docx"
     expected_paths = BOOTSTRAP_PROFILE.expected_paths(root)
     expected_placement = expected_paths["placement_plan"]
     expected_snapshot = expected_paths["feature_snapshot"]
@@ -262,7 +262,7 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
         "e2e": sum(1 for case in cases if case.stage == "e2e"),
     }
 
-    case_registry_path = root / "standards/eval_profiles/real-core-v0/cases.yaml"
+    case_registry_path = root / "eval_profiles/real-core-v0/profile.yaml"
     if not case_registry_path.exists():
         findings.append(
             make_finding(
@@ -303,7 +303,7 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
     for school in REAL_CORE_SCHOOLS:
         school_id = str(school["school_id"])
         standard_path = (
-            root / "standards/schools" / school_id / "v1/signed_standard.yaml"
+            root / "standards/targets" / school_id / "v1/target.standard.yaml"
         )
         if not standard_path.exists():
             findings.append(
@@ -313,7 +313,7 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
                     Status.UNKNOWN,
                     "missing_signed_standard",
                     f"Signed standard is missing for {school_id}/v1",
-                    "reviewed signed_standard.yaml exists",
+                    "reviewed target.standard.yaml exists",
                     str(standard_path),
                     affected_ids=[school_id],
                     root_cause_bucket="standard_missing",
@@ -321,7 +321,11 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
             )
             next_index += 1
         template_contract = (
-            root / "standards/schools" / school_id / "v1/template_generation_final.yaml"
+            root
+            / "standards"
+            / "targets"
+            / school_id
+            / "v1/template_quality/final_template.expected.yaml"
         )
         _, baseline_findings = load_baseline_file(
             template_contract,
@@ -339,11 +343,14 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
         findings.extend(gap_findings)
         next_index += len(gap_findings)
 
-    expected_root = root / REAL_CORE_PROFILE.expected_dir
     for student in REAL_CORE_STUDENTS:
         student_id = str(student["student_id"])
         _, baseline_findings = load_baseline_file(
-            expected_root / "student_content_trees" / f"{student_id}.yaml",
+            root
+            / "standards"
+            / "students"
+            / student_id
+            / "v1/content_extract/student_content_artifact.expected.yaml",
             stage="coverage",
             start_index=next_index,
         )
@@ -352,7 +359,11 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
 
     for case in [case for case in cases if case.stage == "e2e"]:
         _, plan_findings = load_baseline_file(
-            expected_root / "render_plans" / f"{case.case_id}.yaml",
+            root
+            / "standards"
+            / "cases"
+            / case.case_id
+            / "v1/placement/placement_plan.expected.yaml",
             stage="coverage",
             start_index=next_index,
         )
@@ -360,7 +371,11 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
         next_index += len(plan_findings)
 
         _, snapshot_findings = load_baseline_file(
-            expected_root / "render_feature_snapshots" / f"{case.case_id}.json",
+            root
+            / "standards"
+            / "cases"
+            / case.case_id
+            / "v1/render/feature_snapshot.expected.json",
             stage="coverage",
             start_index=next_index,
         )
@@ -495,7 +510,7 @@ def evaluate_real_core_coverage(root: Path) -> tuple[dict[str, Any], list[Findin
 
 
 def _real_core_source_files() -> list[Path]:
-    paths = [Path("test_inputs/template_generation/shared-template-recognition-alignment-review.txt")]
+    paths = [Path("inputs/targets/shared/raw/template_recognition_alignment_review.md")]
     for school in REAL_CORE_SCHOOLS:
         paths.append(school["template_docx"])
         generated_template_docx = school.get("generated_template_docx")
@@ -509,7 +524,7 @@ def _real_core_source_files() -> list[Path]:
 
 
 def _real_core_eval_runs_root(root: Path) -> Path:
-    return root / "test_outputs/debug/template_eval_runs/real-core-v0"
+    return root / "runs/eval/real-core-v0"
 
 
 def _real_core_template_gap_findings(

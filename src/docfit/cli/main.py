@@ -30,7 +30,7 @@ def _root() -> Path:
 
 
 def _template_eval_runs_root() -> Path:
-    return Path("test_outputs/debug/template_eval_runs")
+    return Path("runs/eval")
 
 
 def _echo_status(status: Status) -> None:

@@ -97,7 +97,7 @@ manifest = build_template_generation_manifest(
 
 | 项 | 当前情况 |
 | --- | --- |
-| 模块 | `src/docfit/stages/template_generate/source_tree.py` |
+| 模块 | `src/docfit/template_generation/source_tree.py` |
 | 产物 | `source_template_tree.json` |
 | 已完成 | 解析段落、表格、页眉页脚、section、编号、unknown objects；给 `body_flow[]` 分配连续 `source_seq`；写 `indexes.by_source_seq` |
 | 不负责 | 不判断 unit，不决定 copy-only，不生成 slot，不判断学校标准 |
@@ -116,7 +116,7 @@ manifest = build_template_generation_manifest(
 
 | 项 | 当前情况 |
 | --- | --- |
-| 模块 | `src/docfit/stages/template_generate/structure_candidates.py` |
+| 模块 | `src/docfit/template_generation/structure_candidates.py` |
 | 产物 | `template_structure_candidates.json` |
 | 已完成 | 识别候选 unit；生成 logical element；连续说明文字、表格同一行 label/value、跨段落业务句 continuation 可以合并；输出 `candidate_policy`、`role_hint`、`evidence[]`、`source_seq_refs[]`、`source_context` |
 | 不负责 | 不决定最终 `generation_mode`，不生成 slot，不生成 Word action |
@@ -135,7 +135,7 @@ manifest = build_template_generation_manifest(
 
 | 项 | 当前情况 |
 | --- | --- |
-| 模块 | `src/docfit/stages/template_generate/generation_model.py` |
+| 模块 | `src/docfit/template_generation/generation_model.py` |
 | 产物 | `template_generation_model.json` |
 | 已完成 | 消费阶段二 `template_structure_candidates`；输出 `unit_strategies[]`、`slots[]`、`required_fields[]`、`protected_zones[]`、`cleanup[]`、`unsupported[]`、`unresolved_questions[]` |
 | 不负责 | 不直接改 Word，不重新解析源 DOCX，不替代 `template-gap` 判定学校合格性 |
@@ -146,7 +146,7 @@ manifest = build_template_generation_manifest(
 
 | 要改什么 | 应该改哪里 | 验收重点 |
 | --- | --- | --- |
-| 强化源模板责任推断 | `generation_model.py` 和阶段二候选证据 | 不把 `standards/schools/**` 当成生成输入；只根据源模板里的结构、文字、样式、占位符、表格、字段和通用规则决定 copy-only / patch |
+| 强化源模板责任推断 | `generation_model.py` 和阶段二候选证据 | 不把 `standards/targets/**` 当成生成输入；只根据源模板里的结构、文字、样式、占位符、表格、字段和通用规则决定 copy-only / patch |
 | 明确模板内容责任 | generation model 输入 | 致谢、附录等条件单元先按源模板自身证据识别为固定保留、用户填写、系统生成或需要人工确认；模板生成阶段不读取某一次学生源内容台账，也不读取学校签收标准 |
 | 强化 `unresolved_questions[]` | `_unresolved_questions_from_candidates` 和策略构建 | 强填写信号、源模板证据不足、unknown visible objects 都要集中表达 |
 | 把策略理由写成人能读懂的证据 | `unit_strategies[]`、cleanup、protected zones | 人工能看懂为什么元素 3、4、5 被合并并删除，或为什么元素 12 被保护 |
@@ -157,7 +157,7 @@ manifest = build_template_generation_manifest(
 
 | 项 | 当前情况 |
 | --- | --- |
-| 模块 | `src/docfit/stages/template_generate/plan.py` |
+| 模块 | `src/docfit/template_generation/plan.py` |
 | 产物 | `template_generation_plan.json` |
 | 已完成 | 只消费 `template_generation_model`；把 unit 策略、slots、cleanup、page/section 规则转成 action；action 带 `affected_source_seq_refs[]` |
 | 不负责 | 不重新判断 unit 语义，不反推阶段二/三策略 |
@@ -206,12 +206,12 @@ manifest = build_template_generation_manifest(
 
 | 日期 | 命令 | 结果 | 说明 |
 | --- | --- | --- | --- |
-| 2026-06-22 | `uv run python -m py_compile src/docfit/stages/template_generate/*.py` | `PASS` | 模板生成阶段模块语法检查通过 |
+| 2026-06-22 | `uv run python -m py_compile src/docfit/template_generation/*.py` | `PASS` | 模板生成阶段模块语法检查通过 |
 | 2026-06-22 | `uv run pytest tests/contract/test_template_generate.py -q` | `PASS`，9 passed | 覆盖新阶段产物、debug 编号、`source_seq`、action 来源追踪 |
 | 2026-06-22 | `uv run pytest tests/contract -q` | `PASS`，71 passed | 合同测试矩阵通过，真实 real-core 链路没有说明文字泄漏回归 |
 | 2026-06-22 | `uv run pytest tests/contract/test_template_generate.py -q` | `PASS`，11 passed | 覆盖阶段二表格 label/value 合并、跨段落业务句 continuation 合并和来源序号保留 |
 | 2026-06-22 | `uv run pytest tests/contract -q` | `PASS`，73 passed | 合同测试矩阵通过，阶段二合并增强没有破坏现有消费者 |
-| 2026-06-22 | `uv run docfit eval template-generate --template test_inputs/template_generation/school-hunannongye-requirement.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_generate_stage2_merge_check` | `PASS` | 真实湖南农业大学模板生成命令仍能写出生成模板和阶段产物 |
+| 2026-06-22 | `uv run docfit eval template-generate --template inputs/targets/hunannongye/raw/source_template.docx --out runs/template_generation/school-hunannongye-requirement/eval_runs/template_generate_stage2_merge_check` | `PASS` | 真实湖南农业大学模板生成命令仍能写出生成模板和阶段产物 |
 
 这些验证只证明模板生成支撑流程按当前合同工作；不证明任何真实学校生成模板已经满足最终学校格式标准。真实学校合格性仍必须看 `template-gap` 的 `PASS / FAIL / UNKNOWN`。
 

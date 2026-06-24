@@ -9,7 +9,7 @@ Last updated: 2026-06-22
 | 项 | 当前定义 |
 | --- | --- |
 | 正常生成输入 | 学校原始模板 Word |
-| 不作为生成输入 | `standards/schools/**`、`template_generation_final.yaml`、某一次学生源 Word、学生内容台账 |
+| 不作为生成输入 | `standards/targets/**`、`final_template.expected.yaml`、某一次学生源 Word、学生内容台账 |
 | 标准文件用途 | 开发期和验收期的裁判标准，用于 `template-gap` 检查已知样例 |
 | 生成器应该做什么 | 从源模板自身的结构、文字、样式、占位符、表格、字段和通用产品规则推断单元和内容责任 |
 | 证据不足时怎么办 | 写入 `unresolved_questions[]`、`actions_requiring_review[]` 或后续阶段检查结果；不能伪装成确定策略 |
@@ -19,8 +19,8 @@ Last updated: 2026-06-22
 | 命令 | 结果 | 说明 |
 | --- | --- | --- |
 | `uv run pytest tests/contract/test_template_generate.py -q` | `PASS`，11 passed | 证明 00-05 产物链、debug 编号、`source_seq` 和当前策略行为没有回归 |
-| `uv run docfit eval template-generate --template test_inputs/template_generation/school-hunannongye-requirement.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/agent_acceptance_20260622_template_generate` | `PASS` | 证明真实源模板能生成 Word 和过程证据 |
-| `uv run docfit eval template-gap --school hunannongye --generated-template test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/agent_acceptance_20260622_template_generate/generated_template.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/agent_acceptance_20260622_template_gap_hunannongye` | `FAIL` | gap summary 为 `FAIL + UNKNOWN`，`passed=128`、`failed=27`、`unknown=137` |
+| `uv run docfit eval template-generate --template inputs/targets/hunannongye/raw/source_template.docx --out runs/template_generation/school-hunannongye-requirement/eval_runs/agent_acceptance_20260622_template_generate` | `PASS` | 证明真实源模板能生成 Word 和过程证据 |
+| `uv run docfit eval template-gap --school hunannongye --generated-template runs/template_generation/school-hunannongye-requirement/eval_runs/agent_acceptance_20260622_template_generate/generated_template.docx --out runs/template_generation/school-hunannongye-requirement/eval_runs/agent_acceptance_20260622_template_gap_hunannongye` | `FAIL` | gap summary 为 `FAIL + UNKNOWN`，`passed=128`、`failed=27`、`unknown=137` |
 | `uv run pytest tests/contract/test_real_core_generated_template_gap.py -q` | `PASS`，33 passed | 证明本次 gap 失败不是检查器明显回归 |
 
 这组结果只能说明：生成器能跑，但生成结果还没有通过已知学校样例的验收。
@@ -50,7 +50,7 @@ Last updated: 2026-06-22
 | 不应该做什么 | 原因 |
 | --- | --- |
 | 不应该让 `template-generate` 强制接收 `--school` | 后续 100/1000 学校规模下不能要求每个学校先准备签收标准 |
-| 不应该把 `template_generation_final.yaml` 当成生成器策略输入 | 它是评测裁判，不是正常业务输入 |
+| 不应该把 `final_template.expected.yaml` 当成生成器策略输入 | 它是评测裁判，不是正常业务输入 |
 | 不应该用某一次学生源内容台账决定模板生成策略 | 模板生成只处理学校模板；学生内容属于后续内容提取和放置 |
 | 不应该为了让 gap 变绿修改 standards | 标准只能按人工签收流程变更，不能被当前输出反向驱动 |
 | 不应该看到最终 Word 不合格就直接改 gap 报告 | 先定位 first_bad_stage，再决定改源模板解析、结构发现、策略、计划、执行还是 gap locator |

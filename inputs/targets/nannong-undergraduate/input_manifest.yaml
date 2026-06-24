@@ -1,0 +1,15 @@
+manifest_type: input_manifest
+manifest_version: 1
+target_id: nannong-undergraduate
+owner: docfit-core
+ai_may_edit: false
+files:
+  - path: raw/source_template.docx
+    role: source_template
+    sha256: sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536
+  - path: raw/source_review.md
+    role: human_review_source
+    sha256: sha256:d6dc0d49dac3e2b83fa63ee92e76965c1cec995d56eb3e27b3ea4d5f45acdb87
+  - path: fixtures/template_gap/generated_template.input.docx
+    role: template_gap_fixture
+    sha256: sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536

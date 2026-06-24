@@ -283,6 +283,13 @@ docfit/
         runner.py
         artifact.py
         verifier.py
+    template_generation/
+      runner.py
+      source_tree.py
+      manifest.py
+    template_gap/
+      gap.py
+      inspector.py
     convert/
       orchestrator.py
     ooxml/
@@ -296,41 +303,49 @@ docfit/
       prompts.py
 
   standards/
-    eval_profiles/
-      bootstrap-core/
-        README.md
-        expected/
-          placement_plan.json
-          feature_snapshot.json
-    schools/
-      <school_id>/
-        <template_version>/
-          signed_standard.yaml
-          template_contract.json
-          placement_contract.json
-          render_contract.json
-          exceptions.yaml
-          golden/
-            feature_snapshot.json
-            expected.docx
+    contracts/
+      template.contract.json
+      template_generation.contract.json
+      template_quality.contract.json
+      student_content.contract.json
+      placement.contract.json
+      render.contract.json
+    targets/
+      <target_id>/v1/
+        target.standard.yaml
+        template_generation/*.expected.yaml
+        template_quality/final_template.expected.yaml
+        golden/
+        exceptions.yaml
+    students/
+      <student_id>/v1/content_extract/
+        student_content_artifact.expected.yaml
+    cases/
+      <target_id>__<student_id>/v1/
+        placement/placement_plan.expected.yaml
+        render/feature_snapshot.expected.json
 
-  test_inputs/
-    README.md
+  eval_profiles/
+    bootstrap-core/
+      profile.yaml
+    real-core-v0/
+      profile.yaml
+
+  inputs/
+    targets/
+      <target_id>/
+        input_manifest.yaml
+        raw/source_template.docx
+        fixtures/template_gap/generated_template.input.docx
+    students/
+      <student_id>/
+        input_manifest.yaml
+        raw/source_document.docx
+
+  runs/
+    eval/
     template_generation/
-      bootstrap-demo-school-template.docx
-      school-pku-graduate-template.docx
-    content_extraction/
-      bootstrap-demo-student-pass.docx
-      bootstrap-demo-student-unsupported-textbox.docx
-      bootstrap-demo-student-silent-drop.docx
-      real-student-001-source.docx
-    template_gap/
-      real-core-v0-pku-graduate-generated-template.docx
-
-  test_outputs/
-    .gitkeep
-    eval_runs/
-    debug/
+    convert/
     workbench/
 
   tests/
@@ -345,18 +360,20 @@ docfit/
 以下目录必须是一等公民，不能只是测试附属物：
 
 - `standards/`
-- `contracts/`
-- `test_inputs/`
-- `test_outputs/`
+- `eval_profiles/`
+- `inputs/`
+- `runs/`
 - `src/docfit/harness/`
+- `src/docfit/template_generation/`
+- `src/docfit/template_gap/`
 
 ### 5.2 禁止的组织方式
 
 禁止把标准和 expected 混在普通代码或原始输入目录里。
 
 禁止把仓库内评测输入、用户真实上传入口和运行输出混用。仓库随附的可复现输入放
-`test_inputs/`；每次运行产生的报告、artifact、debug 快照和最终 Word 放
-`test_outputs/` 或显式传入的临时输出目录。
+`inputs/`；每次运行产生的报告、artifact、debug 快照和最终 Word 放
+`runs/` 或显式传入的临时输出目录。
 
 禁止让 stage runner 内部硬编码学校规则。
 
@@ -400,13 +417,13 @@ case_id: bootstrap_e2e_demo_001
 stage: e2e
 school_id: demo-school
 inputs:
-  template_docx: test_inputs/template_generation/bootstrap-demo-school-template.docx
-  student_docx: test_inputs/content_extraction/bootstrap-demo-student-pass.docx
+  template_docx: inputs/targets/demo-school/raw/source_template.docx
+  student_docx: inputs/students/bootstrap-demo-pass/raw/source_document.docx
 standards:
-  signed_standard: standards/schools/demo-school/v1/signed_standard.yaml
-  template_contract: standards/schools/demo-school/v1/template_contract.json
-  placement_contract: standards/schools/demo-school/v1/placement_contract.json
-  render_contract: standards/schools/demo-school/v1/render_contract.json
+  target_standard: standards/targets/demo-school/v1/target.standard.yaml
+  template_contract: standards/contracts/template.contract.json
+  placement_contract: standards/contracts/placement.contract.json
+  render_contract: standards/contracts/render.contract.json
 coverage_profile: bootstrap-core
 expected_status: PASS
 owner: docfit-core
@@ -429,7 +446,7 @@ owner: docfit-core
     "student_docx": "sha256:..."
   },
   "standards": {
-    "signed_standard": "demo-school/v1",
+    "target_standard": "demo-school/v1",
     "template_contract": "sha256:...",
     "placement_contract": "sha256:..."
   },
@@ -445,7 +462,7 @@ owner: docfit-core
 每次运行应输出到：
 
 ```text
-test_outputs/debug/template_eval_runs/<run_id>/
+runs/eval/<run_id>/
   summary.json
   pm_report.md
   findings.json
@@ -498,7 +515,7 @@ status: signed
 owner: product-owner
 approved_at: "2026-06-14T10:00:00+09:00"
 source:
-  template_docx: test_inputs/template_generation/bootstrap-demo-school-template.docx
+  template_docx: inputs/targets/demo-school/raw/source_template.docx
   template_docx_sha256: "sha256:..."
 contracts:
   template_contract: template_contract.json
@@ -643,7 +660,7 @@ Template Artifact 必须描述模板的可验证结构。
 
 #### 当前模板生成扩展：默认仅复制单元
 
-当前实现允许在模板生成支撑流程采用“先整包复制源 Word，再局部 patch”的策略。模板生成的正常业务输入只有学校原始模板 Word；它不应要求每个学校先准备 `standards/schools/**` 里的人工签收标准，也不应读取某一次学生源内容台账来决定模板责任。`standards/schools/**` 是已知样例的评测和验收材料，不是生成器的必需输入。
+当前实现允许在模板生成支撑流程采用“先整包复制源 Word，再局部 patch”的策略。模板生成的正常业务输入只有学校原始模板 Word；它不应要求每个学校先准备 `standards/targets/**` 里的人工签收标准，也不应读取某一次学生源内容台账来决定模板责任。`standards/targets/**` 是已知样例的评测和验收材料，不是生成器的必需输入。
 
 仅复制单元的规范口径不是固定排除列表，而是从源模板自身推断出的内容责任：凡是源模板自身明确需要机器生成、填写或承载后续学生内容的区域，都不能默认仅复制；凡是学校固定正文、签名、日期、教师意见、成绩评定等只需要人工线下填写或确认的区域，可以默认仅复制。普通目录、图目录、表目录、中文摘要、英文摘要、正文、参考文献，以及源模板自身表明应承载学生填写内容或系统生成内容的致谢、附录等区域，应按生成/填写/放置责任处理。仅复制单元的含义是：模板生成支撑流程依赖最开始的整包复制保留该单元，不逐个分析单元内部元素是否需要填写、生成或删除，也不因为内部出现 `____`、`××`、姓名、日期等文本就自动生成 slot。这个策略必须写入 Template Artifact、生成决策、生成计划或 manifest 中的可审计证据，不能替代 Template Contract 或 `template-gap` 对最终 Word 的验收。
 
@@ -720,14 +737,14 @@ Template Contract 必须验证：
 ```bash
 docfit eval template \
   --school demo-school \
-  --template test_inputs/template_generation/bootstrap-demo-school-template.docx \
-  --out test_outputs/debug/template_eval_runs/run_template_001
+  --template inputs/targets/demo-school/raw/source_template.docx \
+  --out runs/eval/run_template_001
 ```
 
 必须生成：
 
 ```text
-test_outputs/debug/template_eval_runs/run_template_001/
+runs/eval/run_template_001/
   summary.json
   pm_report.md
   findings.json
@@ -876,14 +893,14 @@ Stage 2 不允许丢弃任何可见内容。
 
 ```bash
 docfit eval content \
-  --student test_inputs/content_extraction/bootstrap-demo-student-pass.docx \
-  --out test_outputs/debug/template_eval_runs/run_content_001
+  --student inputs/students/bootstrap-demo-pass/raw/source_document.docx \
+  --out runs/eval/run_content_001
 ```
 
 必须生成：
 
 ```text
-test_outputs/debug/template_eval_runs/run_content_001/
+runs/eval/run_content_001/
   summary.json
   pm_report.md
   findings.json
@@ -1005,15 +1022,15 @@ if any id missing:
 ```bash
 docfit eval placement \
   --school demo-school \
-  --template-artifact test_outputs/debug/template_eval_runs/run_template_001/artifacts/template_artifact.json \
-  --content-artifact test_outputs/debug/template_eval_runs/run_content_001/artifacts/student_content_artifact.json \
-  --out test_outputs/debug/template_eval_runs/run_placement_001
+  --template-artifact runs/eval/run_template_001/artifacts/template_artifact.json \
+  --content-artifact runs/eval/run_content_001/artifacts/student_content_artifact.json \
+  --out runs/eval/run_placement_001
 ```
 
 必须生成：
 
 ```text
-test_outputs/debug/template_eval_runs/run_placement_001/
+runs/eval/run_placement_001/
   summary.json
   pm_report.md
   findings.json
@@ -1080,7 +1097,7 @@ Renderer 禁止：
 {
   "artifact_type": "render_manifest",
   "artifact_version": "1.0",
-  "output_docx": "test_outputs/debug/template_eval_runs/run_render_001/final.docx",
+  "output_docx": "runs/eval/run_render_001/final.docx",
   "actions_executed": [
     {
       "action_id": "a_001",
@@ -1145,15 +1162,15 @@ Feature diff 必须把差异分成：
 ```bash
 docfit eval render \
   --school demo-school \
-  --template-artifact test_outputs/debug/template_eval_runs/run_template_001/artifacts/template_artifact.json \
-  --placement-plan test_outputs/debug/template_eval_runs/run_placement_001/artifacts/placement_plan.json \
-  --out test_outputs/debug/template_eval_runs/run_render_001
+  --template-artifact runs/eval/run_template_001/artifacts/template_artifact.json \
+  --placement-plan runs/eval/run_placement_001/artifacts/placement_plan.json \
+  --out runs/eval/run_render_001
 ```
 
 必须生成：
 
 ```text
-test_outputs/debug/template_eval_runs/run_render_001/
+runs/eval/run_render_001/
   summary.json
   pm_report.md
   findings.json
@@ -1197,9 +1214,9 @@ template parse
 ```bash
 docfit convert \
   --school demo-school \
-  --student test_inputs/content_extraction/bootstrap-demo-student-pass.docx \
-  --out test_outputs/debug/template_eval_runs/run_convert_001/final.docx \
-  --report test_outputs/debug/template_eval_runs/run_convert_001
+  --student inputs/students/bootstrap-demo-pass/raw/source_document.docx \
+  --out runs/eval/run_convert_001/final.docx \
+  --report runs/eval/run_convert_001
 ```
 
 ### 13.4 成功输出
@@ -1207,8 +1224,8 @@ docfit convert \
 成功时必须生成：
 
 ```text
-test_outputs/debug/template_eval_runs/run_convert_001/final.docx
-test_outputs/debug/template_eval_runs/run_convert_001/
+runs/eval/run_convert_001/final.docx
+runs/eval/run_convert_001/
   summary.json
   pm_report.md
   artifacts/
@@ -1230,7 +1247,7 @@ test_outputs/debug/template_eval_runs/run_convert_001/
   "blocked_at": "content_extract",
   "user_message": "文档中包含当前系统尚不能可靠提取的文本框内容，因此无法证明转换不会丢失内容。",
   "internal_message": "Stage 2 found unsupported visible text_box c_031.",
-  "report_ref": "test_outputs/debug/template_eval_runs/run_convert_001/pm_report.md"
+  "report_ref": "runs/eval/run_convert_001/pm_report.md"
 }
 ```
 
@@ -1515,12 +1532,12 @@ Audit log 必须记录：
 ```json
 {
   "event_id": "audit_001",
-  "event_type": "signed_standard_change_attempt",
+  "event_type": "target_standard_change_attempt",
   "actor": "agent-or-user",
   "timestamp": "2026-06-14T10:00:00+09:00",
   "allowed": false,
   "reason": "golden update attempted after failing render eval without review",
-  "affected_files": ["standards/schools/demo-school/v1/golden/feature_snapshot.json"]
+  "affected_files": ["standards/targets/demo-school/v1/golden/feature_snapshot.json"]
 }
 ```
 
@@ -1645,21 +1662,28 @@ Bootstrap 成功不是“转换很漂亮”，而是：
 ### 19.4 Bootstrap 必须包含的输入 fixture
 
 ```text
-test_inputs/
-  template_generation/
-    bootstrap-demo-school-template.docx
-  content_extraction/
-    bootstrap-demo-student-pass.docx
-    bootstrap-demo-student-unsupported-textbox.docx
-    bootstrap-demo-student-silent-drop.docx
+inputs/
+  targets/demo-school/
+    input_manifest.yaml
+    raw/source_template.docx
+  students/bootstrap-demo-pass/
+    input_manifest.yaml
+    raw/source_document.docx
+  students/bootstrap-demo-unsupported-textbox/
+    input_manifest.yaml
+    raw/source_document.docx
+  students/bootstrap-demo-silent-drop/
+    input_manifest.yaml
+    raw/source_document.docx
 ```
 
-Bootstrap expected 中间产物不属于原始输入，必须放在 eval profile surface：
+Bootstrap expected 中间产物不属于原始输入。`eval_profiles/bootstrap-core/`
+只声明组合配置，expected 本体必须放在 case 标准目录：
 
 ```text
-standards/eval_profiles/bootstrap-core/expected/
-  placement_plan.json
-  feature_snapshot.json
+standards/cases/demo-school__bootstrap-demo/v1/
+  placement/placement_plan.expected.json
+  render/feature_snapshot.expected.json
 ```
 
 ### 19.5 Bootstrap CLI 验收
@@ -1669,8 +1693,8 @@ standards/eval_profiles/bootstrap-core/expected/
 ```bash
 docfit eval e2e \
   --school demo-school \
-  --student test_inputs/content_extraction/bootstrap-demo-student-pass.docx \
-  --out test_outputs/debug/template_eval_runs/bootstrap_pass
+  --student inputs/students/bootstrap-demo-pass/raw/source_document.docx \
+  --out runs/eval/bootstrap_pass
 ```
 
 期望：
@@ -1683,8 +1707,8 @@ status = PASS
 
 ```bash
 docfit eval content \
-  --student test_inputs/content_extraction/bootstrap-demo-student-unsupported-textbox.docx \
-  --out test_outputs/debug/template_eval_runs/bootstrap_unknown
+  --student inputs/students/bootstrap-demo-unsupported-textbox/raw/source_document.docx \
+  --out runs/eval/bootstrap_unknown
 ```
 
 期望：
@@ -1909,7 +1933,7 @@ DocFit 应包含：
 6. `test_fail_when_renderer_skips_action`
 7. `test_unknown_when_golden_missing`
 8. `test_ai_advisory_does_not_change_status`
-9. `test_signed_standard_cannot_auto_update`
+9. `test_target_standard_cannot_auto_update`
 10. `test_convert_blocks_on_unknown`
 
 ### 22.3 测试命令

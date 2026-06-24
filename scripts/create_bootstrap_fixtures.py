@@ -132,7 +132,8 @@ def write_json(path: Path, data) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
-def create_contracts(standard_dir: Path) -> None:
+def create_contracts(contracts_dir: Path, standard_dir: Path) -> None:
+    ensure_dir(contracts_dir)
     ensure_dir(standard_dir)
     common = {
         "contract_version": "1.0",
@@ -144,7 +145,7 @@ def create_contracts(standard_dir: Path) -> None:
         "verifier_refs": [],
     }
     contracts = {
-        "template_contract.json": {
+        "template.contract.json": {
             **common,
             "contract_type": "template",
             "required_invariants": ["required slot exists", "required region exists"],
@@ -153,21 +154,21 @@ def create_contracts(standard_dir: Path) -> None:
             "required_regions": ["body"],
             "verifier_refs": ["docfit.stages.template_parse.verify_template_artifact"],
         },
-        "student_content_contract.json": {
+        "student_content.contract.json": {
             **common,
             "contract_type": "student_content",
             "required_invariants": ["visible content ledger complete"],
             "required_capabilities": BOOTSTRAP_PROFILE.capabilities_for_stage("content"),
             "verifier_refs": ["docfit.stages.content_extract.verify_student_content_artifact"],
         },
-        "placement_contract.json": {
+        "placement.contract.json": {
             **common,
             "contract_type": "placement",
             "required_invariants": ["no silent drop", "slot compatibility"],
             "required_capabilities": BOOTSTRAP_PROFILE.capabilities_for_stage("placement"),
             "verifier_refs": ["docfit.stages.placement.verify_placement_plan"],
         },
-        "render_contract.json": {
+        "render.contract.json": {
             **common,
             "contract_type": "render",
             "required_invariants": ["valid docx", "plan coverage", "signed golden exists"],
@@ -176,13 +177,13 @@ def create_contracts(standard_dir: Path) -> None:
         },
     }
     for filename, payload in contracts.items():
-        write_json(standard_dir / filename, payload)
+        write_json(contracts_dir / filename, payload)
     (standard_dir / "exceptions.yaml").write_text("exceptions: []\n", encoding="utf-8")
 
 
 def create_standard(output_root: Path, template_path: Path, expected_hashes: list[str]) -> None:
-    standard_dir = output_root / "standards/schools/demo-school/v1"
-    create_contracts(standard_dir)
+    standard_dir = output_root / "standards/targets/demo-school/v1"
+    create_contracts(output_root / "standards/contracts", standard_dir)
     golden_dir = standard_dir / "golden"
     write_json(
         golden_dir / "feature_snapshot.json",
@@ -208,10 +209,12 @@ def create_standard(output_root: Path, template_path: Path, expected_hashes: lis
             "template_docx_sha256": sha256_file(template_path),
         },
         "contracts": {
-            "template_contract": "template_contract.json",
-            "student_content_contract": "student_content_contract.json",
-            "placement_contract": "placement_contract.json",
-            "render_contract": "render_contract.json",
+            "template_contract": "../../../contracts/template.contract.json",
+            "template_generation_contract": "../../../contracts/template_generation.contract.json",
+            "template_quality_contract": "../../../contracts/template_quality.contract.json",
+            "student_content_contract": "../../../contracts/student_content.contract.json",
+            "placement_contract": "../../../contracts/placement.contract.json",
+            "render_contract": "../../../contracts/render.contract.json",
         },
         "goldens": {
             "feature_snapshot": "golden/feature_snapshot.json",
@@ -227,7 +230,7 @@ def create_standard(output_root: Path, template_path: Path, expected_hashes: lis
             "change_reason": "initial bootstrap standard with explicit capability profile",
         },
     }
-    (standard_dir / "signed_standard.yaml").write_text(
+    (standard_dir / "target.standard.yaml").write_text(
         yaml.safe_dump(signed_standard, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
@@ -235,11 +238,13 @@ def create_standard(output_root: Path, template_path: Path, expected_hashes: lis
 
 def create_expected_files(output_root: Path, expected_hashes: list[str]) -> None:
     write_json(
-        output_root / BOOTSTRAP_PROFILE.expected_feature_snapshot,
+        output_root
+        / "standards/cases/demo-school__bootstrap-demo/v1/render/feature_snapshot.expected.json",
         {"required_content_hashes": expected_hashes},
     )
     write_json(
-        output_root / BOOTSTRAP_PROFILE.expected_placement_plan,
+        output_root
+        / "standards/cases/demo-school__bootstrap-demo/v1/placement/placement_plan.expected.json",
         {
             "expected_action_count": len(expected_hashes),
             "required_disposition": "place",
@@ -252,7 +257,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--root",
         type=Path,
-        default=ROOT / "test_outputs/workbench/bootstrap-fixtures",
+        default=ROOT / "runs/workbench/bootstrap-fixtures",
         help="Output root. Defaults to ignored generated output.",
     )
     parser.add_argument(

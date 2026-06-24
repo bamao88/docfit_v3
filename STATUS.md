@@ -31,7 +31,7 @@ Current state:
 - real-core 的 template/e2e 编排已经接入模板生成支撑流程：每次 run 会先写出
   `template_generation/generated_template.docx`，再把这份 Word 交给
   `template-gap` 检查，并让后续 render 以它作为底稿。已签入的
-  `test_inputs/template_gap/**` 仍保留为显式 `template-gap` fixture，
+  `inputs/targets/*/fixtures/template_gap/**` 仍保留为显式 `template-gap` fixture，
   但不再是 template/e2e run 的被测生成结果。
 - 用户验收所需的真实输入材料、基线和 Word 页面图像证据要求记录在
   `docs/human/real-core-v0-acceptance.md`。
@@ -65,7 +65,7 @@ Current state:
   `template_gap_report.json/.md/.docx`；模板差距报告展示为 `FAIL + UNKNOWN`。
   详细说明见
   `docs/human/real-core-v0-four-stage-problem-checks.md`。
-- 三所学校的 `standards/schools/*/v1/template_unit_contract.yaml` 现在包含
+- 三所学校的 `standards/targets/*/v1/template_unit_contract.yaml` 现在包含
   `expected.units`：每个 unit、element、policy、type/fill、content、style、
   position/relationship 都是可执行标准。模板解析和 product-quality gate 会把
   `template_artifact.data.units` 与这些结构化标准逐项比对；例如元素样式不一致会
@@ -121,7 +121,7 @@ Current state:
   PASS/FAIL 证据。主要阻断仍集中在样式、页眉页脚、页码、单元顺序，以及页面/样式/
   生成机制类要求的证据不足。
 - 按“60 分内容草稿”口径，基础链路和真实样例都已经能跑到 Word 输出：
-  `uv run docfit eval e2e --school demo-school --student test_inputs/content_extraction/bootstrap-demo-student-pass.docx`
+  `uv run docfit eval e2e --school demo-school --student inputs/students/bootstrap-demo-pass/raw/source_document.docx`
   为 `PASS`；湖南农业大学 + `real-student-003` 会生成有效 `final.docx`，
   124 个写入动作全部执行，学生题名、摘要、关键词、正文、参考文献和致谢都在输出里，
   内部 `[[DOCFIT_*]]` 标记已清零。该真实样例仍按完整 gate 返回 `FAIL`，因为模板

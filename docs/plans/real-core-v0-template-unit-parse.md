@@ -21,7 +21,7 @@ Scope:
 - Add structured `data.units` to real-core template artifacts for all three
   school templates.
 - Derive units, elements, sub-elements, and policies from existing reviewed
-  school template baselines under `standards/schools/*/v1/`.
+  school template baselines under `standards/targets/*/v1/`.
 - Classify template instruction/example paragraphs so the template acceptance
   gate can tell whether they are fixed, fillable, generated, manual-only, or
   stripped from final output.
@@ -62,7 +62,7 @@ Non-goals:
   next failing business stage.
 - Full profile coverage remains non-PASS until content, placement, render, and
   freshly regenerated report artifacts are fixed. Because this slice does not
-  regenerate `test_outputs/debug/template_eval_runs/real-core-v0/**`, profile coverage may still show
+  regenerate `runs/eval/real-core-v0/**`, profile coverage may still show
   template findings from stale report artifacts; the current parser proof is the
   temporary e2e product run below.
 
@@ -83,7 +83,7 @@ uv run pytest tests/e2e/test_bootstrap_cli.py
 Required product-run gates:
 
 ```bash
-uv run docfit eval e2e --school hunannongye --student test_test_inputs/content_extraction/real-student-003-source.docx --out /tmp/docfit_real_core_template_probe
+uv run docfit eval e2e --school hunannongye --student test_inputs/students/real-student-003/raw/source_document.docx --out /tmp/docfit_real_core_template_probe
 uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage
 ```
 
@@ -103,8 +103,8 @@ Run on 2026-06-16:
 - `uv run pytest tests/contract/test_real_core_four_stage_problem_checks.py tests/contract/test_real_core_baseline_harness.py tests/contract/test_contract_gates.py tests/unit/test_baseline_comparison.py`: 25 passed.
 - `uv run pytest tests/e2e/test_bootstrap_cli.py`: 5 passed.
 - `uv run pytest`: 48 passed.
-- `uv run docfit eval e2e --school hunannongye --student test_test_inputs/content_extraction/real-student-003-source.docx --out /tmp/docfit_real_core_template_probe`: `status = FAIL`, `blocked_at = content`, `stage_statuses.template = PASS`, `business.template_acceptance = true`.
-- `uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage`: `status = FAIL`; this still reads stale `test_outputs/debug/template_eval_runs/real-core-v0/**` artifacts and remains blocked until the nine test_outputs/debug/template_eval_runs/final DOCX files are regenerated after later slices.
+- `uv run docfit eval e2e --school hunannongye --student test_inputs/students/real-student-003/raw/source_document.docx --out /tmp/docfit_real_core_template_probe`: `status = FAIL`, `blocked_at = content`, `stage_statuses.template = PASS`, `business.template_acceptance = true`.
+- `uv run docfit eval coverage --profile real-core-v0 --out /tmp/docfit_real_core_coverage`: `status = FAIL`; this still reads stale `runs/eval/real-core-v0/**` artifacts and remains blocked until the nine runs/eval/final DOCX files are regenerated after later slices.
 
 ## Remaining Work After This Slice
 

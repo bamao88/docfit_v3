@@ -9,7 +9,7 @@ from docfit.cli.main import app
 from docfit.convert.orchestrator import run_template_generate_eval
 from docfit.core.io import read_json, sha256_file
 from docfit.core.status import Status
-from docfit.stages.template_generate.runner import BODY_SLOT_MARKER
+from docfit.template_generation.runner import BODY_SLOT_MARKER
 
 
 def write_source_docx(path: Path, paragraphs: list[str]) -> None:
@@ -35,12 +35,12 @@ def table_texts(path: Path) -> list[str]:
 
 
 def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
-    source = tmp_path / "test_inputs/template_generation/school-template.docx"
+    source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     write_source_docx(source, ["学校固定封面", "目录", "正文开始", "格式说明：小四宋体"])
 
     out_dir = (
         tmp_path
-        / "test_outputs/debug/template_generation/school-template/eval_runs/template_generate"
+        / "runs/template_generation/school-template/eval_runs/template_generate"
     )
     result = run_template_generate_eval(tmp_path, source, out_dir)
 
@@ -48,7 +48,7 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     artifacts = out_dir / "artifacts"
     manifest_path = artifacts / "template_generation_manifest.json"
     plan_path = artifacts / "template_generation_plan.json"
-    debug_root = tmp_path / "test_outputs/debug/template_generation/school-template"
+    debug_root = tmp_path / "runs/template_generation/school-template"
     summary = read_json(out_dir / "summary.json")
     manifest = read_json(manifest_path)
     plan = read_json(plan_path)
@@ -115,7 +115,7 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
 
 
 def test_template_generate_preserves_existing_body_slot(tmp_path) -> None:
-    source = tmp_path / "test_inputs/template_generation/school-template-with-slot.docx"
+    source = tmp_path / "inputs/targets/demo-school/raw/school-template-with-slot.docx"
     write_source_docx(source, ["学校固定封面", BODY_SLOT_MARKER])
 
     result = run_template_generate_eval(tmp_path, source, tmp_path / "template_generate")
@@ -134,7 +134,7 @@ def test_template_generate_preserves_existing_body_slot(tmp_path) -> None:
 
 
 def test_template_generate_cleans_instruction_text_inside_table_cells(tmp_path) -> None:
-    source = tmp_path / "test_inputs/template_generation/school-template-table.docx"
+    source = tmp_path / "inputs/targets/demo-school/raw/school-template-table.docx"
     source.parent.mkdir(parents=True, exist_ok=True)
     doc = Document()
     doc.add_paragraph("摘要")
@@ -157,7 +157,7 @@ def test_template_generate_cleans_instruction_text_inside_table_cells(tmp_path) 
 
 
 def test_template_generate_merges_table_label_value_candidates(tmp_path) -> None:
-    source = tmp_path / "test_inputs/template_generation/school-template-table-label.docx"
+    source = tmp_path / "inputs/targets/demo-school/raw/school-template-table-label.docx"
     source.parent.mkdir(parents=True, exist_ok=True)
     doc = Document()
     doc.add_paragraph("摘要")
@@ -192,7 +192,7 @@ def test_template_generate_merges_table_label_value_candidates(tmp_path) -> None
 
 
 def test_template_generate_merges_business_sentence_continuation(tmp_path) -> None:
-    source = tmp_path / "test_inputs/template_generation/school-template-continuation.docx"
+    source = tmp_path / "inputs/targets/demo-school/raw/school-template-continuation.docx"
     out_dir = tmp_path / "template_generate"
     write_source_docx(
         source,
@@ -226,7 +226,7 @@ def test_template_generate_merges_business_sentence_continuation(tmp_path) -> No
 
 
 def test_template_generate_invalid_docx_fails_without_output(tmp_path) -> None:
-    source = tmp_path / "test_inputs/template_generation/not-a-docx.docx"
+    source = tmp_path / "inputs/targets/demo-school/raw/not-a-docx.docx"
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text("not a zip package", encoding="utf-8")
 
@@ -244,7 +244,7 @@ def test_template_generate_invalid_docx_fails_without_output(tmp_path) -> None:
 
 
 def test_template_generate_cli_writes_public_outputs(tmp_path) -> None:
-    source = tmp_path / "test_inputs/template_generation/school-template.docx"
+    source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     out_dir = tmp_path / "cli_template_generate"
     write_source_docx(source, ["学校固定封面"])
 
@@ -268,7 +268,7 @@ def test_template_generate_cli_writes_public_outputs(tmp_path) -> None:
 
 
 def test_template_generate_cli_rejects_school_standard_input(tmp_path) -> None:
-    source = tmp_path / "test_inputs/template_generation/school-template.docx"
+    source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     out_dir = tmp_path / "cli_template_generate"
     write_source_docx(source, ["学校固定封面"])
 
@@ -291,7 +291,7 @@ def test_template_generate_cli_rejects_school_standard_input(tmp_path) -> None:
 
 
 def test_template_generate_marks_fixed_unit_as_whole_unit_copy(tmp_path) -> None:
-    source = tmp_path / "test_inputs/template_generation/school-template.docx"
+    source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     out_dir = tmp_path / "template_generate"
     write_source_docx(source, ["封面", "参考文献"])
 
@@ -340,7 +340,7 @@ def test_template_generate_marks_fixed_unit_as_whole_unit_copy(tmp_path) -> None
 def test_template_generate_copy_only_units_use_restricted_internal_element_analysis(
     tmp_path,
 ) -> None:
-    source = tmp_path / "test_inputs/template_generation/school-template.docx"
+    source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     out_dir = tmp_path / "template_generate"
     write_source_docx(
         source,
@@ -431,7 +431,7 @@ def test_template_generate_copy_only_units_use_restricted_internal_element_analy
 
 
 def test_template_generate_references_unit_is_fillable_not_copy_only(tmp_path) -> None:
-    source = tmp_path / "test_inputs/template_generation/school-template.docx"
+    source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     out_dir = tmp_path / "template_generate"
     write_source_docx(source, ["封面", "正文", "参考文献", "学生文献内容占位"])
 

@@ -5,7 +5,7 @@ Last updated: 2026-06-22
 
 当前口径提示：本文是 runner 拆分完成时的历史记录；其中“学校标准和学生内容台账接入”这个剩余工作说法已经废弃。当前正常生成输入只有学校原始模板 Word；后续目标是强化源模板自动推断和不确定性表达。当前主线见 `docs/current/template-generation.md`，待核实差距见 `docs/current/template-generation-open-gaps.md`。
 
-一句话结论：`src/docfit/stages/template_generate/runner.py` 的机械拆分已经完成，阶段二/三目标产物、debug 编号和 `source_seq` 追踪字段也已经切到当前契约；当前剩余工作以 `docs/current/template-generation-open-gaps.md` 为准。
+一句话结论：`src/docfit/template_generation/runner.py` 的机械拆分已经完成，阶段二/三目标产物、debug 编号和 `source_seq` 追踪字段也已经切到当前契约；当前剩余工作以 `docs/current/template-generation-open-gaps.md` 为准。
 
 ## 这个文件做什么
 
@@ -17,7 +17,7 @@ Last updated: 2026-06-22
 
 ## 当前真实模块地图
 
-当前 `runner.py` 只保留 `generate_template()` 主流程、输入失败状态、覆盖率和必要模块调用。模板生成职责已经拆到 `src/docfit/stages/template_generate/` 下的专项模块：
+当前 `runner.py` 只保留 `generate_template()` 主流程、输入失败状态、覆盖率和必要模块调用。模板生成职责已经拆到 `src/docfit/template_generation/` 下的专项模块：
 
 | 职责 | 当前模块 | 当前产物 |
 | --- | --- | --- |
@@ -73,7 +73,7 @@ Last updated: 2026-06-22
 | debug 编号按阶段重命名 | 当前实现；debug 快照使用 `00 / 01 / 02 / 03 / 04 / 05.x / 99` |
 | 聚焦合同测试通过 | `uv run pytest tests/contract/test_template_generate.py -q` -> `9 passed` |
 | 合同测试通过 | `uv run pytest tests/contract -q` -> `71 passed` |
-| 真实模板生成通过 | `uv run docfit eval template-generate --template test_inputs/template_generation/school-hunannongye-requirement.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_generate_split_check` -> `status = PASS` |
+| 真实模板生成通过 | `uv run docfit eval template-generate --template inputs/targets/hunannongye/raw/source_template.docx --out runs/template_generation/school-hunannongye-requirement/eval_runs/template_generate_split_check` -> `status = PASS` |
 | action 来源序号可追踪 | `template_generation_plan.actions[].affected_source_seq_refs[]` 和 manifest 执行记录已保留来源序号 |
 
 ## 仍需补齐
@@ -108,8 +108,8 @@ uv run pytest tests/contract/test_template_generate.py -q
 ```bash
 uv run pytest tests/contract -q
 uv run docfit eval template-generate \
-  --template test_inputs/template_generation/school-hunannongye-requirement.docx \
-  --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_generate_target_contract
+  --template inputs/targets/hunannongye/raw/source_template.docx \
+  --out runs/template_generation/school-hunannongye-requirement/eval_runs/template_generate_target_contract
 ```
 
 如果新增 `source_seq`，还需要补聚焦测试证明：

@@ -1,0 +1,9 @@
+manifest_type: input_manifest
+manifest_version: 1
+target_id: demo-school
+owner: docfit-core
+ai_may_edit: false
+files:
+  - path: raw/source_template.docx
+    role: source_template
+    sha256: sha256:8a668e5acc991d6ae9c740ac0dd1fc96644ceb339e881177e484aeddecf19859

@@ -17,7 +17,7 @@ def test_real_core_problem_check_reports_all_four_stages(tmp_path) -> None:
     result = run_e2e_eval(
         ROOT,
         "hunannongye",
-        ROOT / "test_inputs/content_extraction/real-student-003-source.docx",
+        ROOT / "inputs/students/real-student-003/raw/source_document.docx",
         tmp_path / "real_core_product_quality_case",
     )
     assert (tmp_path / "real_core_product_quality_case/final.docx").exists()

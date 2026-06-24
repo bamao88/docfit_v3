@@ -37,7 +37,7 @@ def student_id_for_docx(root: Path, student_docx: Path) -> str | None:
 def case_id_for(school_id: str, student_id: str | None) -> str | None:
     if not student_id:
         return None
-    return f"real_core_v0_{school_id}_{student_id}"
+    return f"{school_id}__{student_id}"
 
 
 def load_template_unit_baseline(
@@ -48,7 +48,7 @@ def load_template_unit_baseline(
 ) -> tuple[dict[str, Any] | None, list]:
     rel_path = bundle.signed_standard.get("evidence_baselines", {}).get(
         "template_generation_final",
-        "template_generation_final.yaml",
+        "template_quality/final_template.expected.yaml",
     )
     return load_baseline_file(
         bundle.school_dir / rel_path,
@@ -66,9 +66,12 @@ def load_student_content_baseline(
 ) -> tuple[dict[str, Any] | None, list]:
     return load_baseline_file(
         root
-        / REAL_CORE_PROFILE.expected_dir
-        / "student_content_trees"
-        / f"{student_id}.yaml",
+        / "standards"
+        / "students"
+        / student_id
+        / "v1"
+        / "content_extract"
+        / "student_content_artifact.expected.yaml",
         stage=stage,
         start_index=start_index,
     )
@@ -82,7 +85,12 @@ def load_render_plan_baseline(
     start_index: int = 1,
 ) -> tuple[dict[str, Any] | None, list]:
     return load_baseline_file(
-        root / REAL_CORE_PROFILE.expected_placement_plan / f"{case_id}.yaml",
+        root
+        / REAL_CORE_PROFILE.expected_placement_plan
+        / case_id
+        / "v1"
+        / "placement"
+        / "placement_plan.expected.yaml",
         stage=stage,
         start_index=start_index,
     )
@@ -96,7 +104,12 @@ def load_render_feature_snapshot_baseline(
     start_index: int = 1,
 ) -> tuple[dict[str, Any] | None, list]:
     return load_baseline_file(
-        root / REAL_CORE_PROFILE.expected_feature_snapshot / f"{case_id}.json",
+        root
+        / REAL_CORE_PROFILE.expected_feature_snapshot
+        / case_id
+        / "v1"
+        / "render"
+        / "feature_snapshot.expected.json",
         stage=stage,
         start_index=start_index,
     )

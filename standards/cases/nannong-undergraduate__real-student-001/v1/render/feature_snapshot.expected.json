@@ -1,0 +1,48 @@
+{
+  "accepted_source_facts": {
+    "case_source_bundle_sha256": "sha256:d51a4e36cc0d03153f7125795b70f18c4e5f924e19cc882f6beb1fc5c0547f62",
+    "review_packet": "docs/human/real-core-v0-review-packet.md",
+    "review_packet_sha256": "sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c",
+    "word_image_evidence_required": true
+  },
+  "baseline_type": "render_feature_snapshot",
+  "case_id": "nannong-undergraduate__real-student-001",
+  "dimensions": [
+    {
+      "actual_path": "case_source_bundle_sha256",
+      "comparator_mode": "exact",
+      "dimension_id": "render.case_source_bundle_hash",
+      "expected_path": "case_source_bundle_sha256",
+      "required": true
+    },
+    {
+      "actual_path": "word_image_evidence_required",
+      "comparator_mode": "exact",
+      "dimension_id": "render.word_image_evidence_required",
+      "expected_path": "word_image_evidence_required",
+      "required": true
+    },
+    {
+      "actual_path": "render_feature_snapshot_status",
+      "comparator_mode": "exact",
+      "dimension_id": "render.feature_snapshot_status",
+      "expected_path": "render_feature_snapshot_status",
+      "required": true
+    }
+  ],
+  "expected": {
+    "case_source_bundle_sha256": "sha256:d51a4e36cc0d03153f7125795b70f18c4e5f924e19cc882f6beb1fc5c0547f62",
+    "render_feature_snapshot_status": "source_facts_accepted_word_evidence_pending",
+    "word_image_evidence_required": true
+  },
+  "profile_id": "real-core-v0",
+  "review_metadata": {
+    "auto_update_allowed": false,
+    "change_reason": "initial real-core-v0 reviewed placement/render source facts",
+    "review_source": "docs/human/real-core-v0-review-packet.md#case-nannong-undergraduate__real-student-001",
+    "reviewed_by": "user-reviewed-source-fact-packet",
+    "source_docx_sha256": "sha256:d51a4e36cc0d03153f7125795b70f18c4e5f924e19cc882f6beb1fc5c0547f62"
+  },
+  "school_id": "nannong-undergraduate",
+  "student_id": "real-student-001"
+}
