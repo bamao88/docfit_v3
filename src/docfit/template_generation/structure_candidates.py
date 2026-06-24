@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 from docfit.core.io import now_iso, sha256_json
-from docfit.harness import template_units
+from docfit.template_model import units as template_units
 
 from .constants import (
     COPY_ONLY_DEFAULT_EXCLUDED_UNIT_IDS,

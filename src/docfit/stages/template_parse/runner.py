@@ -15,8 +15,12 @@ from docfit.harness.real_core import (
     load_template_unit_baseline,
 )
 from docfit.harness.standards import StandardBundle, verify_template_hash
-from docfit.harness import template_units
 from docfit.ooxml.package import detect_unsupported_visible_objects, is_valid_docx
+from docfit.stages.template_parse.verifier import (
+    expected_units_from_contract_source,
+    verify_template_units_against_expected,
+)
+from docfit.template_model import units as template_units
 
 
 def parse_template(template_docx: Path, bundle: StandardBundle) -> StageResult:
@@ -206,11 +210,9 @@ def parse_template(template_docx: Path, bundle: StandardBundle) -> StageResult:
     if real_core_source_facts is not None:
         artifact["real_core_source_facts"] = real_core_source_facts
         findings.extend(
-            template_units.verify_template_units_against_expected(
+            verify_template_units_against_expected(
                 artifact,
-                template_units.expected_units_from_contract_source(
-                    real_core_source_facts
-                ),
+                expected_units_from_contract_source(real_core_source_facts),
                 start_index=len(findings) + 1,
             )
         )

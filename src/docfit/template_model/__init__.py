@@ -1,0 +1,1 @@
+"""Template domain model helpers."""

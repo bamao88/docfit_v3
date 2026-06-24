@@ -290,6 +290,8 @@ docfit/
     template_gap/
       gap.py
       inspector.py
+    template_model/
+      units.py
     convert/
       orchestrator.py
     ooxml/
@@ -366,6 +368,7 @@ docfit/
 - `src/docfit/harness/`
 - `src/docfit/template_generation/`
 - `src/docfit/template_gap/`
+- `src/docfit/template_model/`
 
 ### 5.2 禁止的组织方式
 

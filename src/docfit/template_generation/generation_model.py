@@ -4,7 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 from docfit.core.io import now_iso, sha256_json
-from docfit.harness import template_units
+from docfit.template_model import units as template_units
 
 from .plan import _decision_reason
 from .refs import _first_source_ref, _paragraph_index

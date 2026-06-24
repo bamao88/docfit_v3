@@ -9,7 +9,10 @@ from docx import Document
 from docfit.core.io import read_json
 from docfit.core.models import Finding, make_finding
 from docfit.core.status import Status
-from docfit.harness import template_units
+from docfit.stages.template_parse.verifier import (
+    verify_template_units_against_source_facts,
+)
+from docfit.template_model.units import contains_instruction_marker
 
 
 DONOR_FRONT_MATTER_MARKERS = (
@@ -142,7 +145,7 @@ def audit_template_artifact(template_artifact: dict[str, Any]) -> list[Finding]:
         )
         next_index += 1
     findings.extend(
-        template_units.verify_template_units_against_source_facts(
+        verify_template_units_against_source_facts(
             template_artifact,
             start_index=next_index,
         )
@@ -367,7 +370,7 @@ def _append_only_finding(
 
 
 def _contains_instruction_marker(text: str) -> bool:
-    return template_units.contains_instruction_marker(text)
+    return contains_instruction_marker(text)
 
 
 def _has_non_virtual_slot(slots: list[dict[str, Any]]) -> bool:

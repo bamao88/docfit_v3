@@ -68,6 +68,7 @@ docfit_v3/
 │   │   └── render/
 │   ├── template_generation/        # 模板侧支撑流程（非业务阶段）
 │   ├── template_gap/               # 模板质量差距检查（非业务阶段）
+│   ├── template_model/             # 模板结构共享模型，不做门禁裁判
 │   ├── convert/                    # 产品转换编排，只串联已验证四阶段
 │   ├── ooxml/                      # Word / OOXML 底层能力
 │   ├── ai_rca/                     # AI 只做根因分析建议，不做裁判
