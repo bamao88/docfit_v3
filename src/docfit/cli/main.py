@@ -19,10 +19,6 @@ from docfit.harness.coverage import evaluate_profile_coverage
 from docfit.harness.profiles import BOOTSTRAP_PROFILE, get_eval_case
 from docfit.harness.reports import write_report_bundle
 from docfit.harness.standards import load_standard_bundle
-from docfit.ooxml.docx4j_compare import (
-    parse_command_option,
-    write_docx4j_comparison_outputs,
-)
 
 app = typer.Typer(no_args_is_help=True)
 eval_app = typer.Typer(no_args_is_help=True)
@@ -196,31 +192,6 @@ def diagnose(run: Path = typer.Option(..., "--run")) -> None:
     typer.echo(f"status = {summary['status']}")
     typer.echo(f"primary_failure_bucket = {summary['primary_failure_bucket']}")
     typer.echo(f"clusters = {len(clusters)}")
-
-
-@app.command("inspect-docx4j")
-def inspect_docx4j(
-    docx: Path = typer.Option(..., "--docx", exists=True),
-    out: Path = typer.Option(..., "--out"),
-    docx4j_command: str | None = typer.Option(
-        None,
-        "--docx4j-command",
-        help=(
-            "Optional command prefix for the Java inspector. "
-            "Use {input_docx} and {output_json} placeholders for full control."
-        ),
-    ),
-    timeout_seconds: int = typer.Option(120, "--timeout-seconds"),
-) -> None:
-    report = write_docx4j_comparison_outputs(
-        docx,
-        out,
-        command=parse_command_option(docx4j_command),
-        timeout_seconds=timeout_seconds,
-        root=_root(),
-    )
-    typer.echo(f"tool_status = {report['tool']['status']}")
-    typer.echo(f"comparison_status = {report['comparison_status']}")
 
 
 @app.command("convert")
