@@ -85,6 +85,7 @@ uv run docfit eval coverage \
 | 当前状态、下一步和阻塞项 | `STATUS.md` |
 | 四阶段产物、门禁和 AI 边界 | `docs/current/contracts-and-gates.md` |
 | 模板生成支撑流程 | `docs/current/template-generation.md` |
+| docx4j 旁路诊断 | `docs/current/docx4j-diagnostics.md` |
 | 新增文件放哪里 | `DIRECTORY_STRUCTURE.md` |
 
 目录规则只是新增文件时的参考，不是项目主线。
