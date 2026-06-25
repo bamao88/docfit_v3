@@ -7,7 +7,7 @@ from docfit.core.io import now_iso, sha256_json
 from docfit.template_model import units as template_units
 
 from .constants import (
-    COPY_ONLY_DEFAULT_EXCLUDED_UNIT_IDS,
+    COPY_ONLY_DEFAULT_UNIT_IDS,
     FILLABLE_CONTENT_UNIT_IDS,
     FILLABLE_LABELS,
     FILLABLE_MARKERS,
@@ -1181,7 +1181,7 @@ def _unit_overlaps_interval(
 
 
 def _unit_is_copy_only_by_default(unit_id: str) -> bool:
-    return bool(unit_id) and unit_id not in COPY_ONLY_DEFAULT_EXCLUDED_UNIT_IDS
+    return bool(unit_id) and unit_id in COPY_ONLY_DEFAULT_UNIT_IDS
 
 
 def _copy_only_unit_elements(

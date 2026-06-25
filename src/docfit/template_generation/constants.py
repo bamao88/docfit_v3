@@ -2,12 +2,10 @@ from __future__ import annotations
 
 DEFAULT_TEMPLATE_GENERATION_STRATEGY = "source_copy_scaffold"
 BODY_SLOT_MARKER = "[[DOCFIT_SLOT:body]]"
-COPY_ONLY_DEFAULT_EXCLUDED_UNIT_IDS = {
-    "abstract_cn",
-    "abstract_en",
-    "toc",
-    "body_main",
-    "references",
+COPY_ONLY_DEFAULT_UNIT_IDS = {
+    "cover",
+    "integrity_statement",
+    "post_forms",
 }
 FILLABLE_CONTENT_UNIT_IDS = {
     "abstract_cn",

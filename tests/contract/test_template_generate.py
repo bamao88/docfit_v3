@@ -423,6 +423,41 @@ def test_template_generate_marks_fixed_unit_as_whole_unit_copy(tmp_path) -> None
     )
 
 
+def test_template_generate_custom_units_are_not_copy_only_by_default(tmp_path) -> None:
+    source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
+    out_dir = tmp_path / "template_generate"
+    source.parent.mkdir(parents=True, exist_ok=True)
+    doc = Document()
+    doc.add_paragraph("封面")
+    doc.add_paragraph("研究方案设计", style="Heading 1")
+    doc.add_paragraph("论文题目：____")
+    doc.add_paragraph("正文", style="Heading 1")
+    doc.save(source)
+
+    result = run_template_generate_eval(tmp_path, source, out_dir)
+    generation_model = read_json(out_dir / "artifacts/template_generation_model.json")
+    plan = read_json(out_dir / "artifacts/template_generation_plan.json")
+    custom_strategy = next(
+        unit
+        for unit in generation_model["unit_strategies"]
+        if str(unit["unit_id"]).startswith("custom:template:")
+    )
+
+    assert result.status == Status.UNKNOWN
+    assert custom_strategy["generation_mode"] == "copy_then_patch"
+    assert custom_strategy["generation_policy"] == "unit_actions"
+    assert not any(
+        action["action_type"] == "preserve_whole_unit_copy"
+        and action["unit_id"] == custom_strategy["unit_id"]
+        for action in plan["actions"]
+    )
+    assert any(
+        action["action_type"] == "create_fillable_slot"
+        and action["unit_id"] == custom_strategy["unit_id"]
+        for action in plan["actions"]
+    )
+
+
 def test_template_generate_copy_only_units_use_restricted_internal_element_analysis(
     tmp_path,
 ) -> None:

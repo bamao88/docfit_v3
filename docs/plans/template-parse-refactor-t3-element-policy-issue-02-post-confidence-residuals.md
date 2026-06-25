@@ -166,12 +166,13 @@ document_facts
 ### T3-ISSUE-002：copy-only 单元内部的 fill/generated 候选被静默降级成 fixed
 
 > 根因层已单列为 bug：[copy-only 策略写死 + unknown 默认 copy-only](template-parse-refactor-copy-only-policy-bug.md)。本节只记录 T3 侧的症状与门禁盲区。
+> 2026-06-25 跟进：T2 默认方向已在 [T2-COPY-ONLY-ISSUE-01](template-parse-refactor-t2-copy-only-policy-issue-01-default-freeze.md) 中改为正向白名单，`custom:template:*` / `other` 不再默认 copy-only。本节剩余问题主要指仍被正向判定为 copy-only 的单元，例如 cover / integrity_statement / post_forms，以及 `_final_policy_for_generation()` 对这些单元内部 fill/generated 的坍缩策略。
 
 现象：单元被判成整单元 copy-only 后，内部所有非 `instruction_remove`/`manual_only` 的 element（含 `fill`、`generated`）被强制改成 `fixed`，学生应填字段被冻结，最终 Word 不会出现可填字段。
 
 环节定位（按数据流顺序）：
 
-1. **T2 单元粒度** `constants.py:5 COPY_ONLY_DEFAULT_EXCLUDED_UNIT_IDS = {abstract_cn, abstract_en, toc, body_main, references}` —— 只有这 5 个单元不走 copy-only；cover / integrity_statement / acknowledgement / appendix / **post_forms** 等默认 copy-only。
+1. **T2 单元粒度** 原始实现使用 `COPY_ONLY_DEFAULT_EXCLUDED_UNIT_IDS = {abstract_cn, abstract_en, toc, body_main, references}` 的反向黑名单；现已改为 `COPY_ONLY_DEFAULT_UNIT_IDS` 正向白名单，避免 custom/other 默认冻结。
 2. **生成模式** `generation_model.py:_unit_generation_mode()` —— copy-only 单元 + 有 source ref ⇒ `whole_unit_copy`。
 3. **策略坍缩（根因）** `generation_model.py:141 _final_policy_for_generation()`：
 

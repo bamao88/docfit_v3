@@ -1,5 +1,5 @@
 ---
-status: open
+status: partially_resolved
 type: bug
 owner: template-generation
 stage: T2/T3
@@ -8,6 +8,7 @@ severity:
 created: 2026-06-25
 last_updated: 2026-06-25
 related_docs:
+  - docs/plans/template-parse-refactor-t2-copy-only-policy-issue-01-default-freeze.md
   - docs/plans/template-parse-refactor-t3-element-policy-issue-02-post-confidence-residuals.md
   - docs/plans/template-parse-refactor-t2-unit-recognition-issue-01-boundary-label.md
   - docs/plans/template-parse-refactor-t2-unit-recognition-issue-02-post-phase2-residuals.md
@@ -22,11 +23,13 @@ related_code:
 
 Last updated: 2026-06-25
 
-一句话：copy-only 现在是**写死的 unit_id 黑名单**——“除了 5 个已知单元，其它一律 copy-only”。它有两个问题：(1) **不可按学校扩展**，学校特有的必填表单没有进入 copy-only 的正路；(2) **默认方向反了**——T2 没认出来的 `other` 单元被默认当成 copy-only（“不认识就原样冻结”）。应改成：**一个可扩展的 copy-only 基线白名单（封面、原创性声明等默认 copy-only）+ 按学校具体情况追加（如毕业生必填表单）**，其余内容**不要默认 copy-only**。
+一句话：copy-only 原本是**写死的 unit_id 黑名单**——“除了 5 个已知单元，其它一律 copy-only”。它有两个问题：(1) **不可按学校扩展**，学校特有的必填表单没有进入 copy-only 的正路；(2) **默认方向反了**——T2 没认出来的 `other` / `custom` 单元被默认当成 copy-only（“不认识就原样冻结”）。
+
+2026-06-25 更新：默认方向已在 [T2-COPY-ONLY-ISSUE-01](template-parse-refactor-t2-copy-only-policy-issue-01-default-freeze.md) 中改为正向白名单，`custom:template:*` / `other` 不再默认 copy-only。仍未解决的是 school/config/request 级 copy-only 扩展入口，以及 cover/post_forms 内部是否开洞生成 slot 的产品策略。
 
 ---
 
-## 1. 当前实现（写死的黑名单）
+## 1. 原始实现（已替换的写死黑名单）
 
 ```python
 # constants.py:5  —— 模块级 frozenset，无任何 school/config/request 覆盖入口
@@ -43,7 +46,7 @@ def _unit_is_copy_only_by_default(unit_id):
 
 这个判断同时被 T2 候选（`structure_candidates.py:185`，决定单元是否走 `_copy_only_unit_elements`）和 generation_model（`generation_model.py:262 _unit_generation_mode` → `whole_unit_copy` → `_final_policy_for_generation` 把内部 fill/generated 压成 fixed）使用。
 
-确认：`grep` 全仓只有上述两处引用，**没有 school / config / request 级别的覆盖路径**。所以它是写死的。
+现状：代码已改成 `COPY_ONLY_DEFAULT_UNIT_IDS` 正向白名单；但仍然**没有 school / config / request 级别的覆盖路径**。
 
 ---
 
@@ -95,9 +98,9 @@ def _unit_policy(unit_id):
 
 | 步骤 | 位置 | 现状 | 改动方向 |
 | --- | --- | --- | --- |
-| copy-only 定义 | `constants.py:5` + `structure_candidates.py:989` | 写死黑名单 | 改为基线白名单 + 学校扩展入口 |
-| 应用（T2 候选） | `structure_candidates.py:185` | 黑名单为真即走 `_copy_only_unit_elements` | 按正向判定 |
-| 应用（生成） | `generation_model.py:262 / 141` | copy-only → `whole_unit_copy` → 内部 fill/generated 压 fixed | 默认非 copy-only 的单元不再坍缩 |
+| copy-only 定义 | `constants.py:5` + `structure_candidates.py:989` | 已改为正向白名单 | 继续补学校扩展入口 |
+| 应用（T2 候选） | `structure_candidates.py:185` | 已按正向判定选择 `_copy_only_unit_elements` | 后续接 school/request 配置 |
+| 应用（生成） | `generation_model.py:262 / 141` | copy-only → `whole_unit_copy` → 内部 fill/generated 压 fixed | 默认非 copy-only 的单元不再坍缩；copy-only 内部开洞另议 |
 | 学校扩展入口 | 无 | 不存在 | 新增（profile / request / gold） |
 
 ---

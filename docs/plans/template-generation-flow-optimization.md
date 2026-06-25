@@ -291,7 +291,7 @@ manifest = build_template_generation_manifest(
 | `generation_model.py::build_template_generation_model` | 已替代旧的 template-generate `build_template_artifact` 写法，产物 `artifact_type = template_generation_model` | `--out/artifacts/template_generation_model.json` 存在；不再写 template-generate 的 `template_artifact.json` |
 | 阶段三 unit 决策构建 | 旧的 `build_template_unit_decisions` 不再作为单独 public 产物；逻辑并入 `template_generation_model.unit_strategies[]`、`slots[]`、`protected_zones[]`、`cleanup[]` | 没有 `template_unit_decisions.json`；每个 unit 的策略仍可追踪 |
 | `_materialize_template_units` | 改为消费阶段二的 logical elements 和 `role_hint`；输出确认后的 `units[]`、最终 `policy` 或 `final_disposition` | 阶段三才出现最终 `generation_mode`、slot、cleanup、protected zone |
-| 新增 `_build_unit_strategies` | 集中决定 `whole_unit_copy` / `copy_then_patch` / `needs_review`；当前先沿用 `COPY_ONLY_DEFAULT_EXCLUDED_UNIT_IDS`，后续再接学校标准和学生内容台账 | cover 默认 whole copy，references 默认 copy_then_patch |
+| 新增 `_build_unit_strategies` | 集中决定 `whole_unit_copy` / `copy_then_patch` / `needs_review`；当前使用正向默认 copy-only 白名单，后续再接学校标准和学生内容台账 | cover 默认 whole copy，references 和 custom/other 默认 copy_then_patch |
 | 新增 `_build_cleanup` | 把 `role_hint = instruction_candidate` 的 logical element 转成 `cleanup[]`，保留 `source_refs[]`、`source_seq_refs[]`、evidence | copy-only 内部说明文字能进入 cleanup |
 | 新增 `_build_protected_zones` | 把固定学校内容、人工填写区、copy-only 保留范围写入 `protected_zones[]` | copy-only 内部固定/人工内容不会被误删，也不会生成 slot |
 | 新增 `_build_slots` | 只对 `copy_then_patch` 单元里的学生内容位和系统生成位生成 slot / generated field；copy-only 内部填空默认只写证据或 unresolved question | 封面 `论文题目：____` 不生成 cover slot；参考文献仍能生成 slot |

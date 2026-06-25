@@ -40,6 +40,13 @@ next_plan: ...
 | 02 | issue | `docs/plans/template-parse-refactor-t2-unit-recognition-issue-02-post-phase2-residuals.md` | draft | Phase 2 优化后残余单元识别问题 |
 | 02 | optimization plan | TBD | pending | 后续围绕 issue-02 讨论产生 |
 
+## T2 copy-only-policy
+
+| 顺序 | 类型 | 文档 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| 01 | issue | `docs/plans/template-parse-refactor-t2-copy-only-policy-issue-01-default-freeze.md` | implemented | 默认 copy-only 从反向黑名单改为正向白名单，避免 custom/other 默认冻结 |
+| 01 | optimization plan | none | skipped | 小范围直接修复，无单独 plan |
+
 ## T3 element-policy
 
 | 顺序 | 类型 | 文档 | 状态 | 说明 |
