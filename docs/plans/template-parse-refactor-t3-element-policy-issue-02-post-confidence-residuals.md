@@ -10,21 +10,22 @@ severity:
   - P1
 created: 2026-06-25
 last_updated: 2026-06-25
-version: 2
+version: 3
 previous_issue:
   id: T3-ELEMENT-ISSUE-01
   doc: docs/plans/template-parse-refactor-t3-element-policy-issue-01-confidence-noise.md
 previous_optimization:
-  doc: docs/current/template-generation-stage-optimization.md
-  summary: "T3 confidence grading and copy-only responsibility boundary cleanup; resolved blanket medium noise but left semantic residuals"
+  doc: docs/plans/template-parse-refactor-t2-copy-only-policy-issue-02-disable-copy-only.md
+  summary: "default copy-only disabled; whole_unit_copy / preserve_whole_unit_copy / fill-generated-to-fixed collapse are all zero in current three-school rerun"
 next_plan: TBD
 evidence_run:
-  code_checkpoint: 22caef2
-  output_root: /private/tmp/docfit_t3_inspect
+  code_checkpoint: 750bbf3
+  output_root: /private/tmp/docfit_copy_only_verify
   command: "uv run python -B -c 'from pathlib import Path; from docfit.convert.orchestrator import run_template_generate_eval; ...'"
 related_docs:
   - docs/plans/template-parse-refactor-issue-index.md
   - docs/plans/template-parse-refactor-t3-element-policy-issue-01-confidence-noise.md
+  - docs/plans/template-parse-refactor-t2-copy-only-policy-issue-02-disable-copy-only.md
   - docs/plans/template-parse-refactor-stage-issues.md
   - docs/plans/template-parse-refactor-t2-unit-recognition-issue-01-boundary-label.md
   - docs/plans/template-parse-refactor-t2-unit-map.md
@@ -42,11 +43,11 @@ related_code:
 
 Last updated: 2026-06-25
 
-本文只记录 T3 **上一轮优化后当前仍存在**的问题，以及每个问题的环节定位。已解决的问题（element 置信度全员硬编码 medium）不再作为待解决项记录，只放在完成度对照里。
+本文只记录 T3 **上一轮优化后当前仍存在**的问题，以及每个问题的环节定位。已解决的问题（element 置信度全员硬编码 medium、默认 copy-only 导致的 fill/generated 降级）不再作为当前待解决项记录，只放在完成度对照里。
 
-一句话结论：T3 自身已没有结构性 FAIL，置信度噪声也已清掉。**当前 T3 残余的不确定项 100% 落在两个真问题上**：(1) copy-only 单元内部的 `fill`/`generated` 候选被静默降级成 `fixed`（学生应填字段被冻结）；(2) 弱证据的“推断 fill”缺 gold 无法精确判。另外 T5 仍把 T3 的 flag 重投影一次，让 T3 的计数在报告里翻倍。
+一句话结论：默认 copy-only 已关闭，三校 `whole_unit_copy=0`、`preserve_whole_unit_copy=0`、`fill/generated -> fixed` 降级=0。**当前 T3 残余问题不再是 copy-only 冻结，而是 T3 自身的元素策略标准过粗**：弱证据“推断 fill”缺 gold 无法精确判；行内格式说明无法段内剥离；`fixed/generated/instruction_remove/fill` 的视觉与 run 级边界没有门禁。另外 T5 仍把 T3 的 flag 重投影一次，让 T3 的计数在报告里翻倍。
 
-证据来自三校当前代码重跑（输入 `inputs/targets/<school>/raw/source_template.docx`，输出 `/private/tmp/docfit_t3_inspect/<school>`）。
+证据来自三校当前代码重跑（输入 `inputs/targets/<school>/raw/source_template.docx`，输出 `/private/tmp/docfit_copy_only_verify/<school>`）。
 
 主产物：`03_element_spec.yaml`
 
@@ -75,7 +76,8 @@ Last updated: 2026-06-25
 | --- | --- | --- | --- | --- |
 | 01 | issue | `docs/plans/template-parse-refactor-t3-element-policy-issue-01-confidence-noise.md` | resolved | 上一轮：element confidence 全员 medium 噪声 |
 | 01 | optimization reference | `docs/current/template-generation-stage-optimization.md` | implemented in part | 上一轮：confidence 分级与 copy-only 责任边界优化背景 |
-| 02 | issue | `docs/plans/template-parse-refactor-t3-element-policy-issue-02-post-confidence-residuals.md` | draft | 本文档：上一轮优化后仍存在的真实生成问题 |
+| 02 | upstream fix | `docs/plans/template-parse-refactor-t2-copy-only-policy-issue-02-disable-copy-only.md` | implemented | 默认关闭 copy-only，排除上游冻结干扰 |
+| 02 | issue | `docs/plans/template-parse-refactor-t3-element-policy-issue-02-post-confidence-residuals.md` | draft | 本文档：copy-only 排除后仍存在的 T3 元素策略问题 |
 | 02 | optimization plan | TBD | pending | 后续针对本文档讨论出的下一轮修复方案 |
 
 命名约定见 `docs/plans/template-parse-refactor-issue-index.md`。
@@ -111,86 +113,93 @@ document_facts
 
 | 学校 | element 总数 | high / medium / low | T3 结构性 FAIL |
 | --- | ---: | --- | ---: |
-| 湖南农大 | 320 | 275 / 45 / 0 | 0 |
-| 南农本科 | 103 | 93 / 10 / 0 | 0 |
-| 北大研究生 | 359 | 319 / 40 / 0 | 0 |
+| 湖南农大 | 298 | 284 / 14 / 0 | 0 |
+| 南农本科 | 96 | 90 / 6 / 0 | 0 |
+| 北大研究生 | 343 | 339 / 4 / 0 | 0 |
 
 三校 T3 仍是 `UNKNOWN`，但 UNKNOWN 不再来自全员 medium，而来自下面这批**有意义的 medium**。
 
-### 2.2 残余 medium 的成分（精确指向两个环节）
+### 2.2 残余 medium 的成分（copy-only 排除后）
 
 | 学校 | 残余 medium | = role 降级（student/gen → fixed） | = 推断 fill（无显式 marker） | 其它 |
 | --- | ---: | ---: | ---: | ---: |
-| 湖南农大 | 45 | 31 | 14 | 0 |
-| 南农本科 | 10 | 4 | 6 | 0 |
-| 北大研究生 | 40 | 36 | 4 | 0 |
+| 湖南农大 | 14 | 0 | 14 | 0 |
+| 南农本科 | 6 | 0 | 6 | 0 |
+| 北大研究生 | 4 | 0 | 4 | 0 |
 
-残余 100% 落在两类，没有第三类杂音。这两类就是下面的 ISSUE-002 和 ISSUE-004。
+残余 medium 现在 100% 是“推断 fill”（没有显式 marker + label 组合），copy-only 降级类已经归零。这些 medium 主要暴露 ISSUE-004：缺少 gold expected，无法判断弱证据 fill 是正确学生内容、模板示例内容，还是应该保留/删除的说明。
 
-### 2.3 role 与 policy 不一致（ISSUE-002 的直接证据）
+### 2.3 copy-only 降级复核（已归零）
 
-| 学校 | role=student_content 但 policy=fixed | role=generated_field 但 policy=fixed |
-| --- | ---: | ---: |
-| 湖南农大 | 31（cover + post_forms） | 0 |
-| 南农本科 | 2 | 2 |
-| 北大研究生 | 3 | 33 |
+| 学校 | `whole_unit_copy` strategies | `preserve_whole_unit_copy` actions | `fill/generated -> fixed` 降级 |
+| --- | ---: | ---: | ---: |
+| 湖南农大 | 0 | 0 | 0 |
+| 南农本科 | 0 | 0 | 0 |
+| 北大研究生 | 0 | 0 | 0 |
 
-注意北大 33 个 `generated_field → fixed`：经核实，**真正的 `目录` 单元是受保护的**（`toc` 在 copy-only 排除集里，`copy_only=False`，图目录条目 `generated` 正常保留）。这 33 个里**大多是 `other`/`custom` 单元里含“编号/目录/公式”字样的 Word 使用说明文字**，被 `GENERATED_MARKERS` 宽匹配误判成 generated，再被 copy-only 压回 fixed——即“假阳性 generated + 反向 copy-only 默认”两个错叠加，净效果暂时无害但两步都错。详见 [copy-only-policy-bug](template-parse-refactor-copy-only-policy-bug.md)。
+结论：当前 T3 讨论不再把 copy-only 作为主因。后续如果再次出现 role/evidence/final policy 打架，应先检查是否来自显式学校配置、旧产物或手工恢复 copy-only，而不是默认策略。
 
-这些 element 的 `evidence.heuristic_policy_hint` 是 `fill`/`generated`，但最终 `policy=fixed`。三种信号（role_hint、evidence hint、final policy）互相打架。
+### 2.4 当前 policy 分布
 
-例子（湖南农大）：
+| 学校 | fixed | fill | generated | manual_only | instruction_remove |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 湖南农大 | 153 | 45 | 27 | 41 | 32 |
+| 南农本科 | 32 | 9 | 29 | 2 | 24 |
+| 北大研究生 | 252 | 8 | 56 | 2 | 25 |
 
-- `□□□□□□年级专业及班级：20××级×××（×）班`（role=student_content, hint=fill, policy=**fixed**）
-- `□□□□□□学□□院：××××学院（学院名用全称）`
-- 后置表单里大量 `□结合科研课题 课题名称：…`
+注意：`fixed/generated/instruction_remove` 多数都是 `confidence=high`。这不代表视觉上一定正确，只代表当前规则认为它们足够确定。行内格式说明残留和 generated 假阳性，很多不会进入 `element_confidence_needs_review`，需要单独 gold 或视觉/run 级门禁。
 
-这些都是学生要填的位置，现在被当成固定文字冻结。修复后这批以 `confidence=medium` 浮现，可以被看见，但 verifier 仍没有针对“降级”本身的 finding。
-
-### 2.4 上一轮优化完成度对照
+### 2.5 上一轮优化完成度对照
 
 | 项目 | 上一轮后现状 | 结论 |
 | --- | --- | --- |
 | element 置信度全员硬编码 medium | 已改为基于最终 policy / marker / role_hint 计算 | 已解决 |
-| role_hint 与 final policy 冲突可见性 | 冲突项会以 `confidence=medium` 进入 review flag | 部分解决：只暴露，未修语义 |
-| copy-only 内部 fill/generated 被压成 fixed | `_final_policy_for_generation()` 仍压成 `fixed` | 未解决 |
-| T3 verifier 显式识别 policy 降级 | 仍只做闭集、fill_source、manual_semantics、generated.field_type 检查 | 未解决 |
+| 默认 copy-only 导致 fill/generated 被压成 fixed | 三校 `whole_unit_copy=0`、降级=0 | 已解决/已从当前 T3 主因排除 |
+| role_hint 与 final policy 冲突可见性 | 当前三校冲突=0；若未来恢复 copy-only 仍需显式 finding | 暂不作为当前 T3 主问题 |
 | 行内格式注释残留 | 最终 docx 仍残留 `（小二黑体加粗）`、`(二号黑体，居中)` 等 | 未解决 |
+| 元素 policy 打标标准 | 仍是段落文本规则 + unit_id，没有视觉/run 级 gold 门禁 | 未解决 |
 | policy/gold 级 expected | 仍没有 `element_spec.expected.yaml` | 未解决 |
 | T5 重投影 T3 flag | T5 仍把 T3 confidence flag 再报一次 | 未解决 |
 
+### 2.6 当前 T3 打标流程与标准
+
+当前 T3 打标不使用视觉渲染结果，也不做 run 级切分；它只基于 T2 分出的 unit、T1 文本/样式事实、以及 `_element_policy()` 的规则顺序。
+
+流程：
+
+```text
+T1 body_flow entries
+  -> T2 unit range
+  -> T3 _logical_entry_groups() 合并 entry
+  -> _element_policy(unit_id, text, first_entry) 产出 candidate_policy
+  -> generation_model materialize 成最终 policy
+  -> element_spec 写 role / fill_source / generated.field_type / confidence
+```
+
+当前 `_element_policy()` 判定顺序：
+
+| 顺序 | policy | 当前标准 | 主要风险 |
+| --- | --- | --- | --- |
+| 1 | `instruction_remove` | `_looks_like_instruction(text)` 命中说明文字 marker 或括号字体/字号正则 | 粒度是整段；真内容+行内说明会被整段保留，无法只删括号说明 |
+| 2 | `generated` | unit 是 `toc`，或文本含 `目录/页码/编号/图目录/表目录/公式` | 说明文字里出现这些词会误判 generated，且常被 high confidence 放行 |
+| 3 | `manual_only` | 文本含 `签名/年月日/年  月  日/意见/成绩/评定` | 表单说明与真实人工填写区边界粗糙 |
+| 4 | 显式 `fill` | 同时命中占位符 marker（`××/□□/____/——/：/:`）和 label（`题名/题目/姓名/学号/学院/...`） | label/marker 表窄，漏掉复杂表格和段内字段 |
+| 5 | 推断 `fill` | unit 属于 `abstract_cn/abstract_en/body_main/references` 且 entry 不是 heading | 这是当前全部 medium 来源，缺 gold 无法判断对错 |
+| 6 | `fixed` | 以上都不命中 | 视觉残留、行内说明、误分类内容可能被 high confidence 静默保留 |
+
 ---
 
-## 3. 当前未解决问题
+## 3. 当前未解决问题（不含 copy-only）
 
-### T3-ISSUE-002：copy-only 单元内部的 fill/generated 候选被静默降级成 fixed
+### T3-ISSUE-002：copy-only 降级类问题已从当前 T3 主线排除
 
-> 根因层已单列为 bug：[copy-only 策略写死 + unknown 默认 copy-only](template-parse-refactor-copy-only-policy-bug.md)。本节只记录 T3 侧的症状与门禁盲区。
-> 2026-06-25 跟进：T2 默认方向已在 [T2-COPY-ONLY-ISSUE-01](template-parse-refactor-t2-copy-only-policy-issue-01-default-freeze.md) 中改为正向白名单，`custom:template:*` / `other` 不再默认 copy-only。本节剩余问题主要指仍被正向判定为 copy-only 的单元，例如 cover / integrity_statement / post_forms，以及 `_final_policy_for_generation()` 对这些单元内部 fill/generated 的坍缩策略。
-> 2026-06-25 再跟进：默认 copy-only 已在 [T2-COPY-ONLY-ISSUE-02](template-parse-refactor-t2-copy-only-policy-issue-02-disable-copy-only.md) 中关闭。后续若 T3 仍出现降级，应优先检查是否来自显式配置或旧产物。
+状态：当前三校重跑中，默认 copy-only 已关闭，`whole_unit_copy=0`、`preserve_whole_unit_copy=0`、`fill/generated -> fixed` 降级=0。
 
-现象：单元被判成整单元 copy-only 后，内部所有非 `instruction_remove`/`manual_only` 的 element（含 `fill`、`generated`）被强制改成 `fixed`，学生应填字段被冻结，最终 Word 不会出现可填字段。
+后续处理：
 
-环节定位（按数据流顺序）：
-
-1. **T2 单元粒度** 原始实现使用 `COPY_ONLY_DEFAULT_EXCLUDED_UNIT_IDS = {abstract_cn, abstract_en, toc, body_main, references}` 的反向黑名单；现已改为 `COPY_ONLY_DEFAULT_UNIT_IDS`，且默认集合为空，避免任何单元默认冻结。
-2. **生成模式** `generation_model.py:_unit_generation_mode()` —— copy-only 单元 + 有 source ref ⇒ `whole_unit_copy`。
-3. **策略坍缩（根因）** `generation_model.py:141 _final_policy_for_generation()`：
-
-   ```python
-   def _final_policy_for_generation(candidate_policy, generation_mode):
-       if generation_mode != "whole_unit_copy":
-           return candidate_policy
-       if candidate_policy in {"remove_instruction", "manual_only"}:
-           return candidate_policy
-       return "fixed"   # fill / generated 全部坍缩成 fixed
-   ```
-
-4. **verifier 盲区** `verifier.py:386 _verify_t3_element_spec()` —— 只检查 policy 是否在闭集、fill 是否有 fill_source、manual 是否有 semantics、generated 是否有 field_type；**不检查 role_hint / evidence hint 与 final policy 是否自洽**，所以降级没有专门 finding，只能靠 `confidence=medium` 间接暴露。
-
-影响：湖南农大 cover 的姓名/学号/学院/日期、post_forms（任务书/开题/答辩/成绩）里的填写位，现在都成了固定文字。这正是 stage-issues 里 T2「固定 9 个 unit 粒度过粗 / 粗边界内做策略，责任混在一起」那条的实证落点。
-
-讨论焦点：这是产品语义冲突——“整单元保形复制”和“单元内部仍有学生填写位”同时成立，`whole_unit_copy` 把两者一刀切了。环节在 **T2 copy-only 粒度 + generation_model final policy**，不在置信度本身。
+- 本 issue 后续讨论不再把 copy-only 当作 T3 残余主因。
+- copy-only 的历史问题和未来恢复条件见 `template-parse-refactor-t2-copy-only-policy-issue-02-disable-copy-only.md`。
+- 如果未来重新接入学校级 copy-only 配置，必须补 `t3_policy_downgraded_in_copy_only` 或等价门禁，防止内部 fill/generated 再次被静默冻结。
 
 ### T3-ISSUE-004：误删/误填的边界没有 gold 验证
 
@@ -241,11 +250,35 @@ document_facts
 - **段内/run 级剥离**：保留真内容，只删括号里的格式注释 `（…字体…）`。
 - **扩 marker 覆盖**：补 `华文行楷`、`加粗`、`用全称`、`居中` 等漏词。
 
+### T3-ISSUE-006：元素 policy 打标标准过粗，视觉残留不进门禁
+
+现象：当前 T3 的 confidence finding 已经降到湖南 14 / 南农 6 / 北大 4，但从最终 Word 视觉检查看，残留问题仍明显。这说明 T3 的主要风险已经不在 `medium` 数量，而在**错误 high confidence**：
+
+- 行内说明文字被保成 `fixed high`。
+- 含“目录/编号/公式”的说明段可能被标成 `generated high`。
+- 内容单元里的示例文字、模板提示、正文样例可能被推断为 `fill medium`，但没有 gold 能判断应填、应删还是应保留。
+- `fixed` 的标准只是“其它都不命中”，非空即 high，缺少“这是否是可见目标模板内容”的验证。
+
+环节定位：
+
+- 候选 policy：`structure_candidates.py:_element_policy()`。
+- confidence：`artifacts.py:_element_confidence()`。
+- 门禁：`verifier.py:_verify_t3_element_spec()` 只做 schema/policy 闭集检查，不做视觉残留、run 级注释、policy/gold 对比。
+
+为什么这是当前主问题：copy-only 排除后，`role_hint` 与 final policy 的冲突归零；但 `fixed/generated/instruction_remove` 大量 high confidence 仍可能是错的。仅看 T3 finding 数，会低估视觉质量问题。
+
+修复方向：
+
+- 建 `element_spec.expected.yaml`，先做 policy 级 expected，再扩内容级 expected。
+- 引入 run/inline 级 instruction span，不能只做段落级 `instruction_remove`。
+- `generated` marker 从宽匹配改为字段上下文/TOC unit/OOXML field 证据优先。
+- `fixed high` 需要 gold 或更强证据，不能把“不认识”直接当“确定固定模板内容”。
+
 ### T3-REPORT-001：T5 把 T3 flag 重投影，T3 计数翻倍
 
 现象：T5 读 `template_spec.review_flags` 后，把 T3 每条 `element_confidence_needs_review` 再报一次 `t5_element_confidence_needs_review`。
 
-环节定位：`verifier.py:797 _verify_t5_template_spec()`。这是报告层问题，不是 T3 生成判定错，但它让 T3 的不确定项数量在报告里看起来翻倍（例如当前湖南 T3 45 条，T5 再报 45 条，相关 finding 看起来变成 90 条）。
+环节定位：`verifier.py:797 _verify_t5_template_spec()`。这是报告层问题，不是 T3 生成判定错，但它让 T3 的不确定项数量在报告里看起来翻倍（例如当前湖南 T3 14 条，T5 再报 14 条，相关 finding 看起来变成 28 条）。
 
 ---
 
@@ -255,32 +288,32 @@ T3 不再是“全员 medium”噪声后，三校瓶颈重新排序（当前 tem
 
 | 学校 | 总 findings | T2 类（T2 stage） | T3 类（T3 stage） | T5 重投影/自身项 | 主瓶颈 |
 | --- | ---: | --- | --- | --- | --- |
-| 湖南农大 | 120 | unit_confidence 9 + repeated_custom 4 + boundary_keyword_only 2 | confidence 45 | T3 confidence 45 + T2 flag 15 | T3 降级 + T2 标签/边界 |
-| 南农本科 | 36 | unit_confidence 5 + repeated_custom 1 | confidence 10 | T3 confidence 10 + T2 flag 6 + cross_section 4 | T2/T3 较均衡 |
-| 北大研究生 | 117 | unit_confidence 10 + repeated_custom 6 | confidence 40 | T3 confidence 40 + T2 flag 16 + cross_section 3 + T4/global 2 | T3 降级 + T2 正文/后置单元 |
+| 湖南农大 | 58 | unit_confidence 9 + repeated_custom 4 + boundary_keyword_only 2 | confidence 14 | T3 confidence 14 + T2 flag 15 | T3 policy/gold + T2 标签/边界 |
+| 南农本科 | 27 | unit_confidence 5 + repeated_custom 1 | confidence 6 | T3 confidence 6 + T2 flag 6 + cross_section 3 | T2/T3 较均衡 |
+| 北大研究生 | 45 | unit_confidence 10 + repeated_custom 6 | confidence 4 | T3 confidence 4 + T2 flag 16 + cross_section 3 + T4/global 2 | T2 正文/后置单元 + T3 high-confidence 静默风险 |
 
 结论：
 
-- T3 自身剩 ISSUE-002（降级）+ ISSUE-004（gold）+ ISSUE-005（行内注释删不掉），ISSUE-002 现已以 medium 可见。
-  注意 ISSUE-005 不进 confidence findings（这些段判成 fixed/generated 多为 high），属于“静默残留”，需专门检查或 gold 才能捕获。
-- 北大 T2 过切已较旧口径下降，但 `body_main` 范围、图目录/表目录、后置声明等仍有残余问题（见 `template-parse-refactor-t2-unit-recognition-issue-02-post-phase2-residuals.md`），与 T3 降级问题互相放大。
+- T3 自身当前主问题是 ISSUE-004（gold）、ISSUE-005（行内注释删不掉）、ISSUE-006（打标标准过粗，错误 high confidence 静默放行）。
+  注意 ISSUE-005/006 不一定进入 confidence findings，需专门检查或 gold 才能捕获。
+- 北大 T2 过切已较旧口径下降，但 `body_main` 范围、图目录/表目录、后置声明等仍有残余问题（见 `template-parse-refactor-t2-unit-recognition-issue-02-post-phase2-residuals.md`），会继续放大 T3 policy/gold 判断难度。
 - T5 重投影是下一个该处理的报告层问题（REPORT-001）。
 
 ---
 
 ## 5. 需要讨论的问题
 
-1. copy-only 单元（cover / post_forms 等）内部的 fill 候选，应该：(a) 保持 `whole_unit_copy` 一律 fixed，把填写位交给后续人工；(b) 升级成 `copy_then_patch`，在保形复制基础上对 fill 候选开可填域；还是 (c) 按单元区分（cover 开洞、post_forms 保形）？
-2. `_final_policy_for_generation` 把 `generated` 也坍缩成 fixed 合理吗？目录/页码这种生成域被冻结，是否会让 T6 缺 PAGE/TOC 域？
-3. role/policy 不一致应该升成显式 finding（`t3_policy_downgraded_in_copy_only`）吗？是 FAIL（确定错）还是 UNKNOWN（需人工）？
-4. T3 的 gold 先做内容级 expected，还是先做 policy 级 expected？先做哪一校？
-5. 行内格式注释（ISSUE-005）走哪条路：(a) 段内 run 级剥离括号注释，保留真内容；(b) 把 element 切得更细，让注释单独成 element 再 remove；还是 (c) 先只扩 marker 覆盖、暂不做段内剥离？
+1. T3 的 gold 先做 policy 级 expected，还是内容级 expected？先做哪一校？
+2. 行内格式注释（ISSUE-005）走哪条路：(a) 段内 run 级剥离括号注释，保留真内容；(b) 把 element 切得更细，让注释单独成 element 再 remove；还是 (c) 先只扩 marker 覆盖、暂不做段内剥离？
+3. `generated` 是否必须要求更强证据：TOC unit、OOXML field、明确页码/编号字段上下文，而不是文本宽匹配？
+4. `fixed high` 的放行标准是否要收紧：哪些固定文本可以 high，哪些“其它都不命中”的内容应进入 review？
+5. 推断 fill 是否应继续允许 references/body_main 全内容单元默认 fill，还是必须有更明确的学生内容槽位证据？
 
 ---
 
 ## 6. 非目标
 
-- 不在本 issue 改 T2 单元边界（见 t2-boundary-label-issue）。
+- 不在本 issue 改 T2 单元边界（见 t2-unit-recognition issue 链）。
 - 不在本 issue 解决 T4 页码 / 分节 high confidence。
 - 不在本 issue 实现完整 AI 元素分类（`ai_traces`），只决定哪些 element 类型允许走 AI。
 - 不在本 issue 实现 review queue / review_decisions 闭环（跨 T3/T5，单列）。
