@@ -4,6 +4,12 @@
 
 阶段优化工作流：讨论或继续优化某个阶段（例如 T1/T2/T3/T4/T5/T6）前，先在 `docs/plans/` 找到或创建对应阶段的 issue 文档，记录上一轮优化后当前仍存在的问题。该文档必须先写清真实运行口径、expected vs observed、疑似根因、上一轮已解决/未解决对照、以及后续验收门禁；随后再围绕这个文档讨论解决方案和实施顺序。
 
+阶段 issue 命名和追踪约定：
+
+- 优先使用 `template-parse-refactor-{stage}-{topic}-issue-{NN}-{short-name}.md`，例如 `template-parse-refactor-t3-element-policy-issue-02-post-confidence-residuals.md`。
+- 每个阶段 issue frontmatter 必须包含 `issue_id`、`issue_sequence`、`previous_issue`、`previous_optimization`、`next_plan`。没有上一轮时显式写 `none`。
+- 阶段 issue 链统一登记在 `docs/plans/template-parse-refactor-issue-index.md`，避免多轮迭代后混淆“上一轮 issue / 上一轮优化文档 / 当前残余 issue”。
+
 # AGENTS.md
 
 DocFit v3 是一个讲学生论文转换成学校模板格式的产品

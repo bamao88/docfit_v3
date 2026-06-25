@@ -8,8 +8,9 @@ severity:
 created: 2026-06-25
 last_updated: 2026-06-25
 related_docs:
-  - docs/plans/template-parse-refactor-t3-element-policy-issue.md
-  - docs/plans/template-parse-refactor-t2-boundary-label-issue.md
+  - docs/plans/template-parse-refactor-t3-element-policy-issue-02-post-confidence-residuals.md
+  - docs/plans/template-parse-refactor-t2-unit-recognition-issue-01-boundary-label.md
+  - docs/plans/template-parse-refactor-t2-unit-recognition-issue-02-post-phase2-residuals.md
   - docs/plans/template-parse-refactor-stage-issues.md
 related_code:
   - src/docfit/template_generation/constants.py

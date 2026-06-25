@@ -2,9 +2,19 @@
 status: draft
 owner: template-generation
 stage: T2
+topic: unit-recognition
+issue_id: T2-UNIT-ISSUE-02
+issue_sequence: 2
 created: 2026-06-25
 last_updated: 2026-06-25
 version: 1
+previous_issue:
+  id: T2-UNIT-ISSUE-01
+  doc: docs/plans/template-parse-refactor-t2-unit-recognition-issue-01-boundary-label.md
+previous_optimization:
+  doc: docs/plans/template-parse-refactor-t2-open-label-unit-recognition.md
+  summary: Phase 2 deterministic mainline for derived signals, TOC block, boundary/label rewrite, custom_unit fallback
+next_plan: TBD
 evidence_run:
   code_checkpoint: e861aa5
   command: "uv run python -B -c 'from pathlib import Path; from docfit.convert.orchestrator import run_template_generate_eval; ...'"
@@ -16,12 +26,13 @@ related_code:
   - tests/unit/test_t2_unit_map.py
   - scripts/t2_metrics.py
 related_docs:
+  - docs/plans/template-parse-refactor-issue-index.md
   - docs/plans/template-parse-refactor-t2-open-label-unit-recognition.md
-  - docs/plans/template-parse-refactor-t2-boundary-label-issue.md
+  - docs/plans/template-parse-refactor-t2-unit-recognition-issue-01-boundary-label.md
   - docs/plans/template-parse-refactor-t2-visual-pagination.md
 ---
 
-# T2 优化后残余单元识别问题记录
+# T2 单元识别 Issue 02：Phase 2 优化后残余问题
 
 ## 0. 记录目的
 
@@ -39,6 +50,26 @@ related_docs:
 - 讨论某阶段优化前，先新增或更新对应 `docs/plans/*issue*.md`。
 - 文档必须包含：真实运行命令、输出位置、expected vs observed、疑似根因、验收门禁。
 - 方案文档不能直接把“计划要解决”当作“已经解决”；必须有生成 artifact 或测试门禁证明。
+
+## 0.1 迭代链与命名
+
+本轮 T2 单元识别文档链：
+
+| 顺序 | 类型 | 文档 | 状态 | 用途 |
+| --- | --- | --- | --- | --- |
+| 01 | issue | `docs/plans/template-parse-refactor-t2-unit-recognition-issue-01-boundary-label.md` | resolved | 上一轮优化前的边界/标签问题记录 |
+| 01 | optimization plan | `docs/plans/template-parse-refactor-t2-open-label-unit-recognition.md` | draft/implemented in part | 上一轮 Phase 2 确定性主干优化方案 |
+| 02 | issue | `docs/plans/template-parse-refactor-t2-unit-recognition-issue-02-post-phase2-residuals.md` | draft | 本文档：上一轮优化后仍存在的真实生成问题 |
+| 02 | optimization plan | TBD | pending | 后续针对本文档讨论出的下一轮修复方案 |
+
+命名约定：
+
+```text
+template-parse-refactor-{stage}-{topic}-issue-{NN}-{short-name}.md
+template-parse-refactor-{stage}-{topic}-plan-{NN}-{short-name}.md
+```
+
+同一个 topic 下，issue 和 plan 使用同一轮编号。比如本文件是 `issue-02`，后续若形成修复方案，应优先命名为 `template-parse-refactor-t2-unit-recognition-plan-02-*.md`。
 
 ## 1. 当前真实运行口径
 
@@ -267,4 +298,3 @@ Observed：
   - 湖南：`toc` 不得包含 seq 50-64；必须有 `abstract_cn`。
   - 南农：必须有 `appendix`、`academic_achievements`、`acknowledgement`。
   - 北大：必须有 `figure_list`、`table_list`；`body_main` 从 seq 50 附近开始；后置 `references` 不得变 custom。
-

@@ -3,22 +3,38 @@ status: resolved
 resolved_at: 2026-06-25
 owner: template-generation
 stage: T2
+topic: unit-recognition
+issue_id: T2-UNIT-ISSUE-01
+issue_sequence: 1
 severity:
   - P0
   - P1
 created: 2026-06-25
 last_updated: 2026-06-25
+previous_issue:
+  id: none
+  doc: none
+previous_optimization:
+  doc: none
+  summary: "initial issue record before Phase 2 deterministic mainline"
+next_issue:
+  id: T2-UNIT-ISSUE-02
+  doc: docs/plans/template-parse-refactor-t2-unit-recognition-issue-02-post-phase2-residuals.md
+next_plan: docs/plans/template-parse-refactor-t2-open-label-unit-recognition.md
 related_docs:
+  - docs/plans/template-parse-refactor-issue-index.md
   - docs/plans/template-parse-refactor-t1-fact-coverage-issues.md
+  - docs/plans/template-parse-refactor-t2-open-label-unit-recognition.md
   - docs/plans/template-parse-refactor-t2-unit-map.md
   - docs/plans/template-parse-refactor-t2-visual-pagination.md
+  - docs/plans/template-parse-refactor-t2-unit-recognition-issue-02-post-phase2-residuals.md
 related_code:
   - src/docfit/template_generation/structure_candidates.py
   - src/docfit/template_generation/constants.py
   - src/docfit/template_generation/artifacts.py
 ---
 
-# T2 边界检测与标签器调优 issue
+# T2 单元识别 Issue 01：边界检测与标签器调优
 
 > **【状态：已解决 — 2026-06-25】历史 issue 文档，勿据此定位新问题。**
 >

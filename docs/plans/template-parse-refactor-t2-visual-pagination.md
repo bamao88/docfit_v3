@@ -14,7 +14,7 @@ related_code:
   - src/docfit/template_generation/source_tree.py
 related_docs:
   - docs/plans/template-parse-refactor-t2-open-label-unit-recognition.md
-  - docs/plans/template-parse-refactor-t2-boundary-label-issue.md
+  - docs/plans/template-parse-refactor-t2-unit-recognition-issue-01-boundary-label.md
 ---
 
 # 视觉分页（page_policy）实施计划

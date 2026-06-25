@@ -14,7 +14,7 @@ related_code:
   - src/docfit/template_generation/constants.py
   - src/docfit/template_generation/artifacts.py
 related_docs:
-  - docs/plans/template-parse-refactor-t2-boundary-label-issue.md
+  - docs/plans/template-parse-refactor-t2-unit-recognition-issue-01-boundary-label.md
   - docs/plans/template-parse-refactor-t2-visual-pagination.md
   - docs/plans/t2-unit-segmentation-correct-logic.md
 ---
@@ -26,7 +26,7 @@ related_docs:
 > - **已实施完成（§6 / §15 Phase 2 确定性主干）**：T2 派生信号层、TOC block segmenter（加锁）、`text_properties` candidate-only、canonical_title + alias 注册表 + `custom_unit` 兜底标签模型、variant/form 标注。三校结构门禁通过（湖南/南农/北大 TOC 20/20·25/25·17/17，`other`=0，leak=0）。对应代码见 `structure_candidates.py`，单测见 `tests/unit/test_t2_unit_map.py`，门禁脚本 `scripts/t2_metrics.py`。
 > - **尚未实施**：Phase 0（feature flag / page_policy 三态字段预留）、Phase 1A/1B（渲染子项目）、Phase 3（AI 视觉通道）、Phase 4（reconciler）、Phase 5（视觉/AI 门禁）。
 > - **page_policy / 视觉分页的落地细化已拆分到独立计划**：`docs/plans/template-parse-refactor-t2-visual-pagination.md`（含 Phase 0~5 的文件级实施步骤）。本文档保留为设计总纲与契约依据。
-> - 修复前的具体 issue 现象见已解决的 `docs/plans/template-parse-refactor-t2-boundary-label-issue.md`（勿据其旧数据定位新问题）。
+> - 修复前的具体 issue 现象见已解决的 `docs/plans/template-parse-refactor-t2-unit-recognition-issue-01-boundary-label.md`（勿据其旧数据定位新问题）。
 
 ## 0. 一句话结论
 

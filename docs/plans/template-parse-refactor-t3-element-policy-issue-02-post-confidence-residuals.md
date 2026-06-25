@@ -2,21 +2,33 @@
 status: draft
 owner: template-generation
 stage: T3
+topic: element-policy
+issue_id: T3-ELEMENT-ISSUE-02
+issue_sequence: 2
 severity:
   - P0
   - P1
 created: 2026-06-25
 last_updated: 2026-06-25
 version: 2
+previous_issue:
+  id: T3-ELEMENT-ISSUE-01
+  doc: docs/plans/template-parse-refactor-t3-element-policy-issue-01-confidence-noise.md
+previous_optimization:
+  doc: docs/current/template-generation-stage-optimization.md
+  summary: "T3 confidence grading and copy-only responsibility boundary cleanup; resolved blanket medium noise but left semantic residuals"
+next_plan: TBD
 evidence_run:
   code_checkpoint: 22caef2
   output_root: /private/tmp/docfit_t3_inspect
   command: "uv run python -B -c 'from pathlib import Path; from docfit.convert.orchestrator import run_template_generate_eval; ...'"
 related_docs:
+  - docs/plans/template-parse-refactor-issue-index.md
+  - docs/plans/template-parse-refactor-t3-element-policy-issue-01-confidence-noise.md
   - docs/plans/template-parse-refactor-stage-issues.md
-  - docs/plans/template-parse-refactor-t2-boundary-label-issue.md
+  - docs/plans/template-parse-refactor-t2-unit-recognition-issue-01-boundary-label.md
   - docs/plans/template-parse-refactor-t2-unit-map.md
-  - docs/plans/template-parse-refactor-t2-post-optimization-residual-unit-issues.md
+  - docs/plans/template-parse-refactor-t2-unit-recognition-issue-02-post-phase2-residuals.md
   - docs/plans/template-parse-refactor-copy-only-policy-bug.md
 related_code:
   - src/docfit/template_generation/structure_candidates.py
@@ -26,7 +38,7 @@ related_code:
   - src/docfit/template_generation/constants.py
 ---
 
-# T3 元素策略 issue（上一轮优化后残余问题记录）
+# T3 元素策略 Issue 02：confidence 优化后残余问题
 
 Last updated: 2026-06-25
 
@@ -54,6 +66,19 @@ Last updated: 2026-06-25
 - 讨论某阶段优化前，先新增或更新对应 `docs/plans/*issue*.md`。
 - issue 文档必须记录真实运行命令/输出、expected vs observed、疑似根因、上一轮已解决/未解决对照、验收门禁。
 - 方案讨论必须围绕 issue 文档进行，不能把“计划要解决”当成“已经解决”。
+
+### 0.1 迭代链与命名
+
+本轮 T3 元素策略文档链：
+
+| 顺序 | 类型 | 文档 | 状态 | 用途 |
+| --- | --- | --- | --- | --- |
+| 01 | issue | `docs/plans/template-parse-refactor-t3-element-policy-issue-01-confidence-noise.md` | resolved | 上一轮：element confidence 全员 medium 噪声 |
+| 01 | optimization reference | `docs/current/template-generation-stage-optimization.md` | implemented in part | 上一轮：confidence 分级与 copy-only 责任边界优化背景 |
+| 02 | issue | `docs/plans/template-parse-refactor-t3-element-policy-issue-02-post-confidence-residuals.md` | draft | 本文档：上一轮优化后仍存在的真实生成问题 |
+| 02 | optimization plan | TBD | pending | 后续针对本文档讨论出的下一轮修复方案 |
+
+命名约定见 `docs/plans/template-parse-refactor-issue-index.md`。
 
 ---
 
@@ -236,7 +261,7 @@ T3 不再是“全员 medium”噪声后，三校瓶颈重新排序（当前 tem
 
 - T3 自身剩 ISSUE-002（降级）+ ISSUE-004（gold）+ ISSUE-005（行内注释删不掉），ISSUE-002 现已以 medium 可见。
   注意 ISSUE-005 不进 confidence findings（这些段判成 fixed/generated 多为 high），属于“静默残留”，需专门检查或 gold 才能捕获。
-- 北大 T2 过切已较旧口径下降，但 `body_main` 范围、图目录/表目录、后置声明等仍有残余问题（见 t2-post-optimization-residual-unit-issues），与 T3 降级问题互相放大。
+- 北大 T2 过切已较旧口径下降，但 `body_main` 范围、图目录/表目录、后置声明等仍有残余问题（见 `template-parse-refactor-t2-unit-recognition-issue-02-post-phase2-residuals.md`），与 T3 降级问题互相放大。
 - T5 重投影是下一个该处理的报告层问题（REPORT-001）。
 
 ---
