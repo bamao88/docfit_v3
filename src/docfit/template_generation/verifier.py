@@ -295,7 +295,22 @@ def _verify_t4_global_spec(
 ) -> list[Finding]:
     findings: list[Finding] = []
     next_index = start_index
-    if not global_spec.get("section_profiles"):
+    if global_spec.get("artifact_type") != "global_spec":
+        findings.append(
+            make_finding(
+                next_index,
+                "template_generate",
+                Status.UNKNOWN,
+                "global_spec_artifact_missing",
+                "T4 must produce global_spec.yaml",
+                "artifact_type=global_spec",
+                str(global_spec.get("artifact_type")),
+                root_cause_bucket="template_t4_contract_gap",
+            )
+        )
+        next_index += 1
+    section_profiles = global_spec.get("section_profiles") or []
+    if not section_profiles:
         findings.append(
             make_finding(
                 next_index,
@@ -309,7 +324,163 @@ def _verify_t4_global_spec(
             )
         )
         next_index += 1
-    findings.extend(_flag_findings(global_spec.get("flags", []), start_index=next_index, stage="T4"))
+    profile_ids = [
+        str(profile.get("section_profile_id") or "")
+        for profile in section_profiles
+    ]
+    duplicates = sorted({profile_id for profile_id in profile_ids if profile_ids.count(profile_id) > 1})
+    if duplicates:
+        findings.append(
+            make_finding(
+                next_index,
+                "template_generate",
+                Status.FAIL,
+                "global_spec_duplicate_section_profile_id",
+                "T4 section_profile ids must be unique",
+                "unique section_profile_id",
+                repr(duplicates),
+                root_cause_bucket="template_t4_section_id_gap",
+            )
+        )
+        next_index += 1
+    header_footer_parts = {
+        str(part.get("part_name"))
+        for part in global_spec.get("header_footer", [])
+        if part.get("part_name")
+    }
+    for profile in section_profiles:
+        profile_id = str(profile.get("section_profile_id") or "section_unknown")
+        boundary = profile.get("boundary")
+        if not isinstance(boundary, dict) or not boundary:
+            findings.append(
+                make_finding(
+                    next_index,
+                    "template_generate",
+                    Status.UNKNOWN,
+                    "global_spec_section_boundary_missing",
+                    "T4 section profile must declare boundary or explicit UNKNOWN",
+                    "boundary",
+                    profile_id,
+                    affected_ids=[profile_id],
+                    root_cause_bucket="template_t4_section_boundary_gap",
+                )
+            )
+            next_index += 1
+        elif boundary.get("status") == "UNKNOWN":
+            findings.append(
+                make_finding(
+                    next_index,
+                    "template_generate",
+                    Status.UNKNOWN,
+                    "global_spec_section_boundary_unknown",
+                    "T4 section profile boundary must be mappable to source_seq",
+                    "boundary.status=detected",
+                    profile_id,
+                    evidence_refs=[str(ref) for ref in boundary.get("evidence_refs", [])],
+                    affected_ids=[profile_id],
+                    root_cause_bucket="template_t4_section_boundary_gap",
+                )
+            )
+            next_index += 1
+        if profile_id != "section_unknown" and not profile.get("source_ref"):
+            findings.append(
+                make_finding(
+                    next_index,
+                    "template_generate",
+                    Status.UNKNOWN,
+                    "global_spec_section_source_ref_missing",
+                    "T4 section profile must trace back to T1 section source_ref",
+                    "source_ref",
+                    profile_id,
+                    affected_ids=[profile_id],
+                    root_cause_bucket="template_t4_section_trace_gap",
+                )
+            )
+            next_index += 1
+        page_numbering = profile.get("page_numbering") or {}
+        display = page_numbering.get("display") or {}
+        display_status = str(display.get("status") or "")
+        if not display_status:
+            findings.append(
+                make_finding(
+                    next_index,
+                    "template_generate",
+                    Status.UNKNOWN,
+                    "global_spec_page_numbering_display_status_missing",
+                    "T4 per-section page numbering display status must be explicit",
+                    "page_numbering.display.status",
+                    profile_id,
+                    affected_ids=[f"{profile_id}.page_numbering"],
+                    root_cause_bucket="template_t4_page_numbering_gap",
+                )
+            )
+            next_index += 1
+        if display_status == "detected" and not any(
+            _is_page_field_evidence(field)
+            for field in page_numbering.get("fields", [])
+        ):
+            findings.append(
+                make_finding(
+                    next_index,
+                    "template_generate",
+                    Status.FAIL,
+                    "global_spec_page_numbering_detected_without_page_field",
+                    "T4 detected page numbering must include PAGE field evidence",
+                    "PAGE field evidence",
+                    profile_id,
+                    affected_ids=[f"{profile_id}.page_numbering"],
+                    root_cause_bucket="template_t4_page_numbering_gap",
+                )
+            )
+            next_index += 1
+        if display_status == "no_page_field":
+            checked_scopes = display.get("checked_scopes") or {}
+            if not checked_scopes.get("body_source_seq_range") and not checked_scopes.get("header_footer_parts"):
+                findings.append(
+                    make_finding(
+                        next_index,
+                        "template_generate",
+                        Status.UNKNOWN,
+                        "global_spec_no_page_field_scope_missing",
+                        "T4 no_page_field must include checked body/header/footer scopes",
+                        "checked_scopes",
+                        profile_id,
+                        affected_ids=[f"{profile_id}.page_numbering"],
+                        root_cause_bucket="template_t4_page_numbering_gap",
+                    )
+                )
+                next_index += 1
+        for ref in (profile.get("header_footer") or {}).get("effective_references", []):
+            part_name = str(ref.get("part_name") or "")
+            if part_name and part_name not in header_footer_parts:
+                findings.append(
+                    make_finding(
+                        next_index,
+                        "template_generate",
+                        Status.UNKNOWN,
+                        "global_spec_header_footer_part_missing",
+                        "T4 section header/footer references must point to parsed parts",
+                        "part_name in global_spec.header_footer",
+                        part_name,
+                        evidence_refs=[str(ref.get("source_ref") or "")],
+                        affected_ids=[profile_id],
+                        root_cause_bucket="template_t4_header_footer_gap",
+                    )
+                )
+                next_index += 1
+        profile_flag_findings = _flag_findings(
+            profile.get("flags", []),
+            start_index=next_index,
+            stage="T4",
+        )
+        findings.extend(profile_flag_findings)
+        next_index += len(profile_flag_findings)
+    global_flag_findings = _flag_findings(
+        global_spec.get("flags", []),
+        start_index=next_index,
+        stage="T4",
+    )
+    findings.extend(global_flag_findings)
     return findings
 
 
@@ -349,7 +520,64 @@ def _verify_t5_template_spec(
             )
         )
         next_index += 1
+    section_profiles = template_spec.get("global", {}).get("section_profiles", [])
+    section_profile_ids = {
+        str(profile.get("section_profile_id") or "")
+        for profile in section_profiles
+    }
     for unit in template_spec.get("units", []):
+        unit_id = str(unit.get("unit_id") or "")
+        section_profile_refs = unit.get("section_profile_refs") or []
+        unit_range = _unit_source_seq_range(unit)
+        if not section_profile_refs:
+            findings.append(
+                make_finding(
+                    next_index,
+                    "template_generate",
+                    Status.UNKNOWN,
+                    "template_spec_unit_section_profile_refs_missing",
+                    "T5 must bind each unit to at least one section profile",
+                    "section_profile_refs non-empty",
+                    unit_id,
+                    affected_ids=[unit_id] if unit_id else [],
+                    root_cause_bucket="template_t5_section_join_gap",
+                )
+            )
+            next_index += 1
+        for ref in section_profile_refs:
+            section_profile_id = str(ref.get("section_profile_id") or "")
+            if section_profile_id not in section_profile_ids:
+                findings.append(
+                    make_finding(
+                        next_index,
+                        "template_generate",
+                        Status.FAIL,
+                        "template_spec_unit_section_profile_ref_missing",
+                        "T5 unit section_profile_refs must reference global section profiles",
+                        "existing section_profile_id",
+                        section_profile_id or "missing",
+                        affected_ids=[unit_id] if unit_id else [],
+                        root_cause_bucket="template_t5_section_join_gap",
+                    )
+                )
+                next_index += 1
+                continue
+            overlap = ref.get("overlap_source_seq_range") or {}
+            if unit_range and not _ranges_overlap(unit_range, overlap):
+                findings.append(
+                    make_finding(
+                        next_index,
+                        "template_generate",
+                        Status.FAIL,
+                        "template_spec_unit_section_profile_range_mismatch",
+                        "T5 unit-section binding must overlap unit source_seq range",
+                        repr(unit_range),
+                        repr(overlap),
+                        affected_ids=[unit_id] if unit_id else [],
+                        root_cause_bucket="template_t5_section_join_gap",
+                    )
+                )
+                next_index += 1
         for element in unit.get("elements", []):
             if element.get("policy") == "fill" and not element.get("fill_source"):
                 findings.append(
@@ -527,6 +755,50 @@ def _flag_findings(
             )
         )
     return findings
+
+
+def _is_page_field_evidence(field: dict[str, Any]) -> bool:
+    field_type = str(field.get("field_type") or "").upper()
+    instruction = str(field.get("instruction") or field.get("field_code") or "").upper()
+    return field_type == "PAGE" or instruction.startswith("PAGE")
+
+
+def _unit_source_seq_range(unit: dict[str, Any]) -> dict[str, int] | None:
+    refs = [
+        int(ref)
+        for ref in unit.get("source_seq_refs", [])
+        if _int_or_none(ref) is not None
+    ]
+    if refs:
+        return {"start": min(refs), "end": max(refs)}
+    source_seq_range = unit.get("source_seq_range") or {}
+    start = _int_or_none(source_seq_range.get("start"))
+    end = _int_or_none(source_seq_range.get("end"))
+    if start is None or end is None:
+        return None
+    return {"start": start, "end": end}
+
+
+def _ranges_overlap(
+    left: dict[str, Any],
+    right: dict[str, Any],
+) -> bool:
+    left_start = _int_or_none(left.get("start"))
+    left_end = _int_or_none(left.get("end"))
+    right_start = _int_or_none(right.get("start"))
+    right_end = _int_or_none(right.get("end"))
+    if None in {left_start, left_end, right_start, right_end}:
+        return False
+    return int(left_start) <= int(right_end) and int(right_start) <= int(left_end)
+
+
+def _int_or_none(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _status_for_findings(findings: list[Finding]) -> Status:

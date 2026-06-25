@@ -1100,16 +1100,10 @@ def _default_font_from_facts(document_facts: dict[str, Any]) -> dict[str, Any]:
     return {"status": "UNKNOWN"}
 
 
-def _page_numbering_from_facts(document_facts: dict[str, Any]) -> dict[str, Any]:
-    fields = document_facts.get("data", {}).get("fields", [])
-    page_fields = [field for field in fields if str(field.get("field_code", "")).upper().startswith("PAGE")]
-    return {
-        "field_refs": [field.get("source_ref") for field in page_fields],
-        "status": "detected" if page_fields else "UNKNOWN",
-    }
-
-
-def _global_flags(document_facts: dict[str, Any]) -> list[dict[str, Any]]:
+def _global_flags(
+    document_facts: dict[str, Any],
+    section_profiles: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     flags = []
     if not document_facts.get("data", {}).get("sections"):
         flags.append(
@@ -1119,16 +1113,42 @@ def _global_flags(document_facts: dict[str, Any]) -> list[dict[str, Any]]:
                 "reason": "document sections could not be parsed",
             }
         )
-    page_numbering = _page_numbering_from_facts(document_facts)
-    if page_numbering.get("status") == "UNKNOWN":
+    if _page_numbering_from_profiles(section_profiles).get("status") == "UNKNOWN":
         flags.append(
             {
-                "flag_id": "global.page_numbering_unknown",
-                "type": "page_numbering_unknown",
+                "flag_id": "global.page_numbering_missing_evidence",
+                "type": "page_numbering_missing_evidence",
                 "status": "UNKNOWN",
                 "source_ref": None,
                 "affected_ids": ["global.page_numbering"],
-                "reason": "page numbering fields could not be detected from source facts",
+                "reason": "one or more sections lack enough evidence for page numbering facts",
             }
         )
     return flags
+
+
+def _int_or_none(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _dedupe_str(values: list[Any]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value is None:
+            continue
+        item = str(value)
+        if not item or item in seen:
+            continue
+        result.append(item)
+        seen.add(item)
+    return result
+
+
+def _text_hash(text: str) -> str:
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
