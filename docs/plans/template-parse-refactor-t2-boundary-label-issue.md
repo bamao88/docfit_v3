@@ -20,7 +20,7 @@ related_code:
 
 Last updated: 2026-06-25
 
-一句话结论：当前 T2 优化版把旧逻辑的"关键词撞目录"问题显性化了，也补出了 `t2_input.json` 和 typed `open_questions`；但它还没有达到可交付效果。主要问题是 **TOC block 没有作为专门单元切分**、**仅文字属性即可过阈值导致过切**、**标签器闭集过窄导致大量 `other`**，并且当前代码仍在过渡期消费 T1 的 `structural_signals`。后续应明确：**T1 只产原子事实；T2 自己从原子事实派生 `toc_entry_like`、`instruction_like`、`unit_heading_like` 等内部信号，并在 T2 artifact 中暴露这些派生证据。**
+一句话结论：当前 T2 优化版把旧逻辑的"关键词撞目录"问题显性化了，也补出了 `t2_input.json` 和 typed `open_questions`；但它还没有达到可交付效果。主要问题是 **TOC block 没有作为专门单元切分**、**仅文字属性即可过阈值导致过切**、**标签器闭集过窄导致大量 `other`**。后续必须明确：**T1 只产原子事实；T2 禁止消费 `is_toc_entry`、`likely_unit_heading` 等 T1 语义字段；T2 只能从原子事实派生 `toc_entry_like`、`instruction_like`、`unit_heading_like` 等内部信号，并在 T2 artifact 中暴露这些派生证据。**
 
 ---
 
@@ -69,14 +69,36 @@ T2 的职责是基于 T1 原子事实做单元边界和归属判断。因此，�
 
 > T2 从 T1 原子事实派生出的 `toc_entry_like` 段落，一旦被 T2 的目录块 segmenter 接收，就必须归入 `toc` unit，不能再被摘要/正文/参考文献等关键词抢走。
 
-### 0.3 过渡期兼容策略
+### 0.3 无过渡硬约束
 
-当前代码仍有 `document_facts.body_flow[].structural_signals`，这是过渡状态。T2 可以短期 fallback 读取旧字段，但新设计和测试应按下面优先级：
+本 issue 按目标架构讨论，不设"兼容旧 T1 语义字段"的过渡阶段。实现和测试应假设 T1 **不会**生产 `is_toc_entry`、`is_spacing_line`、`looks_like_instruction_text`、`likely_unit_heading` 等字段。
 
-1. 优先读 T1 原子事实 / `text_facts`。
-2. 只有旧 artifact 缺字段时，fallback `structural_signals`。
-3. T2 输出 `t2_derived_signals`，明确标记派生来源。
-4. T1 完成 fact-only 后移除 fallback。
+硬约束：
+
+1. T2 不读取 `document_facts.body_flow[].structural_signals`。
+2. T2 不读取 `is_toc_entry=True` 这类语义字段，即使旧 artifact 里存在也视为无效输入。
+3. T2 只能读取 T1 原子事实，例如 `text`、`style_name`、`has_tab`、`trailing_token`、alignment、font size、bold、breaks、container facts。
+4. 如果原子事实不足以判定，T2 必须 `abstain`：输出 `open_question` / `t2_input.json`，不能用旧语义字段补救。
+5. T2 输出 `t2_derived_signals`，明确标记为 T2 派生证据。
+
+准确率优化的前提也因此改变：不是"让 T1 更早标好 TOC"，而是**让 T1 给足可观测事实，让 T2 有更强的派生规则和 block-level segmenter**。
+
+### 0.4 无 T1 语义字段时的准确率优化原则
+
+T2 准确率不靠消费 T1 的 `is_toc_entry`，而靠以下四层：
+
+1. **原子事实足够可判定**：T1 必须提供 tab、leader、尾部页码 token、样式名、alignment、font size、bold、breaks、container facts 等可观测事实。T2 判不准时，先检查是不是事实缺失，而不是把语义塞回 T1。
+2. **T2 派生信号可解释**：`toc_entry_like`、`toc_title_like`、`unit_heading_like`、`instruction_like` 都由 T2 计算，并在 T2 artifact 里写出命中/未命中的证据。
+3. **先 block，后 boundary**：目录、变体块、表格表单这类结构块先整体识别；块内段落不再和普通章节标题竞争边界分数。
+4. **宁可 abstain，不要乱切**：单一弱信号只能进入 `open_question`，不能直接切正式 unit；缺事实时写 `missing_facts[]`，让问题可定位。
+
+对应的调优目标不是让某个布尔字段更早出现，而是让 T2 对每个边界能回答：
+
+```text
+这个段落为什么像/不像 toc_entry？
+这个段落为什么像/不像 unit boundary？
+如果判断不了，缺哪些 T1 原子事实？
+```
 
 ---
 
@@ -190,7 +212,7 @@ threshold = 2
 
 ### 3.1 先实现 T2 派生信号层
 
-新增 T2 内部函数，全部只读 T1 原子事实：
+新增 T2 内部函数，全部只读 T1 原子事实；如果事实不存在，函数返回 `unknown` / `False` 并记录缺失证据，不读取旧语义字段：
 
 ```python
 def _t2_text_facts(entry) -> dict:
@@ -230,6 +252,7 @@ def _looks_like_spacing_line(entry) -> bool:
 
 - 不写回 `document_facts`。
 - 字段名带 `t2_` 或放在 T2 artifact 下，避免再次污染 T1。
+- 不读取 `structural_signals`，不接受 `is_toc_entry` 作为输入。
 
 ### 3.2 TOC block segmenter 独立于通用边界检测
 
@@ -386,7 +409,7 @@ def canonical_title(text):
 
 建议按下面顺序做，不要先大范围调权重：
 
-1. **T2 本地派生信号层**：从 T1 原子事实计算 `toc_entry_like` 等；短期 fallback 旧 `structural_signals`。
+1. **T2 本地派生信号层**：从 T1 原子事实计算 `toc_entry_like` 等；不读旧 `structural_signals`。
 2. **TOC block segmenter**：先解决最大污染源。
 3. **`text_properties` candidate-only**：压住北大过切。
 4. **canonical title classifier**：提高 closed label 命中率，减少 `other`。
@@ -412,7 +435,8 @@ def canonical_title(text):
 
 新增或扩展：
 
-- `test_t2_derives_toc_entry_like_from_atomic_facts_not_t1_semantic_field`
+- `test_t2_derives_toc_entry_like_from_atomic_facts`
+- `test_t2_ignores_legacy_t1_semantic_fields_if_present`
 - `test_t2_toc_block_claims_all_toc_entries`
 - `test_t2_text_properties_only_is_candidate_not_unit_boundary`
 - `test_t2_canonical_title_classifier_handles_format_annotations`
@@ -453,15 +477,15 @@ def canonical_title(text):
 2. TOC block 中允许多少个非 `toc_entry_like` 的间隔段？例如"（农理工科类专业用）"、空行、格式说明。
 3. `body_main` 的数字标题规则要多宽？`1 前言` 应识别正文，但目录条目和表格编号不能误伤。
 4. 湖南变体块是只归 `other + variant_block_detected`，还是要开始引入 `variant_group_id`？
-5. T1 fact-only 完成前，T2 是否保留 `structural_signals` fallback？建议保留一个版本周期，但新增测试必须覆盖原子事实路径。
+5. 当 T1 原子事实不足时，T2 应该如何表达不可判定？建议统一走 `open_question(kind=boundary|label|required_missing)`，并在 `signals_summary.missing_facts[]` 写清缺失项。
 
 ---
 
 ## 7. 非目标
 
 - 不在 T1 恢复或新增 `is_toc_entry` 等语义字段。
+- 不在 T2 消费旧 `is_toc_entry` / `structural_signals` 字段。
 - 不在本 issue 中实现 AI 合并 `t2_ai_response.json`。
 - 不做完整 variant model；本轮最多聚合为 `other + variant_block_detected`。
 - 不解决 T3 段内元素切分。
 - 不解决 T4 页码/分节 high confidence。
-
