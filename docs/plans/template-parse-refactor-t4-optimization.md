@@ -2,6 +2,30 @@
 
 Last updated: 2026-06-25
 
+Status: Partially implemented on 2026-06-25.
+
+本轮已经落地 Step 1、Step 2 和 Step 3 的主体：
+
+- `global_spec.yaml` 升级到 `artifact_version: "1.1"`，`section_profiles[]` 现在包含 `boundary`、per-section `page_numbering.declared/fields/display` 和 `header_footer.effective_references/parts`。
+- 顶层 `global_spec.page_numbering` 改为 summary，能区分 `single`、`mixed`、`none`、`UNKNOWN`，不再把已检查无 PAGE 字段粗暴报成 `page_numbering_unknown`。
+- `template_spec.yaml` 升级到 `artifact_version: "1.1"`，`units[]` 新增 `section_profile_refs[]`；`section_profile` 保留为 primary profile 兼容字段。
+- T4 verifier 已检查 section id、boundary、页码 evidence、header/footer part 引用；T5 verifier 已检查 unit-section 引用存在和 range 相交。
+- T5 不再逐条复制 T4 flags 到 `template_spec.review_flags`。
+
+验证证据：
+
+- `uv run pytest`：130 passed。
+- 三校 probe：
+  - 湖南农大：1 个 section profile，1/1 有 boundary，19/19 units 绑定 section refs，状态 `UNKNOWN`。
+  - 南农本科：11 个 section profiles，11/11 有 boundary，16/16 units 绑定 section refs，primary profiles 分散到 `section_001` 到 `section_008`，状态 `UNKNOWN`。
+  - 北大研究生：17 个 section profiles，17/17 有 boundary，76/76 units 绑定 section refs，primary profiles 分散到 `section_001` 到 `section_009`，状态 `UNKNOWN`。
+
+剩余未做：
+
+- T6 仍未消费 `section_profile_refs[]` 来构建真实分页、分节、页眉页脚和 PAGE 字段。
+- 空 section 没有可见正文 `source_seq` 时，boundary 只有 paragraph/sectPr 证据，`start_source_seq/end_source_seq` 仍可能为空。
+- 三校 template-gap 仍会因为样式、页眉页脚、页码、单元顺序和页面证据不足返回业务质量问题；本计划只把 T4/T5 事实与绑定提前暴露。
+
 本文用于讨论模板解析重构里 T4 的优化方案。它只讨论 `global_spec.yaml` 及其和 T2/T5 的边界，不讨论学生内容提取、placement、最终 render。
 
 相关文档：

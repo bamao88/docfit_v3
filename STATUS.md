@@ -1,6 +1,6 @@
 # DocFit Status
 
-Last updated: 2026-06-22
+Last updated: 2026-06-25
 
 Current focus:
 
@@ -28,6 +28,13 @@ Current state:
   单独的 `template-generate` 不接受 `--school`，也不读取学校签收标准；
   real-core 的 template/e2e 编排会在生成后把本次 `generated_template.docx`
   交给 `template-gap`，由签收标准里的 `expected.units` 判定学校格式质量。
+  T4/T5 section 绑定已经前移到解析 artifact：`global_spec.yaml` 的
+  `section_profiles[]` 现在包含 boundary、per-section 页码 evidence 和
+  页眉页脚引用；`template_spec.yaml` 的 `units[]` 现在包含
+  `section_profile_refs[]`，`section_profile` 仅作为 primary profile 兼容字段。
+  最新 `/tmp/docfit_t4_opt_*` 三校 probe 均保持 `UNKNOWN`，没有新增 `FAIL`：
+  湖南农大 1/1、南农 11/11、北大 17/17 section profiles 均有 boundary；
+  三校 units 均能绑定 section refs，南农/北大不再全部默认到 `section_001`。
 - real-core 的 template/e2e 编排已经接入模板生成支撑流程：每次 run 会先写出
   `template_generation/generated_template.docx`，再把这份 Word 交给
   `template-gap` 检查，并让后续 render 以它作为底稿。已签入的
