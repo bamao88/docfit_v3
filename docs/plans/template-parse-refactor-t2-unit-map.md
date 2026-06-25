@@ -18,8 +18,9 @@ Last updated: 2026-06-25
 - **run 级样式/内容 T2 不看**（那是 T3）。T2 只看段落级信号。
 
 **责任边界（依赖上游、不越权下游）**：
-- T2 **依赖 T1 产出的原子判据**：`is_toc_entry` / `is_spacing_line` / `looks_like_instruction_text` / `centered`·`bold`·`large_font`·`short_text` / 样式名 / `breaks`。这些是 **T1 职责**，T2 不重新解析 docx。
-- ⬅️ **"是不是标题/边界"的合成判断属于 T2**：这正是过去错放在 T1 的 `likely_unit_heading` 应该**归位到这里**的部分（见 T1 文档 §0、§2.3）。
+- T2 **依赖 T1 facts**：文本、样式名、段落样式、run/段落样式事实、tab/点引线/尾部 token、分页/分节、表格容器、source_ref。T2 不重新解析 docx，但可以基于这些 facts 计算自己的判断。
+- ⬅️ **目录条目、空行说明、说明文字、标题/边界判断都属于 T2/T3 合成信号**：`is_toc_entry`、`is_spacing_line`、`looks_like_instruction_text`、`likely_unit_heading` 不应由 T1 输出。T2 可以在自己的候选结果里生成它们，用作 boundary veto 和 evidence。
+- ⬅️ **"是不是标题/边界"的合成判断属于 T2**：这正是过去错放在 T1 的 `likely_unit_heading` 应该归位到这里的部分。
 - run 级再切分（标题 vs 行内说明、标签 vs 填空）= **T3**，不在 T2。
 
 ---
@@ -36,7 +37,7 @@ Last updated: 2026-06-25
 - `toc` 单元被**截断成 5 行**（只剩标题 + 格式说明 + "（农理工科类专业用）"）
 - 真正的正文/摘要/参考文献（p81 之后）被吞进 `abstract_en`（横跨 33 段）和 `post_forms`（**catch-all，吞掉全部 9 个表、217 个 ref**）
 
-**为什么多信号能解决**：目录条目有明确的反向特征——点引线/`toc N` 样式/TAB+页码（T1 已产出 `is_toc_entry`）；真实标题有正向特征——分节/标题样式/居中+大字+短。逐行扫词把这两类信号全丢了。三校信号可用性差异大（湖南无标题样式靠文字属性、南农靠 `Heading`/`toc` 样式名、北大混合），所以必须**组合**多信号，不能绑死一种。
+**为什么多信号能解决**：目录条目有明确的反向事实特征，包括点引线、`toc N` 样式、TAB+页码；真实标题有正向事实特征，包括分节、标题样式、居中+大字+短。逐行扫词把这两类信号全丢了。三校信号可用性差异大（湖南无标题样式靠文字属性、南农靠 `Heading`/`toc` 样式名、北大混合），所以必须**组合**多信号，不能绑死一种。
 
 ### 1.2 置信度硬编码 `medium`【已验证】
 `structure_candidates.py:148`、`:525` 把单元/元素置信度写死成 `"medium"` → 每个单元都带 `needs_review` flag → T2 整体 `UNKNOWN`。这个信号是常量、**不携带任何信息**，既挡不住真错误，又把正确单元也一并标成待审。
@@ -56,10 +57,10 @@ Last updated: 2026-06-25
 ### 2.1 多信号边界检测器（替换逐行扫词）【设计】
 按文档顺序遍历**可见段落**，对每段：
 
-1. **否决（绝对，一票否决，不参与加权）**：`is_toc_entry` 或 `is_spacing_line` 或 `looks_like_instruction_text` 为真 → **不是边界**，归属上一单元。
+1. **否决（绝对，一票否决，不参与加权）**：T2 基于 T1 facts 算出 `is_toc_entry`、`is_spacing_line` 或 `looks_like_instruction_text` 为真 → **不是边界**，归属上一单元。
 2. **正向信号加权**（命中累加，证据写 `evidence`）：
 
-| 信号 | 判据（取自 T1 事实） | 建议权重 |
+| 信号 | 判据（T2 基于 T1 facts 计算） | 建议权重 |
 | --- | --- | --- |
 | 前置分节/分页 | 该段前有新 `sectPr` / `page_break_before` / `breaks` 落点 | 3（强） |
 | 标题样式 | 样式名 ∈ {`Heading N`, `标题N`} 或每校映射的标题样式 | 3（强） |
@@ -81,7 +82,7 @@ def segment_units(facts):                          # 段落级，不看 run 级�
     boundaries, open_questions = [], []
     for p in visible_paragraphs(facts):
         # 1) 否决：目录条目 / 空行说明 / 格式说明 → 一票否决，绝不当章节开头
-        if p.is_toc_entry or p.is_spacing_line or p.looks_like_instruction_text:
+        if t2_is_toc_entry(p) or t2_is_spacing_line(p) or t2_looks_like_instruction_text(p):
             continue                               # 归属上一单元
         # 2) 多信号加权
         score, hits = 0, []
@@ -134,7 +135,7 @@ def segment_units(facts):                          # 段落级，不看 run 级�
 - 价值：同一份投影让"**模型判错 vs 投影漏喂了信号**"能分开排查（这正是规范给投影、而不是直接丢整篇 facts 的理由）。
 
 **投影里给 AI 的上下文**（只给可疑区间 + 框架，不给整篇 facts）：
-- **可疑区间的若干段**：`text` + 样式名 + `centered/bold/large_font/short_text` + `is_toc_entry/is_spacing_line` + 前置分节/分页 + 确定性**分数与命中/否决了哪些信号** + 提议器初判；
+- **可疑区间的若干段**：T1 facts（`text`、样式名、alignment、font_size_pt、bold、前置分节/分页）+ T2 计算出的 `centered/large_font/short_text/is_toc_entry/is_spacing_line` + 确定性**分数与命中/否决了哪些信号** + 提议器初判；
 - **框架**：required 单元清单、已确信放好的有哪些、现在还缺哪些（让 AI 知道它在找什么）；
 - **一个具体问题**：`p_k` 与 `p_{k+1}` 之间有没有边界？/ 这块是哪个 `unit_id`？/ 摘要是真缺还是漏识别？
 - **可选 `visual_refs`（页面截图引用），现在留空**——模态无关，以后能接视觉。注意：T2 边界/标签判定文本+样式通常就够且便宜；视觉性价比更高在 **T6 版面验证**（且 LibreOffice≈Word 只是近似），所以现在不为 T2 建渲染，但不把缝设计成排斥视觉。
@@ -197,7 +198,7 @@ done
 ---
 
 ## 5. 依赖与状态
-- **强依赖 T1** 的两个原子判据 `is_toc_entry` / `is_spacing_line`（已完成，见 T1 文档 §1.2）作为否决项。
+- **强依赖 T1 facts**：T2 自己基于样式名、tab、点引线、尾部页码 token、括号文本、分页/分节、对齐、字号、加粗等事实计算 boundary veto。T1 不再输出 `is_toc_entry` / `is_spacing_line` 这类语义字段。
 - **下游 T3 强依赖 T1 的 run 归一化**（T1 文档 §2.1，待实现）；T2 边界判定本身对归一化弱依赖，但建议 T1 归一化先落地，给 T3 一个干净的 logical run。
-- 本份所有"优化建议"均为 **【设计】待实现**；当前仅完成上游 T1 的判据补齐。
+- 本份所有"优化建议"均为 **【设计】待实现**；当前还需要先把已混入 T1 的 semantic signals 归位。
 - **abstain（§2.2）是 §2.1 检测器同一次打分的副产物**，确定性、可测、不依赖 AI——**随检测器一起落地，不单独做**；落地后"信号不足分不出来"时即有分级反馈 + `t2_input.json`，AI/视觉以后再接。

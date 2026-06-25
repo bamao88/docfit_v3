@@ -15,9 +15,34 @@ evidence_outputs:
 
 Last updated: 2026-06-25
 
-一句话结论：上一轮 T1 已经修复了 run 降噪、run 级空白保留、`is_toc_entry` / `is_spacing_line` 原子信号，但系统性审计后确认 T1 仍有更底层的事实覆盖缺口：段落坐标混用、表格/页眉页脚没有 run trace、TOC 等嵌套 run 漏采、可见对象只停留在 data 层，以及 verifier 误报 T1 `PASS`。
+一句话结论：上一轮 T1 已经修复了 run 降噪和 run 级空白保留，但系统性审计后确认 T1 仍有两类缺口：一类是事实覆盖缺口，包括段落坐标混用、表格/页眉页脚没有 run trace、TOC 等嵌套 run 漏采、可见对象只停留在 data 层、verifier 误报 T1 `PASS`；另一类是职责越权，当前 `document_facts.body_flow[].structural_signals` 里混入了 `is_toc_entry`、`is_spacing_line`、`looks_like_instruction_text`、`likely_unit_heading` 等语义判断，以及 `large_font`、`short_text` 等阈值判断。
 
 这份文档不是新的实现计划，而是后续讨论用的 issue 台账。先把问题、证据和验收标准写清楚，再决定实现切口。
+
+## 0. T1 硬边界
+
+T1 `document_facts` 的职责只有一个：把源 DOCX 读全读对，输出可追溯、可复现的事实。T1 不回答“这段是什么含义”，只回答“Word 里有什么”。
+
+允许 T1 输出：
+- 文本事实：可见文本、tab、换行、空格、控制符。
+- 位置事实：part name、OOXML source_ref、paragraph/run/table/cell/header/footer id。
+- 样式事实：style id/name、字体、字号、加粗、斜体、下划线、颜色、段落对齐、缩进、间距、继承来源。
+- 结构事实：表格、单元格、页眉页脚、字段、图片、文本框、脚注、content control、分页/分节。
+- trace 事实：raw run、logical run、merged_from、source_refs、container refs。
+
+不允许 T1 输出：
+- `is_*` 语义标签，例如 `is_toc_entry`、`is_spacing_line`。
+- `looks_like_*` / `likely_*` 判断，例如 `looks_like_instruction_text`、`likely_unit_heading`。
+- 阈值判断标签，例如 `large_font`、`short_text`。T1 应输出 `font_size_pt` 和原始文本长度所需事实，由 T2/T3 自己设阈值。
+- 下游职责字段，例如 `unit_id`、`policy`、`confidence`、`generated/fill/manual_only`。
+- “是不是标题/边界/目录条目/说明文字/空行说明”这类合成判断。
+
+归属规则：
+- T2 基于 T1 事实判断单元边界、目录条目、空行说明、标题样式信号、`unit_id` 和 boundary confidence。
+- T3 基于 T1/T2 判断固定文本、说明文字、填空槽、人工填写、系统生成字段。
+- T4 基于 T1 字段/分节/页眉页脚事实判断页码、分节和页面规则。
+
+开发约束：未来新增 T1 字段时，字段名和含义必须能直接对应到 DOCX 可观测事实；如果字段需要词表、阈值、上下文或业务含义组合才能得出，它不属于 T1。
 
 ## 1. 当前证据
 
@@ -40,7 +65,7 @@ test_outputs/debug/template_generation/t1_document_facts_20260625_current/pku-gr
 解释：
 - `source_ref` 指向 XML 文本不匹配：`body_flow[].source_ref` 里的 `word/document.xml:p[n]` 去源 DOCX OOXML 找到的段落文本，和 `body_flow[].text` 不是同一段。
 - raw 前缀与 `source_ref` 不匹配：例如 `source_ref=word/document.xml:p[3]`，但 `raw_run_ids` 是 `p_0024.r_001` 这一类。
-- TOC 条目无 raw trace：`is_toc_entry=true` 的目录条目有文本，但 `raw_run_ids=[]`、`logical_run_ids=[]`。
+- TOC 条目无 raw trace：当前由 T1 越权标成 `is_toc_entry=true` 的目录条目有文本，但 `raw_run_ids=[]`、`logical_run_ids=[]`。
 - XML 可见段落存在嵌套 run：可见文本藏在 `w:hyperlink`、field 等容器下，直接 `paragraph.findall(w:r)` 取不到。
 
 ### 1.2 具体例子：南农标题段落坐标错位
@@ -126,6 +151,40 @@ word/document.xml:p[49] text='摘  要\tⅠ' direct_runs=0 nested_runs=3
 
 封面、任务书、评审表、成绩表等学校模板核心内容大量在表格中。T1 如果只保留单元格聚合文本，不保留单元格内段落和 run trace，T6 施工很难做到可解释、可回放。
 
+### 1.5 具体例子：T1 semantic signals 越权
+
+当前 `source_tree.py` 在构造 `document_facts.body_flow[]` 时直接写入 `structural_signals`：
+
+```python
+"structural_signals": _structural_signals(entry)
+```
+
+`_structural_signals()` 位于 `structure_candidates.py`，这个模块同时承载 T2 边界检测。当前 T1 输出里包含：
+
+```json
+{
+  "looks_like_instruction_text": true,
+  "is_toc_entry": true,
+  "is_spacing_line": false,
+  "likely_unit_heading": true
+}
+```
+
+问题点：
+- `is_toc_entry` 在判断“这一行是不是目录条目”，属于 T2 边界/归属判断。
+- `is_spacing_line` 在判断“这一行是不是空行说明”，属于 T2 的边界否决或 T3 的说明文字分类。
+- `looks_like_instruction_text` 在判断“这一行是不是说明文字”，属于 T3，T2 只能把它作为下游生成的否决信号消费。
+- `likely_unit_heading` 在判断“这一行是不是标题/单元边界”，明确属于 T2。
+
+T1 可以输出这些判断所需的事实，但不能输出最终判断。例子：
+
+| 当前 T1 字段 | 应归属 | T1 应改为输出的事实 |
+| --- | --- | --- |
+| `is_toc_entry` | T2 | `style_name=toc 1`、`has_tab`、`trailing_token=Ⅰ`、`leader_chars=…` |
+| `is_spacing_line` | T2/T3 | 原始文本、括号文本、包含“空”、包含行/格、数字 token |
+| `looks_like_instruction_text` | T3，T2 可消费 | 原始文本、括号文本、字体/字号词 token |
+| `likely_unit_heading` | T2 | alignment、font_size_pt、bold、样式名、分页/分节、原始文本 |
+
 ## 2. 根因定位
 
 ### 2.1 段落坐标混用
@@ -198,6 +257,15 @@ runs.raw_run_id / logical_run_id     -> OOXML xml_index
 - data 层可见对象是否进入主事实序列或明确建模为旁路对象
 
 所以当前三校 T1 可以 `PASS`，但事实覆盖已经不足以支撑后续阶段。
+
+### 2.6 semantic signals 在 T1 生成，导致职责边界失效
+
+相关代码：
+- `src/docfit/template_generation/source_tree.py`：从 `structure_candidates.py` 引入 `_structural_signals`。
+- `src/docfit/template_generation/source_tree.py`：`_body_flow_from_inspection()` 将 `_structural_signals(entry)` 写入 T1 `document_facts.body_flow[]`。
+- `src/docfit/template_generation/structure_candidates.py`：`_structural_signals()` 生成 `is_toc_entry`、`is_spacing_line`、`looks_like_instruction_text`、`likely_unit_heading`、`large_font`、`short_text`。
+
+根因：T1 事实构建代码直接依赖 T2/T3 推断模块，导致“事实抽取”和“语义判断”混在同一个字段里。即使这些判断是确定性规则，也不属于 T1。
 
 ## 3. Issue 列表
 
@@ -292,25 +360,49 @@ runs.raw_run_id / logical_run_id     -> OOXML xml_index
 - 修复 T1 后，三校 verifier 才恢复 `PASS`。
 - 合同测试覆盖每个 finding 的正反例。
 
+### T1-ISSUE-007：`document_facts.structural_signals` 混入语义判断
+
+严重级别：P0
+
+当前问题：
+- T1 `document_facts.body_flow[].structural_signals` 输出 `is_toc_entry`、`is_spacing_line`、`looks_like_instruction_text`、`likely_unit_heading`、`large_font`、`short_text`。
+- 这些字段都不是源 DOCX 直接事实，而是用词表、正则、阈值或业务上下文组合出来的判断。
+- T1 代码直接 import T2 推断模块 `_structural_signals`，模块边界不干净。
+
+期望行为：
+- T1 不再输出 `is_*`、`looks_like_*`、`likely_*` 语义字段，也不输出 `large_font`、`short_text` 这类阈值标签。
+- T1 输出更原子的 facts，例如 style name、tab/leader/trailing token、括号文本 token、字体/字号词 token、alignment/font/bold 等。
+- T2/T3 基于这些 facts 计算 `is_toc_entry`、`is_spacing_line`、`looks_like_instruction_text`、`likely_unit_heading` 等下游信号。
+
+验收标准：
+- `01_document_facts.json` 中不再出现 `is_toc_entry`、`is_spacing_line`、`looks_like_instruction_text`、`likely_unit_heading`、`large_font`、`short_text`。
+- T1 代码不再从 `structure_candidates.py` import `_structural_signals`。
+- T2 单元边界检测仍能生成等价的 boundary veto 结果，但这些结果只出现在 T2 artifacts，例如 `template_structure_candidates.json`、`unit_map.yaml` 或 `t2_input.json`。
+- 新增 verifier 或单测：T1 输出中出现语义字段时失败或 UNKNOWN。
+
 ## 4. 建议修复顺序
 
 1. 先统一 canonical paragraph id / source_ref。
 
    把 OOXML paragraph index 作为 canonical id。python-docx visible index 可以保留为 `python_docx_index` 或 `visible_index`，但不能继续写进 `source_ref=word/document.xml:p[n]`。
 
-2. 改 run extractor。
+2. 移除 T1 semantic signals，建立原子事实字段。
+
+   先把 `is_toc_entry`、`is_spacing_line`、`looks_like_instruction_text`、`likely_unit_heading`、`large_font`、`short_text` 从 T1 输出移除，替换成 T2/T3 可消费的原子事实。这样后续 trace 修复时不会继续扩大越权字段。
+
+3. 改 run extractor。
 
    从 OOXML part 构建 paragraph/run records，按段落内文档顺序取 nested `w:r`，保留 `w:tab` / `w:br` 等可见控制字符。这个 extractor 应覆盖正文、表格、页眉页脚、文本框、脚注等 part。
 
-3. 重建 body_flow 和 run index 的 join。
+4. 重建 body_flow 和 run index 的 join。
 
    `body_flow` 不再通过 visible index 反查 run，而是直接引用 canonical paragraph/run ids。表格单元格需要决定是“聚合节点 + 子 paragraph refs”，还是“单元格内段落也进入 body_flow”。
 
-4. 给页眉页脚和 data 层对象补建模关系。
+5. 给页眉页脚和 data 层对象补建模关系。
 
    页眉页脚至少要有 part paragraph/run facts。图片、文本框、脚注、content control 要有明确进入主序列或旁路事实的规则。
 
-5. 最后加 verifier 覆盖率门禁。
+6. 最后加 verifier 覆盖率门禁。
 
    先让旧输出红起来，再修到绿。否则 T1 仍会继续 false PASS。
 
@@ -372,6 +464,7 @@ uv run docfit eval template-generate --template inputs/targets/pku-graduate/raw/
 ```
 
 新增审计断言建议：
+- T1 输出不包含 `is_*`、`looks_like_*`、`likely_*` 语义字段，也不包含 `large_font`、`short_text` 这类阈值字段。
 - `source_ref` 指向 XML 文本不匹配数为 0。
 - 有 raw trace 的段落项，raw id 前缀和 `paragraph_id` 一致。
 - 可见表格单元格都有 run trace 或子 paragraph/run trace。
