@@ -47,26 +47,28 @@ def build_unit_map(
         source_seq_refs = list(unit.get("source_seq_refs", []))
         confidence = _unit_confidence(unit)
         flags = _unit_flags(unit, confidence=confidence)
-        units.append(
-            {
-                "unit_id": unit.get("unit_id"),
-                "name": unit.get("name"),
-                "order": unit.get("order"),
-                "status": unit.get("status", "required"),
-                "source_range": unit.get("source_range", {}),
-                "source_seq_range": unit.get("source_seq_range", {}),
-                "source_refs": unit.get("source_refs", []),
-                "source_seq_refs": source_seq_refs,
-                "page_start": _page_start_for_unit(unit),
-                "section_profile": _section_profile_for_unit(
-                    section_profiles,
-                    source_seq_refs,
-                ),
-                "confidence": confidence,
-                "flags": flags,
-                "anchors": unit.get("anchors", []),
-            }
-        )
+        mapped_unit = {
+            "unit_id": unit.get("unit_id"),
+            "name": unit.get("name"),
+            "order": unit.get("order"),
+            "status": unit.get("status", "required"),
+            "source_range": unit.get("source_range", {}),
+            "source_seq_range": unit.get("source_seq_range", {}),
+            "source_refs": unit.get("source_refs", []),
+            "source_seq_refs": source_seq_refs,
+            "page_start": _page_start_for_unit(unit),
+            "section_profile": _section_profile_for_unit(
+                section_profiles,
+                source_seq_refs,
+            ),
+            "confidence": confidence,
+            "flags": flags,
+            "anchors": unit.get("anchors", []),
+            "evidence": unit.get("evidence", []),
+        }
+        if unit.get("container"):
+            mapped_unit["container"] = unit.get("container")
+        units.append(mapped_unit)
     flags = [
         *_map_flags(document_facts, structure_candidates),
         *[
@@ -86,7 +88,7 @@ def build_unit_map(
         },
         "units": units,
         "flags": flags,
-        "open_questions": _open_questions_from_flags(flags),
+        "open_questions": _unit_map_open_questions(structure_candidates, flags),
     }
 
 
@@ -518,14 +520,27 @@ def _section_boundaries_from_facts(document_facts: dict[str, Any]) -> dict[int, 
         for item in items
         if item.get("paragraph_index") is not None
     ]
+    section_paragraph_indices = [
+        int(paragraph_index)
+        for section in sections
+        if (paragraph_index := _int_or_none(section.get("paragraph_index"))) is not None
+    ]
     min_paragraph = min(paragraph_indices) if paragraph_indices else None
-    max_paragraph = max(paragraph_indices) if paragraph_indices else None
+    max_paragraph = max(
+        [*paragraph_indices, *section_paragraph_indices],
+        default=None,
+    )
     boundaries: dict[int, dict[str, Any]] = {}
     previous_end: int | None = None
     for index, section in enumerate(sections, start=1):
         section_end = _int_or_none(section.get("paragraph_index"))
         end_reason = "sectPr" if section_end is not None else "body_sectPr"
-        end_paragraph = section_end if section_end is not None else max_paragraph
+        if section_end is not None:
+            end_paragraph = section_end
+        elif max_paragraph is not None and previous_end is not None:
+            end_paragraph = max(max_paragraph, previous_end + 1)
+        else:
+            end_paragraph = max_paragraph
         start_paragraph = (
             previous_end + 1
             if previous_end is not None
@@ -938,13 +953,16 @@ def _primary_section_profile_from_refs(
 
 
 def _unit_confidence(unit: dict[str, Any]) -> str:
+    confidence = str(unit.get("confidence") or "").lower()
+    if confidence in {"high", "medium", "low"}:
+        return confidence
     if unit.get("source_refs"):
         return "medium"
     return "low"
 
 
 def _unit_flags(unit: dict[str, Any], *, confidence: str) -> list[dict[str, Any]]:
-    flags = []
+    flags = list(unit.get("flags", []))
     confidence_flag = _confidence_flag(
         flag_id=f"{unit.get('unit_id')}.confidence_needs_review",
         type_="unit_confidence_needs_review",
@@ -1027,11 +1045,32 @@ def _open_questions_from_flags(flags: list[dict[str, Any]]) -> list[dict[str, An
     return [
         {
             "question_id": f"q_{index:03d}",
+            "kind": "flag",
             "source_ref": flag.get("source_ref"),
             "reason": flag.get("reason"),
+            "status": flag.get("status", "UNKNOWN"),
         }
         for index, flag in enumerate(flags, start=1)
     ]
+
+
+def _unit_map_open_questions(
+    structure_candidates: dict[str, Any],
+    flags: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    questions = [
+        dict(question)
+        for question in structure_candidates.get("open_questions", [])
+    ]
+    offset = len(questions)
+    for index, question in enumerate(_open_questions_from_flags(flags), start=1):
+        questions.append(
+            {
+                **question,
+                "question_id": question.get("question_id") or f"q_{offset + index:03d}",
+            }
+        )
+    return questions
 
 
 def _canonical_policy(policy: str) -> str:

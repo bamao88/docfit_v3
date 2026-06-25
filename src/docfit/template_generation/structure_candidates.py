@@ -17,27 +17,37 @@ from .constants import (
     UNIT_DEFINITION_NAMES,
     UNIT_DEFINITIONS,
 )
-from .text_utils import _normalize_for_match, _normalize_text
+from .text_utils import _normalize_for_match, _normalize_text, _strip_format_annotations
+
+
+BOUNDARY_SCORE_THRESHOLD = 2
+CORE_REQUIRED_UNIT_IDS = {"body_main"}
 
 
 def build_template_structure_candidates(source_tree: dict[str, Any]) -> dict[str, Any]:
     entries = _body_entries(source_tree)
-    units = _infer_units(entries)
-    return {
+    inference = _infer_units(entries, source_tree)
+    units = inference["units"]
+    open_questions = inference["open_questions"]
+    result = {
         "artifact_type": "template_structure_candidates",
-        "artifact_version": "1.0",
+        "artifact_version": "1.1",
         "producer": {"name": "docfit-template-generate", "version": "0.2.0"},
         "created_at": now_iso(),
         "source_template_hash": source_tree.get("metadata", {}).get(
             "source_template_hash"
         ),
         "input_hashes": {"source_template_tree": sha256_json(source_tree)},
-        "discovery_method": "deterministic_keyword_and_structure_heuristics",
+        "discovery_method": "deterministic_multi_signal_boundary_detector",
         "source_context": _source_context_from_source_tree(source_tree),
         "units": units,
         "unknowns": _rule_unknowns(source_tree, units),
-        "open_questions": [],
+        "open_questions": open_questions,
     }
+    t2_input = inference.get("t2_input")
+    if t2_input is not None:
+        result["t2_input"] = t2_input
+    return result
 
 
 def infer_template_rules(source_tree: dict[str, Any]) -> dict[str, Any]:
@@ -89,27 +99,34 @@ def _style_inventory_from_source_tree(source_tree: dict[str, Any]) -> list[dict[
     return list(styles.values())
 
 
-def _infer_units(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _infer_units(
+    entries: list[dict[str, Any]],
+    source_tree: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     if not entries:
-        return [
-            {
-                "unit_id": "body_main",
-                "name": "正文",
-                "order": 10,
-                "status": "required",
-                "candidate_policy": "fill",
-                "source_refs": [],
-                "source_seq_refs": [],
-                "source_range": {},
-                "source_seq_range": {},
-                "anchors": [],
-                "responsibility_evidence": [],
-                "conflicts": [],
-                "evidence": [],
-                "elements": [],
-            }
-        ]
-    anchors = _unit_anchors(entries)
+        unit = _empty_body_main_unit()
+        open_questions = _assign_question_ids(
+            [
+                _required_missing_question(
+                    "body_main",
+                    entries=[],
+                    reason="no visible body entries were available for unit discovery",
+                )
+            ]
+        )
+        return {
+            "units": [unit],
+            "open_questions": open_questions,
+            "t2_input": _t2_input_projection(source_tree or {}, entries, [unit], open_questions),
+        }
+
+    source_tree = source_tree or {}
+    context = _boundary_context(source_tree)
+    boundaries = _boundary_anchors(entries, context)
+    label_result = _label_boundaries(boundaries)
+    anchors = label_result["anchors"]
+    open_questions = list(label_result["open_questions"])
+
     units: list[dict[str, Any]] = []
     for anchor_index, anchor in enumerate(anchors):
         next_start = (
@@ -145,7 +162,9 @@ def _infer_units(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         "source_ref": anchor.get("source_ref"),
                         "source_seq": anchor.get("source_seq"),
                         "text": anchor.get("text", ""),
-                        "confidence": "medium",
+                        "confidence": anchor.get("confidence", "medium"),
+                        "score": anchor.get("score"),
+                        "signals": anchor.get("signals", []),
                     }
                 ],
                 "responsibility_evidence": [
@@ -155,18 +174,736 @@ def _infer_units(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     }
                 ],
                 "conflicts": [],
-                "evidence": _element_evidence(
-                    _unit_policy(unit_id),
-                    anchor.get("source_ref", ""),
-                    source_seq=anchor.get("source_seq"),
-                ),
+                "confidence": anchor.get("confidence", "medium"),
+                "flags": list(anchor.get("flags", [])),
+                "evidence": _unit_boundary_evidence(anchor),
+                "boundary_score": anchor.get("score"),
+                "boundary_signals": anchor.get("signals", []),
+                "container": _unit_container(region_entries),
                 "page": {},
                 "elements": _copy_only_unit_elements(anchor, region_entries)
                 if _unit_is_copy_only_by_default(unit_id)
                 else _infer_elements(anchor, region_entries),
             }
         )
-    return units
+
+    open_questions.extend(_missing_required_questions(units, entries))
+    open_questions = _assign_question_ids(open_questions)
+    result: dict[str, Any] = {
+        "units": units,
+        "open_questions": open_questions,
+    }
+    if open_questions:
+        result["t2_input"] = _t2_input_projection(
+            source_tree,
+            entries,
+            units,
+            open_questions,
+        )
+    return result
+
+
+def _empty_body_main_unit() -> dict[str, Any]:
+    return {
+        "unit_id": "body_main",
+        "name": "正文",
+        "order": 10,
+        "status": "required",
+        "candidate_policy": "fill",
+        "source_refs": [],
+        "source_seq_refs": [],
+        "source_range": {},
+        "source_seq_range": {},
+        "anchors": [],
+        "responsibility_evidence": [],
+        "conflicts": [],
+        "confidence": "low",
+        "flags": [
+            {
+                "flag_id": "body_main.required_missing",
+                "type": "required_unit_missing",
+                "status": "UNKNOWN",
+                "affected_ids": ["body_main"],
+                "reason": "no visible source range could be assigned to required unit body_main",
+            }
+        ],
+        "evidence": [],
+        "elements": [],
+    }
+
+
+def _boundary_context(source_tree: dict[str, Any]) -> dict[str, Any]:
+    data = source_tree.get("data", {})
+    breaks = list(data.get("breaks", []))
+    page_break_paragraphs = {
+        int(item["paragraph_index"])
+        for item in breaks
+        if item.get("paragraph_index") is not None
+        and item.get("kind") == "break"
+        and str(item.get("type") or "").lower() == "page"
+    }
+    section_break_paragraphs = {
+        int(item["paragraph_index"])
+        for item in breaks
+        if item.get("paragraph_index") is not None
+        and item.get("kind") == "section"
+    }
+    break_refs_by_paragraph: dict[int, list[str]] = {}
+    for item in breaks:
+        paragraph_index = _int_or_none(item.get("paragraph_index"))
+        if paragraph_index is None:
+            continue
+        break_refs_by_paragraph.setdefault(paragraph_index, []).append(
+            str(item.get("source_ref") or "")
+        )
+    return {
+        "page_break_paragraphs": page_break_paragraphs,
+        "section_break_paragraphs": section_break_paragraphs,
+        "break_refs_by_paragraph": break_refs_by_paragraph,
+    }
+
+
+def _boundary_anchors(
+    entries: list[dict[str, Any]],
+    context: dict[str, Any],
+) -> list[dict[str, Any]]:
+    boundaries: list[dict[str, Any]] = []
+    for index, entry in enumerate(entries):
+        decision = _boundary_decision(entry, index, context)
+        if decision["is_boundary"]:
+            boundaries.append(decision)
+
+    if not any(anchor["entry_index"] == 0 for anchor in boundaries):
+        boundaries.insert(0, _document_start_boundary(entries[0]))
+
+    boundaries.extend(_keyword_only_fallback_boundaries(entries, boundaries))
+
+    if "body_main" not in {
+        _unit_for_boundary(anchor).get("unit_id")
+        for anchor in boundaries
+    }:
+        body_index = _first_body_like_index(entries)
+        boundaries.append(_body_main_fallback_boundary(entries[body_index], body_index))
+
+    return sorted(
+        _dedupe_boundary_anchors(boundaries),
+        key=lambda item: (int(item["entry_index"]), str(item.get("unit_id_hint") or "")),
+    )
+
+
+def _boundary_decision(
+    entry: dict[str, Any],
+    index: int,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    text = str(entry.get("text") or "")
+    signals = entry.get("structural_signals") or _structural_signals(entry)
+    vetoes = _boundary_vetoes(signals)
+    normalized_text = _boundary_text(text)
+    unit_hint = _unit_for_boundary_text(normalized_text, index)
+    if vetoes:
+        return {
+            "entry_index": index,
+            "source_ref": entry.get("source_ref"),
+            "source_seq": entry.get("source_seq"),
+            "text": text,
+            "normalized_text": normalized_text,
+            "score": 0,
+            "signals": [],
+            "vetoes": vetoes,
+            "unit_id_hint": unit_hint.get("unit_id"),
+            "name_hint": unit_hint.get("name"),
+            "is_boundary": False,
+            "confidence": "low",
+        }
+
+    score = 0
+    hits: list[dict[str, Any]] = []
+    break_evidence = _preceded_by_break(entry, context)
+    if break_evidence:
+        score += 3
+        hits.append({"kind": "break", "weight": 3, "evidence_refs": break_evidence})
+    if _has_heading_style(entry):
+        score += 3
+        hits.append({"kind": "heading_style", "weight": 3, "style": _entry_style_name(entry)})
+    if signals.get("centered") and (signals.get("large_font") or signals.get("bold")):
+        score += 2
+        hits.append(
+            {
+                "kind": "text_properties",
+                "weight": 2,
+                "centered": True,
+                "large_font": bool(signals.get("large_font")),
+                "bold": bool(signals.get("bold")),
+                "short_text": bool(signals.get("short_text")),
+            }
+        )
+    if unit_hint.get("unit_id"):
+        score += 1
+        hits.append(
+            {
+                "kind": "keyword",
+                "weight": 1,
+                "unit_id": unit_hint["unit_id"],
+                "name": unit_hint["name"],
+            }
+        )
+    return {
+        "entry_index": index,
+        "source_ref": entry.get("source_ref"),
+        "source_seq": entry.get("source_seq"),
+        "text": text,
+        "normalized_text": normalized_text,
+        "score": score,
+        "signals": hits,
+        "vetoes": [],
+        "unit_id_hint": unit_hint.get("unit_id"),
+        "name_hint": unit_hint.get("name"),
+        "is_boundary": score >= BOUNDARY_SCORE_THRESHOLD,
+        "confidence": _boundary_confidence(score, hits, unit_hint.get("unit_id")),
+    }
+
+
+def _document_start_boundary(entry: dict[str, Any]) -> dict[str, Any]:
+    text = str(entry.get("text") or "")
+    unit_hint = _unit_for_boundary_text(_boundary_text(text), 0)
+    return {
+        "entry_index": 0,
+        "source_ref": entry.get("source_ref"),
+        "source_seq": entry.get("source_seq"),
+        "text": text,
+        "normalized_text": _boundary_text(text),
+        "score": BOUNDARY_SCORE_THRESHOLD,
+        "signals": [{"kind": "document_start", "weight": 2}],
+        "vetoes": [],
+        "unit_id_hint": unit_hint.get("unit_id"),
+        "name_hint": unit_hint.get("name"),
+        "is_boundary": True,
+        "confidence": "medium",
+        "fallback_reason": "document_start",
+    }
+
+
+def _body_main_fallback_boundary(
+    entry: dict[str, Any],
+    index: int,
+) -> dict[str, Any]:
+    return {
+        "entry_index": index,
+        "source_ref": entry.get("source_ref"),
+        "source_seq": entry.get("source_seq"),
+        "text": entry.get("text", ""),
+        "normalized_text": _boundary_text(str(entry.get("text") or "")),
+        "score": 0,
+        "signals": [{"kind": "required_unit_fallback", "weight": 0}],
+        "vetoes": [],
+        "unit_id_hint": "body_main",
+        "name_hint": UNIT_DEFINITION_NAMES["body_main"],
+        "is_boundary": True,
+        "confidence": "low",
+        "fallback_reason": "required_missing",
+    }
+
+
+def _keyword_only_fallback_boundaries(
+    entries: list[dict[str, Any]],
+    existing: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    seen_units = {
+        str(boundary.get("unit_id_hint") or "")
+        for boundary in existing
+        if boundary.get("unit_id_hint")
+    }
+    fallbacks: list[dict[str, Any]] = []
+    for index, entry in enumerate(entries):
+        signals = entry.get("structural_signals") or _structural_signals(entry)
+        if _boundary_vetoes(signals):
+            continue
+        text = _boundary_text(str(entry.get("text") or ""))
+        unit_hint = _unit_for_boundary_text(text, index)
+        unit_id = unit_hint.get("unit_id")
+        if not unit_id or unit_id in seen_units:
+            continue
+        if not _is_exact_unit_heading_text(text, str(unit_id)):
+            continue
+        fallbacks.append(
+            {
+                "entry_index": index,
+                "source_ref": entry.get("source_ref"),
+                "source_seq": entry.get("source_seq"),
+                "text": entry.get("text", ""),
+                "normalized_text": text,
+                "score": 1,
+                "signals": [
+                    {
+                        "kind": "keyword_exact_fallback",
+                        "weight": 1,
+                        "unit_id": unit_id,
+                        "name": unit_hint.get("name"),
+                    }
+                ],
+                "vetoes": [],
+                "unit_id_hint": unit_id,
+                "name_hint": unit_hint.get("name"),
+                "is_boundary": True,
+                "confidence": "low",
+                "fallback_reason": "keyword_exact_heading",
+                "flags": [
+                    {
+                        "flag_id": f"{unit_id}.keyword_only_boundary",
+                        "type": "unit_boundary_keyword_only",
+                        "status": "UNKNOWN",
+                        "source_ref": entry.get("source_ref"),
+                        "affected_ids": [str(unit_id)],
+                        "reason": "unit boundary uses exact heading keyword fallback without structural signals",
+                    }
+                ],
+            }
+        )
+        seen_units.add(str(unit_id))
+    return fallbacks
+
+
+def _is_exact_unit_heading_text(text: str, unit_id: str) -> bool:
+    normalized = _normalize_for_match(text)
+    if not normalized or len(normalized) > 24:
+        return False
+    exact_by_unit = {
+        "toc": {"目录", "目錄"},
+        "abstract_cn": {"摘要", "摘要关键词", "摘要关键字"},
+        "abstract_en": {"abstract", "keywords", "keywordsabstract", "abstractkeywords"},
+        "body_main": {"正文", "绪论", "前言", "第一章"},
+        "references": {"参考文献", "references"},
+        "acknowledgement": {"致谢", "acknowledgement"},
+        "appendix": {"附录", "appendix"},
+        "integrity_statement": {"诚信声明", "原创性声明", "授权书"},
+        "post_forms": {"任务书", "开题报告", "评审表", "答辩记录", "成绩评定"},
+    }
+    allowed = exact_by_unit.get(unit_id, set())
+    if normalized in allowed:
+        return True
+    if unit_id == "body_main":
+        return bool(re.match(r"^(?:第[一二三四五六七八九十0-9]+章|[0-9]+[\.\u3001]?\S{1,12})$", normalized))
+    return False
+
+
+def _dedupe_boundary_anchors(boundaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[int, str]] = set()
+    for boundary in boundaries:
+        key = (int(boundary.get("entry_index") or 0), str(boundary.get("unit_id_hint") or ""))
+        if key in seen:
+            continue
+        deduped.append(boundary)
+        seen.add(key)
+    return deduped
+
+
+def _label_boundaries(boundaries: list[dict[str, Any]]) -> dict[str, Any]:
+    anchors: list[dict[str, Any]] = []
+    open_questions: list[dict[str, Any]] = []
+    seen_unit_ids: set[str] = set()
+    for boundary in boundaries:
+        label = _unit_for_boundary(boundary)
+        unit_id = str(label.get("unit_id") or "other")
+        name = str(label.get("name") or _fallback_unit_name(boundary))
+        flags = list(boundary.get("flags", []))
+        confidence = str(boundary.get("confidence") or "medium")
+        if unit_id != "other" and unit_id in seen_unit_ids:
+            flags.append(
+                {
+                    "flag_id": f"{unit_id}.duplicate_label",
+                    "type": "unit_label_duplicate",
+                    "status": "UNKNOWN",
+                    "source_ref": boundary.get("source_ref"),
+                    "affected_ids": [unit_id],
+                    "reason": "same unit_id was detected more than once; duplicate block is held as other",
+                }
+            )
+            unit_id = "other"
+            name = _fallback_unit_name(boundary)
+            confidence = "low"
+        if unit_id == "other":
+            flags.append(
+                {
+                    "flag_id": f"other.{boundary.get('source_seq') or boundary.get('entry_index')}.label_unknown",
+                    "type": "unit_label_unknown",
+                    "status": "UNKNOWN",
+                    "source_ref": boundary.get("source_ref"),
+                    "affected_ids": ["other"],
+                    "reason": "boundary was detected but closed-set unit_id label was not confident",
+                }
+            )
+            confidence = "low"
+            open_questions.append(_label_open_question(boundary, flags[-1]))
+        elif unit_id:
+            seen_unit_ids.add(unit_id)
+
+        anchor = {
+            **boundary,
+            "unit_id": unit_id,
+            "name": name,
+            "confidence": confidence,
+            "flags": flags,
+        }
+        anchors.append(anchor)
+        if confidence != "high":
+            open_questions.append(_boundary_open_question(anchor))
+    return {"anchors": anchors, "open_questions": open_questions}
+
+
+def _unit_for_boundary(boundary: dict[str, Any]) -> dict[str, Any]:
+    unit_id = boundary.get("unit_id_hint")
+    if unit_id:
+        return {
+            "unit_id": str(unit_id),
+            "name": str(boundary.get("name_hint") or UNIT_DEFINITION_NAMES.get(str(unit_id), str(unit_id))),
+        }
+    return {"unit_id": "other", "name": _fallback_unit_name(boundary)}
+
+
+def _fallback_unit_name(boundary: dict[str, Any]) -> str:
+    text = str(boundary.get("normalized_text") or boundary.get("text") or "").strip()
+    if text and len(text) <= 24:
+        return text
+    return "其他模板单元"
+
+
+def _boundary_vetoes(signals: dict[str, Any]) -> list[str]:
+    vetoes = []
+    if signals.get("is_toc_entry"):
+        vetoes.append("toc_entry")
+    if signals.get("is_spacing_line"):
+        vetoes.append("spacing_line")
+    if signals.get("looks_like_instruction_text"):
+        vetoes.append("instruction_text")
+    return vetoes
+
+
+def _boundary_text(text: str) -> str:
+    return _strip_format_annotations(text).strip()
+
+
+def _unit_for_boundary_text(text: str, index: int) -> dict[str, str] | dict[str, None]:
+    unit_id, name = _unit_for_text(text, index)
+    return {"unit_id": unit_id, "name": name}
+
+
+def _preceded_by_break(entry: dict[str, Any], context: dict[str, Any]) -> list[str]:
+    source_ref = str(entry.get("source_ref") or "")
+    paragraph_index = _paragraph_index_from_source_ref(source_ref)
+    paragraph = (entry.get("style_details") or {}).get("paragraph") or {}
+    refs: list[str] = []
+    if paragraph.get("page_break_before"):
+        refs.append(f"{source_ref}/pageBreakBefore")
+    if paragraph_index is None:
+        return refs
+    for candidate_index in (paragraph_index, paragraph_index - 1):
+        if candidate_index in context.get("page_break_paragraphs", set()):
+            refs.extend(context.get("break_refs_by_paragraph", {}).get(candidate_index, []))
+        if candidate_index in context.get("section_break_paragraphs", set()):
+            refs.extend(context.get("break_refs_by_paragraph", {}).get(candidate_index, []))
+    return _dedupe_str(refs)
+
+
+def _has_heading_style(entry: dict[str, Any]) -> bool:
+    style_name = _entry_style_name(entry).strip().lower()
+    compact = re.sub(r"\s+", "", style_name)
+    return bool(
+        re.search(r"\bheading\s*[1-9]\b", style_name)
+        or re.search(r"标题\s*[1-9]", style_name)
+        or re.search(r"heading[1-9]", compact)
+        or re.search(r"标题[1-9]", compact)
+    )
+
+
+def _boundary_confidence(
+    score: int,
+    hits: list[dict[str, Any]],
+    unit_id: Any,
+) -> str:
+    hit_kinds = {str(hit.get("kind")) for hit in hits}
+    if unit_id and (
+        ("heading_style" in hit_kinds and "keyword" in hit_kinds)
+        or ("heading_style" in hit_kinds and "break" in hit_kinds)
+        or ("break" in hit_kinds and "keyword" in hit_kinds and score >= 4)
+    ):
+        return "high"
+    if score >= BOUNDARY_SCORE_THRESHOLD:
+        return "medium"
+    return "low"
+
+
+def _unit_boundary_evidence(anchor: dict[str, Any]) -> list[dict[str, Any]]:
+    evidence = _element_evidence(
+        _unit_policy(str(anchor.get("unit_id") or "")),
+        anchor.get("source_ref", ""),
+        source_seq=anchor.get("source_seq"),
+    )
+    for signal in anchor.get("signals", []):
+        evidence.append(
+            {
+                "kind": f"boundary_signal.{signal.get('kind')}",
+                "value": signal,
+            }
+        )
+    if anchor.get("vetoes"):
+        evidence.append({"kind": "boundary_vetoes", "value": anchor.get("vetoes")})
+    return evidence
+
+
+def _unit_container(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    containers = {
+        str(entry.get("container_ref") or "")
+        for entry in entries
+        if entry.get("container_ref")
+    }
+    if len(containers) != 1:
+        return {}
+    container_ref = next(iter(containers))
+    return {"type": "table", "source_ref": container_ref}
+
+
+def _missing_required_questions(
+    units: list[dict[str, Any]],
+    entries: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    present = {str(unit.get("unit_id") or "") for unit in units}
+    return [
+        _required_missing_question(
+            unit_id,
+            entries=entries,
+            reason=f"required unit {unit_id} was not detected with high-confidence boundaries",
+        )
+        for unit_id in sorted(CORE_REQUIRED_UNIT_IDS - present)
+    ]
+
+
+def _boundary_open_question(anchor: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": "boundary",
+        "interval": _question_interval(anchor),
+        "candidates": [
+            {
+                "unit_id": anchor.get("unit_id"),
+                "name": anchor.get("name"),
+                "confidence": anchor.get("confidence"),
+            }
+        ],
+        "signals_summary": _signals_summary(anchor),
+        "status": "UNKNOWN",
+        "prompt": "Confirm whether this paragraph is a template unit boundary.",
+        "visual_refs": [],
+    }
+
+
+def _label_open_question(
+    boundary: dict[str, Any],
+    flag: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "kind": "label",
+        "interval": _question_interval(boundary),
+        "candidates": _unit_candidate_list(),
+        "signals_summary": _signals_summary(boundary),
+        "status": "UNKNOWN",
+        "prompt": "Choose the closed-set unit_id for this detected boundary, or keep other.",
+        "reason": flag.get("reason"),
+        "visual_refs": [],
+    }
+
+
+def _required_missing_question(
+    unit_id: str,
+    *,
+    entries: list[dict[str, Any]],
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "kind": "required_missing",
+        "interval": _whole_document_interval(entries),
+        "candidates": [{"unit_id": unit_id, "name": UNIT_DEFINITION_NAMES.get(unit_id, unit_id)}],
+        "signals_summary": {"required_unit_id": unit_id, "reason": reason},
+        "status": "UNKNOWN",
+        "prompt": f"Decide whether required unit {unit_id} is absent or was missed.",
+        "visual_refs": [],
+    }
+
+
+def _question_interval(anchor: dict[str, Any]) -> dict[str, Any]:
+    source_ref = anchor.get("source_ref")
+    source_seq = anchor.get("source_seq")
+    return {
+        "start_source_ref": source_ref,
+        "end_source_ref": source_ref,
+        "start_source_seq": source_seq,
+        "end_source_seq": source_seq,
+    }
+
+
+def _whole_document_interval(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    if not entries:
+        return {}
+    seq_refs = _source_seq_refs_for_entries(entries)
+    return {
+        "start_source_ref": entries[0].get("source_ref"),
+        "end_source_ref": entries[-1].get("source_ref"),
+        "start_source_seq": min(seq_refs) if seq_refs else None,
+        "end_source_seq": max(seq_refs) if seq_refs else None,
+    }
+
+
+def _signals_summary(anchor: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "score": anchor.get("score"),
+        "threshold": BOUNDARY_SCORE_THRESHOLD,
+        "signals": anchor.get("signals", []),
+        "vetoes": anchor.get("vetoes", []),
+        "confidence": anchor.get("confidence"),
+        "fallback_reason": anchor.get("fallback_reason"),
+        "text": anchor.get("text"),
+        "normalized_text": anchor.get("normalized_text"),
+        "source_ref": anchor.get("source_ref"),
+        "source_seq": anchor.get("source_seq"),
+    }
+
+
+def _unit_candidate_list() -> list[dict[str, str]]:
+    return [
+        {"unit_id": unit_id, "name": name}
+        for unit_id, name, _needles in UNIT_DEFINITIONS
+    ] + [{"unit_id": "other", "name": "其他模板单元"}]
+
+
+def _assign_question_ids(open_questions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    assigned = []
+    for index, question in enumerate(open_questions, start=1):
+        assigned.append({"question_id": f"t2_q_{index:03d}", **question})
+    return assigned
+
+
+def _t2_input_projection(
+    source_tree: dict[str, Any],
+    entries: list[dict[str, Any]],
+    units: list[dict[str, Any]],
+    open_questions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return {
+        "artifact_type": "t2_input",
+        "artifact_version": "1.0",
+        "producer": {"name": "docfit-template-generate", "version": "0.2.0"},
+        "created_at": now_iso(),
+        "input_hashes": {"source_template_tree": sha256_json(source_tree)},
+        "framework": {
+            "required_unit_ids": sorted(CORE_REQUIRED_UNIT_IDS),
+            "unit_candidates": _unit_candidate_list(),
+            "rules": {
+                "boundary_threshold": BOUNDARY_SCORE_THRESHOLD,
+                "vetoes": ["toc_entry", "spacing_line", "instruction_text"],
+            },
+        },
+        "confirmed_units": [
+            _unit_projection(unit)
+            for unit in units
+            if unit.get("confidence") == "high"
+        ],
+        "open_questions": open_questions,
+        "contexts": [
+            _question_context(question, entries, units)
+            for question in open_questions
+        ],
+        "visual_refs": [],
+    }
+
+
+def _unit_projection(unit: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "unit_id": unit.get("unit_id"),
+        "name": unit.get("name"),
+        "confidence": unit.get("confidence"),
+        "source_range": unit.get("source_range", {}),
+        "source_seq_range": unit.get("source_seq_range", {}),
+        "boundary_score": unit.get("boundary_score"),
+        "boundary_signals": unit.get("boundary_signals", []),
+    }
+
+
+def _question_context(
+    question: dict[str, Any],
+    entries: list[dict[str, Any]],
+    units: list[dict[str, Any]],
+) -> dict[str, Any]:
+    interval = question.get("interval") or {}
+    start = _int_or_none(interval.get("start_source_seq"))
+    end = _int_or_none(interval.get("end_source_seq"))
+    window_entries = _entries_near_interval(entries, start, end)
+    return {
+        "question_id": question.get("question_id"),
+        "entries": [_entry_projection(entry) for entry in window_entries],
+        "current_units": [
+            _unit_projection(unit)
+            for unit in units
+            if _unit_overlaps_interval(unit, start, end)
+        ],
+    }
+
+
+def _entries_near_interval(
+    entries: list[dict[str, Any]],
+    start: int | None,
+    end: int | None,
+) -> list[dict[str, Any]]:
+    if start is None or end is None:
+        return entries[:8]
+    selected = []
+    for index, entry in enumerate(entries):
+        seq = _int_or_none(entry.get("source_seq"))
+        if seq is None:
+            continue
+        if start - 2 <= seq <= end + 2:
+            selected.append(entry)
+    return selected[:12]
+
+
+def _entry_projection(entry: dict[str, Any]) -> dict[str, Any]:
+    signals = entry.get("structural_signals") or _structural_signals(entry)
+    return {
+        "source_ref": entry.get("source_ref"),
+        "source_seq": entry.get("source_seq"),
+        "text": entry.get("text"),
+        "style": entry.get("style"),
+        "style_name": _entry_style_name(entry),
+        "structural_signals": {
+            key: signals.get(key)
+            for key in (
+                "centered",
+                "bold",
+                "large_font",
+                "short_text",
+                "is_toc_entry",
+                "is_spacing_line",
+                "looks_like_instruction_text",
+            )
+        },
+        "container_ref": entry.get("container_ref"),
+    }
+
+
+def _unit_overlaps_interval(
+    unit: dict[str, Any],
+    start: int | None,
+    end: int | None,
+) -> bool:
+    if start is None or end is None:
+        return True
+    refs = [
+        int(ref)
+        for ref in unit.get("source_seq_refs", [])
+        if _int_or_none(ref) is not None
+    ]
+    if not refs:
+        return False
+    return min(refs) <= end and start <= max(refs)
 
 
 def _unit_is_copy_only_by_default(unit_id: str) -> bool:
@@ -928,3 +1665,47 @@ def _dedupe_anchors(anchors: list[dict[str, Any]]) -> list[dict[str, Any]]:
         deduped.append(anchor)
         seen.add(unit_id)
     return deduped
+
+
+def _paragraph_index_from_source_ref(source_ref: str) -> int | None:
+    match = re.search(r"word/document\.xml:p\[(\d+)\]", source_ref)
+    return int(match.group(1)) if match else None
+
+
+def _int_or_none(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _dedupe_str(values: list[Any]) -> list[str]:
+    result: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        if value is None:
+            continue
+        item = str(value)
+        if not item or item in seen:
+            continue
+        result.append(item)
+        seen.add(item)
+    return result
+
+
+def _int_or_none(value: Any) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _paragraph_index_from_source_ref(source_ref: str) -> int | None:
+    match = re.search(r"word/document\.xml:p\[(\d+)\]", source_ref)
+    if not match:
+        return None
+    return _int_or_none(match.group(1))
