@@ -28,6 +28,8 @@ DONE
 
 仍未展开：样式级联 gold 级精确验证；T2 边界检测落地后删除 `likely_unit_heading`。
 
+后续审计新发现：T1 仍存在事实覆盖缺口，尤其是 canonical paragraph/run 坐标、表格/页眉页脚 trace、嵌套 run 和 verifier 覆盖率。详见 [T1 阶段事实覆盖缺口 issue](template-parse-refactor-t1-fact-coverage-issues.md)。
+
 ---
 
 ## 0. 职责与边界（先读）
