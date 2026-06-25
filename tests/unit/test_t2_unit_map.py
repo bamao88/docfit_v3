@@ -204,6 +204,32 @@ def test_t2_toc_block_claims_all_toc_entries() -> None:
     assert _unit_at_seq(candidates, 4)["unit_id"] == "toc"
 
 
+def test_t2_toc_block_range_stops_at_last_toc_entry() -> None:
+    candidates = build_template_structure_candidates(
+        _source_tree(
+            [
+                _entry(1, "封面"),
+                _entry(2, "目  录", style="Heading 1", alignment="center"),
+                _entry(3, "摘要…………………1", style="toc 1"),
+                _entry(4, "参考文献…………………9", style="toc 1"),
+                _entry(5, "正文题名信息"),
+                _entry(6, "学生与指导老师信息"),
+                _entry(7, "ABSTRACT", style="Heading 1"),
+            ]
+        )
+    )
+
+    toc = _units_by_id(candidates)["toc"]
+
+    assert toc["source_refs"] == [
+        "word/document.xml:p[2]",
+        "word/document.xml:p[3]",
+        "word/document.xml:p[4]",
+    ]
+    assert 5 not in (toc.get("source_seq_refs") or [])
+    assert 6 not in (toc.get("source_seq_refs") or [])
+
+
 def test_t2_subheading_alone_is_not_top_level_unit() -> None:
     candidates = build_template_structure_candidates(
         _source_tree(

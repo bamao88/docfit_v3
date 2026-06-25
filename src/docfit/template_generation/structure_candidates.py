@@ -142,12 +142,14 @@ def _infer_units(
 
     units: list[dict[str, Any]] = []
     for anchor_index, anchor in enumerate(anchors):
+        start_index = int(anchor["entry_index"])
         next_start = (
-            anchors[anchor_index + 1]["entry_index"]
+            int(anchors[anchor_index + 1]["entry_index"])
             if anchor_index + 1 < len(anchors)
             else len(entries)
         )
-        region_entries = entries[anchor["entry_index"] : next_start]
+        region_end = _unit_region_end_index(anchor, next_start, len(entries))
+        region_entries = entries[start_index:region_end]
         unit_id = anchor["unit_id"]
         region_source_refs = [
             str(entry.get("source_ref"))
@@ -223,6 +225,20 @@ def _infer_units(
             open_questions,
         )
     return result
+
+
+def _unit_region_end_index(
+    anchor: dict[str, Any],
+    next_start: int,
+    total_entries: int,
+) -> int:
+    """Return the exclusive unit end, honoring locked block ranges when present."""
+    block_range = anchor.get("block_range") or {}
+    block_end = _int_or_none(block_range.get("end_index"))
+    start = _int_or_none(anchor.get("entry_index"))
+    if block_end is None or start is None or block_end < start:
+        return next_start
+    return min(next_start, block_end + 1, total_entries)
 
 
 def _empty_body_main_unit() -> dict[str, Any]:
