@@ -76,6 +76,7 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     verification_report = read_json(artifacts / "verification_report.json")
     source_tree = read_json(artifacts / "source_template_tree.json")
     structure_candidates = read_json(artifacts / "template_structure_candidates.json")
+    t2_input = read_json(artifacts / "t2_input.json")
     generation_model = read_json(artifacts / "template_generation_model.json")
     debug_dirs = sorted(
         path for path in debug_root.iterdir() if path.is_dir() and path.name != "eval_runs"
@@ -119,7 +120,9 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert issue_clusters
     assert source_tree["artifact_type"] == "source_template_tree"
     assert structure_candidates["artifact_type"] == "template_structure_candidates"
+    assert t2_input["artifact_type"] == "t2_input"
     assert generation_model["artifact_type"] == "template_generation_model"
+    assert any(question["kind"] == "boundary" for question in unit_map["open_questions"])
     assert manifest_path.exists()
     assert plan_path.exists()
     source_seq_refs = [
@@ -136,6 +139,7 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert (out_dir / "00_template_generation_request.json").exists()
     assert (out_dir / "01_document_facts.json").exists()
     assert (out_dir / "02_unit_map.yaml").exists()
+    assert (out_dir / "02.1_t2_input.json").exists()
     assert (out_dir / "03_element_spec.yaml").exists()
     assert (out_dir / "04_global_spec.yaml").exists()
     assert (out_dir / "05_template_spec.yaml").exists()
@@ -148,6 +152,7 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert (debug_dir / "00_template_generation_request.json").exists()
     assert (debug_dir / "01_document_facts.json").exists()
     assert (debug_dir / "02_unit_map.yaml").exists()
+    assert (debug_dir / "02.1_t2_input.json").exists()
     assert (debug_dir / "03_element_spec.yaml").exists()
     assert (debug_dir / "04_global_spec.yaml").exists()
     assert (debug_dir / "05_template_spec.yaml").exists()

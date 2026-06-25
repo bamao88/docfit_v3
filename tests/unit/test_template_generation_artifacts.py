@@ -240,3 +240,49 @@ def test_t5_verifier_rejects_missing_section_profile_ref() -> None:
         and finding.status == Status.FAIL
         for finding in findings
     )
+
+
+def test_t5_verifier_reviews_duplicate_other_units_without_fail() -> None:
+    global_spec = build_global_spec(_document_facts_with_two_sections())
+    other_unit = {
+        "unit_id": "other",
+        "source_seq_refs": [1],
+        "section_profile_refs": [
+            {
+                "section_profile_id": "section_001",
+                "overlap_source_seq_range": {"start": 1, "end": 1},
+            }
+        ],
+        "elements": [],
+    }
+    template_spec = {
+        "artifact_type": "template_spec",
+        "global": global_spec,
+        "units": [
+            other_unit,
+            {
+                **other_unit,
+                "source_seq_refs": [2],
+                "section_profile_refs": [
+                    {
+                        "section_profile_id": "section_001",
+                        "overlap_source_seq_range": {"start": 2, "end": 2},
+                    }
+                ],
+            },
+        ],
+        "review_flags": [],
+    }
+
+    findings = _verify_t5_template_spec(template_spec, start_index=1)
+
+    assert any(
+        finding.type == "template_spec_duplicate_other_unit_id"
+        and finding.status == Status.UNKNOWN
+        for finding in findings
+    )
+    assert not any(
+        finding.type == "template_spec_duplicate_unit_id"
+        and finding.status == Status.FAIL
+        for finding in findings
+    )

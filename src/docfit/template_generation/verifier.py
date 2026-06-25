@@ -506,7 +506,14 @@ def _verify_t5_template_spec(
         )
         next_index += 1
     unit_ids = [str(unit.get("unit_id") or "") for unit in template_spec.get("units", [])]
-    if len(unit_ids) != len(set(unit_ids)):
+    duplicate_unit_ids = sorted(
+        {
+            unit_id
+            for unit_id in unit_ids
+            if unit_id != "other" and unit_ids.count(unit_id) > 1
+        }
+    )
+    if duplicate_unit_ids:
         findings.append(
             make_finding(
                 next_index,
@@ -515,8 +522,22 @@ def _verify_t5_template_spec(
                 "template_spec_duplicate_unit_id",
                 "T5 unit ids must be unique",
                 "unique unit_id",
-                repr(unit_ids),
+                repr(duplicate_unit_ids),
                 root_cause_bucket="template_t5_id_gap",
+            )
+        )
+        next_index += 1
+    if unit_ids.count("other") > 1:
+        findings.append(
+            make_finding(
+                next_index,
+                "template_generate",
+                Status.UNKNOWN,
+                "template_spec_duplicate_other_unit_id",
+                "T5 may contain multiple unresolved other units, but they require review",
+                "other units reviewed or promoted to specific unit ids",
+                repr([unit_id for unit_id in unit_ids if unit_id == "other"]),
+                root_cause_bucket="template_t5_other_unit_review",
             )
         )
         next_index += 1

@@ -40,6 +40,7 @@ def write_template_generation_debug_snapshot(
     fillable_template_docx: Path,
     build_manifest: dict[str, Any],
     verification_report: dict[str, Any] | None = None,
+    t2_input: dict[str, Any] | None = None,
 ) -> None:
     debug_dir.mkdir(parents=True, exist_ok=True)
     files: list[dict[str, Any]] = []
@@ -93,6 +94,12 @@ def write_template_generation_debug_snapshot(
         unit_map,
         "T2：从事实库确定性切分出的模板单元边界。",
     )
+    if t2_input is not None:
+        write_step_json(
+            "02.1_t2_input.json",
+            t2_input,
+            "T2：边界/标签低置信问题的确定性投影，供人工或 AI 兜底使用。",
+        )
     write_step_yaml(
         "03_element_spec.yaml",
         element_spec,
@@ -171,6 +178,7 @@ def write_template_generation_outputs(out_dir: Path, result: StageResult) -> Non
         "template_artifact",
         "source_template_tree",
         "template_structure_candidates",
+        "t2_input",
         "template_generation_model",
         "template_generation_plan",
     ]
@@ -264,6 +272,11 @@ def write_template_generation_ordered_files(out_dir: Path, result: StageResult) 
         "02_unit_map.yaml",
         "unit_map",
         "T2：从事实库确定性切分出的模板单元边界。",
+    )
+    write_step_json(
+        "02.1_t2_input.json",
+        "t2_input",
+        "T2：边界/标签低置信问题的确定性投影，供人工或 AI 兜底使用。",
     )
     write_step_yaml(
         "03_element_spec.yaml",

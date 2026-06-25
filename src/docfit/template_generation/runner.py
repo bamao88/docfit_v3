@@ -90,6 +90,7 @@ def generate_template(
     document_facts = inspect_document_facts_docx(source_template_docx)
     source_tree = source_tree_from_document_facts(document_facts)
     structure_candidates = build_template_structure_candidates(source_tree)
+    t2_input = structure_candidates.get("t2_input")
     unit_map = build_unit_map(document_facts, structure_candidates)
     global_spec = build_global_spec(document_facts)
     generation_model = build_template_generation_model(
@@ -162,6 +163,7 @@ def generate_template(
             fillable_template_docx=fillable_template_docx,
             build_manifest=build_manifest,
             verification_report=verification_report,
+            t2_input=t2_input if isinstance(t2_input, dict) else None,
         )
 
     artifact_paths = {
@@ -171,25 +173,29 @@ def generate_template(
     if debug_dir is not None:
         artifact_paths["template_generation_debug_dir"] = debug_dir
 
+    artifacts = {
+        "template_generation_request": request,
+        "document_facts": document_facts,
+        "unit_map": unit_map,
+        "element_spec": element_spec,
+        "global_spec": global_spec,
+        "template_spec": template_spec,
+        "build_manifest": build_manifest,
+        "verification_report": verification_report,
+        "template_artifact": template_artifact,
+        "source_template_tree": source_tree,
+        "template_structure_candidates": structure_candidates,
+        "template_generation_model": generation_model,
+        "template_generation_plan": plan,
+    }
+    if isinstance(t2_input, dict):
+        artifacts["t2_input"] = t2_input
+
     return StageResult(
         "template_generate",
         verification_status,
         findings=verification_findings,
-        artifacts={
-            "template_generation_request": request,
-            "document_facts": document_facts,
-            "unit_map": unit_map,
-            "element_spec": element_spec,
-            "global_spec": global_spec,
-            "template_spec": template_spec,
-            "build_manifest": build_manifest,
-            "verification_report": verification_report,
-            "template_artifact": template_artifact,
-            "source_template_tree": source_tree,
-            "template_structure_candidates": structure_candidates,
-            "template_generation_model": generation_model,
-            "template_generation_plan": plan,
-        },
+        artifacts=artifacts,
         artifact_paths=artifact_paths,
         coverage=_coverage(
             input_exists=True,

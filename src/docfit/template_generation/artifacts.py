@@ -191,9 +191,9 @@ def build_template_spec(
 
     section_bindings = bind_units_to_section_profiles(unit_map, global_spec)
     units = []
-    for unit in unit_map.get("units", []):
+    for unit_index, unit in enumerate(unit_map.get("units", [])):
         unit_id = str(unit.get("unit_id"))
-        section_profile_refs = section_bindings["bindings_by_unit_id"].get(unit_id, [])
+        section_profile_refs = section_bindings["bindings_by_unit_index"][unit_index]
         primary_section_profile = _primary_section_profile_from_refs(
             section_profile_refs,
             fallback=str(unit.get("section_profile") or "section_unknown"),
@@ -376,6 +376,7 @@ def bind_units_to_section_profiles(
 ) -> dict[str, Any]:
     section_profiles = list(global_spec.get("section_profiles", []))
     bindings_by_unit_id: dict[str, list[dict[str, Any]]] = {}
+    bindings_by_unit_index: list[list[dict[str, Any]]] = []
     flags: list[dict[str, Any]] = []
     for unit in unit_map.get("units", []):
         unit_id = str(unit.get("unit_id") or "")
@@ -384,7 +385,8 @@ def bind_units_to_section_profiles(
             source_seq_refs,
             section_profiles,
         )
-        bindings_by_unit_id[unit_id] = refs
+        bindings_by_unit_index.append(refs)
+        bindings_by_unit_id.setdefault(unit_id, refs)
         if not refs:
             flags.append(
                 {
@@ -408,6 +410,7 @@ def bind_units_to_section_profiles(
             )
     return {
         "bindings_by_unit_id": bindings_by_unit_id,
+        "bindings_by_unit_index": bindings_by_unit_index,
         "flags": flags,
     }
 
