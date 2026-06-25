@@ -12,6 +12,133 @@ test_outputs/debug/template_generation/template_parse_refactor_20260625T110707+0
 test_outputs/debug/template_generation/template_parse_refactor_20260625T110707+0800/pku-graduate
 ```
 
+## 术语先说清楚
+
+这些词不是给用户看的产品文案，而是模板解析内部用来判断“能不能自动放行”的工程信号。
+
+### `confidence`
+
+`confidence` 表示系统对某个判断的证据强度。它不是学校标准里的概念，也不是最终质量分。
+
+| 值 | 具体意思 | 当前门禁含义 |
+| --- | --- | --- |
+| `high` | 规则证据足够强，系统认为可以自动放行 | 可以 `PASS`，不需要人工审核 |
+| `medium` | 有证据，但证据还不够强；系统能猜出一个结果，但不应该假装确定 | 进入 `UNKNOWN`，需要规则增强或人工审核 |
+| `low` | 证据不足，系统只是保底生成了一个结果 | 进入 `UNKNOWN`，通常需要人工审核或补解析规则 |
+
+例子：
+
+- T2 里一个 unit 被识别成 `cover`，如果只是因为某段文字像封面，就可能是 `medium`。
+- 如果它同时满足标题词命中、位置在文档开头、source range 连续、边界清晰，后续可以讨论是否升成 `high`。
+- T3 里一个元素被识别成 `instruction_remove`，如果它明确包含“格式说明”“字体要求”等说明词，可能可以是 `high`。
+- 如果它只是括号里的短文本，例如“(设计)”这种可能是真内容，就不应该轻易 `high`。
+
+当前实现的问题是：很多 unit/element 的 `confidence` 还没有真正分级，基本默认写成 `medium`。所以报告里出现大量 `confidence=medium requires review`，更像是在提醒“置信度规则还没建好”，不是说这些位置一定错了。
+
+### `UNKNOWN`
+
+`UNKNOWN` 表示系统不能确定当前判断是否正确。
+
+它不是失败，不等于 Word 不能生成；它的含义是：
+
+```text
+我能产出一个结果，但没有足够证据自动宣称这个结果正确。
+```
+
+在当前门禁里，只要 T1-T6 任一阶段是 `UNKNOWN`，整体就不能宣称模板解析成功。三校现在都是这种情况：T6 Word 构建过了，但 T2/T3/T4/T5 还有未审核不确定项。
+
+### `PASS`
+
+`PASS` 表示这个阶段的 deterministic verifier 没发现阻断项。
+
+注意：某个阶段 `PASS` 不代表全链路成功。例如当前 T6 是 `PASS`，只说明：
+
+- `06.1_fillable_template.docx` 是有效 DOCX。
+- SDT tag、manifest hash 等构建证据过了。
+- 没有残留内部 `[[DOCFIT_*]]` 文本 marker。
+
+它不代表 T2/T3/T4 的解析判断一定正确。
+
+### `FAIL`
+
+`FAIL` 表示系统已经确定违反硬规则。
+
+例子：
+
+- required unit 缺失。
+- `fill` 元素没有 `fill_source`。
+- 输出 docx 无效。
+- 需要的 SDT tag 缺失。
+
+`FAIL` 和 `UNKNOWN` 的区别是：`FAIL` 是确定错；`UNKNOWN` 是无法证明对。
+
+### `flags`
+
+`flags` 是各阶段 artifact 里记录“不确定或需要审核”的原始桶。
+
+常见位置：
+
+| 阶段 | 字段 |
+| --- | --- |
+| T2 | `unit_map.flags`、`units[].flags` |
+| T3 | `element_spec.flags`、`elements[].flags` |
+| T4 | `global_spec.flags` |
+| T5 | `template_spec.review_flags` |
+| T6 | `build_manifest.actions_requiring_review` |
+
+verifier 会读取这些字段，把它们转成 `verification_report.json` 里的 findings。
+
+### `review_flags`
+
+`review_flags` 是 T5 `template_spec.yaml` 里的审核汇总字段。
+
+它现在的作用是把 T2/T3/T4 的 flags 汇总到主 spec，方便后续做人工审核。但当前实现有一个问题：verifier 在 T2/T3/T4 已经报过这些 flags，到了 T5 又逐条再报一次，所以数量会翻倍。
+
+### `finding`
+
+`finding` 是 verifier 输出的一条问题记录。
+
+它通常包含：
+
+- `type`：问题类型，例如 `t3_element_confidence_needs_review`。
+- `status`：`PASS` / `FAIL` / `UNKNOWN` 里的阻断状态。
+- `actual`：实际看到的情况。
+- `affected_ids`：影响到的 unit 或 element。
+
+finding 是报告层概念，不是源 Word 里的对象。
+
+### `issue_clusters`
+
+`issue_clusters.json` 是把 findings 按类型和原因聚合后的报告。
+
+它适合快速看“有几类问题”，不适合看每个元素细节。比如湖南农大现在 650 个 findings 聚成 4 个 clusters，说明它们主要是 4 类问题，而不是 650 类问题。
+
+### `first_bad_stage`
+
+`first_bad_stage` 表示第一个不是 `PASS` 的阶段。
+
+当前三校都是 `T2`，意思是：
+
+```text
+问题第一次出现在单元切分/单元判断阶段。
+```
+
+这不代表 T2 是唯一问题。T3/T4/T5 也有问题，只是排查顺序应该先从 T2 开始。
+
+### `gold` / `expected`
+
+`gold` 是人工审核确认过的标准答案，`expected` 是从 gold 切片出来给单阶段 verifier 用的预期结果。
+
+当前还缺：
+
+- `document_facts.gold.json`
+- `template_spec.gold.yaml`
+- `unit_map.expected.yaml`
+- `element_spec.expected.yaml`
+- `global_spec.expected.yaml`
+
+所以现在很多判断只能靠 schema、flags 和 confidence gate，不能做精确比对。
+
 ## 先看结论
 
 当前不是 Word 构建失败。三校都是：
