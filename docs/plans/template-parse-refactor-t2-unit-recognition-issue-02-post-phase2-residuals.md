@@ -19,6 +19,11 @@ evidence_run:
   code_checkpoint: e861aa5
   command: "uv run python -B -c 'from pathlib import Path; from docfit.convert.orchestrator import run_template_generate_eval; ...'"
   output_root: /private/tmp/docfit_t2_current_run
+followup_runs:
+  - label: toc_block_range_fix
+    command: "uv run pytest tests/unit/test_t2_unit_map.py -q && uv run python scripts/t2_metrics.py && run_template_generate_eval for three real templates"
+    output_root: /private/tmp/docfit_t2_after_block_range_fix
+    summary: TOC block unit range no longer overflows; residual unowned ranges and taxonomy/body segmentation issues remain
 related_code:
   - src/docfit/template_generation/structure_candidates.py
   - src/docfit/template_generation/constants.py
@@ -109,6 +114,8 @@ template-parse-refactor-{stage}-{topic}-plan-{NN}-{short-name}.md
 
 ### P0-1 湖南 TOC block 已识别，但 unit range 没按 block end 收口
 
+Status after quick fix: fixed in working tree after consuming `anchor.block_range.end_index` when building unit ranges. Keep this issue item as historical context and as a regression target.
+
 Observed：
 
 - debug `toc_blocks` 显示 TOC block 为 seq 24-49，`entries_count=20`。
@@ -136,6 +143,20 @@ seq 65 □□Abstract...
 
 - 湖南 `toc` end 必须等于最后一个 TOC entry，而不是吞并正文题名/摘要。
 - 湖南必须识别 `abstract_cn`，且 seq 57 属于 `abstract_cn` 或正文题名/摘要复合单元，而不能属于 `toc`。
+
+Fix verification：
+
+- `uv run pytest tests/unit/test_t2_unit_map.py -q` -> 15 passed.
+- `uv run python scripts/t2_metrics.py` -> 三校 TOC 门禁仍 PASS。
+- 三校真实生成输出：`/private/tmp/docfit_t2_after_block_range_fix`。
+- 湖南 `toc` 从 seq 24-64 收敛为 seq 24-49。
+- 南农 `toc` 从 seq 9-36 收敛为 seq 9-34。
+- 北大 `toc` range 无外溢变化，但仍存在 figure/table list taxonomy 问题。
+
+修复后暴露的新事实：
+
+- 湖南 seq 50-64 目前无人认领，说明 `body_title_block` / `abstract_cn` 仍未被识别。
+- 南农 seq 35-36 目前无人认领，且后置 `appendix` / `acknowledgement` 仍被吞并。
 
 ### P0-2 湖南中文摘要未切出
 
@@ -298,3 +319,35 @@ Observed：
   - 湖南：`toc` 不得包含 seq 50-64；必须有 `abstract_cn`。
   - 南农：必须有 `appendix`、`academic_achievements`、`acknowledgement`。
   - 北大：必须有 `figure_list`、`table_list`；`body_main` 从 seq 50 附近开始；后置 `references` 不得变 custom。
+
+## 6. TOC block range 快速修复后的当前残余
+
+本节记录 quick fix 后的真实生成结果，作为下一步讨论的当前基线。
+
+运行输出：`/private/tmp/docfit_t2_after_block_range_fix`。
+
+验证：
+
+```text
+uv run pytest tests/unit/test_t2_unit_map.py -q
+15 passed
+
+uv run python scripts/t2_metrics.py
+hunannongye            20/20 leak=0 PASS
+nannong-undergraduate  25/25 leak=0 PASS
+pku-graduate           17/17 leak=0 PASS
+```
+
+当前残余：
+
+| 学校 | 已改善 | 仍存在 |
+| --- | --- | --- |
+| 湖南 | `toc` 正确收口到 seq 24-49 | seq 50-64 无 unit 认领；`abstract_cn` 仍缺失；正文题名/摘要复合区域未建模 |
+| 南农 | `toc` 正确收口到 seq 9-34 | seq 35-36 无 unit 认领；`appendix` 未切出；`academic_achievements` 吞并 `acknowledgement` |
+| 北大 | TOC coverage 仍 PASS，无新增外溢 | `figure_list` / `table_list` 缺失；正文 Heading 1 仍过切为 custom；后置 `references` 仍错位为 custom |
+
+下一步优先级建议：
+
+1. 先处理“block 收口后出现的 unowned ranges”：这些是之前被外溢掩盖的真实边界缺口。
+2. 补 taxonomy 和 regression：`figure_list`、`table_list`、`academic_achievements`、后置声明类单元。
+3. 再处理正文状态机，避免正文章标题被当作顶层 custom unit。
