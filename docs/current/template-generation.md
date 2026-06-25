@@ -104,9 +104,9 @@ T1-T6 verifier 使用 `PASS/FAIL/UNKNOWN`：
 | 阶段 | 主要检查 | 阻断例子 |
 | --- | --- | --- |
 | T1 | artifact/schema/hash、id、run 追踪、unknown visible objects | 未建模可见对象为 `UNKNOWN` |
-| T2 | required unit、顺序、source range、page_start | required unit 缺失为 `FAIL` |
-| T3 | policy/role/fill_source、manual/generated 语义、AI trace | fill 缺 `fill_source` 为 `FAIL` |
-| T4 | section profile、页码、页眉页脚、编号规则 | section 证据缺失为 `UNKNOWN` |
+| T2 | required unit、顺序、source range、page_start、confidence flags | required unit 缺失为 `FAIL`；低/中置信未审为 `UNKNOWN` |
+| T3 | policy/role/fill_source、manual/generated 语义、AI trace、confidence flags | fill 缺 `fill_source` 为 `FAIL`；低/中置信未审为 `UNKNOWN` |
+| T4 | section profile、页码、页眉页脚、编号规则 | section 证据缺失或页码体例未识别为 `UNKNOWN` |
 | T5 | schema、id 唯一、引用存在、review flags | review flag 未清为 `UNKNOWN` |
 | T6 | DOCX 有效、无 marker、SDT tag、manifest hash/action | marker 残留或 SDT 缺失为 `FAIL` |
 
@@ -114,9 +114,9 @@ T1-T6 verifier 使用 `PASS/FAIL/UNKNOWN`：
 
 ```json
 {
-  "status": "PASS",
-  "first_bad_stage": null,
-  "stages": [{"stage": "T1", "status": "PASS"}]
+  "status": "UNKNOWN",
+  "first_bad_stage": "T2",
+  "stages": [{"stage": "T1", "status": "PASS"}, {"stage": "T2", "status": "UNKNOWN"}]
 }
 ```
 
@@ -168,9 +168,9 @@ uv run pytest tests/contract -q
 
 | 日期 | 目的 | 命令 | 状态 | 结论 |
 | --- | --- | --- | --- | --- |
-| 2026-06-25 | 验证新模板解析 artifact 链路 | `uv run pytest tests/contract/test_template_generate.py -q` | `PASS` | `11 passed`；覆盖 `document_facts`、YAML specs、SDT tag、无内部 marker |
+| 2026-06-25 | 验证新模板解析 artifact 链路 | `uv run pytest tests/contract/test_template_generate.py -q` | `PASS` | `11 passed`；覆盖 `document_facts`、YAML specs、SDT tag、无内部 marker、低/中置信进入 `UNKNOWN` 报告 |
 | 2026-06-25 | 验证 gap 合同 | `uv run pytest tests/contract/test_real_core_generated_template_gap.py -q` | `PASS` | `33 passed`；gap 继续接受被测 Word，并能识别旧 marker 与新 SDT 证据 |
-| 2026-06-25 | 验证合同矩阵 | `uv run pytest tests/contract -q` | `PASS` | `74 passed` |
-| 2026-06-25 | 验证三校真实模板生成 | 三校 `uv run docfit eval template-generate --template ... --out /tmp/docfit_template_refactor_*` | `PASS` | 湖南农大、南农、北大均产出 `fillable_template.docx`、`template_spec.yaml`、`build_manifest.json`、`verification_report.json` |
+| 2026-06-25 | 验证合同矩阵 | `uv run pytest tests/contract -q` | `PASS` | `75 passed` |
+| 2026-06-25 | 验证三校真实模板生成 | 三校 `uv run docfit eval template-generate --template ... --out test_outputs/debug/template_generation/template_parse_refactor_20260625T110707+0800/<school>` | `UNKNOWN` | 湖南农大、南农、北大均产出 `fillable_template.docx`、`template_spec.yaml`、`build_manifest.json`、`verification_report.json`；T6 为 `PASS`，解析门禁因 T2/T3/T4/T5 未审核不确定项为 `UNKNOWN` |
 
 这说明模板解析支撑流程能独立产出可验证的可填模板；不说明生成模板已经满足每所学校的全部签收标准，学校质量仍需 `template-gap` 判定。

@@ -522,6 +522,7 @@ def _flag_findings(
                 "flag reviewed or resolved",
                 str(flag.get("reason") or flag.get("source_ref") or flag),
                 evidence_refs=[str(flag.get("source_ref") or "")],
+                affected_ids=[str(item) for item in flag.get("affected_ids", [])],
                 root_cause_bucket=f"template_{stage.lower()}_flag",
             )
         )

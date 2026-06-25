@@ -82,8 +82,9 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     )
     debug_dir = debug_dirs[0]
     debug_index = read_json(debug_dir / "99_template_generation_debug_index.json")
+    issue_clusters = read_json(out_dir / "issue_clusters.json")
 
-    assert result.status == Status.PASS
+    assert result.status == Status.UNKNOWN
     assert out_dir.parent.name == "eval_runs"
     assert fillable.exists()
     assert (artifacts / "template_generation_request.json").exists()
@@ -93,7 +94,24 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert global_spec["artifact_type"] == "global_spec"
     assert template_spec["artifact_type"] == "template_spec"
     assert manifest["artifact_type"] == "build_manifest"
-    assert verification_report["status"] == Status.PASS.value
+    assert verification_report["status"] == Status.UNKNOWN.value
+    assert verification_report["first_bad_stage"] == "T2"
+    assert any(flag["type"] == "unit_confidence_needs_review" for flag in unit_map["flags"])
+    assert any(
+        flag["type"] == "element_confidence_needs_review"
+        for flag in element_spec["flags"]
+    )
+    assert any(flag["type"] == "page_numbering_unknown" for flag in global_spec["flags"])
+    assert template_spec["review_flags"]
+    assert any(
+        finding["type"] == "t2_unit_confidence_needs_review"
+        for finding in verification_report["findings"]
+    )
+    assert any(
+        finding["type"] == "t4_page_numbering_unknown"
+        for finding in verification_report["findings"]
+    )
+    assert issue_clusters
     assert source_tree["artifact_type"] == "source_template_tree"
     assert structure_candidates["artifact_type"] == "template_structure_candidates"
     assert generation_model["artifact_type"] == "template_generation_model"
@@ -132,7 +150,8 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert (debug_dir / "06.1_fillable_template.docx").exists()
     assert (debug_dir / "06.2_build_manifest.json").exists()
     assert (debug_dir / "07_verification_report.json").exists()
-    assert summary["status"] == Status.PASS.value
+    assert summary["status"] == Status.UNKNOWN.value
+    assert summary["unknown_findings"] > 0
     assert summary["artifacts"]["fillable_template_docx"] == str(fillable)
     assert "slot_body_start" in docx_sdt_tags(fillable)
     assert not any("[[DOCFIT_" in text for text in docx_texts(fillable))
@@ -170,7 +189,7 @@ def test_template_generate_preserves_existing_body_slot(tmp_path) -> None:
         tmp_path / "template_generate/artifacts/build_manifest.json"
     )
 
-    assert result.status == Status.PASS
+    assert result.status == Status.UNKNOWN
     assert BODY_SLOT_MARKER not in docx_texts(fillable)
     assert "slot_body_start" in docx_sdt_tags(fillable)
     assert any(
@@ -197,7 +216,7 @@ def test_template_generate_cleans_instruction_text_inside_table_cells(tmp_path) 
         tmp_path / "template_generate/artifacts/build_manifest.json"
     )
 
-    assert result.status == Status.PASS
+    assert result.status == Status.UNKNOWN
     assert not manifest["actions_requiring_review"]
     assert not any("格式说明" in text for text in table_texts(fillable))
     assert any(tag != "slot_body_start" for tag in docx_sdt_tags(fillable))
@@ -229,7 +248,7 @@ def test_template_generate_merges_table_label_value_candidates(tmp_path) -> None
         ]
     )
 
-    assert result.status == Status.PASS
+    assert result.status == Status.UNKNOWN
     assert merged["candidate_policy"] == "fill"
     assert merged["role_hint"] == "student_field_candidate"
     assert len(merged["source_seq_refs"]) == 2
@@ -263,7 +282,7 @@ def test_template_generate_merges_business_sentence_continuation(tmp_path) -> No
         == ["word/document.xml:p[2]", "word/document.xml:p[3]"]
     )
 
-    assert result.status == Status.PASS
+    assert result.status == Status.UNKNOWN
     assert merged["candidate_policy"] == "fill"
     assert merged["role_hint"] == "student_field_candidate"
     assert merged["source_seq_refs"] == [2, 3]
@@ -308,7 +327,7 @@ def test_template_generate_cli_writes_public_outputs(tmp_path) -> None:
     )
 
     assert result.exit_code == 0
-    assert "status = PASS" in result.stdout
+    assert "status = UNKNOWN" in result.stdout
     assert (out_dir / "fillable_template.docx").exists()
     assert (out_dir / "artifacts/build_manifest.json").exists()
     assert (out_dir / "artifacts/template_spec.yaml").exists()
@@ -350,7 +369,7 @@ def test_template_generate_marks_fixed_unit_as_whole_unit_copy(tmp_path) -> None
         unit for unit in generation_model["unit_strategies"] if unit["unit_id"] == "cover"
     )
 
-    assert result.status == Status.PASS
+    assert result.status == Status.UNKNOWN
     assert cover["generation_mode"] == "whole_unit_copy"
     assert cover["generation_policy"] == "whole_unit_copy"
     references = next(
@@ -440,7 +459,7 @@ def test_template_generate_copy_only_units_use_restricted_internal_element_analy
         if element.get("source_refs") == ["word/document.xml:p[2]"]
     )
 
-    assert result.status == Status.PASS
+    assert result.status == Status.UNKNOWN
     assert whole_copy["candidate_policy"] == "fixed"
     assert whole_copy["role_hint"] == "copy_region_candidate"
     assert title_candidate["role_hint"] == "student_field_candidate"
@@ -492,7 +511,7 @@ def test_template_generate_references_unit_is_fillable_not_copy_only(tmp_path) -
         if unit["unit_id"] == "references"
     )
 
-    assert result.status == Status.PASS
+    assert result.status == Status.UNKNOWN
     assert references["generation_mode"] == "copy_then_patch"
     assert any(
         action["action_type"] == "create_fillable_slot"

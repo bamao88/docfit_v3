@@ -2,13 +2,13 @@
 
 Last updated: 2026-06-25
 
-一句话结论：模板解析重构已经完成第一版工程闭环，`template-generate` 能从学校原始 Word 产出新 artifact 链、可填 Word、构建清单和 T1-T6 verifier 报告；但原计划里的 gold 精确比对、AI 残余分类、人工审核闭环和视觉门禁还没有全部完成。
+一句话结论：模板解析重构已经完成第一版工程闭环，`template-generate` 能从学校原始 Word 产出新 artifact 链、可填 Word、构建清单和 T1-T6 verifier 报告；当前门禁会把低/中置信和内联 `UNKNOWN` 升格为报告 findings，因此三校真实模板解析状态是 `UNKNOWN`，不是可宣称成功的 `PASS`。原计划里的 gold 精确比对、AI 残余分类、人工审核闭环和视觉门禁还没有全部完成。
 
 ## 当前基线
 
 | 项 | 当前状态 |
 | --- | --- |
-| 最近实现提交 | `14e9ac4 feat: refactor template parse artifacts` |
+| 最近实现提交 | `c205c67 chore: add ordered template generation outputs`；当前工作区继续接入 uncertainty gate |
 | 前置 checkpoint | `844ee12 chore: checkpoint existing workspace changes` |
 | 主入口 | `uv run docfit eval template-generate --template <source_template.docx> --out <out_dir>` |
 | 主产物 | `document_facts.json`、`unit_map.yaml`、`element_spec.yaml`、`global_spec.yaml`、`template_spec.yaml`、`fillable_template.docx`、`build_manifest.json`、`verification_report.json` |
@@ -26,7 +26,7 @@ Last updated: 2026-06-25
 | Phase 4 T3 | 元素与策略标注 | 部分完成 | 已有 `element_spec.yaml`、ontology、fill/manual/generated 策略；AI 残余分类和 review trace 未完成 |
 | Phase 5 T5 | 唯一 `template_spec.yaml` 与审核闭环 | 部分完成 | 已有 `template_spec.yaml` 和 review flag 门禁；人工 review queue/promotion 未完成 |
 | Phase 6 T6 | 构建稳定可填模板 | 已完成第一版 | `fillable_template.docx` 使用 SDT tag；不再写 `[[DOCFIT_*]]` 文本 marker；`build_manifest.json` 记录动作 |
-| Phase 7 verifier | T1-T6 独立 `PASS/FAIL/UNKNOWN` | 已完成第一版 | `verification_report.json` 输出 status、stage status、first_bad_stage |
+| Phase 7 verifier | T1-T6 独立 `PASS/FAIL/UNKNOWN` | 已完成第一版 | `verification_report.json` 输出 status、stage status、first_bad_stage；`confidence != high` 和 `page_numbering.status=UNKNOWN` 会进入 findings |
 
 ## 已完成的关键行为变化
 
@@ -40,6 +40,7 @@ Last updated: 2026-06-25
 - `render` 已能按 SDT tag 写入内容，同时保留旧 marker 兼容测试。
 - `template-gap` inspector 已能解析 SDT 内容控件，并把 SDT tag 当作可填区证据。
 - 新增 T1-T6 deterministic verifier，聚合到 `verification_report.json`。
+- T2/T3 的低/中置信项、T4 页码 `UNKNOWN` 会写入 `flags/review_flags`，再进入 `verification_report.json`、`pm_report.md` 和 `issue_clusters.json`。
 
 ## 验证结果
 
@@ -48,16 +49,16 @@ Last updated: 2026-06-25
 | `uv run pytest tests/contract -q` | `75 passed` |
 | `uv run python -m py_compile src/docfit/template_generation/*.py src/docfit/template_gap/*.py src/docfit/stages/render/runner.py` | 通过 |
 | `git diff --check` | 通过 |
-| 湖南农大真实模板 `template-generate` | `PASS`，`verification_report.first_bad_stage = null` |
-| 南农本科真实模板 `template-generate` | `PASS`，`verification_report.first_bad_stage = null` |
-| 北大研究生真实模板 `template-generate` | `PASS`，`verification_report.first_bad_stage = null` |
+| 湖南农大真实模板 `template-generate` | `UNKNOWN`，`verification_report.first_bad_stage = T2`；T6 构建阶段 `PASS` |
+| 南农本科真实模板 `template-generate` | `UNKNOWN`，`verification_report.first_bad_stage = T2`；T6 构建阶段 `PASS` |
+| 北大研究生真实模板 `template-generate` | `UNKNOWN`，`verification_report.first_bad_stage = T2`；T6 构建阶段 `PASS` |
 
-三校 probe 输出位置在本地临时目录：
+三校 probe 输出位置：
 
 ```text
-/tmp/docfit_template_refactor_hunannongye
-/tmp/docfit_template_refactor_nannong
-/tmp/docfit_template_refactor_pku
+test_outputs/debug/template_generation/template_parse_refactor_20260625T110707+0800/hunannongye
+test_outputs/debug/template_generation/template_parse_refactor_20260625T110707+0800/nannong-undergraduate
+test_outputs/debug/template_generation/template_parse_refactor_20260625T110707+0800/pku-graduate
 ```
 
 ## 尚未完成
@@ -67,7 +68,7 @@ Last updated: 2026-06-25
 | 三校 `document_facts.gold.json` | T1 还不能做三校 gold 精确比较 | 逐校人工审核并提升 gold |
 | `template_spec.gold.yaml` 及切片 expected | T2/T3/T4/T5 还不能按主 gold 精确比对 | 建主 gold，再派生 `unit_map.expected.yaml`、`element_spec.expected.yaml`、`global_spec.expected.yaml` |
 | 边界 IoU 评分 | 单元边界质量目前主要靠 schema/required unit 门禁 | 实现 expected range 与 actual range 的 IoU verifier |
-| AI 残余分类 | 当前主要是确定性规则，没有 AI trace 工作流 | 增加 AI input/output 落盘、schema validation、低置信 review gate |
+| AI 残余分类 | 当前主要是确定性规则，没有 AI trace 工作流；低/中置信已进入 `UNKNOWN` 门禁 | 增加 AI input/output 落盘、schema validation、人工审核闭环 |
 | 人工 review queue | `review_flags` 有门禁方向，但没有完整审核记录流 | 增加 review queue artifact 和 gold promotion 规则 |
 | generated Word field 构建 | `generated` 目前是可定位 SDT/字段占位证据 | 后续用低层 OOXML 生成 TOC/PAGE/SEQ |
 | 渲染快照视觉门禁 | 还没有截图/页边界视觉比较 | 增加字段更新后的截图和页数、分页、关键区域比较 |
@@ -78,5 +79,5 @@ Last updated: 2026-06-25
 1. 先为湖南农大建立 `template_spec.gold.yaml` 和 `document_facts.gold.json`，跑通 gold 提升与切片 expected。
 2. 实现 T2 边界 IoU verifier，把现有 TG-GAP-001/TG-GAP-004 类型问题前移到 T2/T4。
 3. 把 `generated` 从 SDT 占位升级为低层 OOXML 字段构建，优先覆盖 TOC/PAGE。
-4. 增加 review queue artifact，让低置信元素和规则冲突不能进入自动 `PASS`。
+4. 增加 review queue artifact，让当前进入 `UNKNOWN` 的低/中置信元素和规则冲突可被人工审核、提升或驳回。
 5. 再跑三校 `template-gap`，按 `first_bad_stage` 把最终差距回归到 T1-T6 的具体阶段。

@@ -41,6 +41,8 @@ def build_unit_map(
     units: list[dict[str, Any]] = []
     for unit in structure_candidates.get("units", []):
         source_seq_refs = list(unit.get("source_seq_refs", []))
+        confidence = _unit_confidence(unit)
+        flags = _unit_flags(unit, confidence=confidence)
         units.append(
             {
                 "unit_id": unit.get("unit_id"),
@@ -53,12 +55,19 @@ def build_unit_map(
                 "source_seq_refs": source_seq_refs,
                 "page_start": _page_start_for_unit(unit),
                 "section_profile": _section_profile_for_unit(document_facts, source_seq_refs),
-                "confidence": _unit_confidence(unit),
-                "flags": _unit_flags(unit),
+                "confidence": confidence,
+                "flags": flags,
                 "anchors": unit.get("anchors", []),
             }
         )
-    flags = _map_flags(document_facts, structure_candidates)
+    flags = [
+        *_map_flags(document_facts, structure_candidates),
+        *[
+            flag
+            for mapped_unit in units
+            for flag in mapped_unit.get("flags", [])
+        ],
+    ]
     return {
         "artifact_type": "unit_map",
         "artifact_version": "1.0",
@@ -100,6 +109,17 @@ def build_element_spec(generation_model: dict[str, Any]) -> dict[str, Any]:
                 "evidence": element.get("evidence", []),
                 "flags": list(element.get("review_notes", [])),
             }
+            confidence_flag = _confidence_flag(
+                flag_id=f"{unit_id}.{element_id}.confidence_needs_review",
+                type_="element_confidence_needs_review",
+                confidence=str(spec.get("confidence") or ""),
+                reason_subject=f"element {unit_id}.{element_id}",
+                source_ref=(spec.get("source_refs") or [None])[0],
+                affected_id=spec["stable_id"],
+            )
+            if confidence_flag is not None:
+                spec["flags"].append(confidence_flag)
+                flags.append(confidence_flag)
             if policy == "generated":
                 spec["generated"] = {"field_type": _generated_field_type(element, unit_id)}
             if policy == "manual_only":
@@ -359,8 +379,18 @@ def _unit_confidence(unit: dict[str, Any]) -> str:
     return "low"
 
 
-def _unit_flags(unit: dict[str, Any]) -> list[dict[str, Any]]:
+def _unit_flags(unit: dict[str, Any], *, confidence: str) -> list[dict[str, Any]]:
     flags = []
+    confidence_flag = _confidence_flag(
+        flag_id=f"{unit.get('unit_id')}.confidence_needs_review",
+        type_="unit_confidence_needs_review",
+        confidence=confidence,
+        reason_subject=f"unit {unit.get('unit_id')}",
+        source_ref=(unit.get("source_refs") or [None])[0],
+        affected_id=str(unit.get("unit_id") or ""),
+    )
+    if confidence_flag is not None:
+        flags.append(confidence_flag)
     if not unit.get("source_refs"):
         flags.append(
             {
@@ -378,6 +408,29 @@ def _unit_flags(unit: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return flags
+
+
+def _confidence_flag(
+    *,
+    flag_id: str,
+    type_: str,
+    confidence: str,
+    reason_subject: str,
+    source_ref: Any,
+    affected_id: str,
+) -> dict[str, Any] | None:
+    normalized = str(confidence or "").lower()
+    if normalized in {"", "high"}:
+        return None
+    return {
+        "flag_id": flag_id,
+        "type": type_,
+        "status": "UNKNOWN",
+        "confidence": normalized,
+        "source_ref": source_ref,
+        "affected_ids": [affected_id] if affected_id else [],
+        "reason": f"{reason_subject} confidence={normalized} requires review",
+    }
 
 
 def _map_flags(
@@ -500,6 +553,18 @@ def _global_flags(document_facts: dict[str, Any]) -> list[dict[str, Any]]:
                 "type": "sections_missing",
                 "status": "UNKNOWN",
                 "reason": "document sections could not be parsed",
+            }
+        )
+    page_numbering = _page_numbering_from_facts(document_facts)
+    if page_numbering.get("status") == "UNKNOWN":
+        flags.append(
+            {
+                "flag_id": "global.page_numbering_unknown",
+                "type": "page_numbering_unknown",
+                "status": "UNKNOWN",
+                "source_ref": None,
+                "affected_ids": ["global.page_numbering"],
+                "reason": "page numbering fields could not be detected from source facts",
             }
         )
     return flags
