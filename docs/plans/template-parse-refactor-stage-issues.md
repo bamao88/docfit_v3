@@ -20,11 +20,13 @@ test_outputs/debug/template_generation/template_parse_refactor_20260625T110707+0
 
 `confidence` 表示系统对某个判断的证据强度。它不是学校标准里的概念，也不是最终质量分。
 
-| 值 | 具体意思 | 当前门禁含义 |
-| --- | --- | --- |
-| `high` | 规则证据足够强，系统认为可以自动放行 | 可以 `PASS`，不需要人工审核 |
-| `medium` | 有证据，但证据还不够强；系统能猜出一个结果，但不应该假装确定 | 进入 `UNKNOWN`，需要规则增强或人工审核 |
-| `low` | 证据不足，系统只是保底生成了一个结果 | 进入 `UNKNOWN`，通常需要人工审核或补解析规则 |
+
+| 值        | 具体意思                           | 当前门禁含义                      |
+| -------- | ------------------------------ | --------------------------- |
+| `high`   | 规则证据足够强，系统认为可以自动放行             | 可以 `PASS`，不需要人工审核           |
+| `medium` | 有证据，但证据还不够强；系统能猜出一个结果，但不应该假装确定 | 进入 `UNKNOWN`，需要规则增强或人工审核    |
+| `low`    | 证据不足，系统只是保底生成了一个结果             | 进入 `UNKNOWN`，通常需要人工审核或补解析规则 |
+
 
 例子：
 
@@ -78,13 +80,15 @@ test_outputs/debug/template_generation/template_parse_refactor_20260625T110707+0
 
 常见位置：
 
-| 阶段 | 字段 |
-| --- | --- |
-| T2 | `unit_map.flags`、`units[].flags` |
-| T3 | `element_spec.flags`、`elements[].flags` |
-| T4 | `global_spec.flags` |
-| T5 | `template_spec.review_flags` |
-| T6 | `build_manifest.actions_requiring_review` |
+
+| 阶段  | 字段                                        |
+| --- | ----------------------------------------- |
+| T2  | `unit_map.flags`、`units[].flags`          |
+| T3  | `element_spec.flags`、`elements[].flags`   |
+| T4  | `global_spec.flags`                       |
+| T5  | `template_spec.review_flags`              |
+| T6  | `build_manifest.actions_requiring_review` |
+
 
 verifier 会读取这些字段，把它们转成 `verification_report.json` 里的 findings。
 
@@ -143,11 +147,13 @@ finding 是报告层概念，不是源 Word 里的对象。
 
 当前不是 Word 构建失败。三校都是：
 
-| 学校 | 总状态 | first_bad_stage | T1 | T2 | T3 | T4 | T5 | T6 |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 湖南农大 | UNKNOWN | T2 | PASS | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | PASS |
-| 南农本科 | UNKNOWN | T2 | PASS | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | PASS |
-| 北大研究生 | UNKNOWN | T2 | PASS | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | PASS |
+
+| 学校    | 总状态     | first_bad_stage | T1   | T2      | T3      | T4      | T5      | T6   |
+| ----- | ------- | --------------- | ---- | ------- | ------- | ------- | ------- | ---- |
+| 湖南农大  | UNKNOWN | T2              | PASS | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | PASS |
+| 南农本科  | UNKNOWN | T2              | PASS | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | PASS |
+| 北大研究生 | UNKNOWN | T2              | PASS | UNKNOWN | UNKNOWN | UNKNOWN | UNKNOWN | PASS |
+
 
 也就是说：
 
@@ -160,21 +166,25 @@ finding 是报告层概念，不是源 Word 里的对象。
 
 以湖南农大为例：
 
-| 来源 | 数量 | 含义 |
-| --- | ---: | --- |
-| T2 | 9 | 9 个 unit 是 `confidence=medium`，需要审核 |
-| T3 | 315 | 315 个 element 是 `confidence=medium`，需要审核 |
-| T4 | 1 | `page_numbering.status=UNKNOWN` |
-| T5 | 325 | T2/T3/T4 的 325 个 review flags 被逐条重报 |
-| 合计 | 650 | 325 个真实不确定项 + 325 个 T5 重复投影 |
+
+| 来源  | 数量  | 含义                                       |
+| --- | --- | ---------------------------------------- |
+| T2  | 9   | 9 个 unit 是 `confidence=medium`，需要审核      |
+| T3  | 315 | 315 个 element 是 `confidence=medium`，需要审核 |
+| T4  | 1   | `page_numbering.status=UNKNOWN`          |
+| T5  | 325 | T2/T3/T4 的 325 个 review flags 被逐条重报      |
+| 合计  | 650 | 325 个真实不确定项 + 325 个 T5 重复投影              |
+
 
 三校当前 finding 分布：
 
-| 学校 | T2 unit confidence | T3 element confidence | T4 page numbering | T5 重报 | 总 findings |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 湖南农大 | 9 | 315 | 1 | 325 | 650 |
-| 南农本科 | 9 | 101 | 1 | 111 | 222 |
-| 北大研究生 | 9 | 346 | 1 | 356 | 712 |
+
+| 学校    | T2 unit confidence | T3 element confidence | T4 page numbering | T5 重报 | 总 findings |
+| ----- | ------------------ | --------------------- | ----------------- | ----- | ---------- |
+| 湖南农大  | 9                  | 315                   | 1                 | 325   | 650        |
+| 南农本科  | 9                  | 101                   | 1                 | 111   | 222        |
+| 北大研究生 | 9                  | 346                   | 1                 | 356   | 712        |
+
 
 当前真正要讨论的是这些机制问题：
 
@@ -194,11 +204,13 @@ finding 是报告层概念，不是源 Word 里的对象。
 
 当前问题：
 
-| 问题 | 证据 | 影响 | 建议讨论 |
-| --- | --- | --- | --- |
-| 还没有三校 `document_facts.gold.json` | 计划要求三校独立 gold，但仓库里还没有对应 gold 文件 | T1 只能证明当前 schema 和基本追踪过了，不能证明源 Word 被完整解析 | 先选一校人工审核 T1 facts，建立第一份 gold |
-| 页码字段未被 facts 证明 | 三校 `04_global_spec.yaml` 都是 `page_numbering.field_refs=[]`、`status=UNKNOWN` | 可能是源 Word 没有 PAGE 字段，也可能是 T1 没解析页眉页脚/字段里的页码 | 对源模板人工看一次页码位置，再决定修 T1 inspector 还是 T4 规则 |
-| unknown_objects 为空不等于所有复杂对象都已验证 | 当前没有 gold/视觉核对证明文本框、drawing、页眉页脚字段都完整 | 可能漏掉可见对象但仍 T1 PASS | gold 建立前不要把 T1 PASS 解释成完整解析无风险 |
+
+| 问题                               | 证据                                                                          | 影响                                          | 建议讨论                                     |
+| -------------------------------- | --------------------------------------------------------------------------- | ------------------------------------------- | ---------------------------------------- |
+| 还没有三校 `document_facts.gold.json` | 计划要求三校独立 gold，但仓库里还没有对应 gold 文件                                             | T1 只能证明当前 schema 和基本追踪过了，不能证明源 Word 被完整解析   | 先选一校人工审核 T1 facts，建立第一份 gold             |
+| 页码字段未被 facts 证明                  | 三校 `04_global_spec.yaml` 都是 `page_numbering.field_refs=[]`、`status=UNKNOWN` | 可能是源 Word 没有 PAGE 字段，也可能是 T1 没解析页眉页脚/字段里的页码 | 对源模板人工看一次页码位置，再决定修 T1 inspector 还是 T4 规则 |
+| unknown_objects 为空不等于所有复杂对象都已验证  | 当前没有 gold/视觉核对证明文本框、drawing、页眉页脚字段都完整                                       | 可能漏掉可见对象但仍 T1 PASS                          | gold 建立前不要把 T1 PASS 解释成完整解析无风险           |
+
 
 ## T2 unit_map
 
@@ -211,12 +223,14 @@ finding 是报告层概念，不是源 Word 里的对象。
 
 当前问题：
 
-| 问题 | 证据 | 影响 | 建议讨论 |
-| --- | --- | --- | --- |
-| unit 置信度没有 `high` 路径 | `_unit_confidence()` 当前有 source refs 就返回 `medium`，否则 `low` | 所有识别到的 unit 都会被挡成 UNKNOWN | 定义 high confidence 条件，例如标题词命中、source range 连续、顺序合法、required unit 齐全 |
-| 单元边界质量没有 IoU verifier | 没有 `unit_map.expected.yaml` 和边界 IoU 比对 | 现在只能知道“识别到了 unit”，不能知道边界是否正确 | 从 `template_spec.gold.yaml` 派生 expected 后再做 IoU |
-| 固定 9 个 unit 可能粒度过粗 | 湖南农大后置表单可能需要更细 unit，例如开题、答辩、成绩等 | 后续 T3/T6 会在粗边界内做策略，导致责任混在一起 | 先讨论湖南农大是否应拆后置表单 unit |
-| `open_questions` 只从 flags 派生 | 当前主要是 confidence flags，没有更具体的问题文本 | 人工审核不知道该判断边界、责任还是顺序 | 给 T2 flags 加结构化原因：anchor 弱、边界弱、缺 expected、顺序疑似异常 |
+
+| 问题                           | 证据                                                         | 影响                           | 建议讨论                                                                |
+| ---------------------------- | ---------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------- |
+| unit 置信度没有 `high` 路径         | `_unit_confidence()` 当前有 source refs 就返回 `medium`，否则 `low` | 所有识别到的 unit 都会被挡成 UNKNOWN    | 定义 high confidence 条件，例如标题词命中、source range 连续、顺序合法、required unit 齐全 |
+| 单元边界质量没有 IoU verifier        | 没有 `unit_map.expected.yaml` 和边界 IoU 比对                     | 现在只能知道“识别到了 unit”，不能知道边界是否正确 | 从 `template_spec.gold.yaml` 派生 expected 后再做 IoU                     |
+| 固定 9 个 unit 可能粒度过粗           | 湖南农大后置表单可能需要更细 unit，例如开题、答辩、成绩等                            | 后续 T3/T6 会在粗边界内做策略，导致责任混在一起  | 先讨论湖南农大是否应拆后置表单 unit                                                |
+| `open_questions` 只从 flags 派生 | 当前主要是 confidence flags，没有更具体的问题文本                          | 人工审核不知道该判断边界、责任还是顺序          | 给 T2 flags 加结构化原因：anchor 弱、边界弱、缺 expected、顺序疑似异常                    |
+
 
 ## T3 element_spec
 
@@ -229,12 +243,14 @@ finding 是报告层概念，不是源 Word 里的对象。
 
 当前问题：
 
-| 问题 | 证据 | 影响 | 建议讨论 |
-| --- | --- | --- | --- |
-| element 置信度基本硬编码为 `medium` | `_element_from_entries()` 当前写 `confidence: medium` | 每个元素都会进入 UNKNOWN，报告噪声很大 | 定义按规则来源分级的 confidence：明确占位符/下划线/格式说明可 high，正文歧义保留 medium |
-| 低/中置信只有阻断，没有审核闭环 | `review_flags` 有了，但没有 `review_queue.yaml` 和 `review_decisions` | 状态会一直 UNKNOWN，无法通过人工决策清除 | 先实现 review queue artifact，记录 reviewer、decision、reason、input hash |
-| AI trace 还没有 | `element_spec.ai_traces` 为空 | 计划里的 AI 残余分类、模型版本、temperature、schema validation 都没落地 | 先决定哪些 element 类型允许 AI 分类，哪些必须确定性规则处理 |
-| 误删真内容的门禁还不够具体 | 当前 instruction_remove 有基础规则，但没有 gold 验证 | “格式说明”删除和“真实正文括号内容”保留的边界还没充分证明 | 增加 T3 聚焦测试和 gold expected |
+
+| 问题                         | 证据                                                             | 影响                                                   | 建议讨论                                                             |
+| -------------------------- | -------------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------- |
+| element 置信度基本硬编码为 `medium` | `_element_from_entries()` 当前写 `confidence: medium`             | 每个元素都会进入 UNKNOWN，报告噪声很大                              | 定义按规则来源分级的 confidence：明确占位符/下划线/格式说明可 high，正文歧义保留 medium         |
+| 低/中置信只有阻断，没有审核闭环           | `review_flags` 有了，但没有 `review_queue.yaml` 和 `review_decisions` | 状态会一直 UNKNOWN，无法通过人工决策清除                             | 先实现 review queue artifact，记录 reviewer、decision、reason、input hash |
+| AI trace 还没有               | `element_spec.ai_traces` 为空                                    | 计划里的 AI 残余分类、模型版本、temperature、schema validation 都没落地 | 先决定哪些 element 类型允许 AI 分类，哪些必须确定性规则处理                             |
+| 误删真内容的门禁还不够具体              | 当前 instruction_remove 有基础规则，但没有 gold 验证                        | “格式说明”删除和“真实正文括号内容”保留的边界还没充分证明                       | 增加 T3 聚焦测试和 gold expected                                        |
+
 
 ## T4 global_spec
 
@@ -247,11 +263,13 @@ finding 是报告层概念，不是源 Word 里的对象。
 
 当前问题：
 
-| 问题 | 证据 | 影响 | 建议讨论 |
-| --- | --- | --- | --- |
-| 页码体例 UNKNOWN | 三校 `page_numbering.field_refs=[]`、`status=UNKNOWN` | 页码规则不能证明，后续 template-gap 的页码问题无法提前定位 | 人工确认源模板页码是否存在；若存在，优先修 T1/T4 页码解析 |
-| 分节/分页 action 仍弱 | 当前 T6 `page_breaks/section_breaks` 主要看已有执行证据，三校最终 gap 仍可能有页面问题 | 页面规则可能到最终 gap 才暴露 | T4 需要把 page_start/section profile 变成可执行规则或明确 UNKNOWN |
-| global flags 粒度较粗 | 目前页码 UNKNOWN 是单个 global flag | 不知道是没字段、字段在页脚没读、还是字段类型没解释 | flag 里应带 source search evidence 和检查范围 |
+
+| 问题                | 证据                                                             | 影响                                   | 建议讨论                                                 |
+| ----------------- | -------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------- |
+| 页码体例 UNKNOWN      | 三校 `page_numbering.field_refs=[]`、`status=UNKNOWN`             | 页码规则不能证明，后续 template-gap 的页码问题无法提前定位 | 人工确认源模板页码是否存在；若存在，优先修 T1/T4 页码解析                     |
+| 分节/分页 action 仍弱   | 当前 T6 `page_breaks/section_breaks` 主要看已有执行证据，三校最终 gap 仍可能有页面问题 | 页面规则可能到最终 gap 才暴露                    | T4 需要把 page_start/section profile 变成可执行规则或明确 UNKNOWN |
+| global flags 粒度较粗 | 目前页码 UNKNOWN 是单个 global flag                                   | 不知道是没字段、字段在页脚没读、还是字段类型没解释            | flag 里应带 source search evidence 和检查范围                |
+
 
 ## T5 template_spec
 
@@ -264,12 +282,14 @@ finding 是报告层概念，不是源 Word 里的对象。
 
 当前问题：
 
-| 问题 | 证据 | 影响 | 建议讨论 |
-| --- | --- | --- | --- |
-| T5 findings 重复放大 | 湖南农大 T2/T3/T4 是 325 个真实不确定项，T5 又报 325 个 | `summary.unknown_findings`、`blocking_findings`、issue cluster 数量被放大 | T5 改成一个聚合 finding，或按 `flag_id + origin_stage` 去重 |
-| review_flags 没有 origin_stage | T5 重报后 type 变成 `t5_*`，原始阶段只能从 type/reason 猜 | 报告读者容易以为 T5 自己产生了新问题 | flag 增加 `origin_stage`、`origin_artifact`、`source_flag_id` |
-| review_decisions 为空 | `template_spec.review_decisions=[]` | 无法证明哪些不确定项已人工确认 | 和 `review_queue.yaml` 一起设计 |
-| 缺主 gold 精确比对 | 没有 `template_spec.gold.yaml` | T5 只能做 schema/id/flags 门禁，不能证明 spec 内容正确 | 建立一校主 gold，再切片出 T2/T3/T4 expected |
+
+| 问题                           | 证据                                          | 影响                                                                 | 建议讨论                                                      |
+| ---------------------------- | ------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------- |
+| T5 findings 重复放大             | 湖南农大 T2/T3/T4 是 325 个真实不确定项，T5 又报 325 个     | `summary.unknown_findings`、`blocking_findings`、issue cluster 数量被放大 | T5 改成一个聚合 finding，或按 `flag_id + origin_stage` 去重          |
+| review_flags 没有 origin_stage | T5 重报后 type 变成 `t5_*`，原始阶段只能从 type/reason 猜 | 报告读者容易以为 T5 自己产生了新问题                                               | flag 增加 `origin_stage`、`origin_artifact`、`source_flag_id` |
+| review_decisions 为空          | `template_spec.review_decisions=[]`         | 无法证明哪些不确定项已人工确认                                                    | 和 `review_queue.yaml` 一起设计                                |
+| 缺主 gold 精确比对                 | 没有 `template_spec.gold.yaml`                | T5 只能做 schema/id/flags 门禁，不能证明 spec 内容正确                           | 建立一校主 gold，再切片出 T2/T3/T4 expected                         |
+
 
 ## T6 fillable_template/build_manifest
 
@@ -286,31 +306,37 @@ finding 是报告层概念，不是源 Word 里的对象。
 
 当前问题：
 
-| 问题 | 证据 | 影响 | 建议讨论 |
-| --- | --- | --- | --- |
-| T6 PASS 不代表模板解析成功 | overall 是 UNKNOWN，first_bad_stage 是 T2 | Word 能构建出来，但不能宣称模板解析正确 | 报告里继续明确 T6 PASS 只是构建层通过 |
-| generated fields 仍是占位能力 | 计划要求 TOC/PAGE/SEQ 优先低层 OOXML 字段 | 目录、页码、编号最终质量仍可能不达标 | 先补 PAGE/TOC 的低层 OOXML 构建 |
-| 缺成品再跑 T1 的复核链 | 计划要求对成品再跑 T1，编辑区 facts 能复现 template_spec 决定 | 目前 T6 主要看 manifest、SDT、hash | 增加成品 facts verifier |
-| 缺视觉/分页快照门禁 | 没有字段更新后截图、页数、页边界比较 | 分页错可能只在 template-gap 或人工打开 Word 时发现 | 后续接渲染快照或 Word 更新字段流程 |
+
+| 问题                      | 证据                                          | 影响                                  | 建议讨论                     |
+| ----------------------- | ------------------------------------------- | ----------------------------------- | ------------------------ |
+| T6 PASS 不代表模板解析成功       | overall 是 UNKNOWN，first_bad_stage 是 T2      | Word 能构建出来，但不能宣称模板解析正确              | 报告里继续明确 T6 PASS 只是构建层通过  |
+| generated fields 仍是占位能力 | 计划要求 TOC/PAGE/SEQ 优先低层 OOXML 字段             | 目录、页码、编号最终质量仍可能不达标                  | 先补 PAGE/TOC 的低层 OOXML 构建 |
+| 缺成品再跑 T1 的复核链           | 计划要求对成品再跑 T1，编辑区 facts 能复现 template_spec 决定 | 目前 T6 主要看 manifest、SDT、hash         | 增加成品 facts verifier      |
+| 缺视觉/分页快照门禁              | 没有字段更新后截图、页数、页边界比较                          | 分页错可能只在 template-gap 或人工打开 Word 时发现 | 后续接渲染快照或 Word 更新字段流程     |
+
 
 ## Report 层问题
 
 这些不是某个模板阶段的业务判断，而是报告表达问题。
 
-| 问题 | 当前表现 | 影响 | 建议 |
-| --- | --- | --- | --- |
-| T5 重复投影导致计数翻倍 | T2/T3/T4 的 flags 在 T5 又逐条报 | 数量看起来比真实问题多一倍 | T5 聚合或去重 |
-| findings 的 `stage` 仍是 `template_generate` | issue cluster 里 stage 不是 T2/T3/T4 | 读报告时不能直接按阶段筛选 | finding 增加 `verification_stage`，或把 stage 写成 T2/T3/T4 |
-| issue cluster 标题太泛 | 标题是 `T2 has unresolved flag` | 看 cluster 不知道具体要审核什么 | cluster title 用 flag type 和样例 affected_ids |
-| blocking_findings 与 UNKNOWN 混在一起 | UNKNOWN finding 默认 severity 是 blocking | 技术上符合阻断，但 PM 读起来像失败缺陷 | 可以增加 `gate_blocking=true` 和 `known_failure=false` 区分 |
+
+| 问题                                        | 当前表现                                   | 影响                    | 建议                                                   |
+| ----------------------------------------- | -------------------------------------- | --------------------- | ---------------------------------------------------- |
+| T5 重复投影导致计数翻倍                             | T2/T3/T4 的 flags 在 T5 又逐条报             | 数量看起来比真实问题多一倍         | T5 聚合或去重                                             |
+| findings 的 `stage` 仍是 `template_generate` | issue cluster 里 stage 不是 T2/T3/T4      | 读报告时不能直接按阶段筛选         | finding 增加 `verification_stage`，或把 stage 写成 T2/T3/T4 |
+| issue cluster 标题太泛                        | 标题是 `T2 has unresolved flag`           | 看 cluster 不知道具体要审核什么  | cluster title 用 flag type 和样例 affected_ids           |
+| blocking_findings 与 UNKNOWN 混在一起          | UNKNOWN finding 默认 severity 是 blocking | 技术上符合阻断，但 PM 读起来像失败缺陷 | 可以增加 `gate_blocking=true` 和 `known_failure=false` 区分 |
+
 
 ## 文档口径问题
 
-| 文件 | 问题 | 建议 |
-| --- | --- | --- |
-| `docs/current/template-generation-open-gaps.md` | 仍有一句“当前模板生成能生成 `generated_template.docx` 和 00-05 阶段证据” | 改成历史口径，或更新为 `fillable_template.docx` 和 `00-07` |
-| `docs/current/template-generation-evaluation.md` | 仍大量使用旧 `generated_template.docx` / 00-05 评测口径 | 后续统一迁移到新 artifact 链，或明确标注历史文档 |
-| `docs/human/*template-generation*` | 多数是历史审计和旧主线 | 保留可以，但需要索引说明“旧文档，不作为当前门禁” |
+
+| 文件                                               | 问题                                                     | 建议                                             |
+| ------------------------------------------------ | ------------------------------------------------------ | ---------------------------------------------- |
+| `docs/current/template-generation-open-gaps.md`  | 仍有一句“当前模板生成能生成 `generated_template.docx` 和 00-05 阶段证据” | 改成历史口径，或更新为 `fillable_template.docx` 和 `00-07` |
+| `docs/current/template-generation-evaluation.md` | 仍大量使用旧 `generated_template.docx` / 00-05 评测口径          | 后续统一迁移到新 artifact 链，或明确标注历史文档                  |
+| `docs/human/*template-generation*`               | 多数是历史审计和旧主线                                            | 保留可以，但需要索引说明“旧文档，不作为当前门禁”                      |
+
 
 ## 建议讨论顺序
 
@@ -329,3 +355,4 @@ finding 是报告层概念，不是源 Word 里的对象。
 3. copy-only 单元内部拆出的 fill candidate，是应该默认保守 medium，还是只作为辅助证据不进入阻断？
 4. T5 的 `review_flags` 是“主审核入口”，还是只做汇总索引？
 5. 页码如果源模板没有真实 PAGE 字段，是 T4 UNKNOWN，还是 T6 应生成 PAGE 字段占位？
+
