@@ -1,5 +1,5 @@
 ---
-status: implemented
+status: superseded
 owner: template-generation
 stage: T2
 topic: copy-only-policy
@@ -13,7 +13,9 @@ previous_issue: none
 previous_optimization:
   doc: docs/current/template-generation-stage-optimization.md
   summary: "copy-only internal candidates were exposed as evidence, but the default copy-only predicate still used a reverse exclusion list"
-next_plan: none
+next_plan:
+  doc: docs/plans/template-parse-refactor-t2-copy-only-policy-issue-02-disable-copy-only.md
+  summary: "copy-only positive baseline was still too risky; default copy-only is now disabled"
 related_docs:
   - docs/plans/template-parse-refactor-issue-index.md
   - docs/plans/template-parse-refactor-t3-element-policy-issue-02-post-confidence-residuals.md
@@ -27,6 +29,8 @@ related_code:
 ---
 
 # T2 Copy-Only Policy Issue 01：默认冻结方向反了
+
+> 2026-06-25 follow-up：本文的“正向白名单”修复已被 ISSUE-02 supersede。当前默认 copy-only 能力已关闭，`COPY_ONLY_DEFAULT_UNIT_IDS` 为空。本文仍保留作为“为什么不能反向默认冻结”的历史记录。
 
 ## 0. 真实运行口径
 

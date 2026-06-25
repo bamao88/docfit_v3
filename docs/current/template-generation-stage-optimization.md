@@ -145,7 +145,7 @@ manifest = build_template_generation_manifest(
 | 已完成 | 消费阶段二 `template_structure_candidates`；输出 `unit_strategies[]`、`slots[]`、`required_fields[]`、`protected_zones[]`、`cleanup[]`、`unsupported[]`、`unresolved_questions[]` |
 | 不负责 | 不直接改 Word，不重新解析源 DOCX，不替代 `template-gap` 判定学校合格性 |
 
-当前策略仍以全局 copy-only 基线为起点。默认 copy-only 单元使用正向白名单；未命中白名单的单元（尤其是 `custom:template:*` / `other`）默认走 `copy_then_patch`，不再因未知而整单元冻结。
+当前默认关闭 copy-only：`COPY_ONLY_DEFAULT_UNIT_IDS` 为空，所有单元默认走 `copy_then_patch`。初始源 DOCX 复制仍作为执行底座保留，但不再默认产生 `whole_unit_copy` / `preserve_whole_unit_copy` 策略。
 
 下一步优化：
 

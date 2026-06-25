@@ -132,7 +132,7 @@ Last updated: 2026-06-22
 
 ## 这个文件做什么
 
-这个文件是模板生成流程优化计划，主口径是新方案。它不是只讨论“默认仅复制单元”，而是把模板生成阶段里几个关键决策放到同一个流程里对齐：
+这个文件是模板生成流程优化计划，主口径是新方案。它不是只讨论 copy-only，而是把模板生成阶段里几个关键决策放到同一个流程里对齐：
 
 - 哪些区域只保留学校原始模板；
 - 哪些区域要生成字段或占位；
@@ -291,7 +291,7 @@ manifest = build_template_generation_manifest(
 | `generation_model.py::build_template_generation_model` | 已替代旧的 template-generate `build_template_artifact` 写法，产物 `artifact_type = template_generation_model` | `--out/artifacts/template_generation_model.json` 存在；不再写 template-generate 的 `template_artifact.json` |
 | 阶段三 unit 决策构建 | 旧的 `build_template_unit_decisions` 不再作为单独 public 产物；逻辑并入 `template_generation_model.unit_strategies[]`、`slots[]`、`protected_zones[]`、`cleanup[]` | 没有 `template_unit_decisions.json`；每个 unit 的策略仍可追踪 |
 | `_materialize_template_units` | 改为消费阶段二的 logical elements 和 `role_hint`；输出确认后的 `units[]`、最终 `policy` 或 `final_disposition` | 阶段三才出现最终 `generation_mode`、slot、cleanup、protected zone |
-| 新增 `_build_unit_strategies` | 集中决定 `whole_unit_copy` / `copy_then_patch` / `needs_review`；当前使用正向默认 copy-only 白名单，后续再接学校标准和学生内容台账 | cover 默认 whole copy，references 和 custom/other 默认 copy_then_patch |
+| 新增 `_build_unit_strategies` | 集中决定 `whole_unit_copy` / `copy_then_patch` / `needs_review`；当前默认关闭 copy-only，后续若恢复需先接学校标准和学生内容台账 | cover、references 和 custom/other 默认 copy_then_patch |
 | 新增 `_build_cleanup` | 把 `role_hint = instruction_candidate` 的 logical element 转成 `cleanup[]`，保留 `source_refs[]`、`source_seq_refs[]`、evidence | copy-only 内部说明文字能进入 cleanup |
 | 新增 `_build_protected_zones` | 把固定学校内容、人工填写区、copy-only 保留范围写入 `protected_zones[]` | copy-only 内部固定/人工内容不会被误删，也不会生成 slot |
 | 新增 `_build_slots` | 只对 `copy_then_patch` 单元里的学生内容位和系统生成位生成 slot / generated field；copy-only 内部填空默认只写证据或 unresolved question | 封面 `论文题目：____` 不生成 cover slot；参考文献仍能生成 slot |
@@ -654,7 +654,7 @@ flowchart TD
 | 合并停止条件 | 标题和正文、说明和正文、不同样式/不同表格行什么时候不能合并 |
 | role_hint 枚举 | 需要固定枚举，避免阶段三消费时出现自由文本 |
 | confidence 口径 | 需要定义高/中/低置信度和何时进入 `needs_review` |
-| copy-only 受限识别规则 | 需要明确哪些 policy 在 copy-only 内可以产生 cleanup，哪些只能产生 conflict |
+| copy-only 受限识别规则 | 当前默认关闭；未来恢复前需要明确哪些 policy 在 copy-only 内可以产生 cleanup，哪些只能产生 conflict |
 | header/footer 处理边界 | 当前不作为正文 unit element，但仍要作为全局上下文传递；未来是否有独立 header/footer unit 需要定义 |
 | source_context 与完整 source_tree 的关系 | 要决定是只传摘要，还是同时保留 ref + 必要快照，避免阶段三过度回读阶段一 |
 | 阶段二到阶段三的切换策略 | 当前代码的 `discovered_template_rules` schema 较薄，目标 schema 需要一次性切换消费者，不保留兼容读取 |
@@ -665,14 +665,14 @@ flowchart TD
 当前单元 anchor -> 下一个单元 anchor 之前
 ```
 
-然后进入分支。这里要区分当前代码和目标口径：
+然后进入普通 `copy_then_patch` 元素分析。copy-only 分支当前默认关闭；下面保留的是历史分支和未来恢复时的目标口径：
 
-| 单元类型 | 当前代码 | 目标口径 |
+| 单元类型 | 当前默认 | 未来恢复 copy-only 时的目标口径 |
 | --- | --- | --- |
-| 默认仅复制单元 | 写出单元级 `whole_unit_copy` 元素，并已有第一版逐 entry 受限内部候选；但还没有稳定 logical element 合并层和完整 `source_context` 输出 | 保留单元级 copy 元素，同时把内部碎片合并为 logical element；说明文字可进入 cleanup，填空/系统生成信号不直接生成 slot |
-| 排除列表里的单元 | 逐个可见节点分析元素 policy | 继续逐 entry 做完整元素识别；可生成 slot、generated marker、删除说明文字或插入固定文本 |
+| copy-only 分支 | 不默认启用 | 保留单元级 copy 元素，同时把内部碎片合并为 logical element；说明文字可进入 cleanup，填空/系统生成信号不直接生成 slot |
+| 普通单元 | 逐个可见节点分析元素 policy | 继续逐 entry 做完整元素识别；可生成 slot、generated marker、删除说明文字或插入固定文本 |
 
-当前代码里，默认仅复制单元的单元级 copy 元素形状大致是：
+兼容分支里，单元级 copy 元素形状大致是：
 
 ```json
 {
@@ -1000,11 +1000,11 @@ flowchart TD
   M --> N["写 template_generation_manifest"]
 ```
 
-当前代码对默认 copy-only 单元会打开内部元素做受限处理：先靠整包复制保留原始结构，再执行 copy-only 内部允许的 cleanup action，例如删除说明文字；其余固定内容、人工填写区和表单结构继续保留。它仍不会因为 copy-only 内部出现填空痕迹就自动生成学生内容 slot。
+当前默认关闭 copy-only：所有单元先走普通 `copy_then_patch` 元素分析。copy-only 兼容分支仍保留在代码中，但只有未来接入明确的学校级策略来源后才应重新启用。
 
 ## 和其他单元的核心差异
 
-| 维度 | 默认仅复制单元 | 非 copy-only 单元 |
+| 维度 | copy-only 兼容分支（当前默认不启用） | 默认单元路径 |
 | --- | --- | --- |
 | 单元范围 | 用 anchor 到下一个 anchor 之前作为复制保留范围 | 同样先识别范围 |
 | 元素分析 | 做受限元素分析，只服务清理、保护和冲突识别 | 做完整元素分析 |
@@ -1022,26 +1022,26 @@ flowchart TD
 ### 当前真实实现
 
 - `template-generate` 不读学校签收标准，也不接收 `--school`。
-- 当前代码里的默认 copy-only 仍是按 `unit_id` 的生成策略，不是学校验收结论。
+- 当前默认 copy-only 关闭，`COPY_ONLY_DEFAULT_UNIT_IDS` 为空；所有单元默认走 `copy_then_patch`。
 - 图目录、表目录当前还没有独立稳定 unit_id；它们应作为目录族的生成字段要求标注，后续如拆分可使用 `figure_toc`、`table_toc` 等稳定 ID。
-- `preserve_whole_unit_copy` 不复制单元块，只记录该单元依赖初始整包复制保留。
-- copy-only 单元不会因为内部有 `____`、`××`、`姓名：` 等文字就生成 slot。
-- copy-only 单元内部看起来像说明文字、格式要求或示例的内容会生成 cleanup action；这仍只是生成过程策略，不证明最终 Word 符合学校标准。
+- `preserve_whole_unit_copy` 仍作为旧 action 兼容保留，但默认计划不应生成它。
+- 默认路径下，单元内部有 `____`、`××`、`姓名：` 等文字时会进入普通元素策略，可生成 slot 或复核信号。
+- 说明文字、格式要求或示例内容仍会生成 cleanup action；这仍只是生成过程策略，不证明最终 Word 符合学校标准。
 - 生成模板是否真正符合学校要求，仍然要看后续 `template-gap`。
 
 ### 已有设计意图
 
-- 封面、声明、后置表单等固定学校区域优先保留原 Word 结构。
+- 封面、声明、后置表单等固定学校区域最终可能需要保留原 Word 结构，但默认 copy-only 关闭前不会再隐式冻结它们。
 - 摘要、目录族、正文、参考文献这些学生内容或系统生成相关区域继续走局部 patch。
 - 致谢、附录这类条件单元根据学生源内容和学校标准决定；有学生内容时不能默认仅复制。
 - 签名、日期、教师意见、成绩评定等线下人工填写区不由机器填写，默认保留原模板结构。
 - 减少对固定学校区域的误判，避免把模板里的占位符误当成学生内容写入口。
-- copy-only 表示保留主体结构和固定内容，不表示跳过内部说明文字清理。
+- 未来若恢复 copy-only，它应表示保留主体结构和固定内容，不表示跳过内部说明文字清理。
 
 ### 当前假设
 
 - 固定学校内容和线下人工填写区里的可见内容应该跟随学校原始模板保留。
-- 如果默认 copy-only 单元里实际存在必须自动填写的字段，需要以后通过明确标准或配置把该单元移出默认 copy-only，不能靠启发式猜。
+- 如果未来恢复 copy-only，必须通过明确标准或配置决定哪些单元可整单元复制，不能靠启发式猜。
 - 参考文献虽然在源模板里可能只是标题，但当前不能默认保留为最终内容，因为它通常应来自学生论文。
 - 致谢和附录是否填写，取决于学生源文档是否有对应内容，以及目标学校是否要求保留该区域。
 

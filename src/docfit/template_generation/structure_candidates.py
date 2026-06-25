@@ -1220,7 +1220,7 @@ def _copy_only_unit_elements(
             "merge": {
                 "type": "whole_unit_copy_region",
                 "merged_source_seq_refs": source_seq_refs,
-                "reason": "默认仅复制单元的整体保留候选区域",
+                "reason": "copy-only 单元的整体保留候选区域",
             },
         }
     ]

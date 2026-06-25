@@ -376,7 +376,7 @@ def test_template_generate_cli_rejects_school_standard_input(tmp_path) -> None:
     assert "No such option" in result.output or "No such option" in result.stderr
 
 
-def test_template_generate_marks_fixed_unit_as_whole_unit_copy(tmp_path) -> None:
+def test_template_generate_disables_whole_unit_copy_by_default(tmp_path) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     out_dir = tmp_path / "template_generate"
     write_source_docx(source, ["封面", "参考文献"])
@@ -389,8 +389,8 @@ def test_template_generate_marks_fixed_unit_as_whole_unit_copy(tmp_path) -> None
     )
 
     assert result.status == Status.UNKNOWN
-    assert cover["generation_mode"] == "whole_unit_copy"
-    assert cover["generation_policy"] == "whole_unit_copy"
+    assert cover["generation_mode"] == "copy_then_patch"
+    assert cover["generation_policy"] == "unit_actions"
     references = next(
         unit
         for unit in generation_model["unit_strategies"]
@@ -398,27 +398,8 @@ def test_template_generate_marks_fixed_unit_as_whole_unit_copy(tmp_path) -> None
     )
     assert references["generation_mode"] == "copy_then_patch"
     assert references["generation_policy"] == "unit_actions"
-    assert cover["decisions"] == [
-        {
-            "copy_scope": "whole_unit",
-            "decision_id": "cover.keep_whole_unit_copy",
-            "decision_type": "keep_whole_unit_copy",
-            "element_id": None,
-            "reason": "this unit can be preserved by the initial source DOCX copy",
-            "source_seq_refs": [1],
-            "source_ref": "word/document.xml:p[1]",
-            "unit_id": "cover",
-        }
-    ]
-    assert any(
-        action["action_type"] == "preserve_whole_unit_copy"
-        and action["unit_id"] == "cover"
-        and action["affected_source_seq_refs"] == [1]
-        for action in plan["actions"]
-    )
     assert not any(
         action["action_type"] == "preserve_whole_unit_copy"
-        and action["unit_id"] == "references"
         for action in plan["actions"]
     )
 
@@ -458,7 +439,7 @@ def test_template_generate_custom_units_are_not_copy_only_by_default(tmp_path) -
     )
 
 
-def test_template_generate_copy_only_units_use_restricted_internal_element_analysis(
+def test_template_generate_cover_uses_patch_analysis_when_copy_only_disabled(
     tmp_path,
 ) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
@@ -492,11 +473,6 @@ def test_template_generate_copy_only_units_use_restricted_internal_element_analy
     )
     cover_elements = cover_candidate["elements"]
     cover_model_elements = cover_model["elements"]
-    whole_copy = next(
-        element
-        for element in cover_elements
-        if element.get("relationship") == "copy_region_candidate"
-    )
     title_candidate = next(
         element
         for element in cover_elements
@@ -514,18 +490,20 @@ def test_template_generate_copy_only_units_use_restricted_internal_element_analy
     )
 
     assert result.status == Status.UNKNOWN
-    assert whole_copy["candidate_policy"] == "fixed"
-    assert whole_copy["role_hint"] == "copy_region_candidate"
+    assert not any(
+        element.get("relationship") == "copy_region_candidate"
+        for element in cover_elements
+    )
     assert title_candidate["role_hint"] == "student_field_candidate"
     assert title_candidate["candidate_policy"] == "fill"
     assert title_candidate["source_seq_refs"] == [2]
     assert model_title["candidate_policy"] == "fill"
-    assert model_title["policy"] == "fixed"
+    assert model_title["policy"] == "fill"
     assert instruction_candidate["role_hint"] == "instruction_candidate"
     assert instruction_candidate["candidate_policy"] == "remove_instruction"
     assert instruction_candidate["source_seq_refs"] == [3]
-    assert cover_strategy["generation_mode"] == "whole_unit_copy"
-    assert any(
+    assert cover_strategy["generation_mode"] == "copy_then_patch"
+    assert not any(
         decision["decision_type"] == "keep_whole_unit_copy"
         for decision in cover_strategy["decisions"]
     )
@@ -535,9 +513,10 @@ def test_template_generate_copy_only_units_use_restricted_internal_element_analy
         and decision["source_seq_refs"] == [3]
         for decision in cover_strategy["decisions"]
     )
-    assert not any(
+    assert any(
         action.get("unit_id") == "cover"
-        and action["action_type"] in {"create_fillable_slot", "create_generated_field_placeholder"}
+        and action["action_type"] == "create_fillable_slot"
+        and action["affected_source_seq_refs"] == [2]
         for action in plan["actions"]
     )
     assert any(
@@ -546,9 +525,8 @@ def test_template_generate_copy_only_units_use_restricted_internal_element_analy
         and action["affected_source_seq_refs"] == [3]
         for action in plan["actions"]
     )
-    assert "论文题目：____" in docx_texts(fillable)
     assert "格式说明：小四宋体" not in docx_texts(fillable)
-    assert not any("[[DOCFIT_SLOT:cover." in text for text in docx_texts(fillable))
+    assert any(tag.startswith("cover.") for tag in docx_sdt_tags(fillable))
 
 
 def test_template_generate_references_unit_is_fillable_not_copy_only(tmp_path) -> None:
