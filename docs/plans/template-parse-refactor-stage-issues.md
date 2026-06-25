@@ -143,6 +143,75 @@ finding 是报告层概念，不是源 Word 里的对象。
 
 所以现在很多判断只能靠 schema、flags 和 confidence gate，不能做精确比对。
 
+## 分层视角
+
+现在这条链路可以按四层事实/语义/规格/门禁，加一层构建来看：
+
+```text
+L0 输入层       source_template.docx
+L1 事实层       document_facts.json                         T1
+L2 语义解析层   unit_map.yaml + element_spec.yaml + global_spec.yaml   T2/T3/T4
+L3 主规格层     template_spec.yaml                           T5
+L4 门禁报告层   verification_report.json / issue_clusters.json
+L5 构建层       fillable_template.docx + build_manifest.json T6
+```
+
+数据从 L0 往 L5 流，门禁从 L4 回看每一层。L1 只回答“Word 里有什么”；L2 回答“这些事实代表什么单元、什么元素、什么页面规则”；L3 把语义合成唯一主规格；L5 按主规格改 Word；L4 判断能不能宣称成功。
+
+这里要区分两种“判定”：
+
+| 判定类型 | 谁做 | 产出 |
+| --- | --- | --- |
+| 生成判定 | 各阶段 `build_*` / 推断代码 | artifact 里的字段、`confidence`、`policy`、`flags` |
+| 门禁判定 | deterministic verifier | `finding`、阶段 `PASS/FAIL/UNKNOWN`、整体 gate |
+
+因此，一个 unit 被生成器写成 `cover`，只是“生成判定”；只有 verifier 能基于 flags、gold、硬规则判断它是否可自动放行。
+
+## T2 candidate 与默认 medium
+
+`structure_candidates.py` 是当前 L2 的核心推断引擎，不只服务 T2：
+
+```text
+document_facts
+  -> structure_candidates   # unit 边界 + element 策略的候选推断
+  -> unit_map.yaml          # T2 正式 artifact
+  -> generation_model
+  -> element_spec.yaml      # T3 正式 artifact
+```
+
+所以“candidate”更准确地说是 T2/T3 共用的中间推断结果；`unit_map.yaml` 和 `element_spec.yaml` 才是进入 verifier 的正式产物。
+
+当前 `default medium` 的核心问题是置信度没有校准：
+
+- T2 `_unit_confidence()`：只要有 `source_refs` 就返回 `medium`，否则 `low`，没有 `high` 路径。
+- T3 `_element_from_entries()`：新建 element 时直接写 `confidence: medium`。
+- artifact flag 规则：只有空值或 `high` 不贴 flag；`medium` / `low` 都会进入 `UNKNOWN`。
+
+这导致“识别结果可能还可以，但系统仍不能自动宣称它正确”。例如湖南农大的 9 个 unit 和 315 个 element 不等于 324 个内容都错了，而是这些判断缺少可放行的 `high` 证据或人工审核记录。
+
+## T4 页码与 unit 的关系
+
+你的质疑是对的：产品语义上，页码体例通常和单元相关。封面可能无页码，摘要/目录可能用罗马数字，正文通常用阿拉伯数字并从 1 开始。
+
+但 Word 的物理事实不是按“封面/摘要/正文”存的，而是按 section（`sectPr`）存的。因此正确模型应该是两套坐标在 T5 汇合：
+
+| 坐标 | 含义 | 负责阶段 | 关键字段 |
+| --- | --- | --- | --- |
+| unit | 封面、摘要、正文等语义单元 | T2 | `unit_id`、`source_range`、`page_start` |
+| section | OOXML 物理分节、页眉页脚、`pgNumType` | T1/T4 | `global_spec.section_profiles[]` |
+| 联结 | 某个 unit 使用哪套 section 规则 | T2/T5 | `units[].section_profile` -> `global.section_profiles[id]` |
+
+所以更准确的说法是：T4 不负责识别“这是封面还是摘要”，但 T4 也不能单独解决页码体例；必须由 T2 把 unit 范围映射到 T4 的 section profile，T5 合并后才能得到“cover 无页码、abstract upperRoman、body decimal”这类可执行规格。
+
+当前实现的缺口已经核实：
+
+- `build_global_spec()` 会从 `document_facts.data.sections` 生成 `section_profiles[]`，并用 `_page_numbering_from_facts()` 全局扫描 PAGE 字段。
+- `_section_profile_for_unit()` 现在是占位逻辑：只要有 sections，就返回 `section_001`。
+- 本次输出里南农 `04_global_spec.yaml` 有 11 个 `section_profile`，北大有 17 个，但三校 `02_unit_map.yaml` 的 9 个 unit 全部都是 `section_profile: section_001`。
+- 三校顶层 `global_spec.page_numbering.status` 仍是 `UNKNOWN`，因为当前全局页码判定主要看 `fields` 里的 PAGE 字段引用。
+
+结论：当前不是“T4 已经能按单元判定页码”，而是“section 事实已有一部分，unit 到 section/page numbering 的联结还没做实”。这会让页码问题滞后到 template-gap 或人工打开 Word 时才暴露。
+
 ## 先看结论
 
 当前不是 Word 构建失败。三校都是：
@@ -227,6 +296,7 @@ finding 是报告层概念，不是源 Word 里的对象。
 | 问题                           | 证据                                                         | 影响                           | 建议讨论                                                                |
 | ---------------------------- | ---------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------- |
 | unit 置信度没有 `high` 路径         | `_unit_confidence()` 当前有 source refs 就返回 `medium`，否则 `low` | 所有识别到的 unit 都会被挡成 UNKNOWN    | 定义 high confidence 条件，例如标题词命中、source range 连续、顺序合法、required unit 齐全 |
+| `section_profile` 映射是占位       | `_section_profile_for_unit()` 有 sections 时一律返回 `section_001`；三校每校 9 个 unit 都指向 `section_001` | 无法按 cover/abstract/body 判定页码体例和分节规则 | 用 unit 的 `source_seq_range` 映射到 `document_facts.sections[]`，允许一个 unit 关联一个或多个 section profile |
 | 单元边界质量没有 IoU verifier        | 没有 `unit_map.expected.yaml` 和边界 IoU 比对                     | 现在只能知道“识别到了 unit”，不能知道边界是否正确 | 从 `template_spec.gold.yaml` 派生 expected 后再做 IoU                     |
 | 固定 9 个 unit 可能粒度过粗           | 湖南农大后置表单可能需要更细 unit，例如开题、答辩、成绩等                            | 后续 T3/T6 会在粗边界内做策略，导致责任混在一起  | 先讨论湖南农大是否应拆后置表单 unit                                                |
 | `open_questions` 只从 flags 派生 | 当前主要是 confidence flags，没有更具体的问题文本                          | 人工审核不知道该判断边界、责任还是顺序          | 给 T2 flags 加结构化原因：anchor 弱、边界弱、缺 expected、顺序疑似异常                    |
@@ -267,6 +337,7 @@ finding 是报告层概念，不是源 Word 里的对象。
 | 问题                | 证据                                                             | 影响                                   | 建议讨论                                                 |
 | ----------------- | -------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------- |
 | 页码体例 UNKNOWN      | 三校 `page_numbering.field_refs=[]`、`status=UNKNOWN`             | 页码规则不能证明，后续 template-gap 的页码问题无法提前定位 | 人工确认源模板页码是否存在；若存在，优先修 T1/T4 页码解析                     |
+| section 事实未形成单元语义 | 南农有 11 个 section profile、北大有 17 个，但 T2 unit 仍全指向 `section_001` | 即使 T4 读到了多个物理分节，也不能回答“摘要/正文分别用什么页码” | 在 T5 verifier 校验每个 unit 的 `section_profile` 是否存在且与 source range 相交 |
 | 分节/分页 action 仍弱   | 当前 T6 `page_breaks/section_breaks` 主要看已有执行证据，三校最终 gap 仍可能有页面问题 | 页面规则可能到最终 gap 才暴露                    | T4 需要把 page_start/section profile 变成可执行规则或明确 UNKNOWN |
 | global flags 粒度较粗 | 目前页码 UNKNOWN 是单个 global flag                                   | 不知道是没字段、字段在页脚没读、还是字段类型没解释            | flag 里应带 source search evidence 和检查范围                |
 
@@ -343,8 +414,9 @@ finding 是报告层概念，不是源 Word 里的对象。
 1. 先修报告计数：T5 不再逐条重复报 T2/T3/T4 flags。
 2. 定义 T2/T3 的 high/medium/low 规则，让“正常确定项”不再全部 UNKNOWN。
 3. 决定 review queue schema，让 medium 项能被人工确认或驳回。
-4. 针对 T4 页码 UNKNOWN 查源 Word，判断是 T1 漏解析还是 T4 漏解释。
-5. 建湖南农大 gold，先让一校从“全靠 confidence gate”进入“gold 精确比对”。
+4. 修 T2/T4 的 unit -> section_profile 联结，让页码/分节能按单元解释。
+5. 针对 T4 页码 UNKNOWN 查源 Word，判断是 T1 漏解析、T4 漏解释，还是源模板确实没有 PAGE 字段。
+6. 建湖南农大 gold，先让一校从“全靠 confidence gate”进入“gold 精确比对”。
 
 ## 当前可讨论的关键问题
 
@@ -355,4 +427,4 @@ finding 是报告层概念，不是源 Word 里的对象。
 3. copy-only 单元内部拆出的 fill candidate，是应该默认保守 medium，还是只作为辅助证据不进入阻断？
 4. T5 的 `review_flags` 是“主审核入口”，还是只做汇总索引？
 5. 页码如果源模板没有真实 PAGE 字段，是 T4 UNKNOWN，还是 T6 应生成 PAGE 字段占位？
-
+6. unit 到 section 的映射应该由 T2 直接写死，还是由 T5 根据 T2 source range 与 T4 section range 合并推导？
