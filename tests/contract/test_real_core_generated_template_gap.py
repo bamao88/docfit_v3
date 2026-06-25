@@ -1369,7 +1369,11 @@ def test_generated_template_inspector_keeps_merged_cell_copies_in_row_order(
         for cell in tree["data"]["tables"][0]["cells"]
         if cell["text"] == "合并标题"
     ]
-    assert any(cell["first_paragraph_index"] is None for cell in merged_cells)
+    assert all(cell["first_paragraph_index"] == 1 for cell in merged_cells)
+    assert all(
+        cell["cell_paragraph_refs"] == ["word/document.xml:p[1]"]
+        for cell in merged_cells
+    )
     assert all(cell["row_first_paragraph_index"] == 1 for cell in merged_cells)
 
 
@@ -1446,7 +1450,7 @@ def test_generated_template_gap_binds_header_footer_rules_to_sections(tmp_path) 
     assert any(
         item["type"] == "template_generation_header_footer_match"
         and item["affected_ids"] == ["toc.header_footer.header"]
-        and "word/document.xml:p[45]/sectPr" in item["evidence_refs"][0]
+        and "word/document.xml:p[74]/sectPr" in item["evidence_refs"][0]
         for item in header_footer_items
     )
     toc_page_number = next(
@@ -1454,8 +1458,8 @@ def test_generated_template_gap_binds_header_footer_rules_to_sections(tmp_path) 
         for item in header_footer_items
         if item["affected_ids"] == ["toc.header_footer.page_number"]
     )
-    assert toc_page_number["type"] == "template_generation_page_number_rule_mismatch"
-    assert "page_numbering={'format': 'upperRoman', 'start': 1}" in toc_page_number["actual"]
+    assert toc_page_number["type"] == "template_generation_page_number_rule_match"
+    assert "page_numbering={'format': 'lowerRoman', 'start': 1}" in toc_page_number["actual"]
     assert any("sectPr" in ref for ref in toc_page_number["evidence_refs"])
 
 
@@ -1521,19 +1525,19 @@ def test_generated_template_gap_binds_word_fields_to_units(tmp_path) -> None:
         "SEQ 公式 \\* ARABIC \\s 1",
     } <= pku_seq_instructions
     assert unit_by_id(pku_report, "figure_list")["located"]["source_ref"] == (
-        "word/document.xml:p[47]"
+        "word/document.xml:p[104]"
     )
     assert unit_by_id(pku_report, "table_list")["located"]["source_ref"] == (
-        "word/document.xml:p[64]"
+        "word/document.xml:p[121]"
     )
     assert unit_by_id(pku_report, "body_main")["located"]["source_ref"] == (
-        "word/document.xml:p[70]"
+        "word/document.xml:p[127]"
     )
     assert unit_by_id(pku_report, "references")["located"]["source_ref"] == (
-        "word/document.xml:p[206]"
+        "word/document.xml:p[406]"
     )
     assert unit_by_id(pku_report, "acknowledgement")["located"]["source_ref"] == (
-        "word/document.xml:p[228]"
+        "word/document.xml:p[428]"
     )
     assert any(
         item["type"] == "template_generation_field_unverified"
@@ -1619,7 +1623,7 @@ def test_generated_template_gap_binds_numbering_rules_to_units(tmp_path) -> None
         item["type"] == "template_generation_numbering_match"
         and item["affected_ids"] == ["body_main.e_001.numbering"]
         and "text=第%1章" in item["actual"]
-        and "word/document.xml:p[127]/pStyle" in item["evidence_refs"]
+        and "word/document.xml:p[175]/pStyle" in item["evidence_refs"]
         for item in numbering_items
     )
     assert any(

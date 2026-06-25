@@ -5,6 +5,7 @@ from typing import Any
 
 from docfit.core.io import now_iso, sha256_json
 
+from .constants import FILLABLE_LABELS, FILLABLE_MARKERS, MANUAL_ONLY_MARKERS
 from .refs import _paragraph_index, _part_name
 
 
@@ -52,6 +53,11 @@ def build_unit_map(
             "name": unit.get("name"),
             "order": unit.get("order"),
             "status": unit.get("status", "required"),
+            "label_status": unit.get("label_status"),
+            "canonical_label_id": unit.get("canonical_label_id"),
+            "raw_title": unit.get("raw_title"),
+            "normalized_title": unit.get("normalized_title"),
+            "display_name": unit.get("display_name"),
             "source_range": unit.get("source_range", {}),
             "source_seq_range": unit.get("source_seq_range", {}),
             "source_refs": unit.get("source_refs", []),
@@ -89,6 +95,7 @@ def build_unit_map(
         "units": units,
         "flags": flags,
         "open_questions": _unit_map_open_questions(structure_candidates, flags),
+        "taxonomy_review_queue": structure_candidates.get("taxonomy_review_queue", []),
     }
 
 
@@ -114,7 +121,11 @@ def build_element_spec(generation_model: dict[str, Any]) -> dict[str, Any]:
                 "logical_run_ids": element.get("logical_run_ids", []),
                 "content": element.get("content", ""),
                 "style": element.get("style") or element.get("style_summary", ""),
-                "confidence": element.get("confidence", "medium"),
+                "confidence": _element_confidence(
+                    policy,
+                    element.get("content", ""),
+                    str(element.get("role_hint") or ""),
+                ),
                 "evidence": element.get("evidence", []),
                 "flags": list(element.get("review_notes", [])),
             }
@@ -993,6 +1004,42 @@ def _unit_flags(unit: dict[str, Any], *, confidence: str) -> list[dict[str, Any]
             }
         )
     return flags
+
+
+def _element_confidence(policy: str, content: Any, role_hint: str) -> str:
+    """Grade evidence strength for an element's FINAL (canonical) policy.
+
+    high   = an explicit deterministic marker decided the policy, or the element
+             is non-empty verbatim fixed text that is safe to auto-pass.
+    medium = policy inferred without an explicit marker, OR the resolved policy
+             disagrees with the upstream role hint (a fill/generated candidate
+             collapsed to ``fixed`` by whole-unit copy). These stay reviewable
+             instead of being silently auto-passed (see T3-ISSUE-002).
+    low    = no positive evidence (empty / spacing-only fixed text).
+    """
+    text = str(content or "")
+    # Role hint vs final policy disagreement: a student/generated field that was
+    # downgraded to fixed must remain visible for review, not auto-pass as high.
+    if policy in {"fixed", "template_default"} and role_hint in {
+        "student_field_candidate",
+        "generated_field_candidate",
+    }:
+        return "medium"
+    if policy == "instruction_remove":
+        # Only assigned upstream when an instruction marker / format annotation fired.
+        return "high"
+    if policy == "manual_only":
+        return "high" if any(marker in text for marker in MANUAL_ONLY_MARKERS) else "medium"
+    if policy == "generated":
+        return "high"
+    if policy == "fill":
+        has_marker = any(marker in text for marker in FILLABLE_MARKERS)
+        has_label = any(label in text for label in FILLABLE_LABELS)
+        return "high" if has_marker and has_label else "medium"
+    # fixed / template_default
+    if not text.strip():
+        return "low"
+    return "high"
 
 
 def _confidence_flag(

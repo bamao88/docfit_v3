@@ -43,7 +43,15 @@ def build_template_structure_candidates(source_tree: dict[str, Any]) -> dict[str
         "units": units,
         "unknowns": _rule_unknowns(source_tree, units),
         "open_questions": open_questions,
+        "taxonomy_review_queue": inference.get("taxonomy_review_queue", []),
     }
+    debug = {
+        "t2_derived_signals_by_source_seq": _t2_derived_signals_by_source_seq(entries),
+    }
+    toc_blocks = inference.get("toc_blocks")
+    if toc_blocks:
+        debug["toc_blocks"] = toc_blocks
+    result["debug"] = debug
     t2_input = inference.get("t2_input")
     if t2_input is not None:
         result["t2_input"] = t2_input
@@ -122,10 +130,15 @@ def _infer_units(
 
     source_tree = source_tree or {}
     context = _boundary_context(source_tree)
-    boundaries = _boundary_anchors(entries, context)
-    label_result = _label_boundaries(boundaries)
+    boundary_result = _boundary_anchors(entries, context)
+    label_result = _label_boundaries(boundary_result["anchors"])
     anchors = label_result["anchors"]
     open_questions = list(label_result["open_questions"])
+    open_questions.extend(
+        _candidate_open_question(candidate)
+        for candidate in boundary_result["candidates"]
+    )
+    taxonomy_review_queue = list(label_result.get("taxonomy_review_queue", []))
 
     units: list[dict[str, Any]] = []
     for anchor_index, anchor in enumerate(anchors):
@@ -148,6 +161,11 @@ def _infer_units(
                 "name": anchor["name"],
                 "order": (anchor_index + 1) * 10,
                 "status": "required",
+                "label_status": anchor.get("label_status"),
+                "canonical_label_id": anchor.get("canonical_label_id"),
+                "raw_title": anchor.get("raw_title"),
+                "normalized_title": anchor.get("normalized_title"),
+                "display_name": anchor.get("display_name"),
                 "candidate_policy": _unit_policy(unit_id),
                 "source_refs": region_source_refs or [anchor["source_ref"]],
                 "source_seq_refs": region_source_seq_refs,
@@ -175,6 +193,8 @@ def _infer_units(
                 ],
                 "conflicts": [],
                 "confidence": anchor.get("confidence", "medium"),
+                "variant_block_detected": _region_has_variant_marker(region_entries),
+                "form_block_detected": _looks_like_form_block(anchor, region_entries),
                 "flags": list(anchor.get("flags", [])),
                 "evidence": _unit_boundary_evidence(anchor),
                 "boundary_score": anchor.get("score"),
@@ -192,6 +212,8 @@ def _infer_units(
     result: dict[str, Any] = {
         "units": units,
         "open_questions": open_questions,
+        "taxonomy_review_queue": taxonomy_review_queue,
+        "toc_blocks": boundary_result.get("toc_blocks", []),
     }
     if open_questions:
         result["t2_input"] = _t2_input_projection(
@@ -266,29 +288,55 @@ def _boundary_context(source_tree: dict[str, Any]) -> dict[str, Any]:
 def _boundary_anchors(
     entries: list[dict[str, Any]],
     context: dict[str, Any],
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
+    blocks = _segment_toc_blocks(entries)
+    locked = _locked_indices(blocks)
+
     boundaries: list[dict[str, Any]] = []
+    candidates: list[dict[str, Any]] = []
     for index, entry in enumerate(entries):
+        if index in locked:
+            continue
         decision = _boundary_decision(entry, index, context)
         if decision["is_boundary"]:
             boundaries.append(decision)
+        elif decision.get("is_candidate"):
+            candidates.append(decision)
 
-    if not any(anchor["entry_index"] == 0 for anchor in boundaries):
+    for block in blocks:
+        boundaries.append(_toc_block_anchor(entries, block))
+
+    if 0 not in locked and not any(anchor["entry_index"] == 0 for anchor in boundaries):
         boundaries.insert(0, _document_start_boundary(entries[0]))
 
-    boundaries.extend(_keyword_only_fallback_boundaries(entries, boundaries))
+    boundaries.extend(_keyword_only_fallback_boundaries(entries, boundaries, locked))
 
     if "body_main" not in {
-        _unit_for_boundary(anchor).get("unit_id")
+        str(anchor.get("unit_id_hint") or "")
         for anchor in boundaries
     }:
-        body_index = _first_body_like_index(entries)
-        boundaries.append(_body_main_fallback_boundary(entries[body_index], body_index))
+        body_index = _first_body_like_index(entries, locked)
+        if body_index is not None:
+            boundaries.append(
+                _body_main_fallback_boundary(entries[body_index], body_index)
+            )
 
-    return sorted(
-        _dedupe_boundary_anchors(boundaries),
-        key=lambda item: (int(item["entry_index"]), str(item.get("unit_id_hint") or "")),
-    )
+    promoted_indices = {int(anchor["entry_index"]) for anchor in boundaries}
+    return {
+        "anchors": sorted(
+            _dedupe_boundary_anchors(boundaries),
+            key=lambda item: (
+                int(item["entry_index"]),
+                str(item.get("unit_id_hint") or ""),
+            ),
+        ),
+        "candidates": [
+            candidate
+            for candidate in candidates
+            if int(candidate["entry_index"]) not in promoted_indices
+        ],
+        "toc_blocks": blocks,
+    }
 
 
 def _boundary_decision(
@@ -297,8 +345,11 @@ def _boundary_decision(
     context: dict[str, Any],
 ) -> dict[str, Any]:
     text = str(entry.get("text") or "")
-    signals = entry.get("structural_signals") or _structural_signals(entry)
+    signals = _structural_signals(entry)
     vetoes = _boundary_vetoes(signals)
+    if _is_table_cell(entry):
+        # Content inside a table is never a top-level unit boundary.
+        vetoes = [*vetoes, "table_cell"]
     normalized_text = _boundary_text(text)
     unit_hint = _unit_for_boundary_text(normalized_text, index)
     if vetoes:
@@ -314,31 +365,49 @@ def _boundary_decision(
             "unit_id_hint": unit_hint.get("unit_id"),
             "name_hint": unit_hint.get("name"),
             "is_boundary": False,
+            "is_candidate": False,
             "confidence": "low",
         }
 
     score = 0
     hits: list[dict[str, Any]] = []
     break_evidence = _preceded_by_break(entry, context)
-    if break_evidence:
+    has_break = bool(break_evidence)
+    if has_break:
         score += 3
         hits.append({"kind": "break", "weight": 3, "evidence_refs": break_evidence})
-    if _has_heading_style(entry):
-        score += 3
-        hits.append({"kind": "heading_style", "weight": 3, "style": _entry_style_name(entry)})
-    if signals.get("centered") and (signals.get("large_font") or signals.get("bold")):
-        score += 2
+    heading_level = _heading_level(entry)
+    has_heading = heading_level is not None
+    has_top_heading = heading_level == 1
+    if has_heading:
+        score += 3 if has_top_heading else 1
+        hits.append(
+            {
+                "kind": "heading_style",
+                "weight": 3 if has_top_heading else 1,
+                "style": _entry_style_name(entry),
+                "level": heading_level,
+            }
+        )
+    has_text_props = bool(
+        signals.get("centered") and (signals.get("large_font") or signals.get("bold"))
+    )
+    if has_text_props:
+        # plan §6.5: text_properties is candidate-strength only, never enough
+        # to open a top-level unit on its own.
+        score += 1
         hits.append(
             {
                 "kind": "text_properties",
-                "weight": 2,
+                "weight": 1,
                 "centered": True,
                 "large_font": bool(signals.get("large_font")),
                 "bold": bool(signals.get("bold")),
                 "short_text": bool(signals.get("short_text")),
             }
         )
-    if unit_hint.get("unit_id"):
+    has_keyword = bool(unit_hint.get("unit_id"))
+    if has_keyword:
         score += 1
         hits.append(
             {
@@ -348,6 +417,26 @@ def _boundary_decision(
                 "name": unit_hint["name"],
             }
         )
+
+    # A formal top-level boundary requires a level-1 heading style, a labeled
+    # heading of any level, or text_properties reinforced by a core/alias
+    # keyword or an explicit break (strong_context). A bare sub-heading
+    # (level 2+), text_properties alone, a bare keyword, or a bare mechanical
+    # break are not enough — they become candidates or label-only (plan §6.5).
+    is_boundary = (
+        has_top_heading
+        or (has_heading and has_keyword)
+        or (has_text_props and (has_keyword or has_break))
+    )
+    is_candidate = (not is_boundary) and (has_text_props or has_break or has_heading)
+    candidate_reason = None
+    if is_candidate:
+        if has_heading:
+            candidate_reason = "subheading_only"
+        elif has_text_props:
+            candidate_reason = "text_properties_only"
+        else:
+            candidate_reason = "mechanical_break_only"
     return {
         "entry_index": index,
         "source_ref": entry.get("source_ref"),
@@ -359,7 +448,9 @@ def _boundary_decision(
         "vetoes": [],
         "unit_id_hint": unit_hint.get("unit_id"),
         "name_hint": unit_hint.get("name"),
-        "is_boundary": score >= BOUNDARY_SCORE_THRESHOLD,
+        "is_boundary": is_boundary,
+        "is_candidate": is_candidate,
+        "candidate_reason": candidate_reason,
         "confidence": _boundary_confidence(score, hits, unit_hint.get("unit_id")),
     }
 
@@ -408,7 +499,9 @@ def _body_main_fallback_boundary(
 def _keyword_only_fallback_boundaries(
     entries: list[dict[str, Any]],
     existing: list[dict[str, Any]],
+    locked: set[int] | None = None,
 ) -> list[dict[str, Any]]:
+    locked = locked or set()
     seen_units = {
         str(boundary.get("unit_id_hint") or "")
         for boundary in existing
@@ -416,7 +509,9 @@ def _keyword_only_fallback_boundaries(
     }
     fallbacks: list[dict[str, Any]] = []
     for index, entry in enumerate(entries):
-        signals = entry.get("structural_signals") or _structural_signals(entry)
+        if index in locked:
+            continue
+        signals = _structural_signals(entry)
         if _boundary_vetoes(signals):
             continue
         text = _boundary_text(str(entry.get("text") or ""))
@@ -499,31 +594,154 @@ def _dedupe_boundary_anchors(boundaries: list[dict[str, Any]]) -> list[dict[str,
     return deduped
 
 
+# --- label model: core closed-set + alias + custom_unit (plan §6.7) ---------
+
+# Exact (canonical-normalized) title -> core unit_id. This is the alias
+# registry: known title variants that resolve to a closed-set unit.
+_CORE_ALIAS_EXACT = {
+    "目录": "toc",
+    "目錄": "toc",
+    "图目录": "toc",
+    "表目录": "toc",
+    "contents": "toc",
+    "tableofcontents": "toc",
+    "摘要": "abstract_cn",
+    "中文摘要": "abstract_cn",
+    "摘要关键词": "abstract_cn",
+    "摘要及关键词": "abstract_cn",
+    "abstract": "abstract_en",
+    "englishabstract": "abstract_en",
+    "keywords": "abstract_en",
+    "keyword": "abstract_en",
+    "参考文献": "references",
+    "references": "references",
+    "reference": "references",
+    "致谢": "acknowledgement",
+    "acknowledgement": "acknowledgement",
+    "acknowledgements": "acknowledgement",
+    "附录": "appendix",
+    "appendix": "appendix",
+    "appendices": "appendix",
+    "诚信声明": "integrity_statement",
+    "原创性声明": "integrity_statement",
+    "学位论文原创性声明": "integrity_statement",
+    "版权声明": "integrity_statement",
+    "授权书": "integrity_statement",
+}
+
+
+def canonical_title(text: str) -> str:
+    """Normalize a heading for label matching (plan §6.7)."""
+    return _normalize_for_match(text)
+
+
+def _display_title(text: str) -> str:
+    cleaned = re.sub(r"\s+", " ", _strip_format_annotations(str(text or ""))).strip()
+    cleaned = re.sub(r"\s*(?:…|\.|．|·|•){2,}.*$", "", cleaned).strip()
+    return cleaned or "模板单元"
+
+
+def _alias_unit_id(normalized: str) -> str | None:
+    if not normalized:
+        return None
+    if normalized in _CORE_ALIAS_EXACT:
+        return _CORE_ALIAS_EXACT[normalized]
+    if normalized.startswith(("附录", "appendix")):
+        return "appendix"
+    if normalized.startswith(("参考文献", "references")):
+        return "references"
+    return None
+
+
+def _boundary_has_structural_evidence(boundary: dict[str, Any]) -> bool:
+    kinds = {str(signal.get("kind")) for signal in boundary.get("signals", [])}
+    return bool(kinds & {"heading_style", "break", "text_properties", "toc_block"})
+
+
+def _classify_core_label(
+    boundary: dict[str, Any],
+    normalized_title: str,
+) -> tuple[str, str, str, str] | None:
+    """Resolve a boundary to a core/alias unit; None when unmatched."""
+    hint = boundary.get("unit_id_hint")
+    if hint:
+        unit_id = str(hint)
+        status = (
+            "core_matched"
+            if _is_exact_unit_heading_text(str(boundary.get("text") or ""), unit_id)
+            else "alias_matched"
+        )
+        name = str(boundary.get("name_hint") or UNIT_DEFINITION_NAMES.get(unit_id, unit_id))
+        return unit_id, name, status, unit_id
+    alias = _alias_unit_id(normalized_title)
+    if alias:
+        return alias, UNIT_DEFINITION_NAMES.get(alias, alias), "alias_matched", alias
+    if boundary.get("fallback_reason") == "document_start":
+        return "cover", UNIT_DEFINITION_NAMES["cover"], "core_matched", "cover"
+    return None
+
+
+def _custom_unit_fields(
+    boundary: dict[str, Any],
+    normalized_title: str,
+    display_name: str,
+) -> tuple[str, str, str, None]:
+    slug = re.sub(r"\s+", "", normalized_title)[:16] or "unit"
+    unit_id = f"custom:template:{slug}:{boundary.get('source_seq')}"
+    return unit_id, display_name, "custom_detected", None
+
+
 def _label_boundaries(boundaries: list[dict[str, Any]]) -> dict[str, Any]:
     anchors: list[dict[str, Any]] = []
     open_questions: list[dict[str, Any]] = []
+    taxonomy_review_queue: list[dict[str, Any]] = []
     seen_unit_ids: set[str] = set()
     for boundary in boundaries:
-        label = _unit_for_boundary(boundary)
-        unit_id = str(label.get("unit_id") or "other")
-        name = str(label.get("name") or _fallback_unit_name(boundary))
+        raw_title = str(boundary.get("text") or "")
+        normalized_title = canonical_title(raw_title)
+        display_name = _display_title(raw_title)
         flags = list(boundary.get("flags", []))
         confidence = str(boundary.get("confidence") or "medium")
-        if unit_id != "other" and unit_id in seen_unit_ids:
-            flags.append(
-                {
-                    "flag_id": f"{unit_id}.duplicate_label",
-                    "type": "unit_label_duplicate",
-                    "status": "UNKNOWN",
-                    "source_ref": boundary.get("source_ref"),
-                    "affected_ids": [unit_id],
-                    "reason": "same unit_id was detected more than once; duplicate block is held as other",
-                }
+        strong = _boundary_has_structural_evidence(boundary) and confidence in {
+            "high",
+            "medium",
+        }
+
+        core = _classify_core_label(boundary, normalized_title)
+        canonical_label_id: str | None = None
+        is_custom = False
+        if core is not None and not (
+            core[0] in seen_unit_ids and core[0] != "other"
+        ):
+            unit_id, name, label_status, canonical_label_id = core
+            seen_unit_ids.add(unit_id)
+        elif strong:
+            # Strong boundary with no usable closed-set label (unknown section,
+            # or a repeated core section such as a second form/chapter) becomes a
+            # custom_unit instead of being discarded into `other` (plan §6.7).
+            unit_id, name, label_status, canonical_label_id = _custom_unit_fields(
+                boundary, normalized_title, display_name
             )
+            is_custom = True
+            if core is not None:
+                flags.append(
+                    {
+                        "flag_id": f"{core[0]}.repeated_as_custom",
+                        "type": "unit_label_repeated_custom",
+                        "status": "UNKNOWN",
+                        "source_ref": boundary.get("source_ref"),
+                        "affected_ids": [unit_id],
+                        "reason": (
+                            f"core label {core[0]} already used; this repeated "
+                            "section is held as a custom_unit pending review"
+                        ),
+                    }
+                )
+        else:
             unit_id = "other"
-            name = _fallback_unit_name(boundary)
+            name = display_name if len(display_name) <= 24 else "其他模板单元"
+            label_status = "unmapped" if core is None else "candidate_only"
             confidence = "low"
-        if unit_id == "other":
             flags.append(
                 {
                     "flag_id": f"other.{boundary.get('source_seq') or boundary.get('entry_index')}.label_unknown",
@@ -534,10 +752,7 @@ def _label_boundaries(boundaries: list[dict[str, Any]]) -> dict[str, Any]:
                     "reason": "boundary was detected but closed-set unit_id label was not confident",
                 }
             )
-            confidence = "low"
             open_questions.append(_label_open_question(boundary, flags[-1]))
-        elif unit_id:
-            seen_unit_ids.add(unit_id)
 
         anchor = {
             **boundary,
@@ -545,21 +760,38 @@ def _label_boundaries(boundaries: list[dict[str, Any]]) -> dict[str, Any]:
             "name": name,
             "confidence": confidence,
             "flags": flags,
+            "label_status": label_status,
+            "canonical_label_id": canonical_label_id,
+            "raw_title": raw_title,
+            "normalized_title": normalized_title,
+            "display_name": display_name,
         }
         anchors.append(anchor)
+        if is_custom:
+            taxonomy_review_queue.append(_taxonomy_review_entry(anchor))
         if confidence != "high":
             open_questions.append(_boundary_open_question(anchor))
-    return {"anchors": anchors, "open_questions": open_questions}
+    return {
+        "anchors": anchors,
+        "open_questions": open_questions,
+        "taxonomy_review_queue": taxonomy_review_queue,
+    }
 
 
-def _unit_for_boundary(boundary: dict[str, Any]) -> dict[str, Any]:
-    unit_id = boundary.get("unit_id_hint")
-    if unit_id:
-        return {
-            "unit_id": str(unit_id),
-            "name": str(boundary.get("name_hint") or UNIT_DEFINITION_NAMES.get(str(unit_id), str(unit_id))),
-        }
-    return {"unit_id": "other", "name": _fallback_unit_name(boundary)}
+def _taxonomy_review_entry(anchor: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "review_id": f"taxonomy-{anchor.get('source_seq')}",
+        "raw_title": anchor.get("raw_title"),
+        "normalized_title": anchor.get("normalized_title"),
+        "display_name": anchor.get("display_name"),
+        "source_seq": anchor.get("source_seq"),
+        "source_ref": anchor.get("source_ref"),
+        "suggested_scope": "template",
+        "evidence": [
+            signal.get("kind") for signal in anchor.get("signals", [])
+        ],
+        "status": "pending",
+    }
 
 
 def _fallback_unit_name(boundary: dict[str, Any]) -> str:
@@ -584,7 +816,7 @@ def _boundary_text(text: str) -> str:
     return _strip_format_annotations(text).strip()
 
 
-def _unit_for_boundary_text(text: str, index: int) -> dict[str, str] | dict[str, None]:
+def _unit_for_boundary_text(text: str, index: int) -> dict[str, str | None]:
     unit_id, name = _unit_for_text(text, index)
     return {"unit_id": unit_id, "name": name}
 
@@ -606,15 +838,19 @@ def _preceded_by_break(entry: dict[str, Any], context: dict[str, Any]) -> list[s
     return _dedupe_str(refs)
 
 
-def _has_heading_style(entry: dict[str, Any]) -> bool:
+def _heading_level(entry: dict[str, Any]) -> int | None:
     style_name = _entry_style_name(entry).strip().lower()
     compact = re.sub(r"\s+", "", style_name)
-    return bool(
-        re.search(r"\bheading\s*[1-9]\b", style_name)
-        or re.search(r"标题\s*[1-9]", style_name)
-        or re.search(r"heading[1-9]", compact)
-        or re.search(r"标题[1-9]", compact)
-    )
+    for pattern in (
+        r"\bheading\s*([1-9])\b",
+        r"标题\s*([1-9])",
+        r"heading([1-9])",
+        r"标题([1-9])",
+    ):
+        match = re.search(pattern, style_name) or re.search(pattern, compact)
+        if match:
+            return int(match.group(1))
+    return None
 
 
 def _boundary_confidence(
@@ -693,6 +929,28 @@ def _boundary_open_question(anchor: dict[str, Any]) -> dict[str, Any]:
         "signals_summary": _signals_summary(anchor),
         "status": "UNKNOWN",
         "prompt": "Confirm whether this paragraph is a template unit boundary.",
+        "visual_refs": [],
+    }
+
+
+def _candidate_open_question(candidate: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "kind": "boundary_candidate",
+        "interval": _question_interval(candidate),
+        "candidates": [
+            {
+                "unit_id": candidate.get("unit_id_hint") or "other",
+                "name": candidate.get("name_hint") or _fallback_unit_name(candidate),
+                "confidence": "candidate_only",
+            }
+        ],
+        "signals_summary": _signals_summary(candidate),
+        "status": "UNKNOWN",
+        "prompt": (
+            "Weak boundary candidate (text properties only); confirm whether this "
+            "starts a top-level template unit."
+        ),
+        "candidate_reason": candidate.get("candidate_reason"),
         "visual_refs": [],
     }
 
@@ -866,7 +1124,7 @@ def _entries_near_interval(
 
 
 def _entry_projection(entry: dict[str, Any]) -> dict[str, Any]:
-    signals = entry.get("structural_signals") or _structural_signals(entry)
+    signals = _structural_signals(entry)
     return {
         "source_ref": entry.get("source_ref"),
         "source_seq": entry.get("source_seq"),
@@ -965,54 +1223,6 @@ def _copy_only_unit_elements(
             )
         )
     return elements
-
-
-def _unit_anchors(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    anchors: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for index, entry in enumerate(entries):
-        unit_id, name = _unit_for_text(str(entry.get("text", "")), index)
-        if unit_id is None or unit_id in seen:
-            continue
-        anchors.append(
-            {
-                "entry_index": index,
-                "unit_id": unit_id,
-                "name": name,
-                "source_ref": entry.get("source_ref"),
-                "source_seq": entry.get("source_seq"),
-                "text": entry.get("text", ""),
-            }
-        )
-        seen.add(unit_id)
-    if not anchors or anchors[0]["entry_index"] != 0:
-        anchors.insert(
-            0,
-            {
-                "entry_index": 0,
-                "unit_id": "cover",
-                "name": "封面",
-                "source_ref": entries[0].get("source_ref"),
-                "source_seq": entries[0].get("source_seq"),
-                "text": entries[0].get("text", ""),
-            },
-        )
-    if "body_main" not in {anchor["unit_id"] for anchor in anchors}:
-        body_index = _first_body_like_index(entries)
-        anchors.append(
-            {
-                "entry_index": body_index,
-                "unit_id": "body_main",
-                "name": "正文",
-                "source_ref": entries[body_index].get("source_ref"),
-                "source_seq": entries[body_index].get("source_seq"),
-                "text": entries[body_index].get("text", ""),
-            }
-        )
-    return sorted(
-        _dedupe_anchors(anchors),
-        key=lambda item: (int(item["entry_index"]), item["unit_id"]),
-    )
 
 
 def _infer_elements(anchor: dict[str, Any], entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1364,7 +1574,7 @@ def _find_body_main_source_entry(
         text = str(entry.get("text") or "").strip()
         normalized = _normalize_for_match(text)
         style = str(entry.get("style") or "").lower()
-        signals = entry.get("structural_signals") or {}
+        signals = _structural_signals(entry)
         chapter_heading = _looks_like_body_chapter_heading(normalized)
         if _body_main_anchor_excluded(text) and not chapter_heading:
             continue
@@ -1592,6 +1802,309 @@ def _is_toc_entry(entry: dict[str, Any]) -> bool:
     return has_tab_page or has_leader_page
 
 
+# --- TOC block segmenter (plan §6.2) ----------------------------------------
+#
+# The TOC must be claimed as a whole block *before* generic boundary detection,
+# otherwise three failure modes appear in the real templates:
+#   - the TOC title produces no boundary so the whole region is swallowed by the
+#     previous unit (hunan),
+#   - the body_main fallback anchors on a TOC entry like "第一章 文献综述" and
+#     splits the TOC (nannong),
+#   - a second catalog title ("表目录") collides with "目录" and is downgraded to
+#     `other`, orphaning its entries (pku).
+# Detecting a block and *locking* its entries removes all three.
+
+_TOC_TITLE_NORMALIZED = {
+    "目录",
+    "目錄",
+    "图目录",
+    "表目录",
+    "插图目录",
+    "附表目录",
+    "contents",
+    "tableofcontents",
+    "tableoffigures",
+    "tableoftables",
+    "listoffigures",
+    "listoftables",
+}
+
+# Largest run of non-entry interstitial lines tolerated inside a TOC block once
+# at least one entry has been seen (spacing/variant markers between two variant
+# tables, leader-only "……" lines, etc.).
+_TOC_BLOCK_GAP_TOLERANCE = 4
+
+
+def _toc_entry_like(entry: dict[str, Any]) -> bool:
+    return _is_toc_entry(entry)
+
+
+def _toc_title_like(entry: dict[str, Any]) -> bool:
+    if _toc_entry_like(entry):
+        return False
+    normalized = _normalize_for_match(entry.get("text"))
+    if not normalized:
+        return False
+    if normalized in _TOC_TITLE_NORMALIZED:
+        return True
+    style_name = _entry_style_name(entry).lower()
+    if "目录" in style_name or "table of contents" in style_name:
+        return True
+    if len(normalized) <= 8 and ("目录" in normalized or "目錄" in normalized):
+        return True
+    return False
+
+
+def _looks_like_variant_marker(entry: dict[str, Any]) -> bool:
+    normalized = _normalize_for_match(entry.get("text"))
+    if not normalized or len(normalized) > 16:
+        return False
+    return bool(re.search(r"(理工科|文科|文法经管|类专业用|以下.{0,6}用)", normalized))
+
+
+def _is_leader_noise(text: str) -> bool:
+    stripped = re.sub(r"[\s□×Xx_＿…·•.。．、]+", "", str(text or ""))
+    return stripped == ""
+
+
+_FORM_KEYWORDS = (
+    "意见",
+    "记录",
+    "检查",
+    "评审",
+    "答辩",
+    "任务书",
+    "开题",
+    "成绩",
+    "评定",
+    "报告",
+    "审核",
+    "审批",
+)
+
+
+def _looks_like_form_block(anchor: dict[str, Any], region_entries: list[dict[str, Any]]) -> bool:
+    """Plan §6.4: a titled, table/form-dense region (school forms, review tables)."""
+    title = canonical_title(str(anchor.get("text") or ""))
+    if any(keyword in title for keyword in _FORM_KEYWORDS):
+        return True
+    if len(region_entries) < 3:
+        return False
+    cells = sum(1 for entry in region_entries if _is_table_cell(entry))
+    return cells >= max(2, len(region_entries) // 2)
+
+
+def _region_has_variant_marker(region_entries: list[dict[str, Any]]) -> bool:
+    return any(_looks_like_variant_marker(entry) for entry in region_entries)
+
+
+def _t2_derived_signals_by_source_seq(
+    entries: list[dict[str, Any]],
+) -> dict[str, dict[str, bool]]:
+    """Per-paragraph T2 structure signals derived only from T1 atomic facts.
+
+    Emitted for observability and downstream (AI input) consumption. Only
+    paragraphs with at least one active signal are recorded to keep the artifact
+    compact. T2 never writes these back to document_facts and never reads any
+    legacy `structural_signals` to compute them (plan §0.3, §6.1).
+    """
+    derived: dict[str, dict[str, bool]] = {}
+    for entry in entries:
+        seq = entry.get("source_seq")
+        if seq is None:
+            continue
+        text = str(entry.get("text") or "")
+        signals = {
+            "toc_title_like": _toc_title_like(entry),
+            "toc_entry_like": _toc_entry_like(entry),
+            "instruction_like": _looks_like_instruction(text),
+            "spacing_line_like": _is_spacing_line(text),
+            "unit_heading_like": _heading_level(entry) is not None,
+            "variant_marker_like": _looks_like_variant_marker(entry),
+        }
+        active = {key: value for key, value in signals.items() if value}
+        if active:
+            derived[str(seq)] = active
+    return derived
+
+
+def _is_toc_block_member(entry: dict[str, Any]) -> bool:
+    """Entries allowed *inside* a TOC block besides the TOC entries themselves."""
+    text = str(entry.get("text") or "")
+    if _toc_entry_like(entry) or _toc_title_like(entry):
+        return True
+    if _is_spacing_line(text) or _looks_like_variant_marker(entry):
+        return True
+    if _is_leader_noise(text):
+        return True
+    return not _normalize_for_match(text)
+
+
+def _extend_toc_block(entries: list[dict[str, Any]], start_index: int) -> int | None:
+    """Walk forward from start_index, return the index of the last TOC entry."""
+    last_entry_index: int | None = None
+    gap = 0
+    for index in range(start_index, len(entries)):
+        entry = entries[index]
+        if _toc_entry_like(entry):
+            last_entry_index = index
+            gap = 0
+            continue
+        if index == start_index and _toc_title_like(entry):
+            continue
+        if _is_toc_block_member(entry):
+            if last_entry_index is not None:
+                gap += 1
+                if gap > _TOC_BLOCK_GAP_TOLERANCE:
+                    break
+            continue
+        break
+    return last_entry_index
+
+
+def _has_toc_entry_within(
+    entries: list[dict[str, Any]],
+    start_index: int,
+    window: int,
+) -> bool:
+    for index in range(start_index, min(len(entries), start_index + window)):
+        entry = entries[index]
+        if _toc_entry_like(entry):
+            return True
+        if not _is_toc_block_member(entry):
+            return False
+    return False
+
+
+def _lookback_toc_title(
+    entries: list[dict[str, Any]],
+    entry_index: int,
+    window: int,
+) -> int | None:
+    for index in range(entry_index - 1, max(-1, entry_index - 1 - window), -1):
+        if _toc_title_like(entries[index]):
+            return index
+        if not _is_toc_block_member(entries[index]):
+            break
+    return None
+
+
+def _segment_toc_blocks(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    index = 0
+    total = len(entries)
+    while index < total:
+        entry = entries[index]
+        start: int | None = None
+        title_led = False
+        if _toc_title_like(entry) and _has_toc_entry_within(entries, index + 1, 4):
+            start = index
+            title_led = True
+        elif _toc_entry_like(entry):
+            lookback = _lookback_toc_title(entries, index, 3)
+            if lookback is not None:
+                start = lookback
+                title_led = True
+            else:
+                start = index
+        if start is None:
+            index += 1
+            continue
+        end = _extend_toc_block(entries, start)
+        if end is None or end < start:
+            index += 1
+            continue
+        entries_count = sum(
+            1 for k in range(start, end + 1) if _toc_entry_like(entries[k])
+        )
+        if title_led:
+            weak = False
+        elif entries_count >= 3:
+            weak = True
+        else:
+            index += 1
+            continue
+        blocks.append(
+            {
+                "start": start,
+                "end": end,
+                "title_led": title_led,
+                "weak": weak,
+                "entries_count": entries_count,
+            }
+        )
+        index = end + 1
+    return blocks
+
+
+def _toc_block_anchor(
+    entries: list[dict[str, Any]],
+    block: dict[str, Any],
+) -> dict[str, Any]:
+    start = block["start"]
+    end = block["end"]
+    entry = entries[start]
+    text = str(entry.get("text") or "")
+    if block["weak"]:
+        confidence = "low"
+    elif block["entries_count"] >= 2:
+        confidence = "high"
+    else:
+        confidence = "medium"
+    flags: list[dict[str, Any]] = []
+    if block["weak"]:
+        flags.append(
+            {
+                "flag_id": f"toc.{entry.get('source_seq')}.weak_block",
+                "type": "toc_block_weak",
+                "status": "UNKNOWN",
+                "source_ref": entry.get("source_ref"),
+                "affected_ids": ["toc"],
+                "reason": "TOC block formed from a run of toc entries without a confident title",
+            }
+        )
+    return {
+        "entry_index": start,
+        "source_ref": entry.get("source_ref"),
+        "source_seq": entry.get("source_seq"),
+        "text": text,
+        "normalized_text": _boundary_text(text),
+        "score": BOUNDARY_SCORE_THRESHOLD + 1,
+        "signals": [
+            {
+                "kind": "toc_block",
+                "weight": 3,
+                "start_source_seq": entries[start].get("source_seq"),
+                "end_source_seq": entries[end].get("source_seq"),
+                "entries_count": block["entries_count"],
+                "title_led": block["title_led"],
+            }
+        ],
+        "vetoes": [],
+        "unit_id_hint": "toc",
+        "name_hint": UNIT_DEFINITION_NAMES["toc"],
+        "is_boundary": True,
+        "confidence": confidence,
+        "locked_by_block": "toc",
+        "block_range": {
+            "start_index": start,
+            "end_index": end,
+            "start_source_seq": entries[start].get("source_seq"),
+            "end_source_seq": entries[end].get("source_seq"),
+        },
+        "fallback_reason": "toc_block",
+        "flags": flags,
+    }
+
+
+def _locked_indices(blocks: list[dict[str, Any]]) -> set[int]:
+    locked: set[int] = set()
+    for block in blocks:
+        for index in range(block["start"], block["end"] + 1):
+            locked.add(index)
+    return locked
+
+
 def _entry_style_name(entry: dict[str, Any]) -> str:
     details = entry.get("style_details") or {}
     paragraph = details.get("paragraph") or {}
@@ -1647,38 +2160,21 @@ def _looks_like_heading(entry: dict[str, Any]) -> bool:
     )
 
 
-def _first_body_like_index(entries: list[dict[str, Any]]) -> int:
+def _first_body_like_index(
+    entries: list[dict[str, Any]],
+    locked: set[int] | None = None,
+) -> int | None:
+    locked = locked or set()
     for index, entry in enumerate(entries):
+        if index in locked:
+            continue
         unit_id, _ = _unit_for_text(str(entry.get("text", "")), index)
         if unit_id == "body_main":
             return index
-    return max(len(entries) - 1, 0)
-
-
-def _dedupe_anchors(anchors: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    deduped: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for anchor in anchors:
-        unit_id = str(anchor.get("unit_id"))
-        if unit_id in seen:
-            continue
-        deduped.append(anchor)
-        seen.add(unit_id)
-    return deduped
-
-
-def _paragraph_index_from_source_ref(source_ref: str) -> int | None:
-    match = re.search(r"word/document\.xml:p\[(\d+)\]", source_ref)
-    return int(match.group(1)) if match else None
-
-
-def _int_or_none(value: Any) -> int | None:
-    if value is None or value == "":
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
+    for index in range(len(entries) - 1, -1, -1):
+        if index not in locked:
+            return index
+    return None
 
 
 def _dedupe_str(values: list[Any]) -> list[str]:

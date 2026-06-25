@@ -582,7 +582,7 @@ def iter_paragraph_runs(paragraph_el, *, part_name, paragraph_index):
 
 ### 5.5 Phase 4：T1 原子事实字段 + 移除 semantic signals（T1-ISSUE-007）
 
-**从 body_flow 移除**：`structural_signals` 整块（或 Phase 过渡期内保留但 verifier 报 `document_facts_semantic_field_in_t1`）。
+**从 body_flow 移除**：`structural_signals` 整块；verifier 对任何旧 T1 语义字段报 `document_facts_semantic_field_in_t1`。
 
 **新增 `text_facts`**（每段 body_flow 项，均可从 DOCX 直接观测）：
 
@@ -610,9 +610,9 @@ def iter_paragraph_runs(paragraph_el, *, part_name, paragraph_index):
 
 **T3 迁移**：`looks_like_instruction_text` 改读 `text_facts.parenthesized_segments` 等。
 
-**兼容策略（一个版本周期）**：
+**无过渡兼容策略**：
 - `artifact_version` 升至 `1.1`。
-- T2 优先读 `text_facts`；若缺失则 fallback 旧 `structural_signals`（仅用于过渡）。
+- T2 只读 `text_facts` 和其他 T1 原子事实；旧 `structural_signals` / `is_toc_entry` 等语义字段即使存在也视为无效输入。
 - 合同测试锁定：新输出不得含 semantic 字段。
 
 ### 5.6 Phase 5：data 层可见对象建模（T1-ISSUE-005）

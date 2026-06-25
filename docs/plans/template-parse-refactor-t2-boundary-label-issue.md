@@ -1,5 +1,6 @@
 ---
-status: draft
+status: resolved
+resolved_at: 2026-06-25
 owner: template-generation
 stage: T2
 severity:
@@ -10,6 +11,7 @@ last_updated: 2026-06-25
 related_docs:
   - docs/plans/template-parse-refactor-t1-fact-coverage-issues.md
   - docs/plans/template-parse-refactor-t2-unit-map.md
+  - docs/plans/template-parse-refactor-t2-visual-pagination.md
 related_code:
   - src/docfit/template_generation/structure_candidates.py
   - src/docfit/template_generation/constants.py
@@ -18,9 +20,20 @@ related_code:
 
 # T2 边界检测与标签器调优 issue
 
+> **【状态：已解决 — 2026-06-25】历史 issue 文档，勿据此定位新问题。**
+>
+> 本文档描述的 ISSUE-001~004（TOC 未作 block 专门切分、`text_properties` 单独过阈值导致过切、标签闭集过窄、duplicate 一刀切降 `other`）**已在 Phase 2 确定性主干实施中全部修复**（TOC block segmenter + 加锁、`text_properties` candidate-only、表格单元格 veto、Heading-2+ 不切顶层、canonical_title + alias + `custom_unit` 标签模型）。三校门禁：湖南/南农/北大 TOC 20/20·25/25·17/17，`other`=0，leak=0。实施后状态与残余见 **§4**。
+>
+> **后续做优化时，请勿再依据本文档 §1~§3 的旧现象/旧数据定位**——它们描述的是修复前的状态。当前真相来源：
+> - **残余问题与现状（含湖南 abstract_cn 丢失 R1、北大正文过切 R2、page_policy 未实现）**：本文档 §4。
+> - **后续视觉分页 / page_policy 计划**：`docs/plans/template-parse-refactor-t2-visual-pagination.md`。
+> - **T2 设计总纲**：`docs/plans/template-parse-refactor-t2-open-label-unit-recognition.md`。
+
 Last updated: 2026-06-25
 
-一句话结论：当前 T2 优化版把旧逻辑的"关键词撞目录"问题显性化了，也补出了 `t2_input.json` 和 typed `open_questions`；但它还没有达到可交付效果。主要问题是 **TOC block 没有作为专门单元切分**、**仅文字属性即可过阈值导致过切**、**标签器闭集过窄导致大量 `other`**。后续必须明确：**T1 只产原子事实；T2 禁止消费 `is_toc_entry`、`likely_unit_heading` 等 T1 语义字段；T2 只能从原子事实派生 `toc_entry_like`、`instruction_like`、`unit_heading_like` 等内部信号，并在 T2 artifact 中暴露这些派生证据。**
+一句话结论：当前 T2 优化版把旧逻辑的"关键词撞目录"问题显性化了，也补出了 `t2_input.json` 和 typed `open_questions`；但它还没有达到可交付效果。主要问题是 **TOC block 没有作为专门单元切分**、**仅文字属性即可过阈值导致过切**、**标签器闭集过窄导致大量 `other`**。架构边界（T1 只产原子事实、T2 禁止消费 T1 语义字段）见 §0。
+
+本文件只记录 issue 现象、数据与根因，不含修复方案。
 
 ---
 
@@ -81,24 +94,7 @@ T2 的职责是基于 T1 原子事实做单元边界和归属判断。因此，�
 4. 如果原子事实不足以判定，T2 必须 `abstain`：输出 `open_question` / `t2_input.json`，不能用旧语义字段补救。
 5. T2 输出 `t2_derived_signals`，明确标记为 T2 派生证据。
 
-准确率优化的前提也因此改变：不是"让 T1 更早标好 TOC"，而是**让 T1 给足可观测事实，让 T2 有更强的派生规则和 block-level segmenter**。
-
-### 0.4 无 T1 语义字段时的准确率优化原则
-
-T2 准确率不靠消费 T1 的 `is_toc_entry`，而靠以下四层：
-
-1. **原子事实足够可判定**：T1 必须提供 tab、leader、尾部页码 token、样式名、alignment、font size、bold、breaks、container facts 等可观测事实。T2 判不准时，先检查是不是事实缺失，而不是把语义塞回 T1。
-2. **T2 派生信号可解释**：`toc_entry_like`、`toc_title_like`、`unit_heading_like`、`instruction_like` 都由 T2 计算，并在 T2 artifact 里写出命中/未命中的证据。
-3. **先 block，后 boundary**：目录、变体块、表格表单这类结构块先整体识别；块内段落不再和普通章节标题竞争边界分数。
-4. **宁可 abstain，不要乱切**：单一弱信号只能进入 `open_question`，不能直接切正式 unit；缺事实时写 `missing_facts[]`，让问题可定位。
-
-对应的调优目标不是让某个布尔字段更早出现，而是让 T2 对每个边界能回答：
-
-```text
-这个段落为什么像/不像 toc_entry？
-这个段落为什么像/不像 unit boundary？
-如果判断不了，缺哪些 T1 原子事实？
-```
+准确率优化的前提也因此改变：不是"让 T1 更早标好 TOC"，而是让 T1 给足可观测事实，让 T2 有更强的派生规则和 block-level segmenter。
 
 ---
 
@@ -133,7 +129,7 @@ T2 准确率不靠消费 T1 的 `is_toc_entry`，而靠以下四层：
 
 主要退化：
 
-- 湖南仍没有正确形成 `toc`，20 个 TOC 条目仍进入非 `toc` 单元。
+- 湖南退化方向是**欠切（漏边界）**，不是关键词抢条目：基线至少切出 `toc | 目录` 单元（盖住目录标题 seq 22-26），当前**连 toc 单元都消失**。目录标题（seq 24 `目□□录`）与全部 20 个 TOC 条目（seq 27-49）被并入前一个 `integrity_statement`（诚信声明，seq 18-59）。实测 seq 22-59 整段没有任何 boundary candidate，下一个边界直接跳到 seq 60。20 个 TOC 条目当前全部落在 `integrity_statement`，仍是 0/20，但失败机制与基线不同。
 - 北大过切严重：`9 units -> 76 units`，其中 `68 other`。
 - 三校 overall 仍是 `UNKNOWN`，`first_bad_stage` 仍是 `T2`。
 - findings 上升，说明当前规则更会暴露不确定性，但还没有转化成确定性质量提升。
@@ -146,16 +142,19 @@ T2 准确率不靠消费 T1 的 `is_toc_entry`，而靠以下四层：
 
 当前 TOC 仍混在通用边界检测流程里：目录标题、目录条目、真实标题都通过同一套 boundary score 竞争。
 
-这导致：
+这导致两种不同的失败机制：
 
-- 旧版：目录条目被摘要/正文/参考文献关键词抢走。
-- 当前版：南农修好了，但湖南仍失败；北大仍有 3 个 TOC 条目进入 `other`。
+- 基线（关键词抢条目，over-claim）：目录标题被切成 `toc` 单元但**只盖到标题、停在条目前**（湖南 seq 22-26）；20 个条目被关键词逐段切走——`摘要/关键词→abstract_cn`、`前言/一级标题→body_main`、`参考文献→references`。
+- 当前版（漏边界 / 区块被吞，under-claim）：keyword-only 边界被新规则压掉（改成仅 exact-title fallback），而目录条目是 Normal 样式、不触发 `text_properties`（centered AND large/bold），导致目录区**整段无边界候选**。
+  - 南农：修好了，25/25 进入 `toc`。
+  - 湖南：toc 单元彻底消失，目录标题 + 20 条目被并入前一个 `integrity_statement`（seq 18-59）。这是欠切，与基线"被关键词抢走"是相反方向的失败。
+  - 北大：仍有 3 个 TOC 条目进入 `other`。
 
 根因：
 
-- 没有显式的 `toc block segmenter`。
+- 没有显式的 `toc block segmenter`：目录块既可能被相邻关键词单元切碎（基线），也可能因无信号被前一单元整体吞掉（当前湖南）。
 - `toc_entry_like` 只是边界 veto 或普通证据，而不是先验 block 归属规则。
-- `toc_title_like` 识别过窄，对 `目□□录（二号黑体，居中）`、空格分隔、格式注释等不够稳。
+- `toc_title_like` 识别过窄，对 `目□□录（二号黑体，居中）`、空格分隔、格式注释等不够稳——湖南 seq 24 的目录标题当前完全没有产生边界。
 
 ### T2-ISSUE-002：`text_properties` 单独过阈值，导致过切
 
@@ -202,286 +201,13 @@ threshold = 2
 
 这对"重复误识别"有用，但对真实模板变体不够：
 
-- 湖南有农理工科/文科类两套模板块。
-- 目录内条目重复出现时应被 TOC block 吃掉。
-- 真正的变体块应聚合为 `variant_block` 或 `other + variant flag`，而不是被继续细碎切成多个 `other`。
+- 湖南有农理工科/文科类两套模板块，重复出现的闭集标题被逐个降级成 `other`。
+- 目录内条目重复出现时也会触发同一逻辑，加剧碎片化。
+- 结果是真实变体块被切成多个零碎 `other`，而不是被识别为同一结构的两套变体。
 
 ---
 
-## 3. 优化方案
-
-### 3.1 先实现 T2 派生信号层
-
-新增 T2 内部函数，全部只读 T1 原子事实；如果事实不存在，函数返回 `unknown` / `False` 并记录缺失证据，不读取旧语义字段：
-
-```python
-def _t2_text_facts(entry) -> dict:
-    return {
-        "text": ...,
-        "normalized_text": ...,
-        "style_name": ...,
-        "has_tab": ...,
-        "trailing_token": ...,
-        "leader_chars": ...,
-        "alignment": ...,
-        "font_size_pt": ...,
-        "bold": ...,
-        "page_break_before": ...,
-    }
-
-def _looks_like_toc_title(entry) -> bool:
-    ...
-
-def _looks_like_toc_entry(entry) -> bool:
-    ...
-
-def _looks_like_instruction(entry) -> bool:
-    ...
-
-def _looks_like_spacing_line(entry) -> bool:
-    ...
-```
-
-输出位置：
-
-- `template_structure_candidates.t2_derived_signals_by_source_seq`
-- 或每个 candidate / boundary 的 `evidence[].value`
-- `t2_input.contexts[].entries[].t2_derived_signals`
-
-约束：
-
-- 不写回 `document_facts`。
-- 字段名带 `t2_` 或放在 T2 artifact 下，避免再次污染 T1。
-- 不读取 `structural_signals`，不接受 `is_toc_entry` 作为输入。
-
-### 3.2 TOC block segmenter 独立于通用边界检测
-
-在通用 `_boundary_decision()` 之前先跑 TOC block 识别。
-
-#### 规则草案
-
-1. 找 `toc_title_like`。
-2. 从标题后开始收集连续 `toc_entry_like`。
-3. 允许中间有少量空白/格式说明/目录版本说明，但要打 `confidence=medium`。
-4. 若只有连续 `toc_entry_like`，回看前 1-3 段找弱目录标题；找不到则创建低置信 `toc`。
-5. TOC block 内的 entry 不参与摘要/正文/参考文献等普通边界检测。
-
-伪代码：
-
-```python
-toc_blocks = []
-for i, entry in enumerate(entries):
-    if not looks_like_toc_title(entry):
-        continue
-    j = i + 1
-    while j < len(entries) and (
-        looks_like_toc_entry(entries[j])
-        or looks_like_toc_continuation(entries[j])
-    ):
-        j += 1
-    if has_toc_entries(entries[i:j]):
-        toc_blocks.append(Block("toc", start=i, end=j, confidence=...))
-```
-
-验收：
-
-- 南农：25/25 TOC 条目在 `toc`。
-- 北大：17/17 TOC 条目在 `toc`。
-- 湖南：20/20 TOC 条目在 `toc`。
-- 非 `toc` 单元包含 `toc_entry_like` 数为 0。
-
-### 3.3 调整边界阈值：`text_properties` 改为 candidate-only
-
-规则改为：
-
-| 命中 | 当前行为 | 建议行为 |
-| --- | --- | --- |
-| `text_properties` 单独命中 | 正式切 boundary | 只记 `boundary_candidate`，不切正式 unit |
-| `text_properties + closed_label` | 切 boundary | 切，`medium` |
-| `text_properties + break/section` | 切 boundary | 切，`medium/high` |
-| `heading_style` 单独命中 | 切 boundary | 切，但若 label unknown，需看上下文 |
-| `keyword` 单独命中 | fallback 低置信 boundary | 只允许 exact title fallback |
-
-具体改法：
-
-```python
-if score >= 2:
-    if hits == {"text_properties"}:
-        return CandidateOnly(...)
-    return Boundary(...)
-```
-
-或者改为双阈值：
-
-```text
-boundary_threshold = 3
-candidate_threshold = 2
-```
-
-- `score >= 3`：正式 boundary
-- `score == 2`：candidate，进入 `open_question`，默认不切
-- `score < 2`：非 boundary
-
-讨论点：湖南没有标题样式，可能需要 `text_properties + exact label` 保留为正式 boundary，否则会漏切。
-
-### 3.4 标签器改为 canonical title classifier
-
-标签前先规范化标题：
-
-```python
-def canonical_title(text):
-    strip_format_annotations(text)
-    remove_placeholders(text)      # □、×、__
-    remove_leader_and_page_suffix(text)
-    normalize_width_case_space(text)
-    return normalized
-```
-
-然后做闭集分类，避免宽泛 contains：
-
-| unit_id | 推荐模式 |
-| --- | --- |
-| `toc` | `^目[录錄]$` |
-| `abstract_cn` | `^(中文)?摘要(及关键词|关键词)?$` |
-| `abstract_en` | `^(abstract|englishabstract|keywords|key words)$` |
-| `body_main` | `^(正文|绪论|前言|第[一二三四五六七八九十0-9]+章.*|[0-9]+[.、 ].{1,20})$` |
-| `references` | `^(参考文献|references)$` |
-| `acknowledgement` | `^(致谢|acknowledgements?)$` |
-| `appendix` | `^(附录|appendix)([a-z0-9一二三四五六七八九十]*)?$` |
-| `integrity_statement` | `(诚信声明|原创性声明|授权书)` exact/prefix |
-| `post_forms` | `(任务书|开题报告|评审表|答辩|成绩评定)` exact/prefix |
-
-注意：
-
-- `body_main` 的数字标题必须排除 `toc_entry_like`。
-- `abstract_cn` 的 `关键词` 不能单独作为新摘要边界，除非上下文显示它是摘要标题的一部分。
-- `toc` 标签优先级高于其他关键词。
-
-### 3.5 duplicate / variant 处理
-
-重复闭集单元不应一律打散成多个 `other`。
-
-建议规则：
-
-1. 如果重复出现在 TOC block 内：归 `toc`，不参与 duplicate。
-2. 如果重复附近有变体标记：
-   - `农理工科`
-   - `文科`
-   - `文法经管`
-   - `以下...用`
-   - `...类专业用`
-
-   则聚合为：
-
-```json
-{
-  "unit_id": "other",
-  "name": "模板变体块",
-  "flags": [
-    {
-      "type": "variant_block_detected",
-      "status": "UNKNOWN"
-    }
-  ]
-}
-```
-
-3. 如果重复是同一真实单元的二级标题，则不切新 unit，只作为上一 unit 内部 element。
-
-讨论点：本轮是否只做 `other + variant_block_detected`，不做完整 variant model。建议先这样，和既定"方案 C：维护者后续手工删源模板另一套"一致。
-
-### 3.6 confidence 规则重写
-
-建议：
-
-| confidence | 条件 |
-| --- | --- |
-| `high` | TOC block 强确认；或 `heading_style + closed_label`；或 `break/section + closed_label` |
-| `medium` | `text_properties + closed_label`；或 `heading_style` 但 label 需上下文确认 |
-| `low` | keyword-only fallback、duplicate、variant、label unknown |
-| `candidate_only` | 只有 `text_properties`，默认不切正式 unit |
-
-这样能降低无意义 T2 flags，同时保留需要人工/AI 判断的证据。
-
----
-
-## 4. 实施顺序
-
-建议按下面顺序做，不要先大范围调权重：
-
-1. **T2 本地派生信号层**：从 T1 原子事实计算 `toc_entry_like` 等；不读旧 `structural_signals`。
-2. **TOC block segmenter**：先解决最大污染源。
-3. **`text_properties` candidate-only**：压住北大过切。
-4. **canonical title classifier**：提高 closed label 命中率，减少 `other`。
-5. **duplicate / variant 聚合**：减少湖南多版本块造成的碎片化。
-6. **三校指标门禁**：把下面指标写成测试或脚本。
-
----
-
-## 5. 验收指标
-
-### 5.1 三校结构指标
-
-| 指标 | 湖南目标 | 南农目标 | 北大目标 |
-| --- | ---: | ---: | ---: |
-| 非 `toc` 单元中的 `toc_entry_like` 数 | 0 | 0 | 0 |
-| `toc` 覆盖 TOC 条目 | 20/20 | 25/25 | 17/17 |
-| `other` 数 | < 8 | < 5 | < 10 |
-| 必需闭集单元 | `toc`、`abstract_cn`、`abstract_en`、`body_main`、`references` | 同左 | 同左 |
-| unit 数量 | 不暴涨 | 不暴涨 | 不暴涨 |
-| T2 flags | 下降 | 下降 | 下降 |
-
-### 5.2 单测建议
-
-新增或扩展：
-
-- `test_t2_derives_toc_entry_like_from_atomic_facts`
-- `test_t2_ignores_legacy_t1_semantic_fields_if_present`
-- `test_t2_toc_block_claims_all_toc_entries`
-- `test_t2_text_properties_only_is_candidate_not_unit_boundary`
-- `test_t2_canonical_title_classifier_handles_format_annotations`
-- `test_t2_duplicate_variant_block_is_grouped_as_other_with_variant_flag`
-
-### 5.3 输出契约
-
-`t2_input.json` 应包含：
-
-```json
-{
-  "contexts": [
-    {
-      "entries": [
-        {
-          "source_ref": "...",
-          "text": "...",
-          "text_facts": {},
-          "t2_derived_signals": {
-            "toc_entry_like": true,
-            "toc_title_like": false,
-            "unit_heading_like": false
-          }
-        }
-      ]
-    }
-  ]
-}
-```
-
-注意：`t2_derived_signals` 只能出现在 T2 artifact 中，不能写回 `document_facts.json`。
-
----
-
-## 6. 需要讨论的问题
-
-1. `text_properties` 单独命中时，是完全不切，还是切成 `candidate_only` 后参与 span 但不进入正式 `unit_map.units[]`？
-2. TOC block 中允许多少个非 `toc_entry_like` 的间隔段？例如"（农理工科类专业用）"、空行、格式说明。
-3. `body_main` 的数字标题规则要多宽？`1 前言` 应识别正文，但目录条目和表格编号不能误伤。
-4. 湖南变体块是只归 `other + variant_block_detected`，还是要开始引入 `variant_group_id`？
-5. 当 T1 原子事实不足时，T2 应该如何表达不可判定？建议统一走 `open_question(kind=boundary|label|required_missing)`，并在 `signals_summary.missing_facts[]` 写清缺失项。
-
----
-
-## 7. 非目标
+## 3. 非目标
 
 - 不在 T1 恢复或新增 `is_toc_entry` 等语义字段。
 - 不在 T2 消费旧 `is_toc_entry` / `structural_signals` 字段。
@@ -489,3 +215,35 @@ def canonical_title(text):
 - 不做完整 variant model；本轮最多聚合为 `other + variant_block_detected`。
 - 不解决 T3 段内元素切分。
 - 不解决 T4 页码/分节 high confidence。
+
+---
+
+## 4. Phase 2 确定性主干实施后状态（2026-06-25 更新）
+
+口径：三校真实模板工作树重跑（`scripts/t2_metrics.py` + 完整 `generate_template`），`t2_ai_visual_enabled=false`。
+
+### 4.1 已解决
+
+| 原 issue | 状态 | 证据 |
+| --- | --- | --- |
+| ISSUE-001 TOC 未作 block | 已修 | TOC block segmenter（加锁）上线；湖南 20/20、南农 25/25、北大 17/17 条目归入 `toc`；非 `toc` 单元 `toc_entry_like` 泄漏 = 0 |
+| ISSUE-002 `text_properties` 单独过切 | 已修 | `text_properties` 降为 candidate-only；表格单元格 veto；裸 Heading-2+ 不再切顶层 → 北大 80→21 unit |
+| ISSUE-003 标签闭集过窄 | 已修 | canonical_title + alias 注册表 + `custom_unit` 兜底 → 三校 `other`=0；未知高置信一级单元落 `custom_detected` 并进 `taxonomy_review_queue` |
+| ISSUE-004 duplicate 一刀切降 other | 已修 | 重复核心单元/未知强边界 → `custom_unit`（保留 raw_title/display_name），不再碎成 other |
+
+### 4.2 残余结构问题
+
+- **R1 湖南 `abstract_cn` 丢失（P1）**：中文摘要标题 `□□摘□要（小四黑体）：`（seq 57）含格式注释 `（小四黑体）`，被 `_looks_like_instruction` 判成说明文字而进入 boundary veto；keyword-exact 兜底因此被跳过，未切出 `abstract_cn`。该区被前序 `toc` 区域顺延吞并（`toc` = seq 24-64，越过最后一条目 seq 49，盖住中文标题/摘要/英文标题 50-64）。环节：`structure_candidates._looks_like_instruction` / `_boundary_vetoes` + TOC 区域未在最后一条目处收口。
+- **R2 北大正文过切（P2，计划归 T3/AI）**：正文 Heading-1 章节（研究背景 / 插图公式与表格 / 结论与讨论 等）各自升为 `custom_unit`，`body_main` 仅 seq 214-218。无 TOC 交叉引用时，确定性无法区分"正文章节"与"顶层单元"。计划 §19 归 Phase 3 AI / T3 章节层级，本轮不处理。
+- **R3 噪声 custom（P3）**：`二〇 年 月`、`TITLE`/`English Title…` 等短碎行被升为 `custom_unit`。需更严的 custom 准入（最小内容量、排除纯日期/占位行）。
+
+### 4.3 page_policy（分页策略）尚未实现
+
+- **现状**：`unit_map.units[].page` 为空 `{}`；无 unit 级 `page_policy`，无 `requires_new_page`，无 keep-together / 独占页约束。
+- T1 的 `mechanical_break` 事实当前仅被 `_preceded_by_break` 当作**边界证据**消费，未产出 `page_policy`，也未传给 T4。
+- **实测湖南**：全文仅 1 个 `sectPr`（文末 `body/sectPr`），封面/诚信/目录等各 unit 起点 `page_break_before=False` —— 即该模板**无机械分页信号**，纯确定性无法判定"封面、诚信声明各自独立成页"。计划 §2.2 / §19 将此类无机械信号的强制分页归 Render（Phase 1B）+ AI 视觉（Phase 3）。
+- **未覆盖的产品诉求**（均属 page_policy 推断 + T4 实现，见计划 §10 / §12.1）：
+  1. 核心单元强制另起页（封面、目录、诚信声明等）。
+  2. 单元不可跨页 / keep-together（一页放不下时整单元下移，不把末元素遗留在上一页）。
+  3. 独占页单元（目录满页顺延到次页，但次页剩余空间不接其他单元）。
+- **确定性可做的增量（尚未实现）**：当源文档**存在** `page_break_before` / `sectPr` 时，T2 可确定性输出 `page_policy.mechanical.has_explicit_break=true` 与 `generation_policy.requires_new_page=true, source=mechanical_fact`（计划 §9.4 case 8、§14.3）。湖南三校恰好缺机械信号，对其无效，但对带真实分页符的模板有效，并为 T4 消费打基础。

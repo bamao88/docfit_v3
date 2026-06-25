@@ -4,6 +4,7 @@ import re
 from typing import Any
 
 from docx import Document
+from docx.oxml.ns import qn
 from docx.table import _Cell
 from docx.text.paragraph import Paragraph
 
@@ -39,6 +40,19 @@ def _paragraph_for_ref(
     if index is None:
         return None
     return paragraph_map.get(index)
+
+
+def _paragraph_map_by_ooxml_index(doc: Document) -> dict[int, Paragraph]:
+    top_level_by_element_id = {id(paragraph._p): paragraph for paragraph in doc.paragraphs}
+    paragraph_map: dict[int, Paragraph] = {}
+    for index, paragraph_element in enumerate(
+        doc.element.body.iter(qn("w:p")),
+        start=1,
+    ):
+        paragraph = top_level_by_element_id.get(id(paragraph_element))
+        if paragraph is not None:
+            paragraph_map[index] = paragraph
+    return paragraph_map
 
 
 def _cell_for_ref(doc: Document, source_ref: str | None) -> _Cell | None:

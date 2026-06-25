@@ -112,6 +112,118 @@ def _verify_t1_document_facts(
     )
     findings.extend(duplicate_run_findings)
     next_index += len(duplicate_run_findings)
+    source_text_by_ref = _source_paragraph_texts(document_facts)
+    for item in document_facts.get("body_flow", []):
+        item_ref = str(item.get("source_ref") or item.get("node_id") or "")
+        raw_run_ids = [str(raw_id) for raw_id in item.get("raw_run_ids", [])]
+        paragraph_id = str(item.get("paragraph_id") or "")
+        if item.get("kind") == "paragraph" and paragraph_id and raw_run_ids:
+            raw_prefix = raw_run_ids[0].split(".", 1)[0]
+            if raw_prefix != paragraph_id:
+                findings.append(
+                    make_finding(
+                        next_index,
+                        "template_generate",
+                        Status.UNKNOWN,
+                        "document_facts_paragraph_trace_mismatch",
+                        "T1 paragraph_id and raw run ids must use one coordinate system",
+                        paragraph_id,
+                        raw_run_ids[0],
+                        evidence_refs=[item_ref],
+                        root_cause_bucket="template_t1_coordinate_gap",
+                    )
+                )
+                next_index += 1
+        if _visible_body_item(item) and item.get("kind") == "paragraph" and not raw_run_ids:
+            findings.append(
+                make_finding(
+                    next_index,
+                    "template_generate",
+                    Status.UNKNOWN,
+                    "document_facts_visible_paragraph_trace_missing",
+                    "T1 visible paragraphs must have raw run trace",
+                    "raw_run_ids non-empty",
+                    item_ref,
+                    evidence_refs=[item_ref],
+                    root_cause_bucket="template_t1_run_trace_gap",
+                )
+            )
+            next_index += 1
+        if _visible_body_item(item) and item.get("kind") == "table_cell":
+            has_cell_trace = bool(
+                raw_run_ids
+                or item.get("cell_run_refs")
+                or item.get("cell_paragraph_refs")
+            )
+            if not has_cell_trace:
+                findings.append(
+                    make_finding(
+                        next_index,
+                        "template_generate",
+                        Status.UNKNOWN,
+                        "document_facts_visible_table_cell_trace_missing",
+                        "T1 visible table cells must link to cell paragraph or run trace",
+                        "raw_run_ids or cell_run_refs or cell_paragraph_refs",
+                        item_ref,
+                        evidence_refs=[item_ref],
+                        root_cause_bucket="template_t1_table_trace_gap",
+                    )
+                )
+                next_index += 1
+        if _visible_body_item(item) and item.get("kind") in {"header", "footer"}:
+            has_part_trace = bool(
+                raw_run_ids
+                or item.get("part_flow_ref")
+                or item.get("part_run_refs")
+            )
+            if not has_part_trace:
+                findings.append(
+                    make_finding(
+                        next_index,
+                        "template_generate",
+                        Status.UNKNOWN,
+                        "document_facts_header_footer_trace_missing",
+                        "T1 header/footer items must link to part-local trace",
+                        "raw_run_ids or part_flow_ref or part_run_refs",
+                        item_ref,
+                        evidence_refs=[item_ref],
+                        root_cause_bucket="template_t1_header_footer_trace_gap",
+                    )
+                )
+                next_index += 1
+        semantic_fields = _semantic_field_names(item)
+        if semantic_fields:
+            findings.append(
+                make_finding(
+                    next_index,
+                    "template_generate",
+                    Status.FAIL,
+                    "document_facts_semantic_field_in_t1",
+                    "T1 document_facts must not contain semantic judgment fields",
+                    "fact-only body_flow item",
+                    ",".join(semantic_fields),
+                    evidence_refs=[item_ref],
+                    root_cause_bucket="template_t1_boundary_violation",
+                )
+            )
+            next_index += 1
+        expected_text = source_text_by_ref.get(str(item.get("source_ref") or ""))
+        actual_text = str(item.get("text") or "").strip()
+        if expected_text is not None and actual_text and expected_text != actual_text:
+            findings.append(
+                make_finding(
+                    next_index,
+                    "template_generate",
+                    Status.UNKNOWN,
+                    "document_facts_source_ref_text_mismatch",
+                    "T1 source_ref must point to the OOXML paragraph containing body_flow text",
+                    actual_text[:80],
+                    expected_text[:80],
+                    evidence_refs=[item_ref],
+                    root_cause_bucket="template_t1_coordinate_gap",
+                )
+            )
+            next_index += 1
     for run in document_facts.get("runs", []):
         missing = [
             key
@@ -148,6 +260,71 @@ def _verify_t1_document_facts(
         )
         next_index += 1
     return findings
+
+
+def _visible_body_item(item: dict[str, Any]) -> bool:
+    return bool(item.get("visible", True) and str(item.get("text") or "").strip())
+
+
+def _semantic_field_names(item: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+    for key in item:
+        if _semantic_field_name(str(key)):
+            names.append(str(key))
+    signals = item.get("structural_signals")
+    if isinstance(signals, dict):
+        names.append("structural_signals")
+        for key in signals:
+            if _semantic_field_name(str(key)):
+                names.append(f"structural_signals.{key}")
+    return sorted(dict.fromkeys(names))
+
+
+def _semantic_field_name(name: str) -> bool:
+    return (
+        name.startswith("is_")
+        or name.startswith("looks_like_")
+        or name.startswith("likely_")
+        or name in {"large_font", "short_text", "policy", "confidence", "unit_id"}
+    )
+
+
+def _source_paragraph_texts(document_facts: dict[str, Any]) -> dict[str, str]:
+    path_value = document_facts.get("metadata", {}).get("source_template_docx")
+    if not path_value:
+        return {}
+    path = Path(str(path_value))
+    if not path.exists():
+        return {}
+    try:
+        with ZipFile(path) as package:
+            root = ET.fromstring(package.read("word/document.xml"))
+    except (KeyError, OSError, ET.ParseError):
+        return {}
+    return {
+        f"word/document.xml:p[{index}]": _ooxml_visible_text(paragraph).strip()
+        for index, paragraph in enumerate(root.iter(f"{W_NS}p"), start=1)
+    }
+
+
+def _ooxml_visible_text(root: ET.Element) -> str:
+    chunks: list[str] = []
+
+    def walk(node: ET.Element) -> None:
+        local_name = node.tag.rsplit("}", 1)[-1]
+        if local_name in {"del", "moveFrom"}:
+            return
+        if node.tag == f"{W_NS}t":
+            chunks.append(node.text or "")
+        elif node.tag == f"{W_NS}tab":
+            chunks.append("\t")
+        elif node.tag in {f"{W_NS}br", f"{W_NS}cr"}:
+            chunks.append("\n")
+        for child in list(node):
+            walk(child)
+
+    walk(root)
+    return "".join(chunks)
 
 
 def _missing_value(value: Any) -> bool:

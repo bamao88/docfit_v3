@@ -8,7 +8,7 @@ from docx import Document
 from docx.text.paragraph import Paragraph
 
 from .constants import BODY_SLOT_MARKER
-from .refs import _cell_for_ref, _paragraph_for_ref
+from .refs import _cell_for_ref, _paragraph_for_ref, _paragraph_map_by_ooxml_index
 from .text_utils import _dedupe_by_key
 from .word_ops import (
     _append_sdt,
@@ -35,9 +35,7 @@ def execute_template_generation_plan(
         copy_source_snapshot_docx.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(generated_template_docx, copy_source_snapshot_docx)
     doc = Document(generated_template_docx)
-    paragraph_map = {
-        index: paragraph for index, paragraph in enumerate(doc.paragraphs, start=1)
-    }
+    paragraph_map = _paragraph_map_by_ooxml_index(doc)
     executed: list[dict[str, Any]] = []
     review: list[dict[str, Any]] = []
     slots: list[dict[str, Any]] = []

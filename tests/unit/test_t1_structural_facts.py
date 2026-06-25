@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import pytest
 from docx import Document
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
+from docfit.template_generation.refs import (
+    _paragraph_for_ref,
+    _paragraph_map_by_ooxml_index,
+)
 from docfit.template_generation.source_tree import (
     _body_flow_from_inspection,
     inspect_document_facts_docx,
@@ -180,6 +186,116 @@ def test_document_facts_preserve_visible_spaces_between_raw_runs(tmp_path) -> No
             "text": "目  录",
         }
     ]
+
+
+def test_document_facts_use_ooxml_paragraph_index_for_source_refs(tmp_path) -> None:
+    source = tmp_path / "source_template.docx"
+    document = Document()
+    table = document.add_table(rows=1, cols=1)
+    table.cell(0, 0).text = "封面"
+    document.add_paragraph("正文开始")
+    document.save(source)
+
+    facts = inspect_document_facts_docx(source)
+
+    table_item = next(
+        item for item in facts["body_flow"] if item["kind"] == "table_cell"
+    )
+    assert table_item["text"] == "封面"
+    assert table_item["cell_paragraph_refs"] == ["word/document.xml:p[1]"]
+    assert table_item["raw_run_ids"] == ["p_0001.r_001"]
+    assert table_item["logical_run_ids"] == ["p_0001.lr_001"]
+
+    paragraph_item = next(
+        item for item in facts["body_flow"] if item["kind"] == "paragraph"
+    )
+    assert paragraph_item["text"] == "正文开始"
+    assert paragraph_item["source_ref"] == "word/document.xml:p[2]"
+    assert paragraph_item["paragraph_id"] == "p_0002"
+    assert paragraph_item["python_docx_index"] == 1
+    assert paragraph_item["raw_run_ids"] == ["p_0002.r_001"]
+
+
+def test_document_facts_trace_nested_hyperlink_runs_and_tabs(tmp_path) -> None:
+    source = tmp_path / "source_template.docx"
+    document = Document()
+    paragraph = document.add_paragraph()
+    hyperlink = OxmlElement("w:hyperlink")
+    hyperlink.set(qn("w:anchor"), "toc")
+    for text in ["摘", "  ", "要"]:
+        run = OxmlElement("w:r")
+        text_node = OxmlElement("w:t")
+        text_node.set("{http://www.w3.org/XML/1998/namespace}space", "preserve")
+        text_node.text = text
+        run.append(text_node)
+        hyperlink.append(run)
+    tab_run = OxmlElement("w:r")
+    tab_run.append(OxmlElement("w:tab"))
+    hyperlink.append(tab_run)
+    run = OxmlElement("w:r")
+    text_node = OxmlElement("w:t")
+    text_node.text = "Ⅰ"
+    run.append(text_node)
+    hyperlink.append(run)
+    paragraph._p.append(hyperlink)
+    document.save(source)
+
+    facts = inspect_document_facts_docx(source)
+
+    body_item = facts["body_flow"][0]
+    assert body_item["text"] == "摘  要\tⅠ"
+    assert body_item["raw_run_ids"] == [
+        "p_0001.r_001",
+        "p_0001.r_002",
+        "p_0001.r_003",
+        "p_0001.r_004",
+        "p_0001.r_005",
+    ]
+    assert "structural_signals" not in body_item
+    assert body_item["text_facts"]["has_tab"] is True
+    assert body_item["text_facts"]["trailing_token"] == "Ⅰ"
+
+    logical_run = facts["runs"][0]
+    assert logical_run["text"] == "摘  要\tⅠ"
+    assert logical_run["container_refs"] == ["word/document.xml:p[1]/hyperlink[1]"]
+    assert logical_run["source_refs"] == [
+        "word/document.xml:p[1]/hyperlink[1]/r[1]",
+        "word/document.xml:p[1]/hyperlink[1]/r[2]",
+        "word/document.xml:p[1]/hyperlink[1]/r[3]",
+        "word/document.xml:p[1]/hyperlink[1]/r[4]",
+        "word/document.xml:p[1]/hyperlink[1]/r[5]",
+    ]
+
+
+def test_paragraph_ref_lookup_uses_ooxml_index_when_tables_precede_body() -> None:
+    document = Document()
+    table = document.add_table(rows=1, cols=1)
+    table.cell(0, 0).text = "封面"
+    document.add_paragraph("正文开始")
+
+    paragraph_map = _paragraph_map_by_ooxml_index(document)
+
+    assert _paragraph_for_ref(paragraph_map, "word/document.xml:p[1]") is None
+    target = _paragraph_for_ref(paragraph_map, "word/document.xml:p[2]")
+    assert target is not None
+    assert target.text == "正文开始"
+
+
+def test_document_facts_trace_header_footer_part_runs(tmp_path) -> None:
+    source = tmp_path / "source_template.docx"
+    document = Document()
+    document.add_paragraph("正文")
+    document.sections[0].footer.paragraphs[0].text = "第 1 页"
+    document.save(source)
+
+    facts = inspect_document_facts_docx(source)
+
+    footer_item = next(item for item in facts["body_flow"] if item["kind"] == "footer")
+    assert footer_item["text"] == "第 1 页"
+    assert footer_item["part_paragraph_refs"] == ["word/footer1.xml:p[1]"]
+    assert footer_item["raw_run_ids"] == ["word_footer1_xml.p_0001.r_001"]
+    assert footer_item["logical_run_ids"] == ["word_footer1_xml.p_0001.lr_001"]
+    assert footer_item["part_run_refs"] == footer_item["raw_run_ids"]
 
 
 @pytest.mark.parametrize(

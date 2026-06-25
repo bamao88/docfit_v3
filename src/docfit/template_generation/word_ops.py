@@ -186,14 +186,23 @@ def _sdt_block(tag: str, *, alias: str | None = None, placeholder: str = "") -> 
 
 def _append_marker(doc: Document, marker: str) -> str:
     doc.add_paragraph(marker)
-    return f"word/document.xml:p[{len(doc.paragraphs)}]"
+    return f"word/document.xml:p[{_body_paragraph_count(doc)}]"
 
 
 def _find_marker_ref(doc: Document, marker: str) -> str | None:
+    paragraph_index_by_element_id = {
+        id(paragraph_element): index
+        for index, paragraph_element in enumerate(doc.element.body.iter(qn("w:p")), start=1)
+    }
     for index, paragraph in enumerate(doc.paragraphs, start=1):
         if marker in paragraph.text:
-            return f"word/document.xml:p[{index}]"
+            paragraph_index = paragraph_index_by_element_id.get(id(paragraph._p), index)
+            return f"word/document.xml:p[{paragraph_index}]"
     return None
+
+
+def _body_paragraph_count(doc: Document) -> int:
+    return sum(1 for _ in doc.element.body.iter(qn("w:p")))
 
 
 def _find_sdt_tag_ref(doc: Document, tag: str) -> str | None:

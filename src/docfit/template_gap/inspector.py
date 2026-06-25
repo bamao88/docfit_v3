@@ -14,6 +14,8 @@ from docfit.ooxml.package import detect_unsupported_visible_objects, is_valid_do
 W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 R_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
 REL_NS = "{http://schemas.openxmlformats.org/package/2006/relationships}"
+RUN_CONTAINER_TAGS = {"hyperlink", "fldSimple", "sdt", "smartTag", "customXml", "ins"}
+INVISIBLE_CONTENT_TAGS = {"del", "moveFrom"}
 
 
 def inspect_generated_template_docx(generated_template: Path) -> dict[str, Any]:
@@ -83,7 +85,10 @@ def iter_visible_text_entries(tree: dict[str, Any]) -> list[dict[str, Any]]:
                     "style_details": paragraph.get("style_details", {}),
                     "runs": paragraph.get("runs", []),
                     "source_ref": paragraph.get("source_ref", ""),
-                    "order": paragraph.get("index", 0),
+                    "order": paragraph.get("xml_index", paragraph.get("index", 0)),
+                    "paragraph_index": paragraph.get("xml_index"),
+                    "python_docx_index": paragraph.get("python_docx_index")
+                    or paragraph.get("index"),
                 }
             )
     for table in data.get("tables", []):
@@ -104,6 +109,8 @@ def iter_visible_text_entries(tree: dict[str, Any]) -> list[dict[str, Any]]:
                         ),
                         "paragraph_index": cell.get("first_paragraph_index"),
                         "end_paragraph_index": cell.get("last_paragraph_index"),
+                        "paragraph_indices": cell.get("paragraph_indices", []),
+                        "cell_paragraph_refs": cell.get("cell_paragraph_refs", []),
                         "table_index": table.get("index"),
                         "table_source_ref": table.get("source_ref", ""),
                     }
@@ -116,6 +123,7 @@ def iter_visible_text_entries(tree: dict[str, Any]) -> list[dict[str, Any]]:
                     "text": part.get("text", ""),
                     "style": "",
                     "source_ref": part.get("source_ref", ""),
+                    "part_paragraph_refs": part.get("paragraph_refs", []),
                     "order": 20_000 + part.get("index", 0),
                 }
             )
@@ -142,11 +150,11 @@ def _paragraphs(
     paragraphs: list[dict[str, Any]] = []
     xml_indices = _xml_paragraph_indices(doc)
     for index, paragraph in enumerate(doc.paragraphs, start=1):
-        text = paragraph.text.strip()
+        xml_index = xml_indices.get(_element_path(paragraph._p), index)
+        style_details = paragraph_styles.get(xml_index, {})
+        text = str(style_details.get("text") or paragraph.text).strip()
         if not text:
             continue
-        xml_index = xml_indices.get(paragraph._p, index)
-        style_details = paragraph_styles.get(xml_index, paragraph_styles.get(index, {}))
         runs = style_details.get("runs") or [
             {
                 "text": run.text,
@@ -167,20 +175,21 @@ def _paragraphs(
         paragraphs.append(
             {
                 "index": index,
+                "python_docx_index": index,
                 "xml_index": xml_index,
                 "text": text,
                 "style": paragraph.style.name if paragraph.style is not None else "",
                 "style_details": style_details,
                 "runs": runs,
-                "source_ref": f"word/document.xml:p[{index}]",
+                "source_ref": f"word/document.xml:p[{xml_index}]",
             }
         )
     return paragraphs
 
 
-def _xml_paragraph_indices(doc: Document) -> dict[Any, int]:
+def _xml_paragraph_indices(doc: Document) -> dict[str, int]:
     return {
-        paragraph: index
+        _element_path(paragraph): index
         for index, paragraph in enumerate(doc.element.body.iter(f"{W_NS}p"), start=1)
     }
 
@@ -197,11 +206,20 @@ def _tables(
         cell_details = table_detail.get("cells", {})
         row_details = table_detail.get("rows", {})
         cells: list[dict[str, Any]] = []
+        cell_trace_by_tc_path: dict[str, dict[str, Any]] = {}
         for row_index, row in enumerate(table.rows, start=1):
             row_detail = row_details.get(row_index, {})
+            for physical_cell_index, tc in enumerate(row._tr.tc_lst, start=1):
+                physical_detail = cell_details.get((row_index, physical_cell_index), {})
+                if physical_detail:
+                    cell_trace_by_tc_path[_element_path(tc)] = physical_detail
             for cell_index, cell in enumerate(row.cells, start=1):
                 global_cell_index += 1
-                cell_detail = cell_details.get((row_index, cell_index), {})
+                layout_cell_detail = cell_details.get((row_index, cell_index), {})
+                cell_detail = cell_trace_by_tc_path.get(
+                    _element_path(cell._tc),
+                    {},
+                ) or layout_cell_detail
                 first_paragraph_index = cell_detail.get("first_paragraph_index")
                 row_first_paragraph_index = cell_detail.get(
                     "row_first_paragraph_index"
@@ -210,9 +228,24 @@ def _tables(
                     "row_last_paragraph_index"
                 ) or row_detail.get("row_last_paragraph_index")
                 text = "\n".join(
-                    paragraph.text.strip()
-                    for paragraph in cell.paragraphs
-                    if paragraph.text.strip()
+                    _cell_paragraph_text(
+                        paragraph_styles,
+                        cell_detail.get("paragraph_indices", []),
+                        local_index,
+                        paragraph,
+                    )
+                    for local_index, paragraph in enumerate(cell.paragraphs)
+                    if _cell_paragraph_text(
+                        paragraph_styles,
+                        cell_detail.get("paragraph_indices", []),
+                        local_index,
+                        paragraph,
+                    )
+                )
+                cell_paragraphs = _cell_paragraph_facts(
+                    paragraph_styles,
+                    cell_detail.get("paragraph_indices", []),
+                    cell.paragraphs,
                 )
                 cells.append(
                     {
@@ -225,6 +258,10 @@ def _tables(
                             {},
                         ),
                         "paragraph_indices": cell_detail.get("paragraph_indices", []),
+                        "paragraphs": cell_paragraphs,
+                        "cell_paragraph_refs": [
+                            paragraph["source_ref"] for paragraph in cell_paragraphs
+                        ],
                         "first_paragraph_index": first_paragraph_index,
                         "last_paragraph_index": cell_detail.get("last_paragraph_index"),
                         "row_first_paragraph_index": row_first_paragraph_index,
@@ -236,7 +273,7 @@ def _tables(
                         ),
                         "row_source_ref": cell_detail.get("row_source_ref")
                         or row_detail.get("row_source_ref", ""),
-                        "source_ref": cell_detail.get("source_ref")
+                        "source_ref": layout_cell_detail.get("source_ref")
                         or (
                             f"word/document.xml:tbl[{table_index}]"
                             f"/tr[{row_index}]/tc[{cell_index}]"
@@ -260,6 +297,61 @@ def _tables(
     return tables
 
 
+def _cell_paragraph_text(
+    paragraph_styles: dict[int, dict[str, Any]],
+    paragraph_indices: list[int],
+    local_index: int,
+    paragraph: Any,
+) -> str:
+    paragraph_index = (
+        int(paragraph_indices[local_index])
+        if local_index < len(paragraph_indices)
+        else None
+    )
+    if paragraph_index is not None:
+        text = str(paragraph_styles.get(paragraph_index, {}).get("text") or "").strip()
+        if text:
+            return text
+    return str(getattr(paragraph, "text", "") or "").strip()
+
+
+def _cell_paragraph_facts(
+    paragraph_styles: dict[int, dict[str, Any]],
+    paragraph_indices: list[int],
+    paragraphs: list[Any],
+) -> list[dict[str, Any]]:
+    facts: list[dict[str, Any]] = []
+    for local_index, paragraph in enumerate(paragraphs):
+        if local_index >= len(paragraph_indices):
+            continue
+        paragraph_index = int(paragraph_indices[local_index])
+        style_details = paragraph_styles.get(paragraph_index, {})
+        text = _cell_paragraph_text(
+            paragraph_styles,
+            paragraph_indices,
+            local_index,
+            paragraph,
+        )
+        if not text:
+            continue
+        facts.append(
+            {
+                "index": paragraph_index,
+                "xml_index": paragraph_index,
+                "text": text,
+                "style": (
+                    paragraph.style.name
+                    if getattr(paragraph, "style", None) is not None
+                    else ""
+                ),
+                "style_details": style_details,
+                "runs": style_details.get("runs", []),
+                "source_ref": f"word/document.xml:p[{paragraph_index}]",
+            }
+        )
+    return facts
+
+
 def _table_details_by_index(path: Path) -> dict[int, dict[str, Any]]:
     try:
         with ZipFile(path) as package:
@@ -272,7 +364,10 @@ def _table_details_by_index(path: Path) -> dict[int, dict[str, Any]]:
         for index, paragraph in enumerate(root.iter(f"{W_NS}p"), start=1)
     }
     details: dict[int, dict[str, Any]] = {}
-    for table_index, table in enumerate(root.iter(f"{W_NS}tbl"), start=1):
+    body = root.find(f"{W_NS}body")
+    if body is None:
+        return details
+    for table_index, table in enumerate(body.findall(f"{W_NS}tbl"), start=1):
         table_paragraphs = [
             paragraph_indices[id(paragraph)]
             for paragraph in table.iter(f"{W_NS}p")
@@ -385,12 +480,14 @@ def _paragraph_style_details_by_index(path: Path) -> dict[int, dict[str, Any]]:
             inherited_run,
             direct_paragraph_run,
         )
-        runs = [
-            _run_style(run, paragraph_run_properties)
-            for run in paragraph.findall(f"{W_NS}r")
-            if _visible_text(run, strip=False)
-        ]
+        runs = _paragraph_runs(
+            paragraph,
+            paragraph_run_properties,
+            part_name="word/document.xml",
+            paragraph_index=index,
+        )
         details[index] = {
+            "text": text,
             "paragraph": _merge_paragraph_styles(
                 inherited_paragraph,
                 direct_paragraph_style,
@@ -568,15 +665,76 @@ def _paragraph_style(properties: ET.Element | None) -> dict[str, Any]:
 def _run_style(
     run: ET.Element,
     inherited_run_properties: dict[str, Any] | None = None,
+    *,
+    source_ref: str | None = None,
+    container_refs: list[str] | None = None,
 ) -> dict[str, Any]:
     properties = run.find(f"{W_NS}rPr")
-    return {
+    style = {
         "text": _visible_text(run, strip=False),
         **_merge_run_styles(
             inherited_run_properties or {},
             _run_properties(properties),
         ),
     }
+    if source_ref:
+        style["source_ref"] = source_ref
+    if container_refs:
+        style["container_refs"] = list(container_refs)
+    return style
+
+
+def _paragraph_runs(
+    paragraph: ET.Element,
+    paragraph_run_properties: dict[str, Any],
+    *,
+    part_name: str,
+    paragraph_index: int,
+) -> list[dict[str, Any]]:
+    runs: list[dict[str, Any]] = []
+    container_counts: dict[str, int] = {}
+
+    def walk(
+        node: ET.Element,
+        *,
+        path_parts: list[str],
+        container_refs: list[str],
+    ) -> None:
+        for child in list(node):
+            local_name = _local_name(child.tag)
+            if local_name in INVISIBLE_CONTENT_TAGS:
+                continue
+            next_path_parts = path_parts
+            next_container_refs = container_refs
+            if local_name in RUN_CONTAINER_TAGS:
+                container_counts[local_name] = container_counts.get(local_name, 0) + 1
+                container_ref = (
+                    f"{part_name}:p[{paragraph_index}]"
+                    f"/{local_name}[{container_counts[local_name]}]"
+                )
+                next_path_parts = [*path_parts, f"{local_name}[{container_counts[local_name]}]"]
+                next_container_refs = [*container_refs, container_ref]
+            if child.tag == f"{W_NS}r":
+                if _visible_text(child, strip=False):
+                    run_index = len(runs) + 1
+                    source_path = "/".join([*path_parts, f"r[{run_index}]"])
+                    runs.append(
+                        _run_style(
+                            child,
+                            paragraph_run_properties,
+                            source_ref=f"{part_name}:p[{paragraph_index}]/{source_path}",
+                            container_refs=container_refs,
+                        )
+                    )
+                continue
+            walk(
+                child,
+                path_parts=next_path_parts,
+                container_refs=next_container_refs,
+            )
+
+    walk(paragraph, path_parts=[], container_refs=[])
+    return runs
 
 
 def _run_properties(properties: ET.Element | None) -> dict[str, Any]:
@@ -740,6 +898,7 @@ def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, A
 
     with ZipFile(generated_template) as package:
         relationships = _document_relationships(package)
+        style_catalog = _style_catalog(package)
         numbering_catalog = _numbering_catalog(package)
         numbering_definitions = numbering_catalog["definitions"]
         footnotes = _footnotes(package)
@@ -756,6 +915,11 @@ def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, A
             except ET.ParseError:
                 continue
             if part_name.startswith("word/header") or part_name.startswith("word/footer"):
+                paragraphs = _part_paragraphs(
+                    root,
+                    part_name=part_name,
+                    style_catalog=style_catalog,
+                )
                 headers_footers.append(
                     {
                         "index": part_index,
@@ -764,6 +928,10 @@ def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, A
                         ),
                         "part_name": part_name,
                         "text": _visible_text(root),
+                        "paragraphs": paragraphs,
+                        "paragraph_refs": [
+                            paragraph["source_ref"] for paragraph in paragraphs
+                        ],
                         "source_ref": part_name,
                     }
                 )
@@ -790,9 +958,93 @@ def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, A
     }
 
 
+def _part_paragraphs(
+    root: ET.Element,
+    *,
+    part_name: str,
+    style_catalog: dict[str | None, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    paragraphs: list[dict[str, Any]] = []
+    for index, paragraph in enumerate(root.iter(f"{W_NS}p"), start=1):
+        text = _visible_text(paragraph)
+        if not text:
+            continue
+        paragraph_properties = paragraph.find(f"{W_NS}pPr")
+        direct_paragraph_style = _paragraph_style(paragraph_properties)
+        style_id = direct_paragraph_style.get("style_id")
+        inherited = style_catalog.get(style_id, {})
+        inherited_paragraph = inherited.get("paragraph", {})
+        inherited_run = inherited.get("run", {})
+        direct_paragraph_run = _run_properties(
+            paragraph_properties.find(f"{W_NS}rPr")
+            if paragraph_properties is not None
+            else None
+        )
+        paragraph_run_properties = _merge_run_styles(
+            inherited_run,
+            direct_paragraph_run,
+        )
+        runs = _paragraph_runs(
+            paragraph,
+            paragraph_run_properties,
+            part_name=part_name,
+            paragraph_index=index,
+        )
+        paragraphs.append(
+            {
+                "index": index,
+                "xml_index": index,
+                "part_name": part_name,
+                "text": text,
+                "style": "",
+                "style_details": {
+                    "text": text,
+                    "paragraph": _merge_paragraph_styles(
+                        inherited_paragraph,
+                        direct_paragraph_style,
+                    ),
+                    "paragraph_run_properties": paragraph_run_properties,
+                    "runs": runs,
+                    "dominant_run": _dominant_run_style(runs),
+                    "style_inheritance": {
+                        **inherited.get("inheritance", {}),
+                        "run": inherited_run,
+                    },
+                },
+                "runs": runs,
+                "source_ref": f"{part_name}:p[{index}]",
+            }
+        )
+    return paragraphs
+
+
 def _visible_text(root: ET.Element, *, strip: bool = True) -> str:
-    text = "".join(node.text or "" for node in root.iter(f"{W_NS}t"))
+    chunks: list[str] = []
+
+    def walk(node: ET.Element) -> None:
+        local_name = _local_name(node.tag)
+        if local_name in INVISIBLE_CONTENT_TAGS:
+            return
+        if node.tag == f"{W_NS}t":
+            chunks.append(node.text or "")
+        elif node.tag == f"{W_NS}tab":
+            chunks.append("\t")
+        elif node.tag in {f"{W_NS}br", f"{W_NS}cr"}:
+            chunks.append("\n")
+        for child in list(node):
+            walk(child)
+
+    walk(root)
+    text = "".join(chunks)
     return text.strip() if strip else text
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _element_path(element: Any) -> str:
+    return element.getroottree().getpath(element)
 
 
 def _document_relationships(package: ZipFile) -> dict[str, str]:

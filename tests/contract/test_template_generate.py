@@ -98,9 +98,18 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert verification_report["status"] == Status.UNKNOWN.value
     assert verification_report["first_bad_stage"] == "T2"
     assert any(flag["type"] == "unit_confidence_needs_review" for flag in unit_map["flags"])
-    assert any(
-        flag["type"] == "element_confidence_needs_review"
+    # Element confidence is graded by final policy/evidence (not blanket medium):
+    # unambiguous fixed/instruction/generated elements grade `high` and raise no
+    # review flag; only genuinely-ambiguous elements stay medium/low and get one.
+    assert all(
+        element["confidence"] in {"high", "medium", "low"}
+        for element in element_spec["elements"]
+    )
+    assert any(element["confidence"] == "high" for element in element_spec["elements"])
+    assert all(
+        flag["confidence"] in {"medium", "low"}
         for flag in element_spec["flags"]
+        if flag["type"] == "element_confidence_needs_review"
     )
     assert global_spec["section_profiles"][0]["boundary"]["status"] == "detected"
     assert global_spec["section_profiles"][0]["page_numbering"]["display"]["status"] == (
