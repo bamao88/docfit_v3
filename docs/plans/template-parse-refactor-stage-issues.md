@@ -1,6 +1,6 @@
 # 模板解析重构阶段问题清单
 
-Last updated: 2026-06-25
+Last updated: 2026-06-25；13:00
 
 本文是后续讨论用的问题台账。它只记录当前模板解析和可填模板生成支撑链路的问题，不讨论学生内容提取、placement、最终 render 的业务质量。
 
@@ -325,6 +325,8 @@ document_facts
 ## T4 global_spec
 
 主产物：`04_global_spec.yaml`
+
+专项讨论稿：`docs/plans/template-parse-refactor-t4-optimization.md`
 
 当前状态：
 
