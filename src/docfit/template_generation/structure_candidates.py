@@ -832,8 +832,67 @@ def _structural_signals(entry: dict[str, Any]) -> dict[str, Any]:
         "large_font": (dominant.get("font_size_pt") or 0) >= 16,
         "bold": bool(dominant.get("bold")),
         "looks_like_instruction_text": _looks_like_instruction(text),
+        "is_toc_entry": _is_toc_entry(entry),
+        "is_spacing_line": _is_spacing_line(text),
+        # Compatibility-only advisory signal. T2 owns boundary decisions.
         "likely_unit_heading": _looks_like_heading(entry),
     }
+
+
+def _is_toc_entry(entry: dict[str, Any]) -> bool:
+    text = str(entry.get("text", ""))
+    stripped = text.strip()
+    if not stripped or _is_toc_title(stripped):
+        return False
+    style_name = _entry_style_name(entry)
+    if re.search(r"\btoc\s*\d+\b", style_name.lower()):
+        return True
+    page_suffix = r"(?:\d+|[ivxlcdmIVXLCDM]+|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+)"
+    has_tab_page = bool(re.search(rf"\t\s*{page_suffix}\s*$", stripped))
+    has_leader_page = bool(
+        re.search(rf"(?:…|\.|．|·|•){{2,}}\s*{page_suffix}\s*$", stripped)
+    )
+    return has_tab_page or has_leader_page
+
+
+def _entry_style_name(entry: dict[str, Any]) -> str:
+    details = entry.get("style_details") or {}
+    paragraph = details.get("paragraph") or {}
+    return str(
+        entry.get("style")
+        or paragraph.get("style_name")
+        or paragraph.get("style_id")
+        or ""
+    )
+
+
+def _is_toc_title(text: str) -> bool:
+    normalized = _normalize_text(text)
+    return normalized in {"目录", "目錄"}
+
+
+def _is_spacing_line(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return True
+    content = _parenthesized_content(stripped)
+    if content is None:
+        return False
+    compact = re.sub(r"\s+", "", content)
+    return bool(
+        re.search(
+            r"空(?:[一二两三四五六七八九十0-9]+(?:或[一二两三四五六七八九十0-9]+)?|)[行格]",
+            compact,
+        )
+    )
+
+
+def _parenthesized_content(text: str) -> str | None:
+    if (text.startswith("（") and text.endswith("）")) or (
+        text.startswith("(") and text.endswith(")")
+    ):
+        return text[1:-1]
+    return None
 
 
 def _looks_like_heading(entry: dict[str, Any]) -> bool:

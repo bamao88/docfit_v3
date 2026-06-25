@@ -56,9 +56,7 @@ def inspect_document_facts_docx(source_template_docx: Path) -> dict[str, Any]:
             "body_order": [item.get("node_id") for item in body_flow],
             "runs_by_paragraph_id": run_index["runs_by_paragraph_id"],
             "runs_by_source_ref": run_index["runs_by_source_ref"],
-            "runs_by_raw_run_id": {
-                run["raw_run_id"]: run for run in run_index["runs"]
-            },
+            "runs_by_raw_run_id": run_index["runs_by_raw_run_id"],
         },
         "warnings": _source_tree_warnings(inspected),
         "data": data,
@@ -94,11 +92,10 @@ def _body_flow_from_inspection(
                 "style": entry.get("style", ""),
                 "style_details": entry.get("style_details", {}),
                 "raw_run_ids": raw_run_ids,
-                "logical_run_ids": [
-                    run_index["logical_by_raw"][raw_run_id]
-                    for raw_run_id in raw_run_ids
-                    if raw_run_id in run_index["logical_by_raw"]
-                ],
+                "logical_run_ids": _logical_run_ids_for_raw_ids(
+                    raw_run_ids,
+                    run_index,
+                ),
                 "structural_signals": _structural_signals(entry),
             }
         )
@@ -116,6 +113,7 @@ def _runs_from_inspection(tree: dict[str, Any]) -> dict[str, Any]:
     runs: list[dict[str, Any]] = []
     runs_by_paragraph_id: dict[str, list[str]] = {}
     runs_by_source_ref: dict[str, list[str]] = {}
+    runs_by_raw_run_id: dict[str, dict[str, Any]] = {}
     logical_by_raw: dict[str, str] = {}
     for paragraph in tree.get("data", {}).get("paragraphs", []):
         paragraph_index = paragraph.get("xml_index") or paragraph.get("index")
@@ -125,39 +123,96 @@ def _runs_from_inspection(tree: dict[str, Any]) -> dict[str, Any]:
         source_ref = str(paragraph.get("source_ref") or f"word/document.xml:p[{paragraph_index}]")
         style_details = paragraph.get("style_details") or {}
         paragraph_runs = paragraph.get("runs") or []
-        for run_index, run in enumerate(paragraph_runs, start=1):
-            raw_run_id = f"{paragraph_id}.r_{run_index:03d}"
-            logical_run_id = f"{paragraph_id}.lr_{run_index:03d}"
-            logical_by_raw[raw_run_id] = logical_run_id
-            run_facts = {
-                "raw_run_id": raw_run_id,
-                "logical_run_id": logical_run_id,
-                "merged_from": [raw_run_id],
-                "paragraph_id": paragraph_id,
-                "source_ref": f"{source_ref}/r[{run_index}]",
-                "text": run.get("text", ""),
-                "kind": "text",
-                "effective_style": _effective_style(run),
-                "style_provenance": {
-                    "paragraph_style": paragraph.get("style"),
-                    "style_inheritance": style_details.get("style_inheritance", {}),
-                    "layers": [
-                        "docDefaults",
-                        "basedOn",
-                        "paragraph_style",
-                        "paragraph_direct",
-                        "run_direct",
-                    ],
-                },
-            }
+        current_group: dict[str, Any] | None = None
+        logical_run_index = 0
+
+        def flush_current_group() -> None:
+            nonlocal current_group
+            if current_group is None:
+                return
+            run_facts = _logical_run_facts(
+                current_group,
+                paragraph=paragraph,
+                paragraph_id=paragraph_id,
+                style_details=style_details,
+            )
             runs.append(run_facts)
+            for raw_run_id, raw_source_ref in zip(
+                run_facts["merged_from"],
+                run_facts["source_refs"],
+                strict=True,
+            ):
+                runs_by_raw_run_id[raw_run_id] = {
+                    **run_facts,
+                    "raw_run_id": raw_run_id,
+                    "source_ref": raw_source_ref,
+                }
+            current_group = None
+
+        for raw_index, run in enumerate(paragraph_runs, start=1):
+            raw_run_id = f"{paragraph_id}.r_{raw_index:03d}"
+            effective_style = _effective_style(run)
+            if (
+                current_group is None
+                or current_group["effective_style"] != effective_style
+            ):
+                flush_current_group()
+                logical_run_index += 1
+                current_group = {
+                    "logical_run_id": f"{paragraph_id}.lr_{logical_run_index:03d}",
+                    "paragraph_id": paragraph_id,
+                    "source_ref": f"{source_ref}/r[{raw_index}]",
+                    "source_refs": [],
+                    "merged_from": [],
+                    "texts": [],
+                    "effective_style": effective_style,
+                }
+            current_group["merged_from"].append(raw_run_id)
+            current_group["source_refs"].append(f"{source_ref}/r[{raw_index}]")
+            current_group["texts"].append(str(run.get("text") or ""))
+            logical_run_id = str(current_group["logical_run_id"])
+            logical_by_raw[raw_run_id] = logical_run_id
             runs_by_paragraph_id.setdefault(paragraph_id, []).append(raw_run_id)
             runs_by_source_ref.setdefault(source_ref, []).append(raw_run_id)
+        flush_current_group()
     return {
         "runs": runs,
         "runs_by_paragraph_id": runs_by_paragraph_id,
         "runs_by_source_ref": runs_by_source_ref,
+        "runs_by_raw_run_id": runs_by_raw_run_id,
         "logical_by_raw": logical_by_raw,
+    }
+
+
+def _logical_run_facts(
+    group: dict[str, Any],
+    *,
+    paragraph: dict[str, Any],
+    paragraph_id: str,
+    style_details: dict[str, Any],
+) -> dict[str, Any]:
+    merged_from = list(group["merged_from"])
+    return {
+        "raw_run_id": merged_from[0],
+        "logical_run_id": group["logical_run_id"],
+        "merged_from": merged_from,
+        "paragraph_id": paragraph_id,
+        "source_ref": group["source_ref"],
+        "source_refs": list(group["source_refs"]),
+        "text": "".join(group["texts"]),
+        "kind": "text",
+        "effective_style": group["effective_style"],
+        "style_provenance": {
+            "paragraph_style": paragraph.get("style"),
+            "style_inheritance": style_details.get("style_inheritance", {}),
+            "layers": [
+                "docDefaults",
+                "basedOn",
+                "paragraph_style",
+                "paragraph_direct",
+                "run_direct",
+            ],
+        },
     }
 
 
@@ -167,7 +222,24 @@ def _effective_style(run: dict[str, Any]) -> dict[str, Any]:
         "font_size_pt": run.get("font_size_pt"),
         "bold": run.get("bold"),
         "italic": run.get("italic"),
+        "underline": run.get("underline"),
+        "color": run.get("color"),
     }
+
+
+def _logical_run_ids_for_raw_ids(
+    raw_run_ids: list[str],
+    run_index: dict[str, Any],
+) -> list[str]:
+    logical_run_ids: list[str] = []
+    seen: set[str] = set()
+    for raw_run_id in raw_run_ids:
+        logical_run_id = run_index["logical_by_raw"].get(raw_run_id)
+        if not logical_run_id or logical_run_id in seen:
+            continue
+        logical_run_ids.append(logical_run_id)
+        seen.add(logical_run_id)
+    return logical_run_ids
 
 
 def _stable_ids_for_entry(entry: dict[str, Any]) -> dict[str, Any]:

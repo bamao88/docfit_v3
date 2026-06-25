@@ -1,10 +1,31 @@
+---
+refactor_scope: template-parse-t1-document-facts
+status: DONE
+accepted_severities:
+  - P1
+  - P2
+last_verified: 2026-06-25
+---
+
 # T1 事实层（document_facts）：职责、问题与优化
 
 Last updated: 2026-06-25
 
-一句话结论：T1 只负责把源 docx **读全读对**、产出**原子事实**，不做语义判断、不做"是不是边界"的合成决策。当前 T1 有两类毛病——① **run 归一化压根没实现**（核心缺陷，下游全受影响）；② 把"是不是标题"的合成猜测（`likely_unit_heading`）算在了 T1 里，这本是 **T2 的职责**。另外，T2 需要的两个确定性原子判据 `is_toc_entry` / `is_spacing_line` 本轮已补齐并验证。
+一句话结论：T1 只负责把源 docx **读全读对**、产出**原子事实**，不做语义判断、不做"是不是边界"的合成决策。当前 T1 的核心缺陷 **run 归一化缺失** 已修复：logical run 现在会按相邻 + 有效样式相同合并，`merged_from` 保留全部 raw run 来源；`is_toc_entry` / `is_spacing_line` 两个确定性原子判据也已补齐并验证。`likely_unit_heading` 仍保留为兼容 advisory，最终应在 T2 边界检测落地后移除。
 
 > 状态标注：**【已验证】**＝已在三校 `template-generate` 复现确认；**【设计】**＝待实现；**【✅ 已完成】**＝本轮已实现 + 测试通过。
+
+## Status
+
+DONE
+
+已完成范围：
+- run 归一化：`_runs_from_inspection()` 现在按同段相邻 + `effective_style` 相等合并 logical run，`merged_from` 覆盖全部 raw run id；`body_flow[].logical_run_ids` 去重但 `raw_run_ids` 原样保留。
+- 有效样式维度：`font_names`、`font_size_pt`、`bold`、`italic`、`underline`、`color` 进入 `effective_style`；underline/color 已从 OOXML run properties 抽取。
+- 结构信号：`is_toc_entry` / `is_spacing_line` 已进入 `_structural_signals()`；`likely_unit_heading` 标注为 compatibility-only advisory。
+- 验证：`uv run pytest tests/unit/test_t1_structural_facts.py -q`（19 passed）、`uv run pytest tests/contract -q`（75 passed）、`uv run pytest -q`（120 passed）。
+
+仍未展开：样式级联 gold 级精确验证；T2 边界检测落地后删除 `likely_unit_heading`。
 
 ---
 
@@ -27,8 +48,10 @@ Last updated: 2026-06-25
 
 ## 1. 现状问题（均为三校复现实测）
 
-### 1.1 run 归一化未实现（核心缺陷）【已验证】
-**根因**：`source_tree.py:128-135` —— 每个 raw run 1:1 映射成一个 logical run，`merged_from` 永远是 `[raw_run_id]` 单元素，**没有任何"合并相邻同样式 run"的逻辑**。字段名摆出归一化的样子，实现是纯改名透传。
+### 1.1 run 归一化未实现（核心缺陷）【✅ 已完成】
+**原根因**：`source_tree.py:128-135` —— 每个 raw run 1:1 映射成一个 logical run，`merged_from` 永远是 `[raw_run_id]` 单元素，**没有任何"合并相邻同样式 run"的逻辑**。字段名摆出归一化的样子，实现是纯改名透传。
+
+**修复结果**：`source_tree.py` 现在按段落内相邻 raw run 分组，只有 `effective_style` 完全相同才合并；每个 logical run 的 `text` 是组内 raw run 文本拼接，`merged_from` 记录全部 raw run id，`indexes.runs_by_raw_run_id` 能从任一 raw id 找回所属 logical run。`body_flow[].raw_run_ids` 原样保留，`body_flow[].logical_run_ids` 输出去重后的 logical run id。
 
 **影响**：源文档被 Word 按 rsid/校对切得很碎，facts 因此**过度切分**：
 
@@ -45,7 +68,7 @@ Last updated: 2026-06-25
 ### 1.2 缺确定性原子判据 `is_toc_entry` / `is_spacing_line`（已补）【✅ 已完成】
 **背景**：T2 做边界判定需要"这行是不是目录条目 / 是不是空行说明"作为否决项，但 T1 原来不产出，导致 T2 只能靠关键词硬撞（TOC 撞车，详见 T2 文档）。
 
-**已实现**：`_structural_signals()`（`structure_candidates.py`）新增两字段，三校语义核对 **0 漏判 0 误判**；新增 `tests/unit/test_t1_structural_facts.py`（29 例），全量 `pytest` **130 passed** 无回归。
+**已实现**：`_structural_signals()`（`structure_candidates.py`）新增两字段；新增 `tests/unit/test_t1_structural_facts.py`（19 例），全量 `pytest` **120 passed** 无回归。
 
 判据摘要（确定性、多判据 OR）：
 - `is_toc_entry`：点引线+尾部页码（湖南 `□□摘要……1`）/ TAB+尾部页码（南农 `摘 要⇥Ⅰ`、`1 XXX⇥XX`）/ `toc N` 样式名。目录**标题行**（`目录`/`目  录`）不命中。
@@ -58,14 +81,14 @@ Last updated: 2026-06-25
 
 ## 2. 优化建议（T1 自己的）
 
-### 2.1 实现 run 归一化（优先级最高）【设计】
+### 2.1 实现 run 归一化（优先级最高）【✅ 已完成】
 在 `_runs_from_inspection()`（`source_tree.py`）里：
 - 遍历每段的 raw run，按**相邻 + 有效样式相等**分组；每组产出**一个** logical run；`logical_run_id` 按组给；`merged_from` = 该组**全部 raw_run_id**。
 - **raw run 与 raw_run_id 原样保留**——T6 仍按 raw id 施工（符合规范 §T6"canonical id = 原始 run 位置 id"）。
 - **边界：合并只按样式，不掺语义**。`摘要（三号黑体）` 合成一个 logical run，"摘要 vs（三号黑体）"的语义切分是 T3 的字符级 span 处理，别在 T1 做。
 - 有效样式相等的判定维度：中西文字体名、字号(pt)、bold/italic、underline、color（与现 `effective_style` 一致）。
 
-**测试断言**：`目录`→1 个 logical run；那个 8 段标题→1 个；`摘要（三号黑体）`→1 个且 `merged_from` 长度=3；归一化前后 **raw run 数不变**、文本拼接不变（零丢弃）。
+**测试断言**：`目录`→1 个 logical run；那个 8 段标题→1 个；`摘要（三号黑体）`→1 个且 `merged_from` 长度=3；归一化前后 **raw run 数不变**、文本拼接不变（零丢弃）；bold/underline/color 任一有效样式不同都不会合并。
 
 ### 2.2 `is_toc_entry` / `is_spacing_line`（已完成，记录在案）【✅ 已完成】
 见 §1.2。后续若 T1 升 `artifact_version`，与 §2.3 的清理、verifier 容旧 gold 一并做。
@@ -77,18 +100,17 @@ Last updated: 2026-06-25
 
 ## 3. 验收 / 测试命令
 ```bash
-uv run pytest tests/unit/test_t1_structural_facts.py -q      # 新增原子判据断言
-uv run pytest tests/contract -q                              # 合同回归
-uv run pytest -q                                             # 全量
+uv run pytest tests/unit/test_t1_structural_facts.py -q      # 19 passed
+uv run pytest tests/contract -q                              # 75 passed
+uv run pytest -q                                             # 120 passed
 ```
-归一化落地后补：`目录`/8 段标题/`摘要（三号黑体）` 的合并断言 + "raw run 数与文本零丢弃"断言。
 
 ---
 
 ## 4. 状态小结
 | 事项 | 职责 | 状态 |
 | --- | --- | --- |
-| `is_toc_entry` / `is_spacing_line` | T1 | ✅ 已完成（三校 0 误判，130 passed） |
+| `is_toc_entry` / `is_spacing_line` | T1 | ✅ 已完成（新增 T1 单测 + 合同/全量回归通过） |
 | `likely_unit_heading` 退役 | T1（越权→归 T2） | ✅ 已标 advisory；待 T2 后移除 |
-| run 归一化（按样式合并 logical run） | T1 | ⬜ 待实现（核心缺陷，强烈建议进 T2 之前先做，下游 T3 强依赖） |
+| run 归一化（按样式合并 logical run） | T1 | ✅ 已完成（新增 T1 单测 + 合同/全量回归通过） |
 | 样式级联解析精度 gold 验证 | T1 | ⬜ 未展开（open） |

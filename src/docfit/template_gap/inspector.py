@@ -152,6 +152,10 @@ def _paragraphs(
                 "text": run.text,
                 "bold": run.bold,
                 "italic": run.italic,
+                "underline": run.underline,
+                "color": str(run.font.color.rgb)
+                if run.font.color.rgb is not None
+                else None,
                 "font_names": [run.font.name] if run.font.name else [],
                 "font_size_pt": (
                     run.font.size.pt if run.font.size is not None else None
@@ -515,6 +519,11 @@ def _merge_run_styles(
         ),
         "bold": _first_not_none(override.get("bold"), inherited.get("bold")),
         "italic": _first_not_none(override.get("italic"), inherited.get("italic")),
+        "underline": _first_not_none(
+            override.get("underline"),
+            inherited.get("underline"),
+        ),
+        "color": _first_not_none(override.get("color"), inherited.get("color")),
     }
 
 
@@ -577,14 +586,20 @@ def _run_properties(properties: ET.Element | None) -> dict[str, Any]:
             "font_size_pt": None,
             "bold": None,
             "italic": None,
+            "underline": None,
+            "color": None,
         }
     fonts = properties.find(f"{W_NS}rFonts")
     size = properties.find(f"{W_NS}sz")
+    underline = properties.find(f"{W_NS}u")
+    color = properties.find(f"{W_NS}color")
     return {
         "font_names": _font_names(fonts),
         "font_size_pt": _half_points_to_points(_attr(size, "val")),
         "bold": _toggle_value(properties.find(f"{W_NS}b")),
         "italic": _toggle_value(properties.find(f"{W_NS}i")),
+        "underline": _underline_value(underline),
+        "color": _color_value(color),
     }
 
 
@@ -651,6 +666,22 @@ def _toggle_value(element: ET.Element | None) -> bool | None:
     if value in {"0", "false", "False", "off"}:
         return False
     return True
+
+
+def _underline_value(element: ET.Element | None) -> str | bool | None:
+    if element is None:
+        return None
+    value = _attr(element, "val")
+    if value in {"0", "false", "False", "none"}:
+        return False
+    return value or "single"
+
+
+def _color_value(element: ET.Element | None) -> str | None:
+    value = _attr(element, "val")
+    if value is None:
+        return None
+    return value.lower()
 
 
 def _attr(element: ET.Element | None, name: str) -> str | None:
