@@ -101,13 +101,18 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
         flag["type"] == "element_confidence_needs_review"
         for flag in element_spec["flags"]
     )
-    assert any(flag["type"] == "page_numbering_unknown" for flag in global_spec["flags"])
+    assert global_spec["section_profiles"][0]["boundary"]["status"] == "detected"
+    assert global_spec["section_profiles"][0]["page_numbering"]["display"]["status"] == (
+        "no_page_field"
+    )
+    assert global_spec["page_numbering"]["status"] == "none"
+    assert not any(flag["type"] == "page_numbering_unknown" for flag in global_spec["flags"])
     assert template_spec["review_flags"]
     assert any(
         finding["type"] == "t2_unit_confidence_needs_review"
         for finding in verification_report["findings"]
     )
-    assert any(
+    assert not any(
         finding["type"] == "t4_page_numbering_unknown"
         for finding in verification_report["findings"]
     )
