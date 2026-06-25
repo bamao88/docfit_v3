@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import pytest
+from docx import Document
 
 from docfit.template_generation.source_tree import (
     _body_flow_from_inspection,
+    inspect_document_facts_docx,
     _runs_from_inspection,
 )
 from docfit.template_generation.structure_candidates import _structural_signals
@@ -149,6 +151,35 @@ def test_body_flow_deduplicates_logical_run_ids_but_preserves_raw_run_ids() -> N
     assert body_flow[0]["text"] == "摘要"
     assert body_flow[0]["raw_run_ids"] == ["p_0001.r_001", "p_0001.r_002"]
     assert body_flow[0]["logical_run_ids"] == ["p_0001.lr_001"]
+
+
+def test_document_facts_preserve_visible_spaces_between_raw_runs(tmp_path) -> None:
+    source = tmp_path / "source_template.docx"
+    document = Document()
+    paragraph = document.add_paragraph()
+    paragraph.add_run("目 ")
+    paragraph.add_run(" ")
+    paragraph.add_run("录")
+    document.save(source)
+
+    facts = inspect_document_facts_docx(source)
+
+    assert facts["body_flow"][0]["text"] == "目  录"
+    assert facts["body_flow"][0]["raw_run_ids"] == [
+        "p_0001.r_001",
+        "p_0001.r_002",
+        "p_0001.r_003",
+    ]
+    assert facts["body_flow"][0]["logical_run_ids"] == ["p_0001.lr_001"]
+    assert facts["runs"] == [
+        {
+            **facts["runs"][0],
+            "raw_run_id": "p_0001.r_001",
+            "logical_run_id": "p_0001.lr_001",
+            "merged_from": ["p_0001.r_001", "p_0001.r_002", "p_0001.r_003"],
+            "text": "目  录",
+        }
+    ]
 
 
 @pytest.mark.parametrize(

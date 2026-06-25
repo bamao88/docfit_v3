@@ -388,7 +388,7 @@ def _paragraph_style_details_by_index(path: Path) -> dict[int, dict[str, Any]]:
         runs = [
             _run_style(run, paragraph_run_properties)
             for run in paragraph.findall(f"{W_NS}r")
-            if _visible_text(run)
+            if _visible_text(run, strip=False)
         ]
         details[index] = {
             "paragraph": _merge_paragraph_styles(
@@ -571,7 +571,7 @@ def _run_style(
 ) -> dict[str, Any]:
     properties = run.find(f"{W_NS}rPr")
     return {
-        "text": _visible_text(run),
+        "text": _visible_text(run, strip=False),
         **_merge_run_styles(
             inherited_run_properties or {},
             _run_properties(properties),
@@ -790,8 +790,9 @@ def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, A
     }
 
 
-def _visible_text(root: ET.Element) -> str:
-    return "".join(node.text or "" for node in root.iter(f"{W_NS}t")).strip()
+def _visible_text(root: ET.Element, *, strip: bool = True) -> str:
+    text = "".join(node.text or "" for node in root.iter(f"{W_NS}t"))
+    return text.strip() if strip else text
 
 
 def _document_relationships(package: ZipFile) -> dict[str, str]:

@@ -21,9 +21,10 @@ DONE
 
 已完成范围：
 - run 归一化：`_runs_from_inspection()` 现在按同段相邻 + `effective_style` 相等合并 logical run，`merged_from` 覆盖全部 raw run id；`body_flow[].logical_run_ids` 去重但 `raw_run_ids` 原样保留。
+- run 级可见空白：OOXML 中单独存在的空格 raw run 不再被 `.strip()` 丢弃；例如南农 `目  录` 会保留为 logical run 文本 `目  录`，并在 `merged_from` 中记录 `目 `、空格、`录` 三个 raw run。
 - 有效样式维度：`font_names`、`font_size_pt`、`bold`、`italic`、`underline`、`color` 进入 `effective_style`；underline/color 已从 OOXML run properties 抽取。
 - 结构信号：`is_toc_entry` / `is_spacing_line` 已进入 `_structural_signals()`；`likely_unit_heading` 标注为 compatibility-only advisory。
-- 验证：`uv run pytest tests/unit/test_t1_structural_facts.py -q`（19 passed）、`uv run pytest tests/contract -q`（75 passed）、`uv run pytest -q`（120 passed）。
+- 验证：`uv run pytest tests/unit/test_t1_structural_facts.py -q`（20 passed）、`uv run pytest tests/contract -q`（75 passed）、`uv run pytest -q`（121 passed）。
 
 仍未展开：样式级联 gold 级精确验证；T2 边界检测落地后删除 `likely_unit_heading`。
 
@@ -68,7 +69,7 @@ DONE
 ### 1.2 缺确定性原子判据 `is_toc_entry` / `is_spacing_line`（已补）【✅ 已完成】
 **背景**：T2 做边界判定需要"这行是不是目录条目 / 是不是空行说明"作为否决项，但 T1 原来不产出，导致 T2 只能靠关键词硬撞（TOC 撞车，详见 T2 文档）。
 
-**已实现**：`_structural_signals()`（`structure_candidates.py`）新增两字段；新增 `tests/unit/test_t1_structural_facts.py`（19 例），全量 `pytest` **120 passed** 无回归。
+**已实现**：`_structural_signals()`（`structure_candidates.py`）新增两字段；新增 `tests/unit/test_t1_structural_facts.py`（20 例），全量 `pytest` **121 passed** 无回归。
 
 判据摘要（确定性、多判据 OR）：
 - `is_toc_entry`：点引线+尾部页码（湖南 `□□摘要……1`）/ TAB+尾部页码（南农 `摘 要⇥Ⅰ`、`1 XXX⇥XX`）/ `toc N` 样式名。目录**标题行**（`目录`/`目  录`）不命中。
@@ -88,7 +89,7 @@ DONE
 - **边界：合并只按样式，不掺语义**。`摘要（三号黑体）` 合成一个 logical run，"摘要 vs（三号黑体）"的语义切分是 T3 的字符级 span 处理，别在 T1 做。
 - 有效样式相等的判定维度：中西文字体名、字号(pt)、bold/italic、underline、color（与现 `effective_style` 一致）。
 
-**测试断言**：`目录`→1 个 logical run；那个 8 段标题→1 个；`摘要（三号黑体）`→1 个且 `merged_from` 长度=3；归一化前后 **raw run 数不变**、文本拼接不变（零丢弃）；bold/underline/color 任一有效样式不同都不会合并。
+**测试断言**：`目录`→1 个 logical run；`目  录` 保留中间可见空格并记录空格 raw run；那个 8 段标题→1 个；`摘要（三号黑体）`→1 个且 `merged_from` 长度=3；归一化前后文本拼接不变（零丢弃）；bold/underline/color 任一有效样式不同都不会合并。
 
 ### 2.2 `is_toc_entry` / `is_spacing_line`（已完成，记录在案）【✅ 已完成】
 见 §1.2。后续若 T1 升 `artifact_version`，与 §2.3 的清理、verifier 容旧 gold 一并做。
@@ -100,9 +101,9 @@ DONE
 
 ## 3. 验收 / 测试命令
 ```bash
-uv run pytest tests/unit/test_t1_structural_facts.py -q      # 19 passed
+uv run pytest tests/unit/test_t1_structural_facts.py -q      # 20 passed
 uv run pytest tests/contract -q                              # 75 passed
-uv run pytest -q                                             # 120 passed
+uv run pytest -q                                             # 121 passed
 ```
 
 ---
