@@ -32,6 +32,7 @@ def inspect_generated_template_docx(generated_template: Path) -> dict[str, Any]:
             "tables": [],
             "headers_footers": [],
             "fields": [],
+            "content_controls": [],
             "footnotes": [],
             "text_boxes": [],
             "images": [],
@@ -116,6 +117,19 @@ def iter_visible_text_entries(tree: dict[str, Any]) -> list[dict[str, Any]]:
                     "style": "",
                     "source_ref": part.get("source_ref", ""),
                     "order": 20_000 + part.get("index", 0),
+                }
+            )
+    for control in data.get("content_controls", []):
+        tag = control.get("tag")
+        if tag:
+            entries.append(
+                {
+                    "kind": "content_control",
+                    "text": control.get("text") or f"sdt:{tag}",
+                    "sdt_tag": tag,
+                    "style": "",
+                    "source_ref": control.get("source_ref", ""),
+                    "order": 15_000 + control.get("index", 0),
                 }
             )
     return entries
@@ -684,6 +698,7 @@ def _int_or_none(value: str | None) -> int | None:
 def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, Any]]]:
     headers_footers: list[dict[str, Any]] = []
     fields: list[dict[str, Any]] = []
+    content_controls: list[dict[str, Any]] = []
     footnotes: list[dict[str, Any]] = []
     text_boxes: list[dict[str, Any]] = []
     images: list[dict[str, Any]] = []
@@ -724,6 +739,7 @@ def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, A
             fields.extend(_fields(root, part_name))
             breaks.extend(_breaks(root, part_name))
             if part_name == "word/document.xml":
+                content_controls.extend(_content_controls(root, part_name))
                 text_boxes.extend(_text_boxes(root, part_name))
                 images.extend(_images(root, part_name, relationships, package))
                 sections.extend(_sections(root, relationships))
@@ -732,6 +748,7 @@ def _inspect_ooxml_parts(generated_template: Path) -> dict[str, list[dict[str, A
     return {
         "headers_footers": headers_footers,
         "fields": fields,
+        "content_controls": content_controls,
         "footnotes": footnotes,
         "text_boxes": text_boxes,
         "images": images,
@@ -964,6 +981,24 @@ def _fields(root: ET.Element, part_name: str) -> list[dict[str, Any]]:
             paragraph_index=field["paragraph_index"],
         )
     return fields
+
+
+def _content_controls(root: ET.Element, part_name: str) -> list[dict[str, Any]]:
+    controls: list[dict[str, Any]] = []
+    for index, sdt in enumerate(root.iter(f"{W_NS}sdt"), start=1):
+        tag = sdt.find(f"./{W_NS}sdtPr/{W_NS}tag")
+        alias = sdt.find(f"./{W_NS}sdtPr/{W_NS}alias")
+        controls.append(
+            {
+                "index": index,
+                "tag": _attr(tag, "val"),
+                "alias": _attr(alias, "val"),
+                "text": _visible_text(sdt),
+                "part_name": part_name,
+                "source_ref": f"{part_name}:sdt[{index}]",
+            }
+        )
+    return controls
 
 
 def _footnotes(package: ZipFile) -> list[dict[str, Any]]:

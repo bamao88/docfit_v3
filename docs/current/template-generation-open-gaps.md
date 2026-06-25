@@ -1,6 +1,11 @@
 # 模板生成待核实差距清单
 
-Last updated: 2026-06-22
+Last updated: 2026-06-25
+
+> 迁移提示：本文记录的是旧 `generated_template.docx` / 00-05 链路下的待核实差距。
+> 当前生成入口已经产出 `fillable_template.docx`、`template_spec.yaml` 和
+> `verification_report.json`。继续核实差距时应先看新的 T1-T6 first_bad_stage，
+> 再决定是否回查本文中的历史 gap 编号。
 
 一句话结论：当前模板生成能从学校原始模板 Word 生成 `generated_template.docx` 和 00-05 阶段证据；真实学校验收仍失败，下一步要逐项核实的是“源模板自动推断能力”和“阶段证据可解释性”，不是让生成器依赖学校签收标准作为输入。
 

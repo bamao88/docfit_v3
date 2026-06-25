@@ -1,0 +1,22 @@
+policies:
+  - fixed
+  - template_default
+  - fill
+  - manual_only
+  - generated
+  - instruction_remove
+roles:
+  - template_fixed
+  - template_instruction
+  - student_content
+  - manual_field
+  - generated_field
+fill_sources:
+  - student_content
+  - manual
+  - generated_field
+generated_field_types:
+  - TOC
+  - PAGE
+  - SEQ
+  - FIELD_PLACEHOLDER

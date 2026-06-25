@@ -1,6 +1,6 @@
 # 契约和门禁规则
 
-Last updated: 2026-06-21
+Last updated: 2026-06-25
 
 一句话结论：DocFit 只能由确定性证据决定 `PASS` / `FAIL` / `UNKNOWN`；AI 可以解释和建议，不能裁判。
 
@@ -29,30 +29,33 @@ Last updated: 2026-06-21
 
 | 支撑流程 | 主要产物 | 能证明什么 | 不能证明什么 |
 | --- | --- | --- | --- |
-| 模板生成 | `generated_template.docx`、`template_generation_manifest.json` | 生成过程可追溯，输出 Word hash 固定 | 不能自己证明学校格式合格 |
+| 模板解析/可填模板生成 | `document_facts.json`、`template_spec.yaml`、`fillable_template.docx`、`build_manifest.json`、`verification_report.json` | 源模板事实、单元/元素/全局规则、构建动作和成品 Word 可追溯 | 不能替代学校签收标准下的最终格式验收 |
 | generated-template gap | `generated_template_tree.json`、`template_gap_report.*` | 被测生成模板和学校签收标准之间的差距 | 不能替代四阶段转换验收 |
 
 ## 产物不能互相冒充
 
 | 产物 | 能证明什么 | 不能证明什么 |
 | --- | --- | --- |
-| `template_generation_manifest.json` | 生成器尝试做了什么，输出 Word hash 是什么 | 不能证明 Word 里最终真的存在对应内容 |
-| `template_artifact.json` | 系统如何理解学校源模板 | 不能替代 `generated_template.docx` 的真实结构证据 |
+| `document_facts.json` | 学校源 Word 里实际解析到什么 | 不能承载单元/元素策略判断 |
+| `template_spec.yaml` | 系统如何理解学校源模板的单元、元素、策略和全局规则 | 不能替代 `fillable_template.docx` 的真实结构证据 |
+| `build_manifest.json` | 构建器执行了什么，输出 Word hash 是什么 | 不能单独证明 Word 里最终真的存在对应内容 |
+| `template_artifact.json` | 四阶段旧接口需要的包装视图 | 不能拥有独立于 `template_spec.yaml` 的模板语义 |
 | `generated_template_tree.json` | 被测生成 Word 实际解析出了什么 | 不能替代学校签收标准 |
 | `template_gap_report.json` | 检查器如何判定差距和阻断状态 | 不能反过来当标准，不能被 AI 改成通过 |
 
 正确链路：
 
 ```text
-manifest 记录生成动作
-generated_template_tree 记录真实 Word 事实
+template_spec 记录模板理解
+build_manifest 记录构建动作
+generated_template_tree 记录可填模板真实 Word 事实
 template_gap_report 用签收标准检查真实 Word 事实
 ```
 
 错误链路：
 
 ```text
-manifest 说生成了标题 -> 直接判定标题存在
+build_manifest 说生成了标题 -> 直接判定标题存在
 ```
 
 ## 字段变更规则

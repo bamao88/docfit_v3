@@ -176,23 +176,36 @@ def _build_unit_strategies(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 }
             )
             for element in unit.get("elements", []):
-                if element.get("policy") != "remove_instruction":
-                    continue
                 element_id = element.get("element_id")
                 source_ref = _first_source_ref(element)
-                decisions.append(
-                    {
-                        "decision_id": f"{unit_id}.{element_id}.remove_instruction_text",
-                        "decision_type": "remove_instruction_text",
-                        "unit_id": unit_id,
-                        "element_id": element_id,
-                        "element_name": element.get("name"),
-                        "content": element.get("content") or element.get("name") or "",
-                        "source_ref": source_ref,
-                        "source_seq_refs": _source_seq_refs(element),
-                        "reason": _decision_reason("remove_instruction_text"),
-                    }
-                )
+                if element.get("policy") == "remove_instruction":
+                    decisions.append(
+                        {
+                            "decision_id": f"{unit_id}.{element_id}.remove_instruction_text",
+                            "decision_type": "remove_instruction_text",
+                            "unit_id": unit_id,
+                            "element_id": element_id,
+                            "element_name": element.get("name"),
+                            "content": element.get("content") or element.get("name") or "",
+                            "source_ref": source_ref,
+                            "source_seq_refs": _source_seq_refs(element),
+                            "reason": _decision_reason("remove_instruction_text"),
+                        }
+                    )
+                elif element.get("policy") == "manual_only":
+                    decisions.append(
+                        {
+                            "decision_id": f"{unit_id}.{element_id}.create_manual_placeholder",
+                            "decision_type": "create_manual_placeholder",
+                            "unit_id": unit_id,
+                            "element_id": element_id,
+                            "element_name": element.get("name"),
+                            "content": element.get("content") or element.get("name") or "",
+                            "source_ref": source_ref,
+                            "source_seq_refs": _source_seq_refs(element),
+                            "reason": _decision_reason("create_manual_placeholder"),
+                        }
+                    )
         else:
             for element in unit.get("elements", []):
                 policy = element.get("policy")

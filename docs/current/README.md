@@ -1,6 +1,6 @@
 # DocFit 当前文档入口
 
-Last updated: 2026-06-22
+Last updated: 2026-06-25
 
 一句话结论：DocFit 的业务流程只有四个阶段：模板解析、内容提取、内容放置、DOCX 渲染；评测驱动开发是验收方法，不是业务阶段。
 
@@ -79,7 +79,7 @@ flowchart TD
 当前真实学校模板还有一个支撑流程：
 
 ```text
-学校原始模板 Word -> template-generate -> generated_template.docx -> template-gap -> 差距报告
+学校原始模板 Word -> template-generate -> fillable_template.docx + template_spec.yaml -> template-gap -> 差距报告
 ```
 
 这个流程用于准备和检查可填写模板。它服务于模板解析和模板质量验收，但不是业务四阶段之外新增的业务主线。

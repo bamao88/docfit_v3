@@ -36,6 +36,26 @@ def _insert_marker(
     return _append_marker(doc, marker)
 
 
+def _insert_sdt(
+    doc: Document,
+    paragraph_map: dict[int, Paragraph],
+    source_ref: str | None,
+    tag: str,
+    *,
+    alias: str | None = None,
+    placeholder: str = "",
+) -> str:
+    target = _paragraph_for_ref(paragraph_map, source_ref)
+    if target is not None:
+        _insert_sdt_after(target, tag, alias=alias, placeholder=placeholder)
+        return f"{source_ref}/after:sdt[{tag}]"
+    target_cell = _cell_for_ref(doc, source_ref)
+    if target_cell is not None:
+        _append_sdt_to_parent(target_cell._tc, tag, alias=alias, placeholder=placeholder)
+        return f"{source_ref}/sdt[{tag}]"
+    return _append_sdt(doc, tag, alias=alias, placeholder=placeholder)
+
+
 def _insert_page_break_before(
     doc: Document,
     paragraph_map: dict[int, Paragraph],
@@ -111,6 +131,59 @@ def _insert_paragraph_after(paragraph: Paragraph, text: str) -> Paragraph:
     return new_paragraph
 
 
+def _insert_sdt_after(
+    paragraph: Paragraph,
+    tag: str,
+    *,
+    alias: str | None = None,
+    placeholder: str = "",
+) -> None:
+    paragraph._p.addnext(_sdt_block(tag, alias=alias, placeholder=placeholder))
+
+
+def _append_sdt(doc: Document, tag: str, *, alias: str | None = None, placeholder: str = "") -> str:
+    block = _sdt_block(tag, alias=alias, placeholder=placeholder)
+    section_properties = doc.element.body.sectPr
+    if section_properties is not None:
+        section_properties.addprevious(block)
+    else:
+        doc.element.body.append(block)
+    return f"word/document.xml:sdt[{tag}]"
+
+
+def _append_sdt_to_parent(
+    parent: Any,
+    tag: str,
+    *,
+    alias: str | None = None,
+    placeholder: str = "",
+) -> None:
+    parent.append(_sdt_block(tag, alias=alias, placeholder=placeholder))
+
+
+def _sdt_block(tag: str, *, alias: str | None = None, placeholder: str = "") -> Any:
+    sdt = OxmlElement("w:sdt")
+    sdt_pr = OxmlElement("w:sdtPr")
+    alias_node = OxmlElement("w:alias")
+    alias_node.set(qn("w:val"), alias or tag)
+    tag_node = OxmlElement("w:tag")
+    tag_node.set(qn("w:val"), tag)
+    sdt_pr.append(alias_node)
+    sdt_pr.append(tag_node)
+    sdt_content = OxmlElement("w:sdtContent")
+    paragraph = OxmlElement("w:p")
+    run = OxmlElement("w:r")
+    text = OxmlElement("w:t")
+    if placeholder:
+        text.text = placeholder
+    run.append(text)
+    paragraph.append(run)
+    sdt_content.append(paragraph)
+    sdt.append(sdt_pr)
+    sdt.append(sdt_content)
+    return sdt
+
+
 def _append_marker(doc: Document, marker: str) -> str:
     doc.add_paragraph(marker)
     return f"word/document.xml:p[{len(doc.paragraphs)}]"
@@ -120,6 +193,14 @@ def _find_marker_ref(doc: Document, marker: str) -> str | None:
     for index, paragraph in enumerate(doc.paragraphs, start=1):
         if marker in paragraph.text:
             return f"word/document.xml:p[{index}]"
+    return None
+
+
+def _find_sdt_tag_ref(doc: Document, tag: str) -> str | None:
+    for index, sdt in enumerate(doc.element.body.iter(qn("w:sdt")), start=1):
+        tag_node = next(iter(sdt.iter(qn("w:tag"))), None)
+        if tag_node is not None and tag_node.get(qn("w:val")) == tag:
+            return f"word/document.xml:sdt[{index}:{tag}]"
     return None
 
 

@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 
 def now_iso() -> str:
     return datetime.now(UTC).isoformat()
@@ -24,10 +26,22 @@ def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def read_yaml(path: Path) -> Any:
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
 def write_json(path: Path, data: Any) -> None:
     ensure_dir(path.parent)
     path.write_text(
         json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+
+def write_yaml(path: Path, data: Any) -> None:
+    ensure_dir(path.parent)
+    path.write_text(
+        yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
 

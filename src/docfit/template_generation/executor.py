@@ -11,12 +11,12 @@ from .constants import BODY_SLOT_MARKER
 from .refs import _cell_for_ref, _paragraph_for_ref
 from .text_utils import _dedupe_by_key
 from .word_ops import (
-    _append_marker,
+    _append_sdt,
     _clear_cell,
-    _find_marker_ref,
-    _insert_marker,
+    _find_sdt_tag_ref,
     _insert_page_break_before,
     _insert_section_break_before,
+    _insert_sdt,
     _insert_styled_paragraph_before,
     _remove_paragraph,
 )
@@ -80,27 +80,59 @@ def execute_template_generation_plan(
                 _clear_cell(target_cell)
             executed.append(_executed(action, output_ref=action.get("source_ref")))
         elif action_type == "create_fillable_slot":
-            marker = _slot_marker(action)
-            output_ref = _insert_marker(doc, paragraph_map, action.get("source_ref"), marker)
-            slot = _slot_from_action(action, marker=marker, output_ref=output_ref)
+            tag = _sdt_tag(action)
+            output_ref = _insert_sdt(
+                doc,
+                paragraph_map,
+                action.get("source_ref"),
+                tag,
+                alias=_sdt_alias(action),
+            )
+            slot = _slot_from_action(action, sdt_tag=tag, output_ref=output_ref)
             slots.append(slot)
             executed.append(_executed(action, output_ref=output_ref))
         elif action_type == "create_generated_field_placeholder":
-            marker = _generated_marker(action)
-            output_ref = _insert_marker(doc, paragraph_map, action.get("source_ref"), marker)
+            tag = _generated_tag(action)
+            output_ref = _insert_sdt(
+                doc,
+                paragraph_map,
+                action.get("source_ref"),
+                tag,
+                alias=_sdt_alias(action),
+            )
             generated_fields.append(
                 {
-                    "field_id": marker.strip("[]"),
+                    "field_id": tag,
                     "unit_id": action.get("unit_id"),
                     "element_id": action.get("element_id"),
-                    "marker": marker,
+                    "sdt_tag": tag,
                     "output_ref": output_ref,
                     "source_seq_refs": action.get("affected_source_seq_refs", []),
                 }
             )
             executed.append(_executed(action, output_ref=output_ref))
         elif action_type == "create_manual_placeholder":
-            executed.append(_executed(action, output_ref=action.get("source_ref")))
+            tag = _sdt_tag(action)
+            output_ref = _insert_sdt(
+                doc,
+                paragraph_map,
+                action.get("source_ref"),
+                tag,
+                alias=_sdt_alias(action),
+            )
+            slots.append(
+                {
+                    "slot_id": tag,
+                    "unit_id": action.get("unit_id"),
+                    "element_id": action.get("element_id"),
+                    "kind": "manual_only",
+                    "sdt_tag": tag,
+                    "output_ref": output_ref,
+                    "source_seq_refs": action.get("affected_source_seq_refs", []),
+                    "required": False,
+                }
+            )
+            executed.append(_executed(action, output_ref=output_ref))
         elif action_type == "insert_fixed_text":
             text = str(action.get("target_ref") or "")
             output_ref = _insert_marker(
@@ -125,16 +157,20 @@ def execute_template_generation_plan(
         elif action_type == "preserve_whole_unit_copy":
             executed.append(_executed(action, output_ref=action.get("source_ref")))
         elif action_type == "ensure_body_slot":
-            marker = BODY_SLOT_MARKER
-            existing_ref = _find_marker_ref(doc, marker)
-            output_ref = existing_ref or _append_marker(doc, marker)
+            tag = "slot_body_start"
+            existing_ref = _find_sdt_tag_ref(doc, tag)
+            output_ref = existing_ref or _append_sdt(
+                doc,
+                tag,
+                alias="正文内容",
+            )
             slots.append(
                 {
                     "slot_id": "slot_body_start",
                     "unit_id": "body_main",
                     "element_id": "slot_body_start",
                     "kind": "body_content",
-                    "marker": marker,
+                    "sdt_tag": tag,
                     "output_ref": output_ref,
                     "required": True,
                 }
@@ -145,6 +181,7 @@ def execute_template_generation_plan(
 
     for paragraph in dict.fromkeys(paragraphs_to_remove):
         _remove_paragraph(paragraph)
+    _strip_internal_markers(doc)
     doc.save(generated_template_docx)
     return {
         "actions_executed": executed,
@@ -183,18 +220,22 @@ def execute_template_generation_plan(
     }
 
 
-def _slot_marker(action: dict[str, Any]) -> str:
-    return f"[[DOCFIT_SLOT:{action.get('unit_id')}.{action.get('element_id')}]]"
+def _sdt_tag(action: dict[str, Any]) -> str:
+    return f"{action.get('unit_id')}.{action.get('element_id')}"
 
 
-def _generated_marker(action: dict[str, Any]) -> str:
-    return f"[[DOCFIT_GENERATED:{action.get('unit_id')}.{action.get('element_id')}]]"
+def _generated_tag(action: dict[str, Any]) -> str:
+    return f"generated.{action.get('unit_id')}.{action.get('element_id')}"
+
+
+def _sdt_alias(action: dict[str, Any]) -> str:
+    return str(action.get("element_name") or action.get("target_ref") or _sdt_tag(action))
 
 
 def _slot_from_action(
     action: dict[str, Any],
     *,
-    marker: str,
+    sdt_tag: str,
     output_ref: str,
 ) -> dict[str, Any]:
     return {
@@ -202,7 +243,7 @@ def _slot_from_action(
         "unit_id": action.get("unit_id"),
         "element_id": action.get("element_id"),
         "kind": "body_content",
-        "marker": marker,
+        "sdt_tag": sdt_tag,
         "output_ref": output_ref,
         "source_seq_refs": action.get("affected_source_seq_refs", []),
         "required": True,
@@ -223,3 +264,15 @@ def _needs_review(action: dict[str, Any], reason: str) -> dict[str, Any]:
         "status": "needs_review",
         "reason": reason,
     }
+
+
+def _strip_internal_markers(doc: Document) -> None:
+    for paragraph in doc.paragraphs:
+        if "[[DOCFIT_" in paragraph.text:
+            paragraph.text = paragraph.text.replace(BODY_SLOT_MARKER, "").strip()
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                for paragraph in cell.paragraphs:
+                    if "[[DOCFIT_" in paragraph.text:
+                        paragraph.text = paragraph.text.replace(BODY_SLOT_MARKER, "").strip()

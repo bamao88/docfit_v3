@@ -10,6 +10,14 @@ from .constants import BODY_SLOT_MARKER, DEFAULT_TEMPLATE_GENERATION_STRATEGY
 from .executor import execute_template_generation_plan
 from .generation_model import build_template_generation_model
 from .manifest import build_template_generation_manifest
+from .artifacts import (
+    build_element_spec,
+    build_global_spec,
+    build_template_spec,
+    build_unit_map,
+    source_tree_from_document_facts,
+    template_artifact_view_from_template_spec,
+)
 from .outputs import (
     _new_template_generation_debug_dir,
     write_template_generation_debug_snapshot,
@@ -17,8 +25,9 @@ from .outputs import (
 )
 from .plan import build_template_generation_plan
 from .request import build_template_generation_request
-from .source_tree import inspect_source_template_docx
+from .source_tree import inspect_document_facts_docx
 from .structure_candidates import build_template_structure_candidates
+from .verifier import verify_template_parse_build
 
 
 def generate_template(
@@ -70,7 +79,7 @@ def generate_template(
 
     debug_dir = _new_template_generation_debug_dir(debug_root)
     copy_source_snapshot_docx = (
-        debug_dir / "05.0_copy_source_docx.docx" if debug_dir is not None else None
+        debug_dir / "06.0_copy_source_docx.docx" if debug_dir is not None else None
     )
 
     request = build_template_generation_request(
@@ -78,78 +87,127 @@ def generate_template(
         out_dir,
         strategy=strategy,
     )
-    source_tree = inspect_source_template_docx(source_template_docx)
+    document_facts = inspect_document_facts_docx(source_template_docx)
+    source_tree = source_tree_from_document_facts(document_facts)
     structure_candidates = build_template_structure_candidates(source_tree)
+    unit_map = build_unit_map(document_facts, structure_candidates)
+    global_spec = build_global_spec(document_facts)
     generation_model = build_template_generation_model(
         request,
         structure_candidates=structure_candidates,
+    )
+    element_spec = build_element_spec(generation_model)
+    template_spec = build_template_spec(
+        document_facts,
+        unit_map,
+        element_spec,
+        global_spec,
     )
     plan = build_template_generation_plan(
         request,
         generation_model=generation_model,
     )
-    generated_template_docx = out_dir / "generated_template.docx"
+    fillable_template_docx = out_dir / "fillable_template.docx"
     execution = execute_template_generation_plan(
         source_template_docx,
-        generated_template_docx,
+        fillable_template_docx,
         plan,
         copy_source_snapshot_docx=copy_source_snapshot_docx,
     )
-    manifest = build_template_generation_manifest(
+    build_manifest = build_template_generation_manifest(
         request=request,
-        source_tree=source_tree,
-        structure_candidates=structure_candidates,
-        generation_model=generation_model,
+        document_facts=document_facts,
+        unit_map=unit_map,
+        element_spec=element_spec,
+        global_spec=global_spec,
+        template_spec=template_spec,
         plan=plan,
-        generated_template_docx=generated_template_docx,
+        fillable_template_docx=fillable_template_docx,
         execution=execution,
         debug_snapshot_dir=debug_dir,
         copy_source_snapshot_docx=copy_source_snapshot_docx,
+    )
+    template_artifact = template_artifact_view_from_template_spec(
+        request,
+        template_spec,
+        fillable_template_docx=str(fillable_template_docx),
+        build_manifest="build_manifest.json",
+    )
+    verification_status, verification_findings, verification_report, verification_coverage = (
+        verify_template_parse_build(
+            document_facts=document_facts,
+            unit_map=unit_map,
+            element_spec=element_spec,
+            global_spec=global_spec,
+            template_spec=template_spec,
+            build_manifest=build_manifest,
+            fillable_template_docx=fillable_template_docx,
+        )
     )
     if debug_dir is not None:
         write_template_generation_debug_snapshot(
             debug_dir,
             source_template_docx=source_template_docx,
             request=request,
+            document_facts=document_facts,
+            unit_map=unit_map,
+            element_spec=element_spec,
+            global_spec=global_spec,
+            template_spec=template_spec,
             source_tree=source_tree,
             structure_candidates=structure_candidates,
             generation_model=generation_model,
             plan=plan,
             copy_source_snapshot_docx=copy_source_snapshot_docx,
-            generated_template_docx=generated_template_docx,
-            manifest=manifest,
+            fillable_template_docx=fillable_template_docx,
+            build_manifest=build_manifest,
+            verification_report=verification_report,
         )
 
-    artifact_paths = {"generated_template_docx": generated_template_docx}
+    artifact_paths = {
+        "fillable_template_docx": fillable_template_docx,
+        "generated_template_docx": fillable_template_docx,
+    }
     if debug_dir is not None:
         artifact_paths["template_generation_debug_dir"] = debug_dir
 
     return StageResult(
         "template_generate",
-        Status.PASS,
+        verification_status,
+        findings=verification_findings,
         artifacts={
             "template_generation_request": request,
+            "document_facts": document_facts,
+            "unit_map": unit_map,
+            "element_spec": element_spec,
+            "global_spec": global_spec,
+            "template_spec": template_spec,
+            "build_manifest": build_manifest,
+            "verification_report": verification_report,
+            "template_artifact": template_artifact,
             "source_template_tree": source_tree,
             "template_structure_candidates": structure_candidates,
             "template_generation_model": generation_model,
             "template_generation_plan": plan,
-            "template_generation_manifest": manifest,
         },
         artifact_paths=artifact_paths,
         coverage=_coverage(
             input_exists=True,
             input_valid_docx=True,
-            source_tree=bool(source_tree.get("layers", {}).get("body_flow")),
-            structure_candidates=bool(structure_candidates.get("units")),
-            generation_model=bool(generation_model.get("units")),
+            document_facts=bool(document_facts.get("body_flow")),
+            unit_map=bool(unit_map.get("units")),
+            element_spec=bool(element_spec.get("elements")),
+            global_spec=bool(global_spec.get("section_profiles")),
+            template_spec=bool(template_spec.get("units")),
             generation_plan=bool(plan.get("actions")),
-            output_docx=generated_template_docx.exists(),
+            output_docx=fillable_template_docx.exists(),
             manifest=True,
-            body_slot=bool(manifest.get("slots")),
+            body_slot=bool(build_manifest.get("slots")),
+            **verification_coverage,
         ),
         user_message=(
-            "template_generate produced a complete stage artifact chain; "
-            "template quality still belongs to template-gap and real-core gates."
+            "template_generate produced document_facts, template_spec, "
+            "fillable_template.docx, and deterministic verification evidence."
         ),
     )
 
@@ -158,22 +216,29 @@ def _coverage(
     *,
     input_exists: bool,
     input_valid_docx: bool | None = None,
-    source_tree: bool = False,
-    structure_candidates: bool = False,
-    generation_model: bool = False,
+    document_facts: bool = False,
+    unit_map: bool = False,
+    element_spec: bool = False,
+    global_spec: bool = False,
+    template_spec: bool = False,
     generation_plan: bool = False,
     output_docx: bool = False,
     manifest: bool = False,
     body_slot: bool = False,
+    **extra: bool,
 ) -> dict[str, bool]:
-    return {
+    coverage = {
         "template_generation.input_exists": input_exists,
         "template_generation.input_valid_docx": bool(input_valid_docx),
-        "template_generation.source_tree": source_tree,
-        "template_generation.structure_candidates": structure_candidates,
-        "template_generation.generation_model": generation_model,
+        "template_generation.document_facts": document_facts,
+        "template_generation.unit_map": unit_map,
+        "template_generation.element_spec": element_spec,
+        "template_generation.global_spec": global_spec,
+        "template_generation.template_spec": template_spec,
         "template_generation.plan": generation_plan,
-        "template_generation.output_docx": output_docx,
-        "template_generation.manifest": manifest,
+        "template_generation.fillable_template_docx": output_docx,
+        "template_generation.build_manifest": manifest,
         "template_generation.body_slot": body_slot,
     }
+    coverage.update(extra)
+    return coverage

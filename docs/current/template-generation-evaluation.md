@@ -1,6 +1,11 @@
 # 模板生成评测与测试架构
 
-Last updated: 2026-06-22
+Last updated: 2026-06-25
+
+> 迁移提示：本文描述的是 2026-06-22 以前的模板生成评测设想和 01-05
+> 阶段检查骨架。当前已实现的阶段 verifier、artifact 名称和输出文件以
+> `docs/current/template-generation.md` 以及
+> `docs/plans/template-parse-refactor-verification.md` 为准。
 
 一句话结论：这份文档只说明模板生成相关的“怎么验、测试怎么组织、报告怎么聚合”；评测层应优先复用业务生成已经落盘的过程产物，不为了对齐评测再跑一次模板生成。
 

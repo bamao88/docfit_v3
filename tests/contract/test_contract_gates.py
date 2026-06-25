@@ -16,6 +16,7 @@ from docfit.stages.content_extract.runner import extract_student_content
 from docfit.stages.placement.runner import build_placement_plan
 from docfit.stages.render.runner import render_docx, verify_render_outputs
 from docfit.stages.template_parse.runner import parse_template
+from docfit.template_generation.word_ops import _append_sdt
 
 
 ROOT = Path.cwd()
@@ -298,6 +299,50 @@ def test_render_writes_text_to_target_slot_marker(tmp_path) -> None:
 
     assert visible_text == ["before", "student abstract", "after"]
     assert "[[DOCFIT_" not in "\n".join(visible_text)
+    assert render.artifacts["render_manifest"]["actions_executed"][0][
+        "actual_ooxml_ref"
+    ] == "word/document.xml:p[2]"
+
+
+def test_render_writes_text_to_target_sdt_tag(tmp_path) -> None:
+    template = tmp_path / "template-with-target-sdt.docx"
+    doc = Document()
+    doc.add_paragraph("before")
+    _append_sdt(doc, "abstract_cn.e_002", alias="中文摘要")
+    doc.add_paragraph("after")
+    doc.save(template)
+
+    template_artifact = {"provenance": {"template_docx": str(template)}, "data": {}}
+    placement_plan = {
+        "data": {
+            "actions": [
+                {
+                    "action_id": "a_001",
+                    "content_ids": ["c_001"],
+                    "disposition": "place",
+                    "target_slot_id": "abstract_cn.e_002",
+                    "payload": {"type": "text", "text": "student abstract"},
+                    "content_hashes": [],
+                }
+            ]
+        },
+        "input_hashes": {"template_artifact": sha256_json(template_artifact)},
+    }
+
+    render = render_docx(
+        template_artifact,
+        placement_plan,
+        _bundle(),
+        tmp_path / "rendered_target_sdt",
+    )
+    rendered_doc = Document(render.artifact_paths["final_docx"])
+    visible_text = [
+        paragraph.text
+        for paragraph in rendered_doc.paragraphs
+        if paragraph.text.strip()
+    ]
+
+    assert visible_text == ["before", "student abstract", "after"]
     assert render.artifacts["render_manifest"]["actions_executed"][0][
         "actual_ooxml_ref"
     ] == "word/document.xml:p[2]"

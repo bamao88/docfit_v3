@@ -177,9 +177,9 @@ def _merge_template_generation_result(
         template_result.blocked_at = generation_result.blocked_at
 
 
-def _bind_generated_template_to_artifact(
+def _bind_fillable_template_to_artifact(
     template_artifact: dict[str, Any],
-    generated_template_docx: Path,
+    fillable_template_docx: Path,
     generation_result: StageResult,
 ) -> dict[str, Any]:
     bound = deepcopy(template_artifact)
@@ -187,17 +187,18 @@ def _bind_generated_template_to_artifact(
     source_template_docx = provenance.get("template_docx")
     if source_template_docx is not None:
         provenance["source_template_docx"] = source_template_docx
-    provenance["template_docx"] = str(generated_template_docx)
-    provenance["generated_template_docx"] = str(generated_template_docx)
-    manifest_path = generation_result.artifact_paths.get("template_generation_manifest")
+    provenance["template_docx"] = str(fillable_template_docx)
+    provenance["fillable_template_docx"] = str(fillable_template_docx)
+    provenance["generated_template_docx"] = str(fillable_template_docx)
+    manifest_path = generation_result.artifact_paths.get("build_manifest")
     if manifest_path is not None:
-        provenance["template_generation_manifest"] = str(manifest_path)
+        provenance["build_manifest"] = str(manifest_path)
     input_hashes = bound.setdefault("input_hashes", {})
-    if generated_template_docx.exists():
-        input_hashes["generated_template_docx"] = sha256_file(generated_template_docx)
+    if fillable_template_docx.exists():
+        input_hashes["fillable_template_docx"] = sha256_file(fillable_template_docx)
     status_notes = bound.setdefault("status_notes", [])
     status_notes.append(
-        "e2e/render use generated_template.docx from the template generation stage"
+        "e2e/render use fillable_template.docx from the template generation stage"
     )
     return bound
 
@@ -249,18 +250,18 @@ def run_template_eval(root: Path, school_id: str, template_docx: Path, out_dir: 
                 ),
             )
             _merge_template_generation_result(result, generation_result)
-            generated_template_docx = generation_result.artifact_paths.get(
-                "generated_template_docx"
+            fillable_template_docx = generation_result.artifact_paths.get(
+                "fillable_template_docx"
             )
-            if generated_template_docx is not None and generated_template_docx.exists():
-                result.artifacts["template_artifact"] = _bind_generated_template_to_artifact(
+            if fillable_template_docx is not None and fillable_template_docx.exists():
+                result.artifacts["template_artifact"] = _bind_fillable_template_to_artifact(
                     result.artifacts["template_artifact"],
-                    generated_template_docx,
+                    fillable_template_docx,
                     generation_result,
                 )
             gap_result = evaluate_generated_template_gap(
                 bundle,
-                generated_template_docx
+                fillable_template_docx
                 or root
                 / "inputs"
                 / "targets"
@@ -493,20 +494,20 @@ def run_e2e_eval(
             ),
         )
         _merge_template_generation_result(template_result, generation_result)
-        generated_template_docx = generation_result.artifact_paths.get(
-            "generated_template_docx"
+        fillable_template_docx = generation_result.artifact_paths.get(
+            "fillable_template_docx"
         )
-        if generated_template_docx is not None and generated_template_docx.exists():
+        if fillable_template_docx is not None and fillable_template_docx.exists():
             template_result.artifacts["template_artifact"] = (
-                _bind_generated_template_to_artifact(
+                _bind_fillable_template_to_artifact(
                     template_result.artifacts["template_artifact"],
-                    generated_template_docx,
+                    fillable_template_docx,
                     generation_result,
                 )
             )
         gap_result = evaluate_generated_template_gap(
             bundle,
-            generated_template_docx
+            fillable_template_docx
             or root
             / "inputs"
             / "targets"

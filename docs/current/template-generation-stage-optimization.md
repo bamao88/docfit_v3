@@ -1,6 +1,11 @@
 # 模板生成阶段优化总览
 
-Last updated: 2026-06-22
+Last updated: 2026-06-25
+
+> 迁移提示：本文保留 2026-06-22 以前的 00-05 优化地图，当前主线已经切换为
+> `document_facts -> unit_map -> element_spec -> global_spec -> template_spec ->
+> fillable_template + build_manifest`。当前字段、命令和门禁以
+> `docs/current/template-generation.md` 为准；本文只作为旧优化背景和兼容视图排查参考。
 
 一句话结论：这份文档把分散在模板生成主文档和计划文档里的内容收成一张当前可执行地图；它说明每个阶段当前代码已经做到什么、下一步应该改哪里、出了问题先看哪个产物。
 

@@ -1,15 +1,20 @@
 from __future__ import annotations
 
 from pathlib import Path
+import xml.etree.ElementTree as ET
+from zipfile import ZipFile
 
 from docx import Document
 from typer.testing import CliRunner
 
 from docfit.cli.main import app
 from docfit.convert.orchestrator import run_template_generate_eval
-from docfit.core.io import read_json, sha256_file
+from docfit.core.io import read_json, read_yaml, sha256_file
 from docfit.core.status import Status
 from docfit.template_generation.runner import BODY_SLOT_MARKER
+
+
+W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
 
 def write_source_docx(path: Path, paragraphs: list[str]) -> None:
@@ -34,6 +39,17 @@ def table_texts(path: Path) -> list[str]:
     ]
 
 
+def docx_sdt_tags(path: Path) -> set[str]:
+    tags: set[str] = set()
+    with ZipFile(path) as package:
+        root = ET.fromstring(package.read("word/document.xml"))
+    for tag in root.iter(f"{W_NS}tag"):
+        value = tag.attrib.get(f"{W_NS}val")
+        if value:
+            tags.add(value)
+    return tags
+
+
 def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     write_source_docx(source, ["学校固定封面", "目录", "正文开始", "格式说明：小四宋体"])
@@ -44,14 +60,20 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     )
     result = run_template_generate_eval(tmp_path, source, out_dir)
 
-    generated = out_dir / "generated_template.docx"
+    fillable = out_dir / "fillable_template.docx"
     artifacts = out_dir / "artifacts"
-    manifest_path = artifacts / "template_generation_manifest.json"
+    manifest_path = artifacts / "build_manifest.json"
     plan_path = artifacts / "template_generation_plan.json"
     debug_root = tmp_path / "runs/template_generation/school-template"
     summary = read_json(out_dir / "summary.json")
     manifest = read_json(manifest_path)
     plan = read_json(plan_path)
+    document_facts = read_json(artifacts / "document_facts.json")
+    unit_map = read_yaml(artifacts / "unit_map.yaml")
+    element_spec = read_yaml(artifacts / "element_spec.yaml")
+    global_spec = read_yaml(artifacts / "global_spec.yaml")
+    template_spec = read_yaml(artifacts / "template_spec.yaml")
+    verification_report = read_json(artifacts / "verification_report.json")
     source_tree = read_json(artifacts / "source_template_tree.json")
     structure_candidates = read_json(artifacts / "template_structure_candidates.json")
     generation_model = read_json(artifacts / "template_generation_model.json")
@@ -63,45 +85,57 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
 
     assert result.status == Status.PASS
     assert out_dir.parent.name == "eval_runs"
-    assert generated.exists()
+    assert fillable.exists()
     assert (artifacts / "template_generation_request.json").exists()
+    assert document_facts["artifact_type"] == "document_facts"
+    assert unit_map["artifact_type"] == "unit_map"
+    assert element_spec["artifact_type"] == "element_spec"
+    assert global_spec["artifact_type"] == "global_spec"
+    assert template_spec["artifact_type"] == "template_spec"
+    assert manifest["artifact_type"] == "build_manifest"
+    assert verification_report["status"] == Status.PASS.value
     assert source_tree["artifact_type"] == "source_template_tree"
     assert structure_candidates["artifact_type"] == "template_structure_candidates"
     assert generation_model["artifact_type"] == "template_generation_model"
     assert manifest_path.exists()
     assert plan_path.exists()
     source_seq_refs = [
-        item["source_seq"] for item in source_tree["layers"]["body_flow"]
+        item["source_seq"] for item in document_facts["body_flow"]
     ]
     assert source_seq_refs == list(range(1, len(source_seq_refs) + 1))
-    assert source_tree["indexes"]["by_source_seq"]["1"]["node_id"] == "body_0001"
+    assert document_facts["indexes"]["by_source_seq"]["1"]["node_id"] == "body_0001"
+    assert document_facts["runs"]
+    assert all(run["raw_run_id"] and run["logical_run_id"] for run in document_facts["runs"])
     assert len(debug_dirs) == 1
     assert debug_dir.parent == debug_root
     assert summary["artifacts"]["template_generation_debug_dir"] == str(debug_dir)
     assert (debug_dir / "00_input_source_template.docx").exists()
     assert (debug_dir / "00_template_generation_request.json").exists()
-    assert (debug_dir / "01_source_template_tree.json").exists()
-    assert (debug_dir / "02_template_structure_candidates.json").exists()
-    assert (debug_dir / "03_template_generation_model.json").exists()
-    assert (debug_dir / "04_template_generation_plan.json").exists()
-    assert (debug_dir / "05.0_copy_source_docx.docx").exists()
-    assert (debug_dir / "05.1_generated_template.docx").exists()
-    assert (debug_dir / "05.2_template_generation_manifest.json").exists()
+    assert (debug_dir / "01_document_facts.json").exists()
+    assert (debug_dir / "02_unit_map.yaml").exists()
+    assert (debug_dir / "03_element_spec.yaml").exists()
+    assert (debug_dir / "04_global_spec.yaml").exists()
+    assert (debug_dir / "05_template_spec.yaml").exists()
+    assert (debug_dir / "06.0_copy_source_docx.docx").exists()
+    assert (debug_dir / "06.1_fillable_template.docx").exists()
+    assert (debug_dir / "06.2_build_manifest.json").exists()
+    assert (debug_dir / "07_verification_report.json").exists()
     assert summary["status"] == Status.PASS.value
-    assert summary["artifacts"]["generated_template_docx"] == str(generated)
-    assert BODY_SLOT_MARKER in docx_texts(generated)
-    assert BODY_SLOT_MARKER not in docx_texts(debug_dir / "05.0_copy_source_docx.docx")
-    assert "格式说明：小四宋体" in docx_texts(debug_dir / "05.0_copy_source_docx.docx")
+    assert summary["artifacts"]["fillable_template_docx"] == str(fillable)
+    assert "slot_body_start" in docx_sdt_tags(fillable)
+    assert not any("[[DOCFIT_" in text for text in docx_texts(fillable))
+    assert BODY_SLOT_MARKER not in docx_texts(debug_dir / "06.0_copy_source_docx.docx")
+    assert "格式说明：小四宋体" in docx_texts(debug_dir / "06.0_copy_source_docx.docx")
     assert manifest["strategy"] == "source_copy_scaffold"
     assert manifest["debug_snapshot"]["dir"] == str(debug_dir)
-    assert manifest["output"]["generated_template_docx"] == str(generated)
-    assert manifest["output"]["generated_template_docx_hash"] == sha256_file(generated)
+    assert manifest["output"]["fillable_template_docx"] == str(fillable)
+    assert manifest["output"]["fillable_template_docx_hash"] == sha256_file(fillable)
     assert {
         item["name"] for item in debug_index["files"]
     } >= {
         "00_input_source_template.docx",
-        "05.0_copy_source_docx.docx",
-        "05.1_generated_template.docx",
+        "06.0_copy_source_docx.docx",
+        "06.1_fillable_template.docx",
     }
     assert {slot["slot_id"] for slot in manifest["slots"]} >= {"slot_body_start"}
     assert manifest["actions_executed"]
@@ -119,13 +153,14 @@ def test_template_generate_preserves_existing_body_slot(tmp_path) -> None:
     write_source_docx(source, ["学校固定封面", BODY_SLOT_MARKER])
 
     result = run_template_generate_eval(tmp_path, source, tmp_path / "template_generate")
-    generated = tmp_path / "template_generate/generated_template.docx"
+    fillable = tmp_path / "template_generate/fillable_template.docx"
     manifest = read_json(
-        tmp_path / "template_generate/artifacts/template_generation_manifest.json"
+        tmp_path / "template_generate/artifacts/build_manifest.json"
     )
 
     assert result.status == Status.PASS
-    assert docx_texts(generated).count(BODY_SLOT_MARKER) == 1
+    assert BODY_SLOT_MARKER not in docx_texts(fillable)
+    assert "slot_body_start" in docx_sdt_tags(fillable)
     assert any(
         action["action_type"] == "ensure_body_slot"
         for action in manifest["actions_executed"]
@@ -145,15 +180,15 @@ def test_template_generate_cleans_instruction_text_inside_table_cells(tmp_path) 
     doc.save(source)
 
     result = run_template_generate_eval(tmp_path, source, tmp_path / "template_generate")
-    generated = tmp_path / "template_generate/generated_template.docx"
+    fillable = tmp_path / "template_generate/fillable_template.docx"
     manifest = read_json(
-        tmp_path / "template_generate/artifacts/template_generation_manifest.json"
+        tmp_path / "template_generate/artifacts/build_manifest.json"
     )
 
     assert result.status == Status.PASS
     assert not manifest["actions_requiring_review"]
-    assert not any("格式说明" in text for text in table_texts(generated))
-    assert any("[[DOCFIT_SLOT:" in text for text in table_texts(generated))
+    assert not any("格式说明" in text for text in table_texts(fillable))
+    assert any(tag != "slot_body_start" for tag in docx_sdt_tags(fillable))
 
 
 def test_template_generate_merges_table_label_value_candidates(tmp_path) -> None:
@@ -262,8 +297,9 @@ def test_template_generate_cli_writes_public_outputs(tmp_path) -> None:
 
     assert result.exit_code == 0
     assert "status = PASS" in result.stdout
-    assert (out_dir / "generated_template.docx").exists()
-    assert (out_dir / "artifacts/template_generation_manifest.json").exists()
+    assert (out_dir / "fillable_template.docx").exists()
+    assert (out_dir / "artifacts/build_manifest.json").exists()
+    assert (out_dir / "artifacts/template_spec.yaml").exists()
     assert (out_dir / "summary.json").exists()
 
 
@@ -354,7 +390,7 @@ def test_template_generate_copy_only_units_use_restricted_internal_element_analy
     )
 
     result = run_template_generate_eval(tmp_path, source, out_dir)
-    generated = out_dir / "generated_template.docx"
+    fillable = out_dir / "fillable_template.docx"
     structure_candidates = read_json(out_dir / "artifacts/template_structure_candidates.json")
     generation_model = read_json(out_dir / "artifacts/template_generation_model.json")
     plan = read_json(out_dir / "artifacts/template_generation_plan.json")
@@ -425,9 +461,9 @@ def test_template_generate_copy_only_units_use_restricted_internal_element_analy
         and action["affected_source_seq_refs"] == [3]
         for action in plan["actions"]
     )
-    assert "论文题目：____" in docx_texts(generated)
-    assert "格式说明：小四宋体" not in docx_texts(generated)
-    assert not any("[[DOCFIT_SLOT:cover." in text for text in docx_texts(generated))
+    assert "论文题目：____" in docx_texts(fillable)
+    assert "格式说明：小四宋体" not in docx_texts(fillable)
+    assert not any("[[DOCFIT_SLOT:cover." in text for text in docx_texts(fillable))
 
 
 def test_template_generate_references_unit_is_fillable_not_copy_only(tmp_path) -> None:
@@ -451,7 +487,4 @@ def test_template_generate_references_unit_is_fillable_not_copy_only(tmp_path) -
         and action["unit_id"] == "references"
         for action in plan["actions"]
     )
-    assert any(
-        "[[DOCFIT_SLOT:references." in text
-        for text in docx_texts(out_dir / "generated_template.docx")
-    )
+    assert any(tag.startswith("references.") for tag in docx_sdt_tags(out_dir / "fillable_template.docx"))

@@ -183,8 +183,8 @@ def test_real_core_template_parse_outputs_reviewed_unit_tree_for_all_schools(tmp
         assert result.status == Status.FAIL
         artifact = read_json(tmp_path / school_id / "artifacts/template_artifact.json")
         gap_report = read_json(tmp_path / school_id / "artifacts/template_gap_report.json")
-        generated_from_stage = (
-            tmp_path / school_id / "template_generation/generated_template.docx"
+        fillable_from_stage = (
+            tmp_path / school_id / "template_generation/fillable_template.docx"
         )
         units = artifact["data"]["units"]
         slots = artifact["data"]["slots"]
@@ -192,22 +192,25 @@ def test_real_core_template_parse_outputs_reviewed_unit_tree_for_all_schools(tmp
         instruction_paragraphs = artifact["data"]["instruction_paragraphs"]
 
         assert gap_report["summary"]["blocking_status"] == Status.FAIL.value
-        assert generated_from_stage.exists()
+        assert fillable_from_stage.exists()
         assert (
             tmp_path
             / school_id
-            / "template_generation/artifacts/template_generation_manifest.json"
+            / "template_generation/artifacts/build_manifest.json"
         ).exists()
-        assert gap_report["generated_template"]["source_path"] == str(generated_from_stage)
+        assert gap_report["generated_template"]["source_path"] == str(fillable_from_stage)
         assert "inputs/targets/" not in gap_report[
             "generated_template"
         ]["source_path"]
         assert artifact["provenance"]["source_template_docx"] == str(
             ROOT / school["template_docx"]
         )
-        assert artifact["provenance"]["template_docx"] == str(generated_from_stage)
+        assert artifact["provenance"]["template_docx"] == str(fillable_from_stage)
+        assert artifact["provenance"]["fillable_template_docx"] == str(
+            fillable_from_stage
+        )
         assert artifact["provenance"]["generated_template_docx"] == str(
-            generated_from_stage
+            fillable_from_stage
         )
         assert (tmp_path / school_id / "artifacts/generated_template.docx").exists()
         assert (tmp_path / school_id / "artifacts/generated_template_tree.json").exists()
@@ -305,8 +308,8 @@ def test_real_core_e2e_reaches_render_and_writes_bound_final_docx(tmp_path) -> N
     summary = read_json(tmp_path / "real_core_case/summary.json")
     artifact = read_json(tmp_path / "real_core_case/artifacts/template_artifact.json")
     gap_report = read_json(tmp_path / "real_core_case/artifacts/template_gap_report.json")
-    generated_from_stage = (
-        tmp_path / "real_core_case/template_generation/generated_template.docx"
+    fillable_from_stage = (
+        tmp_path / "real_core_case/template_generation/fillable_template.docx"
     )
     assert summary["stage_statuses"] == {
         "template": "FAIL",
@@ -314,14 +317,15 @@ def test_real_core_e2e_reaches_render_and_writes_bound_final_docx(tmp_path) -> N
         "placement": "PASS",
         "render": "UNKNOWN",
     }
-    assert generated_from_stage.exists()
+    assert fillable_from_stage.exists()
     assert (
         tmp_path
-        / "real_core_case/template_generation/artifacts/template_generation_manifest.json"
+        / "real_core_case/template_generation/artifacts/build_manifest.json"
     ).exists()
-    assert artifact["provenance"]["template_docx"] == str(generated_from_stage)
-    assert artifact["provenance"]["generated_template_docx"] == str(generated_from_stage)
-    assert gap_report["generated_template"]["source_path"] == str(generated_from_stage)
+    assert artifact["provenance"]["template_docx"] == str(fillable_from_stage)
+    assert artifact["provenance"]["fillable_template_docx"] == str(fillable_from_stage)
+    assert artifact["provenance"]["generated_template_docx"] == str(fillable_from_stage)
+    assert gap_report["generated_template"]["source_path"] == str(fillable_from_stage)
     assert "coverage_insufficient" in [finding.type for finding in result.findings]
     assert "template_unit_tree_missing" not in [
         finding.type for finding in result.findings

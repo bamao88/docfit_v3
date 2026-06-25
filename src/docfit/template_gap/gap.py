@@ -3338,11 +3338,19 @@ def _find_first_unit_marker_match(
 ) -> dict[str, Any] | None:
     slot_prefix = f"[[DOCFIT_SLOT:{unit_id}."
     generated_prefix = f"[[DOCFIT_GENERATED:{unit_id}."
+    sdt_prefix = f"{unit_id}."
+    generated_sdt_prefix = f"generated.{unit_id}."
     for entry in _entries_in_range(entries, order_range):
         if int(entry.get("order") or 0) in used_orders:
             continue
         text = str(entry.get("text") or "")
-        if slot_prefix in text or generated_prefix in text:
+        sdt_tag = str(entry.get("sdt_tag") or "")
+        if (
+            slot_prefix in text
+            or generated_prefix in text
+            or sdt_tag.startswith(sdt_prefix)
+            or sdt_tag.startswith(generated_sdt_prefix)
+        ):
             return entry
     return None
 
@@ -3432,10 +3440,13 @@ def _find_marker_match(
     policy: str,
 ) -> dict[str, Any] | None:
     expected = _marker_expected(unit_id, element_id, policy)
+    expected_sdt_tag = _sdt_tag_expected(unit_id, element_id, policy)
     if not expected:
         return None
     for entry in entries:
-        if expected in str(entry.get("text", "")):
+        if expected in str(entry.get("text", "")) or (
+            expected_sdt_tag and entry.get("sdt_tag") == expected_sdt_tag
+        ):
             return entry
     return None
 
@@ -3448,15 +3459,25 @@ def _marker_expected(unit_id: str, element_id: str, policy: str) -> str:
     return ""
 
 
+def _sdt_tag_expected(unit_id: str, element_id: str, policy: str) -> str:
+    if policy in {"fill", "fillable", "template_default_optional"}:
+        return f"{unit_id}.{element_id}"
+    if policy == "generated":
+        return f"generated.{unit_id}.{element_id}"
+    return ""
+
+
 def _marker_query_for_element(
     unit_id: str,
     element_id: str,
     policy: str,
 ) -> dict[str, Any]:
     marker = _marker_expected(unit_id, element_id, policy)
+    sdt_tag = _sdt_tag_expected(unit_id, element_id, policy)
     normalized = _normalize_for_match(marker)
+    normalized_sdt = _normalize_for_match(sdt_tag)
     return {
-        "full": [normalized] if normalized else [],
+        "full": [item for item in [normalized, normalized_sdt] if item],
         "tokens": [],
         "min_tokens": 0,
     }

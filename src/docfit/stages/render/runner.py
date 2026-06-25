@@ -7,7 +7,10 @@ from typing import Any
 from zipfile import ZipFile
 
 from docx import Document
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 from docx.shared import Inches
+from docx.text.paragraph import Paragraph
 
 from docfit.core.io import (
     ensure_dir,
@@ -53,7 +56,7 @@ def render_docx(
     source_template = Path(template_artifact["provenance"]["template_docx"])
     shutil.copyfile(source_template, final_docx)
     doc = Document(final_docx)
-    slot_markers = _slot_markers(doc)
+    slot_targets = _slot_targets(doc)
 
     actions_executed: list[dict[str, Any]] = []
     actions_failed: list[dict[str, Any]] = []
@@ -111,7 +114,7 @@ def render_docx(
         else:
             paragraph = _write_text_payload(
                 doc,
-                slot_markers,
+                slot_targets,
                 action.get("target_slot_id"),
                 payload.get("text", ""),
             )
@@ -297,31 +300,51 @@ def _remove_docfit_markers_from_paragraph(paragraph: Any) -> None:
         paragraph.text = cleaned.strip()
 
 
-def _slot_markers(doc: Document) -> dict[str, Any]:
-    markers: dict[str, Any] = {}
+def _slot_targets(doc: Document) -> dict[str, Any]:
+    targets: dict[str, Any] = {}
     pattern = re.compile(r"\[\[DOCFIT_SLOT:([^\]]+)\]\]")
     for paragraph in doc.paragraphs:
         for match in pattern.finditer(paragraph.text):
-            markers.setdefault(match.group(1), paragraph)
+            targets.setdefault(match.group(1), paragraph)
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
                 for paragraph in cell.paragraphs:
                     for match in pattern.finditer(paragraph.text):
-                        markers.setdefault(match.group(1), paragraph)
-    return markers
+                        targets.setdefault(match.group(1), paragraph)
+    for sdt in doc.element.body.iter(qn("w:sdt")):
+        tag_node = next(iter(sdt.iter(qn("w:tag"))), None)
+        if tag_node is None:
+            continue
+        tag = tag_node.get(qn("w:val"))
+        if tag:
+            targets.setdefault(tag, sdt)
+    return targets
 
 
 def _write_text_payload(
     doc: Document,
-    slot_markers: dict[str, Any],
+    slot_targets: dict[str, Any],
     target_slot_id: Any,
     text: str,
 ) -> Any:
-    marker = slot_markers.get(str(target_slot_id or ""))
-    if marker is not None:
-        return marker.insert_paragraph_before(str(text or ""))
+    target = slot_targets.get(str(target_slot_id or ""))
+    if isinstance(target, Paragraph):
+        return target.insert_paragraph_before(str(text or ""))
+    if target is not None:
+        return _insert_paragraph_before_sdt(doc, target, str(text or ""))
     return doc.add_paragraph(str(text or ""))
+
+
+def _insert_paragraph_before_sdt(doc: Document, sdt: Any, text: str) -> Paragraph:
+    paragraph_element = OxmlElement("w:p")
+    run = OxmlElement("w:r")
+    text_node = OxmlElement("w:t")
+    text_node.text = text
+    run.append(text_node)
+    paragraph_element.append(run)
+    sdt.addprevious(paragraph_element)
+    return Paragraph(paragraph_element, doc)
 
 
 def _paragraph_index(doc: Document, paragraph: Any) -> int | None:

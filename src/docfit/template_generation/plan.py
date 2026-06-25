@@ -228,8 +228,8 @@ def _decision_reason(decision_type: str) -> str:
     return {
         "keep_whole_unit_copy": "unit is preserved by the initial source DOCX copy",
         "remove_instruction_text": "instruction/example text should not enter the fillable template",
-        "create_fillable_slot": "fillable source element needs a stable marker for later placement",
-        "create_generated_field_placeholder": "generated element needs a marker for later field generation",
+        "create_fillable_slot": "fillable source element needs a stable content control tag for later placement",
+        "create_generated_field_placeholder": "generated element needs a stable content control tag for later field generation",
         "create_manual_placeholder": "manual-only content is preserved but not automatically filled",
         "insert_fixed_text": "visible standard text is missing from the aligned source region and should be present in the generated template",
     }.get(decision_type, "template generation decision")
@@ -249,9 +249,9 @@ def _action_type_for_decision(decision_type: str) -> str:
 def _target_ref_for_decision(decision: dict[str, Any]) -> str:
     decision_type = decision.get("decision_type")
     if decision_type == "create_fillable_slot":
-        return f"[[DOCFIT_SLOT:{decision.get('unit_id')}.{decision.get('element_id')}]]"
+        return f"sdt:{decision.get('unit_id')}.{decision.get('element_id')}"
     if decision_type == "create_generated_field_placeholder":
-        return f"[[DOCFIT_GENERATED:{decision.get('unit_id')}.{decision.get('element_id')}]]"
+        return f"sdt:generated.{decision.get('unit_id')}.{decision.get('element_id')}"
     if decision_type == "insert_fixed_text":
         return str(decision.get("content") or "")
     return str(decision.get("source_ref") or "")
