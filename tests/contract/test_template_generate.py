@@ -109,6 +109,18 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert len(debug_dirs) == 1
     assert debug_dir.parent == debug_root
     assert summary["artifacts"]["template_generation_debug_dir"] == str(debug_dir)
+    assert (out_dir / "00_input_source_template.docx").exists()
+    assert (out_dir / "00_template_generation_request.json").exists()
+    assert (out_dir / "01_document_facts.json").exists()
+    assert (out_dir / "02_unit_map.yaml").exists()
+    assert (out_dir / "03_element_spec.yaml").exists()
+    assert (out_dir / "04_global_spec.yaml").exists()
+    assert (out_dir / "05_template_spec.yaml").exists()
+    assert (out_dir / "06.0_copy_source_docx.docx").exists()
+    assert (out_dir / "06.1_fillable_template.docx").exists()
+    assert (out_dir / "06.2_build_manifest.json").exists()
+    assert (out_dir / "07_verification_report.json").exists()
+    assert (out_dir / "99_template_generation_debug_index.json").exists()
     assert (debug_dir / "00_input_source_template.docx").exists()
     assert (debug_dir / "00_template_generation_request.json").exists()
     assert (debug_dir / "01_document_facts.json").exists()
