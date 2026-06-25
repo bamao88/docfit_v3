@@ -5,19 +5,23 @@ severity:
   - P0
   - P1
 created: 2026-06-25
+last_updated: 2026-06-25
 evidence_outputs:
   - test_outputs/debug/template_generation/t1_document_facts_20260625_current/hunannongye
   - test_outputs/debug/template_generation/t1_document_facts_20260625_current/nannong-undergraduate
   - test_outputs/debug/template_generation/t1_document_facts_20260625_current/pku-graduate
+related_code:
+  - src/docfit/template_gap/inspector.py
+  - src/docfit/template_generation/source_tree.py
+  - src/docfit/template_generation/structure_candidates.py
+  - src/docfit/template_generation/verifier.py
 ---
 
 # T1 阶段事实覆盖缺口 issue
 
 Last updated: 2026-06-25
 
-一句话结论：上一轮 T1 已经修复了 run 降噪和 run 级空白保留，但系统性审计后确认 T1 仍有两类缺口：一类是事实覆盖缺口，包括段落坐标混用、表格/页眉页脚没有 run trace、TOC 等嵌套 run 漏采、可见对象只停留在 data 层、verifier 误报 T1 `PASS`；另一类是职责越权，当前 `document_facts.body_flow[].structural_signals` 里混入了 `is_toc_entry`、`is_spacing_line`、`looks_like_instruction_text`、`likely_unit_heading` 等语义判断，以及 `large_font`、`short_text` 等阈值判断。
-
-这份文档不是新的实现计划，而是后续讨论用的 issue 台账。先把问题、证据和验收标准写清楚，再决定实现切口。
+一句话结论：上一轮 T1 已经修复了 run 降噪和 run 级空白保留，但系统性审计后确认 T1 仍有两类缺口：一类是**事实覆盖缺口**（段落坐标混用、表格/页眉页脚没有 run trace、TOC 等嵌套 run 漏采、可见对象只停留在 data 层、verifier 误报 T1 `PASS`）；另一类是**职责越权**（`document_facts.body_flow[].structural_signals` 混入 `is_toc_entry` 等语义判断）。本文档既是 issue 台账，也给出可落地的优化方案与分阶段实施计划。
 
 ## 0. T1 硬边界
 
@@ -44,6 +48,40 @@ T1 `document_facts` 的职责只有一个：把源 DOCX 读全读对，输出可
 
 开发约束：未来新增 T1 字段时，字段名和含义必须能直接对应到 DOCX 可观测事实；如果字段需要词表、阈值、上下文或业务含义组合才能得出，它不属于 T1。
 
+### 0.1 术语与字段模型（读 issue 前先读）
+
+避免把不同层级的概念混为一谈：
+
+| 概念 | 层级 | 含义 | 在 JSON 里 |
+| --- | --- | --- | --- |
+| **段落** | Word 物理层 | 一个 `<w:p>` | `body_flow[]` 一条（通常） |
+| **容器** | Word 物理层 | `w:hyperlink`、field、`w:sdt` 等包装节点 | 未来 `container_refs[]` |
+| **raw run** | Word 物理层 | 一个 `<w:r>`，可能只含 tab/空格 | `runs[].merged_from[]`、`raw_run_ids[]` |
+| **logical run** | DocFit 加工层 | 相邻且 `effective_style` 相同的 raw run 合并结果 | `runs[]` 一条、`logical_run_ids[]` |
+| **body_flow** | DocFit 索引层 | 按阅读顺序的可见文本块（段落/单元格/页眉脚项） | `document_facts.body_flow[]` |
+| **semantic signal** | T2/T3 推断层 | 如 `is_toc_entry` | **不应出现在 T1** |
+
+关系：
+
+```text
+body_flow[]（段落卡）
+  ├── text / style / source_ref / paragraph_id
+  ├── raw_run_ids[] ──────→ runs[] 里的 raw run
+  ├── logical_run_ids[] ──→ runs[] 里的 logical run
+  └── text_facts{}         → T2/T3 可消费的原子事实（优化后新增）
+
+runs[]（run 详情册）
+  └── logical run：text、effective_style、merged_from、source_refs、container_refs
+```
+
+当前实现误区：T1 内部并非“一条统一管线”，而是**读字**与**建 run 索引**用了不同深度的扫描，再拼成 `body_flow`。因此会出现“`body_flow` 有记录、`raw_run_ids` 为空”的状态——不是 Word 没字，而是 join 断了。
+
+```text
+读字：root.iter("w:t")           → 递归，hyperlink 里的字能读到 → body_flow.text ✅
+读 run：paragraph.findall("w:r") → 只扫直接子级               → runs[] 可能为空 ❌
+坐标：source_ref 用 python-docx index；run id 用 xml_index   → 两套坐标 ❌
+```
+
 ## 1. 当前证据
 
 证据来自当前三校调试输出：
@@ -54,23 +92,38 @@ test_outputs/debug/template_generation/t1_document_facts_20260625_current/nannon
 test_outputs/debug/template_generation/t1_document_facts_20260625_current/pku-graduate/01_document_facts.json
 ```
 
+复现命令（2026-06-25 本地审计）：
+
+```bash
+uv run python -c "
+from pathlib import Path
+from docfit.template_generation.source_tree import inspect_document_facts_docx
+facts = inspect_document_facts_docx(Path('inputs/targets/nannong-undergraduate/raw/source_template.docx'))
+for seq in [9, 10]:
+    item = next(x for x in facts['body_flow'] if x['source_seq'] == seq)
+    print(seq, item['source_ref'], item.get('paragraph_id'), item['raw_run_ids'], item['text'][:20])
+"
+# 9 word/document.xml:p[25] p_0025 ['p_0046.r_001', ...] 目  录
+# 10 word/document.xml:p[28] p_0028 [] 摘  要\tⅠ
+```
+
 ### 1.1 覆盖缺口总表
 
 | 学校 | body_flow | 段落项 | 表格单元格无 raw trace | 页眉页脚无 raw trace | `source_ref` 指向 XML 文本不匹配 | raw 前缀与 `source_ref` 不匹配 | TOC 条目无 raw trace | XML 可见段落存在嵌套 run | data 层可见对象 |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
 | 湖南农大 | 320 | 145 | 175/175 | 0/0 | 41/145 | 41 | 0 | 0 | 无 |
-| 南农本科 | 124 | 114 | 1/1 | 9/9 | 111/114 | 90 | 24 | 26，其中 24 个 direct run=0 | fields 3、text_boxes 1、images 2 |
-| 北大研究生 | 366 | 202 | 154/154 | 10/10 | 201/202 | 184 | 17 | 55，其中 54 个 direct run=0 | fields 139、content_controls 1、text_boxes 2、footnotes 1、images 15 |
+| 南农本科 | 124 | 114 | 1/1 | 9/9 | 111/114 | 90 | 24 | 26，其中 24 个 direct 可见 run=0 | fields 3、text_boxes 1、images 2 |
+| 北大研究生 | 366 | 202 | 154/154 | 10/10 | 201/202 | 184 | 17 | 55，其中 54 个 direct 可见 run=0 | fields 139、content_controls 1、text_boxes 2、footnotes 1、images 15 |
 
 解释：
 - `source_ref` 指向 XML 文本不匹配：`body_flow[].source_ref` 里的 `word/document.xml:p[n]` 去源 DOCX OOXML 找到的段落文本，和 `body_flow[].text` 不是同一段。
 - raw 前缀与 `source_ref` 不匹配：例如 `source_ref=word/document.xml:p[3]`，但 `raw_run_ids` 是 `p_0024.r_001` 这一类。
-- TOC 条目无 raw trace：当前由 T1 越权标成 `is_toc_entry=true` 的目录条目有文本，但 `raw_run_ids=[]`、`logical_run_ids=[]`。
-- XML 可见段落存在嵌套 run：可见文本藏在 `w:hyperlink`、field 等容器下，直接 `paragraph.findall(w:r)` 取不到。
+- TOC 条目无 raw trace：目录条目有 `body_flow.text`，但 `raw_run_ids=[]`、`logical_run_ids=[]`。
+- XML 可见段落存在嵌套 run：可见文本藏在 `w:hyperlink`、field 等容器下，当前 `paragraph.findall(w:r)` 取不到或取到的是空占位 run。
 
-### 1.2 具体例子：南农标题段落坐标错位
+### 1.2 具体例子：南农标题段落坐标错位（T1-ISSUE-001）
 
-当前 `body_flow`：
+当前 `body_flow`（`source_seq=2`）：
 
 ```json
 {
@@ -78,28 +131,51 @@ test_outputs/debug/template_generation/t1_document_facts_20260625_current/pku-gr
   "source_ref": "word/document.xml:p[3]",
   "paragraph_id": "p_0003",
   "text": "南京农业大学本科生毕业论文（设计）原创性声明",
-  "raw_run_ids": [
-    "p_0024.r_001",
-    "p_0024.r_002",
-    "p_0024.r_003",
-    "p_0024.r_004",
-    "p_0024.r_005",
-    "p_0024.r_006",
-    "p_0024.r_007",
-    "p_0024.r_008"
-  ],
+  "raw_run_ids": ["p_0024.r_001", "p_0024.r_002", "p_0024.r_003", "p_0024.r_004", "p_0024.r_005", "p_0024.r_006", "p_0024.r_007", "p_0024.r_008"],
   "logical_run_ids": ["p_0024.lr_001"]
 }
 ```
 
 问题点：
-- `source_ref` 和 `paragraph_id` 说这是 `p[3]` / `p_0003`。
-- raw run trace 说真实段落是 `p_0024`。
-- 源 DOCX 的 OOXML `word/document.xml:p[3]` 实际文本是 `本科生毕业论文（设计）`，不是这条声明标题。
+- `source_ref` / `paragraph_id` 指向 python-docx visible index `p[3]`。
+- raw run trace 使用 OOXML `xml_index=24` → `p_0024`。
+- 源 DOCX 的 `word/document.xml:p[3]` 实际文本是 `本科生毕业论文（设计）`，不是这条声明标题。
 
-这不是展示层问题。后续 T2/T3/T6 如果按 `source_ref` 定位，会跳到错误 Word 节点；如果按 raw id 定位，又和 body_flow 的段落 id 对不上。
+这不是展示层问题。T2/T3/T6 若按 `source_ref` 定位会跳到错误节点；若按 raw id 定位又与 `paragraph_id` 不一致。
 
-### 1.3 具体例子：南农目录条目没有 raw trace
+### 1.3 具体例子：南农目录标题 vs 目录条目（T1-ISSUE-001 + 003）
+
+两类失败模式不同，应分开看。
+
+#### 1.3.1 目录标题 `source_seq=9`：有 run，但坐标分裂
+
+当前 `body_flow`：
+
+```json
+{
+  "source_seq": 9,
+  "source_ref": "word/document.xml:p[25]",
+  "paragraph_id": "p_0025",
+  "text": "目  录",
+  "style": "Heading 1",
+  "raw_run_ids": ["p_0046.r_001", "p_0046.r_002", "p_0046.r_003"],
+  "logical_run_ids": ["p_0046.lr_001"]
+}
+```
+
+源 DOCX OOXML（`inputs/targets/nannong-undergraduate/raw/source_template.docx`）：
+
+```text
+word/document.xml:p[46]  text='目  录'
+  direct r[1] '目 '
+  direct r[2] ' '
+  direct r[3] '录'
+```
+
+- run 合并已正确（3 raw → 1 logical，空格保留）。
+- 但 `source_ref=p[25]`、`paragraph_id=p_0025` 与 run 前缀 `p_0046` 不在同一坐标系。
+
+#### 1.3.2 目录条目 `source_seq=10`：坐标错 + run 完全缺失
 
 当前 `body_flow`：
 
@@ -119,17 +195,51 @@ test_outputs/debug/template_generation/t1_document_facts_20260625_current/pku-gr
 }
 ```
 
-源 DOCX 里这条 TOC 条目的真实 XML 段落是 `word/document.xml:p[49]`，可见文本是 `摘  要\tⅠ`。它有嵌套 run，但没有直接子 `w:r`：
+中间层 `data.paragraphs[]` 记录（步骤 1 输出）：
 
 ```text
-word/document.xml:p[49] text='摘  要\tⅠ' direct_runs=0 nested_runs=3
+index=28          # python-docx visible index → 写入 source_ref
+xml_index=49      # OOXML index → run id 本应使用这个
+source_ref=word/document.xml:p[28]
+runs=[]           # 浅扫 + 过滤后为空
 ```
 
-所以这类问题有两个根因叠加：
-- `source_ref` 仍然是 python-docx 顶层可见段落序号，不是 OOXML 段落序号。
-- run 抽取只看直接子 `w:r`，漏掉 field / hyperlink / TOC 结构里的嵌套 run。
+源 DOCX OOXML `word/document.xml:p[49]`：
 
-### 1.4 具体例子：表格单元格是可见正文，但没有 run trace
+```text
+text='摘  要Ⅰ'（含 tab）
+  direct r[1..3] ''           # 3 个空占位 direct run（被 _visible_text 过滤掉）
+  hyperlink[1]:
+    r[1] '摘'
+    r[2] '  '
+    r[3] '要'
+    r[4] ''                   # tab 控制符
+    r[5] 'Ⅰ'
+```
+
+根因叠加：
+1. `source_ref` 使用 python-docx index（28），不是 OOXML index（49）。
+2. run 抽取 `paragraph.findall(w:r)` 只拿 direct run，且过滤空可见文本；hyperlink 内 5 个 run 完全未进 `runs[]`。
+3. `is_toc_entry` 是 T2 语义，不应在 T1 输出（见 T1-ISSUE-007）。
+
+字段生命周期（`source_seq=10`）：
+
+```text
+Word p[49] hyperlink→run×5
+       │
+步骤1 inspector
+  text ─────────────────────→ ✅ body_flow.text
+  source_ref ──index=28──────→ ❌ p[28]
+  runs ──浅扫+过滤空run────→ ❌ []
+       │
+步骤2 run_index（runs 为空则跳过）
+       │
+步骤3 body_flow 组装
+  raw_run_ids ──索引 miss───→ ❌ []
+  is_toc_entry ──T2逻辑误放─→ ⚠️ true
+```
+
+### 1.4 具体例子：表格单元格是可见正文，但没有 run trace（T1-ISSUE-002）
 
 南农 `source_seq=1` 是封面表格单元格：
 
@@ -138,7 +248,7 @@ word/document.xml:p[49] text='摘  要\tⅠ' direct_runs=0 nested_runs=3
   "flow_item_type": "table_cell",
   "kind": "table_cell",
   "source_ref": "word/document.xml:tbl[1]/tr[1]/tc[1]",
-  "text": "本科生毕业论文（设计）\n题    目:\n姓    名:\n学    号:\n学    院:\n专    业:\n指导教师:                 职称\n20   年   月   日",
+  "text": "本科生毕业论文（设计）\n题    目:\n姓    名:\n...",
   "raw_run_ids": [],
   "logical_run_ids": []
 }
@@ -149,9 +259,9 @@ word/document.xml:p[49] text='摘  要\tⅠ' direct_runs=0 nested_runs=3
 - 南农本科：1/1
 - 北大研究生：154/154
 
-封面、任务书、评审表、成绩表等学校模板核心内容大量在表格中。T1 如果只保留单元格聚合文本，不保留单元格内段落和 run trace，T6 施工很难做到可解释、可回放。
+根因：`_runs_from_inspection()` 只遍历顶层 `data.paragraphs`（`doc.paragraphs`），不覆盖单元格内段落。
 
-### 1.5 具体例子：T1 semantic signals 越权
+### 1.5 具体例子：T1 semantic signals 越权（T1-ISSUE-007）
 
 当前 `source_tree.py` 在构造 `document_facts.body_flow[]` 时直接写入 `structural_signals`：
 
@@ -159,115 +269,76 @@ word/document.xml:p[49] text='摘  要\tⅠ' direct_runs=0 nested_runs=3
 "structural_signals": _structural_signals(entry)
 ```
 
-`_structural_signals()` 位于 `structure_candidates.py`，这个模块同时承载 T2 边界检测。当前 T1 输出里包含：
-
-```json
-{
-  "looks_like_instruction_text": true,
-  "is_toc_entry": true,
-  "is_spacing_line": false,
-  "likely_unit_heading": true
-}
-```
-
-问题点：
-- `is_toc_entry` 在判断“这一行是不是目录条目”，属于 T2 边界/归属判断。
-- `is_spacing_line` 在判断“这一行是不是空行说明”，属于 T2 的边界否决或 T3 的说明文字分类。
-- `looks_like_instruction_text` 在判断“这一行是不是说明文字”，属于 T3，T2 只能把它作为下游生成的否决信号消费。
-- `likely_unit_heading` 在判断“这一行是不是标题/单元边界”，明确属于 T2。
-
-T1 可以输出这些判断所需的事实，但不能输出最终判断。例子：
+`_structural_signals()` 位于 `structure_candidates.py`（T2 模块）。当前 T1 输出里包含 `is_toc_entry`、`is_spacing_line`、`looks_like_instruction_text`、`likely_unit_heading` 等。
 
 | 当前 T1 字段 | 应归属 | T1 应改为输出的事实 |
 | --- | --- | --- |
-| `is_toc_entry` | T2 | `style_name=toc 1`、`has_tab`、`trailing_token=Ⅰ`、`leader_chars=…` |
+| `is_toc_entry` | T2 | `style_name=toc 1`、`has_tab`、`trailing_page_token=Ⅰ`、`leader_chars=…` |
 | `is_spacing_line` | T2/T3 | 原始文本、括号文本、包含“空”、包含行/格、数字 token |
 | `looks_like_instruction_text` | T3，T2 可消费 | 原始文本、括号文本、字体/字号词 token |
 | `likely_unit_heading` | T2 | alignment、font_size_pt、bold、样式名、分页/分节、原始文本 |
+| `large_font` / `short_text` | T2/T3 | `font_size_pt`、`text_length` 等原始值 |
 
 ## 2. 根因定位
 
-### 2.1 段落坐标混用
+### 2.1 段落坐标混用（T1-ISSUE-001）
 
 相关代码：
-- `src/docfit/template_gap/inspector.py`：`_paragraphs()` 枚举 `doc.paragraphs`，但 `source_ref` 写成 `word/document.xml:p[{index}]`。
-- `src/docfit/template_gap/inspector.py`：同一函数里又取 `xml_index = _xml_paragraph_indices(doc).get(paragraph._p, index)`。
-- `src/docfit/template_generation/source_tree.py`：`_runs_from_inspection()` 使用 `paragraph.get("xml_index")` 生成 raw run id。
-- `src/docfit/template_generation/source_tree.py`：`_stable_ids_for_entry()` 又从 `source_ref` 解析 `paragraph_id`。
-
-结果：同一条段落事实里同时存在两套坐标。
+- `inspector.py` `_paragraphs()`：`source_ref = word/document.xml:p[{index}]`，`index` 来自 `enumerate(doc.paragraphs)`。
+- 同函数：`xml_index = _xml_paragraph_indices(doc).get(paragraph._p, index)` 已计算 OOXML 序号，但未写入 `source_ref`。
+- `source_tree.py` `_runs_from_inspection()`：用 `xml_index` 生成 `p_{xml_index:04d}.r_*`。
+- `source_tree.py` `_stable_ids_for_entry()`：从 `source_ref` 解析 `paragraph_id` → 得到 visible index 坐标。
 
 ```text
-body_flow.source_ref / paragraph_id  -> python-docx visible index
-runs.raw_run_id / logical_run_id     -> OOXML xml_index
+body_flow.source_ref / paragraph_id  → python-docx visible index
+runs.raw_run_id / logical_run_id     → OOXML xml_index
 ```
 
-这会让 T1 看似有 trace，实际 join 不稳定。
+### 2.2 run 索引只覆盖顶层 `data.paragraphs`（T1-ISSUE-002、004）
 
-### 2.2 run 索引只覆盖顶层 `data.paragraphs`
+`source_tree.py` `_runs_from_inspection()` 只遍历 `tree["data"]["paragraphs"]`。
 
-相关代码：
-- `src/docfit/template_generation/source_tree.py`：`_runs_from_inspection()` 只遍历 `tree["data"]["paragraphs"]`。
+不覆盖：表格单元格内段落、页眉页脚段落、文本框、脚注、部分 content control 内段落。
 
-当前 `data.paragraphs` 来自 python-docx 的 `doc.paragraphs` 顶层段落，不覆盖：
-- 表格单元格内段落
-- 页眉页脚段落
-- 文本框段落
-- 脚注段落
-- 部分 content control 内段落
+### 2.3 run 抽取只看直接子 `w:r`（T1-ISSUE-003）
 
-所以表格和页眉页脚在 body_flow 中有可见文本，但没有 raw/logical run trace。
+`inspector.py` `_paragraph_style_details_by_index()`：
 
-### 2.3 run 抽取只看直接子 `w:r`
+```python
+runs = [
+    _run_style(run, paragraph_run_properties)
+    for run in paragraph.findall(f"{W_NS}r")
+    if _visible_text(run, strip=False)
+]
+```
 
-相关代码：
-- `src/docfit/template_gap/inspector.py`：`_paragraph_style_details_by_index()` 里使用 `paragraph.findall(f"{W_NS}r")`。
+漏采：hyperlink、field、smartTag、sdt 等容器内的 run；且空占位 direct run 被过滤，导致“有 nested run、visible direct run=0”的段落 `runs=[]`。
 
-这会漏掉嵌套在以下容器里的可见 run：
-- TOC / field 结构
-- hyperlink
-- smart tag
-- content control
-- 其他 Word 包装节点
+### 2.4 页眉页脚只聚合 part 文本（T1-ISSUE-004）
 
-南农有 26 个可见 XML 段落存在 nested run 多于 direct run，其中 24 个 direct run=0。北大有 55 个，其中 54 个 direct run=0。这正是 TOC、图目录、表目录条目没有 raw trace 的主要原因。
+`data.headers_footers` 有聚合 `text`，body_flow 页眉脚项无 raw/logical run。
 
-### 2.4 页眉页脚只聚合 part 文本，没有 paragraph/run 明细
+### 2.5 verifier 无覆盖率门禁（T1-ISSUE-006）
 
-当前 facts 里 `data.headers_footers` 有页眉页脚文本，但 body_flow 中的页眉页脚项没有 raw/logical run：
-- 南农本科：9/9
-- 北大研究生：10/10
+`verifier.py` `_verify_t1_document_facts()` 只检查 schema 形状，不检查 trace 覆盖率与坐标一致性 → false PASS。
 
-页码字段、页眉标题、学校模板页脚常常都在这里。T1 不追踪这些 run，T4 页码和 T6 构建就只能靠不完整证据。
+### 2.6 semantic signals 在 T1 生成（T1-ISSUE-007）
 
-### 2.5 verifier 没有覆盖率检查，导致 T1 false PASS
-
-相关代码：
-- `src/docfit/template_generation/verifier.py`：`_verify_t1_document_facts()` 当前只检查：
-  - artifact type
-  - body_flow / runs 重复 id
-  - run 必填字段
-  - `unknown_objects`
-
-它没有检查：
-- 可见 body_flow 项是否有 raw/logical trace
-- `source_ref` 是否真的指向该段文本
-- `paragraph_id` 是否和 raw run id 前缀一致
-- 表格、页眉页脚、TOC 条目是否有可回放的来源
-- data 层可见对象是否进入主事实序列或明确建模为旁路对象
-
-所以当前三校 T1 可以 `PASS`，但事实覆盖已经不足以支撑后续阶段。
-
-### 2.6 semantic signals 在 T1 生成，导致职责边界失效
-
-相关代码：
-- `src/docfit/template_generation/source_tree.py`：从 `structure_candidates.py` 引入 `_structural_signals`。
-- `src/docfit/template_generation/source_tree.py`：`_body_flow_from_inspection()` 将 `_structural_signals(entry)` 写入 T1 `document_facts.body_flow[]`。
-- `src/docfit/template_generation/structure_candidates.py`：`_structural_signals()` 生成 `is_toc_entry`、`is_spacing_line`、`looks_like_instruction_text`、`likely_unit_heading`、`large_font`、`short_text`。
-
-根因：T1 事实构建代码直接依赖 T2/T3 推断模块，导致“事实抽取”和“语义判断”混在同一个字段里。即使这些判断是确定性规则，也不属于 T1。
+`source_tree.py` import `structure_candidates._structural_signals`，事实抽取与语义判断模块边界混淆。
 
 ## 3. Issue 列表
+
+| ID | 标题 | 级别 | 状态 |
+| --- | --- | --- | --- |
+| T1-ISSUE-001 | canonical paragraph id / source_ref 不统一 | P0 | OPEN |
+| T1-ISSUE-002 | 表格单元格缺 run trace | P0 | OPEN |
+| T1-ISSUE-003 | TOC / field / hyperlink 嵌套 run 漏采 | P0 | OPEN |
+| T1-ISSUE-004 | 页眉页脚缺 paragraph/run 明细 | P1 | OPEN |
+| T1-ISSUE-005 | data 层可见对象未建模 | P1 | OPEN |
+| T1-ISSUE-006 | verifier 缺覆盖率门禁 | P0 | OPEN |
+| T1-ISSUE-007 | structural_signals 语义越权 | P0 | OPEN |
+
+各 issue 期望行为与验收标准见 §3.1–§3.7（与原台账一致，略）。
 
 ### T1-ISSUE-001：canonical paragraph id / source_ref 不统一
 
@@ -275,199 +346,424 @@ runs.raw_run_id / logical_run_id     -> OOXML xml_index
 
 期望行为：
 - `body_flow[].source_ref` 必须指向源 DOCX 中真实承载该文本的 OOXML 节点。
-- `body_flow[].paragraph_id`、`raw_run_ids[].p_xxxx`、`logical_run_ids[].p_xxxx` 必须在同一坐标系里。
-- python-docx 的 visible index 只能作为辅助字段，不得伪装成 `word/document.xml:p[n]`。
+- `body_flow[].paragraph_id`、`raw_run_ids`、`logical_run_ids` 必须在同一坐标系（OOXML paragraph index）。
+- python-docx visible index 保留为 `python_docx_index`，不得伪装成 `word/document.xml:p[n]`。
 
 验收标准：
-- 有 raw trace 的段落项，`source_ref` 段落编号和 raw id 前缀一致。
-- 三校 `source_ref` 指向 XML 文本不匹配数降到 0，允许差异只来自可解释的 tab/line break 规范化。
-- T1 verifier 新增 `document_facts_paragraph_trace_mismatch`，当前三校旧输出应触发 `UNKNOWN`。
+- 有 raw trace 的段落项，`paragraph_id` 与 raw id 前缀一致。
+- 三校 `source_ref` 指向 XML 文本不匹配数 → 0。
+- verifier 新增 `document_facts_paragraph_trace_mismatch`。
 
 ### T1-ISSUE-002：表格单元格缺 run trace
 
 严重级别：P0
 
-期望行为：
-- 表格单元格如果进入 body_flow 且 `visible=true`，必须有可回放 trace。
-- trace 可以是单元格聚合级 `raw_run_ids`，也可以是 `cell_paragraph_refs` / `cell_run_refs` 子结构，但不能只剩一段聚合文本。
+期望行为：可见 `table_cell` 必须有可回放 trace（聚合级 `raw_run_ids` 或 `cell_paragraph_refs` / `cell_run_refs`）。
 
-验收标准：
-- 三校可见表格单元格无 raw trace 数降到 0，或全部带有明确的子 paragraph/run trace。
-- 单元格内多段落顺序可回放。
-- T1 verifier 新增 `document_facts_visible_table_cell_trace_missing`。
+验收标准：三校可见表格单元格无 raw trace 数 → 0；verifier 新增 `document_facts_visible_table_cell_trace_missing`。
 
-### T1-ISSUE-003：TOC / field / hyperlink 等嵌套 run 漏采
+### T1-ISSUE-003：嵌套 run 漏采
 
 严重级别：P0
 
-期望行为：
-- run 抽取要按 OOXML 文档顺序遍历段落内所有可见 `w:r`，不只看直接子节点。
-- `w:tab`、`w:br` 等可见控制字符继续保留。
-- TOC 条目的 `is_toc_entry=true` 不能成为丢 trace 的理由。
+期望行为：按 OOXML 文档顺序遍历段落内所有可见 `w:r`；保留 `w:tab` / `w:br`；记录 `container_refs`。
 
-验收标准：
-- 南农 24 个 TOC 条目和北大 17 个 TOC/图表目录条目都有 raw/logical run trace。
-- XML `direct_runs=0` 但 `nested_runs>0` 的可见段落不再丢 run。
-- 新增真实 DOCX 回归样例，覆盖 field/hyperlink/TOC 嵌套 run。
+验收标准：南农 24 条、北大 17 条 TOC 类条目均有 raw/logical trace；`direct 可见 run=0` 且 `nested run>0` 的段落不再丢 run。
 
 ### T1-ISSUE-004：页眉页脚缺 paragraph/run 明细
 
 严重级别：P1
 
-期望行为：
-- 页眉页脚 part 不只是 `text` 聚合项，也要有 paragraph/run 级事实。
-- PAGE 字段、页眉标题、页脚说明要能回链到具体 part/source_ref/run。
+期望行为：页眉页脚 part 有 paragraph/run 级事实；PAGE 字段可回链到 run。
 
-验收标准：
-- 南农 9 个、北大 10 个页眉页脚可见项都有 trace 或明确的 part paragraph 子结构。
-- T4 page numbering 能引用 T1 的具体 PAGE field/run evidence。
-- T1 verifier 新增 `document_facts_header_footer_trace_missing`。
-
-### T1-ISSUE-005：data 层可见对象没有进入主事实序列或建模关系
+### T1-ISSUE-005：data 层可见对象未建模
 
 严重级别：P1
 
-当前 data 层对象：
-- 南农本科：fields 3、text_boxes 1、images 2
-- 北大研究生：fields 139、content_controls 1、text_boxes 2、footnotes 1、images 15
+期望行为：可见对象进入 body_flow、带 `modeled_as` 旁路关系、或 `unknown_objects`。
 
-期望行为：
-- 可见对象要么进入 body_flow，要么有明确 `modeled_as` / `parent_ref` / `source_seq_ref` 关系。
-- 不应该出现 data 层知道有可见对象，但 T1 verifier 仍完全放行的状态。
-
-验收标准：
-- 每类可见对象有处理策略：主序列项、容器子项、旁路事实，或 `unknown_objects`。
-- T1 verifier 能区分“已建模但不进入 body_flow”和“可见但未建模”。
-
-### T1-ISSUE-006：T1 verifier 缺覆盖率门禁
+### T1-ISSUE-006：verifier 缺覆盖率门禁
 
 严重级别：P0
 
-期望行为：
-- T1 verifier 不只检查 schema 形状，还要检查事实覆盖。
-- 当前这类 trace 缺口应让 T1 进入 `UNKNOWN`，不能继续 `PASS`。
+建议新增 finding：`document_facts_paragraph_trace_mismatch`、`document_facts_visible_paragraph_trace_missing`、`document_facts_visible_table_cell_trace_missing`、`document_facts_header_footer_trace_missing`、`document_facts_nested_run_trace_missing`、`document_facts_visible_object_unmodeled`、`document_facts_semantic_field_in_t1`。
 
-建议新增 finding：
-- `document_facts_paragraph_trace_mismatch`
-- `document_facts_visible_paragraph_trace_missing`
-- `document_facts_visible_table_cell_trace_missing`
-- `document_facts_header_footer_trace_missing`
-- `document_facts_nested_run_trace_missing`
-- `document_facts_visible_object_unmodeled`
-
-验收标准：
-- 用当前旧输出跑 verifier，应能复现 T1 `UNKNOWN`。
-- 修复 T1 后，三校 verifier 才恢复 `PASS`。
-- 合同测试覆盖每个 finding 的正反例。
-
-### T1-ISSUE-007：`document_facts.structural_signals` 混入语义判断
+### T1-ISSUE-007：structural_signals 语义越权
 
 严重级别：P0
 
-当前问题：
-- T1 `document_facts.body_flow[].structural_signals` 输出 `is_toc_entry`、`is_spacing_line`、`looks_like_instruction_text`、`likely_unit_heading`、`large_font`、`short_text`。
-- 这些字段都不是源 DOCX 直接事实，而是用词表、正则、阈值或业务上下文组合出来的判断。
-- T1 代码直接 import T2 推断模块 `_structural_signals`，模块边界不干净。
+期望行为：T1 移除 `is_*` / `looks_like_*` / `likely_*` / 阈值标签；改输出 `text_facts` 原子字段；T2/T3 自行计算语义信号。
 
-期望行为：
-- T1 不再输出 `is_*`、`looks_like_*`、`likely_*` 语义字段，也不输出 `large_font`、`short_text` 这类阈值标签。
-- T1 输出更原子的 facts，例如 style name、tab/leader/trailing token、括号文本 token、字体/字号词 token、alignment/font/bold 等。
-- T2/T3 基于这些 facts 计算 `is_toc_entry`、`is_spacing_line`、`looks_like_instruction_text`、`likely_unit_heading` 等下游信号。
+验收标准：`01_document_facts.json` 不再含上述语义字段；`source_tree.py` 不再 import `_structural_signals`；T2 边界结果等价且只出现在 T2 artifacts。
 
-验收标准：
-- `01_document_facts.json` 中不再出现 `is_toc_entry`、`is_spacing_line`、`looks_like_instruction_text`、`likely_unit_heading`、`large_font`、`short_text`。
-- T1 代码不再从 `structure_candidates.py` import `_structural_signals`。
-- T2 单元边界检测仍能生成等价的 boundary veto 结果，但这些结果只出现在 T2 artifacts，例如 `template_structure_candidates.json`、`unit_map.yaml` 或 `t2_input.json`。
-- 新增 verifier 或单测：T1 输出中出现语义字段时失败或 UNKNOWN。
+---
 
-## 4. 建议修复顺序
+## 4. 优化方案总览
 
-1. 先统一 canonical paragraph id / source_ref。
+目标：把 T1 从“python-docx 浅读 + 两套坐标拼接”改为“**OOXML canonical extractor + 单一坐标系 + 统一 join**”。
 
-   把 OOXML paragraph index 作为 canonical id。python-docx visible index 可以保留为 `python_docx_index` 或 `visible_index`，但不能继续写进 `source_ref=word/document.xml:p[n]`。
+```text
+                    ┌─────────────────────────────────┐
+                    │  OoxmlPartExtractor (新模块)       │
+                    │  输入: docx zip 各 part xml      │
+                    │  输出: canonical paragraph/run   │
+                    └───────────────┬─────────────────┘
+                                    │
+              ┌─────────────────────┼─────────────────────┐
+              ▼                     ▼                     ▼
+      paragraphs[]            runs[]               containers[]
+      (OOXML index)      (深扫 w:r + tab/br)    (hyperlink/field/...)
+              │                     │
+              └──────────┬──────────┘
+                         ▼
+              body_flow[] + indexes
+              (同一 paragraph_id 坐标系)
+                         │
+                         ▼
+              text_facts{}（原子事实，替代 structural_signals）
+```
 
-2. 移除 T1 semantic signals，建立原子事实字段。
+设计原则：
+1. **单一坐标系**：OOXML paragraph index 为 canonical；`source_ref=word/{part}.xml:p[{n}]` 的 `n` 必须是 OOXML 序号。
+2. **单一 extractor**：正文、表格、页眉脚、文本框、脚注共用同一 run 遍历逻辑。
+3. **先事实、后语义**：T1 只产出 `text_facts`；`is_toc_entry` 等迁到 T2。
+4. **先红后绿**：verifier 覆盖率门禁先于功能修复合入，避免 false PASS。
 
-   先把 `is_toc_entry`、`is_spacing_line`、`looks_like_instruction_text`、`likely_unit_heading`、`large_font`、`short_text` 从 T1 输出移除，替换成 T2/T3 可消费的原子事实。这样后续 trace 修复时不会继续扩大越权字段。
+### 4.1 已拍板的设计决策（原 §5 讨论项）
 
-3. 改 run extractor。
+#### D1：表格单元格在 body_flow 中怎么表达？→ **选 C**
 
-   从 OOXML part 构建 paragraph/run records，按段落内文档顺序取 nested `w:r`，保留 `w:tab` / `w:br` 等可见控制字符。这个 extractor 应覆盖正文、表格、页眉页脚、文本框、脚注等 part。
+- 保留 `table_cell` 聚合节点（服务 T2 整表语义）。
+- 新增 `cell_paragraph_refs[]` / `cell_run_refs[]` 指向单元格内 canonical paragraph/run（服务 T3/T6）。
+- 单元格内段落**不**单独占用正文 `source_seq`，避免打乱阅读顺序；通过 `container_ref` 与 `parent_table_cell_id` 关联。
 
-4. 重建 body_flow 和 run index 的 join。
+#### D2：页眉页脚是否进入 body_flow？→ **选 C**
 
-   `body_flow` 不再通过 visible index 反查 run，而是直接引用 canonical paragraph/run ids。表格单元格需要决定是“聚合节点 + 子 paragraph refs”，还是“单元格内段落也进入 body_flow”。
+- 保留 body_flow 中的页眉脚聚合项（便于 T2 看到存在性）。
+- 新增 `part_flows[]`（或 `data.header_footer_paragraphs[]`）按 part 输出 paragraph/run 明细。
+- T4/T6 按 `part_name` + `source_ref` 消费，不与正文 `source_seq` 混排。
 
-5. 给页眉页脚和 data 层对象补建模关系。
+#### D3：图片、文本框、脚注的 verifier 严格度？→ **选 B**
 
-   页眉页脚至少要有 part paragraph/run facts。图片、文本框、脚注、content control 要有明确进入主序列或旁路事实的规则。
+- 允许旁路建模：`modeled_as: "image" | "text_box" | "footnote" | "field"` + `parent_ref` / `source_seq_ref`。
+- 可见但未建模 → `unknown_objects` 或 verifier `document_facts_visible_object_unmodeled`。
+- 不强制所有对象进入正文 `source_seq`。
 
-6. 最后加 verifier 覆盖率门禁。
+---
 
-   先让旧输出红起来，再修到绿。否则 T1 仍会继续 false PASS。
+## 5. 优化方案详细设计
 
-## 5. 需要讨论的设计决策
+### 5.1 Phase 0：verifier 覆盖率门禁（T1-ISSUE-006）
 
-### D1：表格单元格在 body_flow 中怎么表达？
+**目的**：让当前三校输出先变红，防止“修一半仍 PASS”。
 
-选项：
-- A：保留 `table_cell` 聚合节点，新增 `cell_paragraph_refs` / `cell_run_refs`。
-- B：把单元格内每个段落都作为 body_flow 项，`table_cell` 只作为 container。
-- C：两者都保留，聚合节点服务 T2，子段落服务 T3/T6。
+**改动文件**：`src/docfit/template_generation/verifier.py`、新增 `tests/unit/test_t1_fact_coverage_verifier.py`
 
-建议先讨论 C。表格整体语义对 T2 很重要，但 T6 施工需要段落/run 级 trace。
+**新增检查**（对 `body_flow[]` 每项）：
 
-### D2：页眉页脚是否进入 body_flow？
+| Finding code | 条件 | 严重度 |
+| --- | --- | --- |
+| `document_facts_paragraph_trace_mismatch` | `paragraph_id` 前缀 ≠ `raw_run_ids[0]` 前缀（若有 raw） | UNKNOWN |
+| `document_facts_visible_paragraph_trace_missing` | `kind=paragraph` 且 `visible=true` 且 `text` 非空且 `raw_run_ids=[]` | UNKNOWN |
+| `document_facts_visible_table_cell_trace_missing` | `kind=table_cell` 且 `visible=true` 且无任何 cell trace | UNKNOWN |
+| `document_facts_header_footer_trace_missing` | 页眉脚 body_flow 项无 part-local trace | UNKNOWN |
+| `document_facts_semantic_field_in_t1` | body_flow 出现 `is_*` / `looks_like_*` / `likely_*` | FAIL |
+| `document_facts_source_ref_text_mismatch` | 回源 DOCX 校验 `source_ref` 段落文本与 `body_flow.text` 不一致 | UNKNOWN |
 
-选项：
-- A：进入 body_flow，和正文统一排序。
-- B：留在 `data.headers_footers`，但必须有 paragraph/run facts 和 source refs。
-- C：T1 同时输出 part-local flow，T4/T6 按 part 消费。
+**验收**：对 `t1_document_facts_20260625_current` 三校输出跑 verifier → T1 状态为 `UNKNOWN`（非 PASS）。
 
-建议先讨论 C。页眉页脚不是正文顺序的一部分，但需要强 trace。
+### 5.2 Phase 1：统一 canonical 坐标（T1-ISSUE-001）
 
-### D3：T1 verifier 对图片、文本框、脚注的严格度
+**改动文件**：`inspector.py` `_paragraphs()`、`source_tree.py` `_stable_ids_for_entry()`、`_raw_run_ids_for_entry()`
 
-选项：
-- A：所有可见对象未进入 body_flow 就 `UNKNOWN`。
-- B：允许旁路建模，但必须有 `modeled_as` 和引用关系。
-- C：只对影响模板生成的对象强制，其他先 review。
+**规则**：
 
-建议先讨论 B。它能避免把图片、脚注这类对象硬塞进正文流，同时不再让它们静默丢失。
+```python
+# 修复前
+source_ref = f"word/document.xml:p[{index}]"           # python-docx index
+paragraph_id = f"p_{index:04d}"                        # 从 source_ref 解析
 
-## 6. 非目标
+# 修复后
+canonical_index = xml_index                            # OOXML index
+source_ref = f"word/document.xml:p[{canonical_index}]"
+paragraph_id = f"p_{canonical_index:04d}"
+python_docx_index = index                              # 辅助字段，仅供 debug
+```
 
-这些不是本 issue 的直接目标：
-- T2 unit 边界识别是否准确。
-- T3 把一个段落拆成固定文本、说明文本、填空槽的语义切分。
-- T4 页码规则的最终 high confidence 判定。
-- 样式级联的 gold 级精确验证。
+**join 修复**：`_raw_run_ids_for_entry()` 对 `kind=paragraph` 改用 `paragraph_id` 查 `runs_by_paragraph_id`，不再用错误的 `source_ref` 键（当前 visible index）。
 
-但这些阶段都会依赖 T1 trace。T1 不先修稳，后续阶段的问题会被错误 source_ref 和缺 trace 放大。
+**验收**：
+- 南农 `source_seq=9`：`source_ref=p[46]`，`paragraph_id=p_0046`，`raw_run_ids` 前缀 `p_0046`。
+- 南农 `source_seq=2`：`source_ref` 指向声明标题真实 OOXML 段落，与 `p_0024` 一致或合并为同一 id。
 
-## 7. 验证建议
+### 5.3 Phase 2：OOXML 深扫 run extractor（T1-ISSUE-003）
 
-最小验证：
+**新模块建议**：`src/docfit/template_gap/ooxml_runs.py`（或扩展现有 `inspector.py` 内聚函数）
+
+**核心算法**：
+
+```python
+def iter_paragraph_runs(paragraph_el, *, part_name, paragraph_index):
+    """按文档顺序深度遍历段落内所有 w:r，跳过 w:del 等不可见节点。"""
+    run_index = 0
+    for event, node in walk_paragraph_content(paragraph_el):
+        if node.tag == W_R:
+            run_index += 1
+            yield RunRecord(
+                source_ref=f"{part_name}:p[{paragraph_index}]/r[{run_index}]",
+                container_ref=current_container_ref,  # hyperlink[1] 等
+                text=visible_text_with_tab_br(node),
+                ...
+            )
+```
+
+**要点**：
+- 遍历范围：`paragraph.iter()` 中所有 `w:r`，而非 `paragraph.findall(w:r)`。
+- 空占位 run：若含 `w:tab` / `w:br` / `w:sym`，仍产出 run，`text` 可为 `"\t"` / `"\n"` / `""`。
+- 容器路径：`source_ref` 扩展为 `p[49]/hyperlink[1]/r[3]`；`runs[].container_refs[]` 记录容器链。
+- 与 logical run 合并：仍在 `source_tree._runs_from_inspection()` 按 `effective_style` 相邻合并；`merged_from` 覆盖全部 raw id。
+
+**南农 `source_seq=10` 修复后期望**：
+
+```json
+{
+  "source_seq": 10,
+  "source_ref": "word/document.xml:p[49]",
+  "paragraph_id": "p_0049",
+  "text": "摘  要\tⅠ",
+  "style": "toc 1",
+  "raw_run_ids": ["p_0049.r_001", "p_0049.r_002", "p_0049.r_003", "p_0049.r_004", "p_0049.r_005"],
+  "logical_run_ids": ["p_0049.lr_001"],
+  "text_facts": {
+    "style_name": "toc 1",
+    "style_id": "10",
+    "has_tab": true,
+    "trailing_page_token": "Ⅰ"
+  }
+}
+```
+
+`runs[]` 中 `p_0049.lr_001` 的 `merged_from` 含 hyperlink 内 5 个 raw run；`container_refs` 含 `word/document.xml:p[49]/hyperlink[1]`。
+
+### 5.4 Phase 3：表格与页眉脚 part 覆盖（T1-ISSUE-002、004）
+
+**表格**：
+
+1. `OoxmlPartExtractor` 遍历 `w:tbl` → `w:tr` → `w:tc` → 内嵌 `w:p`。
+2. 每个单元格段落进入 `cell_paragraphs[]`，带 `table_id` / `cell_id` / `cell_paragraph_index`。
+3. `body_flow` 聚合项增加：
+
+```json
+{
+  "kind": "table_cell",
+  "source_ref": "word/document.xml:tbl[1]/tr[1]/tc[1]",
+  "cell_paragraph_refs": ["word/document.xml:tbl[1]/tr[1]/tc[1]/p[1]", "..."],
+  "cell_run_refs": ["p_????.r_001", "..."],
+  "raw_run_ids": ["..."],
+  "logical_run_ids": ["..."]
+}
+```
+
+**页眉脚**：
+
+1. 对 `word/header*.xml`、`word/footer*.xml` 运行同一 extractor。
+2. 输出 `part_flows[]`：
+
+```json
+{
+  "part_name": "word/footer2.xml",
+  "paragraphs": [...],
+  "runs": [...],
+  "fields": [...]
+}
+```
+
+3. body_flow 页眉脚项通过 `part_flow_ref` 指向 `part_flows[]` 子树。
+
+### 5.5 Phase 4：T1 原子事实字段 + 移除 semantic signals（T1-ISSUE-007）
+
+**从 body_flow 移除**：`structural_signals` 整块（或 Phase 过渡期内保留但 verifier 报 `document_facts_semantic_field_in_t1`）。
+
+**新增 `text_facts`**（每段 body_flow 项，均可从 DOCX 直接观测）：
+
+```json
+{
+  "text_facts": {
+    "raw_text": "摘  要\tⅠ",
+    "normalized_text": "摘  要\tⅠ",
+    "char_count": 6,
+    "has_tab": true,
+    "has_line_break": false,
+    "parenthesized_segments": [],
+    "trailing_token": "Ⅰ",
+    "leader_char_run": null,
+    "style_id": "10",
+    "style_name": "toc 1",
+    "alignment": "left",
+    "dominant_font_size_pt": 12.0,
+    "dominant_bold": false
+  }
+}
+```
+
+**T2 迁移**：把 `structure_candidates._is_toc_entry()` / `_is_spacing_line()` 改为消费 `text_facts`，输出到 `template_structure_candidates.json` 或 `unit_map` 的 `boundary_signals`，不再写回 T1。
+
+**T3 迁移**：`looks_like_instruction_text` 改读 `text_facts.parenthesized_segments` 等。
+
+**兼容策略（一个版本周期）**：
+- `artifact_version` 升至 `1.1`。
+- T2 优先读 `text_facts`；若缺失则 fallback 旧 `structural_signals`（仅用于过渡）。
+- 合同测试锁定：新输出不得含 semantic 字段。
+
+### 5.6 Phase 5：data 层可见对象建模（T1-ISSUE-005）
+
+| 对象类型 | 策略 | 产物字段 |
+| --- | --- | --- |
+| PAGE/TOC field | 已有 `data.fields[]` | 增加 `paragraph_ref` / `run_ref` / `container_ref` |
+| image | 旁路 | `modeled_as: image`，`parent_paragraph_ref` |
+| text_box | 旁路 + part_flow | `part_flows[].text_boxes[]` |
+| footnote | 旁路 | `part_flows[].footnotes[]` 或 `unknown_objects` |
+| content_control | 容器 | `container_refs` + 内嵌 paragraph/run |
+
+未覆盖类型进入 `unknown_objects`，T1 verifier 非 PASS。
+
+---
+
+## 6. 分阶段实施计划
+
+| 阶段 | 内容 | 主要 issue | 预估改动面 | 退出标准 |
+| --- | --- | --- | --- | --- |
+| **P0** | verifier 覆盖率门禁 | 006 | verifier + 单测 | 三校旧输出 T1=UNKNOWN |
+| **P1** | canonical 坐标统一 | 001 | inspector + source_tree | `source_ref` 文本不匹配=0；id 前缀一致 |
+| **P2** | 深扫 nested run | 003 | 新 ooxml_runs + source_tree | 南农 24 TOC 条目有 trace |
+| **P3** | 表格 cell trace | 002 | inspector tables + source_tree | 三校表格 cell 无 trace=0 |
+| **P4** | 页眉脚 part_flow | 004 | inspector headers/footers | 南农/北大页眉脚有 trace |
+| **P5** | 移除 semantic + text_facts | 007 | source_tree + structure_candidates | T1 无 `is_*`；T2 等价 |
+| **P6** | data 对象建模 | 005 | inspector + schema | 可见对象均有 modeled_as 或 unknown |
+
+建议同一 PR 系列按 P0→P1→P2 顺序合入；P3/P4 可并行；P5 在 P2 后（避免在脏 trace 上叠新字段）；P6 可最后。
+
+```text
+P0 verifier ──→ P1 坐标 ──→ P2 深扫 run ──→ P5 text_facts
+                              ├──→ P3 表格
+                              └──→ P4 页眉脚
+                                        └──→ P6 data 对象
+```
+
+---
+
+## 7. 目标 schema 片段（artifact_version 1.1）
+
+```json
+{
+  "artifact_type": "document_facts",
+  "artifact_version": "1.1",
+  "body_flow": [
+    {
+      "source_seq": 10,
+      "node_id": "body_0010",
+      "kind": "paragraph",
+      "source_ref": "word/document.xml:p[49]",
+      "paragraph_id": "p_0049",
+      "python_docx_index": 28,
+      "text": "摘  要\tⅠ",
+      "style": "toc 1",
+      "raw_run_ids": ["p_0049.r_001", "p_0049.r_002", "p_0049.r_003", "p_0049.r_004", "p_0049.r_005"],
+      "logical_run_ids": ["p_0049.lr_001"],
+      "text_facts": {
+        "style_name": "toc 1",
+        "style_id": "10",
+        "has_tab": true,
+        "trailing_page_token": "Ⅰ"
+      }
+    }
+  ],
+  "runs": [
+    {
+      "logical_run_id": "p_0049.lr_001",
+      "paragraph_id": "p_0049",
+      "text": "摘  要\tⅠ",
+      "merged_from": ["p_0049.r_001", "p_0049.r_002", "p_0049.r_003", "p_0049.r_004", "p_0049.r_005"],
+      "source_refs": [
+        "word/document.xml:p[49]/hyperlink[1]/r[1]",
+        "word/document.xml:p[49]/hyperlink[1]/r[2]",
+        "word/document.xml:p[49]/hyperlink[1]/r[3]",
+        "word/document.xml:p[49]/hyperlink[1]/r[4]",
+        "word/document.xml:p[49]/hyperlink[1]/r[5]"
+      ],
+      "container_refs": ["word/document.xml:p[49]/hyperlink[1]"]
+    }
+  ],
+  "part_flows": [],
+  "indexes": {
+    "runs_by_paragraph_id": { "p_0049": ["p_0049.r_001", "..."] },
+    "runs_by_source_ref": { "word/document.xml:p[49]": ["p_0049.r_001", "..."] }
+  }
+}
+```
+
+---
+
+## 8. 非目标
+
+- T2 unit 边界识别准确率调优（本 issue 只保证 T2 输入事实完整）。
+- T3 段内语义切分规则。
+- T4 页码规则最终 high confidence 判定。
+- 样式级联 gold 级精确验证（另开 issue）。
+
+---
+
+## 9. 验证建议
+
+### 9.1 单元与合同测试
 
 ```bash
 uv run pytest tests/unit/test_t1_structural_facts.py -q
+uv run pytest tests/unit/test_t1_fact_coverage_verifier.py -q   # Phase 0 新增
 uv run pytest tests/contract -q
 uv run pytest -q
 ```
 
-三校输出验证：
+### 9.2 三校输出验证
 
 ```bash
-uv run docfit eval template-generate --template inputs/targets/hunannongye/raw/source_template.docx --out test_outputs/debug/template_generation/t1_fact_coverage_fix/hunannongye
-uv run docfit eval template-generate --template inputs/targets/nannong-undergraduate/raw/source_template.docx --out test_outputs/debug/template_generation/t1_fact_coverage_fix/nannong-undergraduate
-uv run docfit eval template-generate --template inputs/targets/pku-graduate/raw/source_template.docx --out test_outputs/debug/template_generation/t1_fact_coverage_fix/pku-graduate
+uv run docfit eval template-generate \
+  --template inputs/targets/hunannongye/raw/source_template.docx \
+  --out test_outputs/debug/template_generation/t1_fact_coverage_fix/hunannongye
+uv run docfit eval template-generate \
+  --template inputs/targets/nannong-undergraduate/raw/source_template.docx \
+  --out test_outputs/debug/template_generation/t1_fact_coverage_fix/nannong-undergraduate
+uv run docfit eval template-generate \
+  --template inputs/targets/pku-graduate/raw/source_template.docx \
+  --out test_outputs/debug/template_generation/t1_fact_coverage_fix/pku-graduate
 ```
 
-新增审计断言建议：
-- T1 输出不包含 `is_*`、`looks_like_*`、`likely_*` 语义字段，也不包含 `large_font`、`short_text` 这类阈值字段。
-- `source_ref` 指向 XML 文本不匹配数为 0。
-- 有 raw trace 的段落项，raw id 前缀和 `paragraph_id` 一致。
-- 可见表格单元格都有 run trace 或子 paragraph/run trace。
-- TOC 条目都有 raw/logical run trace。
-- 页眉页脚可见项都有 part-local trace。
-- data 层可见对象都有建模关系或进入 `unknown_objects`。
+### 9.3 审计断言（修复后必须满足）
+
+| 断言 | 湖南农大 | 南农本科 | 北大研究生 |
+| --- | ---: | ---: | ---: |
+| `source_ref` 文本不匹配 | 0 | 0 | 0 |
+| 段落 id 与 raw 前缀不一致 | 0 | 0 | 0 |
+| 可见段落 `raw_run_ids` 为空 | 0 | 0 | 0 |
+| 可见表格 cell 无 trace | 0 | 0 | 0 |
+| TOC 类条目无 trace | 0 | 0 | 0 |
+| T1 含 `is_*` / `likely_*` 字段 | 0 | 0 | 0 |
+| T1 verifier | PASS | PASS | PASS |
+
+### 9.4 回归样例（建议新增 fixtures）
+
+| 样例 | 覆盖 issue | 说明 |
+| --- | --- | --- |
+| `nested_toc_hyperlink.docx` | 003 | hyperlink 内 5 run + tab |
+| `table_cover_cell.docx` | 002 | 单元格多段落 + run trace |
+| `header_page_field.docx` | 004 | footer PAGE field + run ref |
+| `coordinate_mixed.docx` | 001 | 表格前有空段，visible index ≠ xml index |
+
+---
+
+## 10. 相关文档
+
+- `docs/plans/template-parse-refactor-t1-document-facts.md` — T1 职责与上轮 run 归一化修复
+- `docs/plans/template-parse-refactor-t2-unit-map.md` — T2 边界检测（`is_toc_entry` 归属）
+- `docs/plans/template-parse-refactor-schema.md` — artifact 字段契约
+- `docs/plans/template-parse-refactor-execution.md` — 总执行顺序
