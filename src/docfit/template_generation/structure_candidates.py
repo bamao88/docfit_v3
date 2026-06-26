@@ -581,14 +581,28 @@ def _is_exact_unit_heading_text(text: str, unit_id: str) -> bool:
         return False
     exact_by_unit = {
         "toc": {"目录", "目錄"},
+        "figure_list": {"图目录", "listoffigures"},
+        "table_list": {"表目录", "listoftables"},
+        "body_title_block": {"正文题名信息"},
         "abstract_cn": {"摘要", "摘要关键词", "摘要关键字"},
         "abstract_en": {"abstract", "keywords", "keywordsabstract", "abstractkeywords"},
         "body_main": {"正文", "绪论", "前言", "第一章"},
         "references": {"参考文献", "references"},
+        "academic_achievements": {"相关的学术成果目录", "学术成果目录", "博士期间工作成果"},
         "acknowledgement": {"致谢", "acknowledgement"},
         "appendix": {"附录", "appendix"},
-        "integrity_statement": {"诚信声明", "原创性声明", "授权书"},
-        "post_forms": {"任务书", "开题报告", "评审表", "答辩记录", "成绩评定"},
+        "copyright_notice": {"版权声明"},
+        "originality_authorization_statement": {"原创性声明和使用授权说明", "北京大学学位论文原创性声明和使用授权说明"},
+        "originality_statement": {"原创性声明", "南京农业大学本科生毕业论文设计原创性声明"},
+        "authorization_statement": {"使用授权声明", "使用授权说明", "南京农业大学本科生毕业论文设计使用授权声明"},
+        "integrity_statement": {"诚信声明"},
+        "design_task": {"毕业设计任务书", "毕业论文任务书", "任务书"},
+        "proposal": {"开题报告"},
+        "proposal_record": {"开题论证记录表"},
+        "defense_record": {"答辩记录表"},
+        "topic_change_approval": {"课题变更审批表", "选题变更审批表"},
+        "grade_form": {"成绩评定表"},
+        "post_forms": {"评审表"},
     }
     allowed = exact_by_unit.get(unit_id, set())
     if normalized in allowed:
@@ -617,10 +631,19 @@ def _dedupe_boundary_anchors(boundaries: list[dict[str, Any]]) -> list[dict[str,
 _CORE_ALIAS_EXACT = {
     "目录": "toc",
     "目錄": "toc",
-    "图目录": "toc",
-    "表目录": "toc",
+    "图目录": "figure_list",
+    "圖目錄": "figure_list",
+    "插图目录": "figure_list",
+    "listoffigures": "figure_list",
+    "tableoffigures": "figure_list",
+    "表目录": "table_list",
+    "表目錄": "table_list",
+    "附表目录": "table_list",
+    "listoftables": "table_list",
+    "tableoftables": "table_list",
     "contents": "toc",
     "tableofcontents": "toc",
+    "正文题名信息": "body_title_block",
     "摘要": "abstract_cn",
     "中文摘要": "abstract_cn",
     "摘要关键词": "abstract_cn",
@@ -632,17 +655,34 @@ _CORE_ALIAS_EXACT = {
     "参考文献": "references",
     "references": "references",
     "reference": "references",
+    "相关的学术成果目录": "academic_achievements",
+    "学术成果目录": "academic_achievements",
+    "博士期间工作成果": "academic_achievements",
     "致谢": "acknowledgement",
     "acknowledgement": "acknowledgement",
     "acknowledgements": "acknowledgement",
     "附录": "appendix",
     "appendix": "appendix",
     "appendices": "appendix",
+    "版权声明": "copyright_notice",
+    "原创性声明和使用授权说明": "originality_authorization_statement",
+    "北京大学学位论文原创性声明和使用授权说明": "originality_authorization_statement",
+    "原创性声明": "originality_statement",
+    "学位论文原创性声明": "originality_statement",
+    "南京农业大学本科生毕业论文设计原创性声明": "originality_statement",
+    "使用授权声明": "authorization_statement",
+    "使用授权说明": "authorization_statement",
+    "南京农业大学本科生毕业论文设计使用授权声明": "authorization_statement",
     "诚信声明": "integrity_statement",
-    "原创性声明": "integrity_statement",
-    "学位论文原创性声明": "integrity_statement",
-    "版权声明": "integrity_statement",
-    "授权书": "integrity_statement",
+    "诚 信 声 明": "integrity_statement",
+    "毕业设计任务书": "design_task",
+    "毕业论文任务书": "design_task",
+    "开题报告": "proposal",
+    "开题论证记录表": "proposal_record",
+    "答辩记录表": "defense_record",
+    "课题变更审批表": "topic_change_approval",
+    "选题变更审批表": "topic_change_approval",
+    "成绩评定表": "grade_form",
 }
 
 
@@ -662,6 +702,8 @@ def _alias_unit_id(normalized: str) -> str | None:
         return None
     if normalized in _CORE_ALIAS_EXACT:
         return _CORE_ALIAS_EXACT[normalized]
+    if "博士期间工作成果" in normalized or "学术成果" in normalized:
+        return "academic_achievements"
     if normalized.startswith(("附录", "appendix")):
         return "appendix"
     if normalized.startswith(("参考文献", "references")):
@@ -1685,10 +1727,24 @@ def _unit_for_text(text: str, index: int) -> tuple[str | None, str | None]:
 
 
 def _unit_policy(unit_id: str) -> str:
-    if unit_id in {"body_main", "abstract_cn", "abstract_en"}:
+    if unit_id in {"body_main", "abstract_cn", "abstract_en", "references", "appendix", "acknowledgement"}:
         return "fill"
-    if unit_id in {"toc"}:
+    if unit_id in {"toc", "figure_list", "table_list"}:
         return "generated"
+    if unit_id in {
+        "integrity_statement",
+        "copyright_notice",
+        "originality_statement",
+        "authorization_statement",
+        "originality_authorization_statement",
+        "design_task",
+        "proposal",
+        "proposal_record",
+        "defense_record",
+        "topic_change_approval",
+        "grade_form",
+    }:
+        return "manual_only"
     return "fixed"
 
 
@@ -1696,7 +1752,7 @@ def _element_policy(unit_id: str, text: str, entry: dict[str, Any]) -> str:
     lowered = text.lower()
     if _looks_like_instruction(text):
         return "remove_instruction"
-    if unit_id == "toc" or any(marker.lower() in lowered for marker in GENERATED_MARKERS):
+    if unit_id in {"toc", "figure_list", "table_list"} or any(marker.lower() in lowered for marker in GENERATED_MARKERS):
         return "generated"
     if any(marker in text for marker in MANUAL_ONLY_MARKERS):
         return "manual_only"
@@ -1830,19 +1886,21 @@ def _is_toc_entry(entry: dict[str, Any]) -> bool:
 #     `other`, orphaning its entries (pku).
 # Detecting a block and *locking* its entries removes all three.
 
-_TOC_TITLE_NORMALIZED = {
-    "目录",
-    "目錄",
-    "图目录",
-    "表目录",
-    "插图目录",
-    "附表目录",
-    "contents",
-    "tableofcontents",
-    "tableoffigures",
-    "tableoftables",
-    "listoffigures",
-    "listoftables",
+_LIST_TITLE_UNIT_BY_NORMALIZED = {
+    "目录": "toc",
+    "目錄": "toc",
+    "contents": "toc",
+    "tableofcontents": "toc",
+    "图目录": "figure_list",
+    "圖目錄": "figure_list",
+    "插图目录": "figure_list",
+    "tableoffigures": "figure_list",
+    "listoffigures": "figure_list",
+    "表目录": "table_list",
+    "表目錄": "table_list",
+    "附表目录": "table_list",
+    "tableoftables": "table_list",
+    "listoftables": "table_list",
 }
 
 # Largest run of non-entry interstitial lines tolerated inside a TOC block once
@@ -1861,7 +1919,7 @@ def _toc_title_like(entry: dict[str, Any]) -> bool:
     normalized = _normalize_for_match(entry.get("text"))
     if not normalized:
         return False
-    if normalized in _TOC_TITLE_NORMALIZED:
+    if normalized in _LIST_TITLE_UNIT_BY_NORMALIZED:
         return True
     style_name = _entry_style_name(entry).lower()
     if "目录" in style_name or "table of contents" in style_name:
@@ -1869,6 +1927,13 @@ def _toc_title_like(entry: dict[str, Any]) -> bool:
     if len(normalized) <= 8 and ("目录" in normalized or "目錄" in normalized):
         return True
     return False
+
+
+def _list_title_unit_id(entry: dict[str, Any]) -> str:
+    normalized = _normalize_for_match(entry.get("text"))
+    if normalized in _LIST_TITLE_UNIT_BY_NORMALIZED:
+        return _LIST_TITLE_UNIT_BY_NORMALIZED[normalized]
+    return "toc"
 
 
 def _looks_like_variant_marker(entry: dict[str, Any]) -> bool:
@@ -1962,6 +2027,12 @@ def _extend_toc_block(entries: list[dict[str, Any]], start_index: int) -> int | 
     gap = 0
     for index in range(start_index, len(entries)):
         entry = entries[index]
+        if (
+            index > start_index
+            and last_entry_index is not None
+            and _toc_title_like(entry)
+        ):
+            break
         if _toc_entry_like(entry):
             last_entry_index = index
             gap = 0
@@ -2044,6 +2115,7 @@ def _segment_toc_blocks(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
             {
                 "start": start,
                 "end": end,
+                "unit_id": _list_title_unit_id(entries[start]) if title_led else "toc",
                 "title_led": title_led,
                 "weak": weak,
                 "entries_count": entries_count,
@@ -2068,14 +2140,16 @@ def _toc_block_anchor(
     else:
         confidence = "medium"
     flags: list[dict[str, Any]] = []
+    unit_id = str(block.get("unit_id") or "toc")
+    unit_name = UNIT_DEFINITION_NAMES.get(unit_id, UNIT_DEFINITION_NAMES["toc"])
     if block["weak"]:
         flags.append(
             {
-                "flag_id": f"toc.{entry.get('source_seq')}.weak_block",
+                "flag_id": f"{unit_id}.{entry.get('source_seq')}.weak_block",
                 "type": "toc_block_weak",
                 "status": "UNKNOWN",
                 "source_ref": entry.get("source_ref"),
-                "affected_ids": ["toc"],
+                "affected_ids": [unit_id],
                 "reason": "TOC block formed from a run of toc entries without a confident title",
             }
         )
@@ -2094,19 +2168,21 @@ def _toc_block_anchor(
                 "end_source_seq": entries[end].get("source_seq"),
                 "entries_count": block["entries_count"],
                 "title_led": block["title_led"],
+                "unit_id": unit_id,
             }
         ],
         "vetoes": [],
-        "unit_id_hint": "toc",
-        "name_hint": UNIT_DEFINITION_NAMES["toc"],
+        "unit_id_hint": unit_id,
+        "name_hint": unit_name,
         "is_boundary": True,
         "confidence": confidence,
-        "locked_by_block": "toc",
+        "locked_by_block": unit_id,
         "block_range": {
             "start_index": start,
             "end_index": end,
             "start_source_seq": entries[start].get("source_seq"),
             "end_source_seq": entries[end].get("source_seq"),
+            "unit_id": unit_id,
         },
         "fallback_reason": "toc_block",
         "flags": flags,
@@ -2133,8 +2209,8 @@ def _entry_style_name(entry: dict[str, Any]) -> str:
 
 
 def _is_toc_title(text: str) -> bool:
-    normalized = _normalize_text(text)
-    return normalized in {"目录", "目錄"}
+    normalized = _normalize_for_match(text)
+    return normalized in _LIST_TITLE_UNIT_BY_NORMALIZED
 
 
 def _is_spacing_line(text: str) -> bool:

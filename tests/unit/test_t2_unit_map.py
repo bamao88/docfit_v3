@@ -230,6 +230,32 @@ def test_t2_toc_block_range_stops_at_last_toc_entry() -> None:
     assert 6 not in (toc.get("source_seq_refs") or [])
 
 
+def test_t2_splits_figure_and_table_lists_from_main_toc() -> None:
+    candidates = build_template_structure_candidates(
+        _source_tree(
+            [
+                _entry(1, "封面"),
+                _entry(2, "目录", style="Heading 1", alignment="center"),
+                _entry(3, "摘要…………………1", style="toc 1"),
+                _entry(4, "正文…………………2", style="toc 1"),
+                _entry(5, "图目录", style="Heading 1", alignment="center"),
+                _entry(6, "图1 研究框架…………3", style="toc 1"),
+                _entry(7, "表目录", style="Heading 1", alignment="center"),
+                _entry(8, "表1 数据说明…………4", style="toc 1"),
+                _entry(9, "正文", style="Heading 1"),
+            ]
+        )
+    )
+
+    units = _units_by_id(candidates)
+
+    assert units["toc"]["source_seq_refs"] == [2, 3, 4]
+    assert units["figure_list"]["source_seq_refs"] == [5, 6]
+    assert units["table_list"]["source_seq_refs"] == [7, 8]
+    assert _unit_at_seq(candidates, 6)["unit_id"] == "figure_list"
+    assert _unit_at_seq(candidates, 8)["unit_id"] == "table_list"
+
+
 def test_t2_subheading_alone_is_not_top_level_unit() -> None:
     candidates = build_template_structure_candidates(
         _source_tree(
@@ -331,7 +357,7 @@ def test_t2_derives_toc_entry_like_from_atomic_facts() -> None:
 
 
 def _toc_coverage_for_real_template(school: str) -> tuple[int, int]:
-    """Return (toc_entries_in_toc, toc_entries_leaked_to_other_units)."""
+    """Return (toc_entries_in_catalog_units, toc_entries_leaked_to_other_units)."""
     import pathlib
 
     import pytest
@@ -358,9 +384,12 @@ def _toc_coverage_for_real_template(school: str) -> tuple[int, int]:
         and entry.get("source_seq") is not None
         and _toc_entry_like(entry)
     ]
-    in_toc = sum(1 for seq in toc_seqs if seq_to_unit.get(seq) == "toc")
-    leaked = sum(1 for seq in toc_seqs if seq_to_unit.get(seq) not in (None, "toc"))
-    return in_toc, leaked
+    catalog_units = {"toc", "figure_list", "table_list"}
+    in_catalog = sum(1 for seq in toc_seqs if seq_to_unit.get(seq) in catalog_units)
+    leaked = sum(
+        1 for seq in toc_seqs if seq_to_unit.get(seq) not in (None, *catalog_units)
+    )
+    return in_catalog, leaked
 
 
 def test_t2_hunan_toc_20_of_20_without_ai() -> None:

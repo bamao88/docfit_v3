@@ -39,6 +39,7 @@ SCHOOLS = {
     "nannong-undergraduate": 25,
     "pku-graduate": 17,
 }
+CATALOG_UNIT_IDS = {"toc", "figure_list", "table_list"}
 
 
 def _body_entries(source_tree: dict) -> list[dict]:
@@ -75,8 +76,12 @@ def metrics_for(school: str) -> dict:
         for e in entries
         if e.get("source_seq") is not None and _is_toc_entry(e)
     ]
-    in_toc = sum(1 for s in toc_entry_seqs if seq_to_unit.get(s) == "toc")
-    leak = sum(1 for s in toc_entry_seqs if seq_to_unit.get(s) not in (None, "toc"))
+    in_catalog = sum(1 for s in toc_entry_seqs if seq_to_unit.get(s) in CATALOG_UNIT_IDS)
+    leak = sum(
+        1
+        for s in toc_entry_seqs
+        if seq_to_unit.get(s) not in (None, *CATALOG_UNIT_IDS)
+    )
 
     unit_ids = [u.get("unit_id") for u in units]
     metrics = {
@@ -85,7 +90,7 @@ def metrics_for(school: str) -> dict:
         "other": sum(1 for u in unit_ids if u == "other"),
         "custom": sum(1 for u in unit_ids if str(u).startswith("custom:")),
         "toc_entries_total": len(toc_entry_seqs),
-        "toc_entries_in_toc": in_toc,
+        "toc_entries_in_catalog": in_catalog,
         "toc_leak_nontoc": leak,
         "has_toc_unit": "toc" in unit_ids,
         "open_questions": len(candidates.get("open_questions", []) or []),
@@ -112,14 +117,14 @@ def main() -> None:
 def _print_toc_metrics() -> None:
     header = (
         f"{'school':<24} {'units':>5} {'other':>5} {'custom':>6} "
-        f"{'toc_in/exp':>12} {'leak':>5} {'toc?':>5} {'oq':>4} gate"
+        f"{'cat_in/exp':>12} {'leak':>5} {'toc?':>5} {'oq':>4} gate"
     )
     print(header)
     print("-" * len(header))
     for school, expected in SCHOOLS.items():
         m = metrics_for(school)
-        toc_col = f"{m['toc_entries_in_toc']}/{expected}"
-        toc_ok = m["toc_entries_in_toc"] >= expected
+        toc_col = f"{m['toc_entries_in_catalog']}/{expected}"
+        toc_ok = m["toc_entries_in_catalog"] >= expected
         gate = "PASS" if (toc_ok and m["toc_leak_nontoc"] == 0) else "FAIL"
         print(
             f"{school:<24} {m['units']:>5} {m['other']:>5} {m['custom']:>6} "
