@@ -96,7 +96,11 @@ def metrics_for(school: str) -> dict:
         "open_questions": len(candidates.get("open_questions", []) or []),
     }
     standard = load_t2_unit_pagination_standard(REPO, school)
-    metrics["standard_audit"] = audit_unit_map_against_t2_standard(unit_map, standard)
+    metrics["standard_audit"] = audit_unit_map_against_t2_standard(
+        unit_map,
+        standard,
+        source_tree=source_tree,
+    )
     return metrics
 
 
@@ -136,7 +140,7 @@ def _print_toc_metrics() -> None:
 def _print_standard_gate_metrics() -> None:
     header = (
         f"{'school':<24} {'units':>5} {'custom':>6} {'missing':>7} "
-        f"{'unexpected':>10} {'order?':>7} {'audit':>7} {'gate':>13}"
+        f"{'unexpected':>10} {'owner':>6} {'order?':>7} {'audit':>7} {'gate':>13}"
     )
     print(header)
     print("-" * len(header))
@@ -147,6 +151,7 @@ def _print_standard_gate_metrics() -> None:
             f"{school:<24} {m['units']:>5} {m['custom']:>6} "
             f"{len(audit['missing_unit_ids']):>7} "
             f"{len(audit['unexpected_unit_ids']):>10} "
+            f"{len(audit['anchor_owner_failures']):>6} "
             f"{str(audit['unit_order_matches']):>7} "
             f"{audit['audit_status']:>7} {audit['gate_status']:>13}"
         )
@@ -161,6 +166,13 @@ def _print_audit_details(audit: dict) -> None:
         print(f"  missing: {', '.join(missing)}")
     if unexpected:
         print(f"  unexpected: {', '.join(unexpected)}")
+    owner_failures = audit.get("anchor_owner_failures") or []
+    if owner_failures:
+        summary = [
+            f"{item.get('expected_unit_id')}@{item.get('source_seq')}->{item.get('actual_unit_id')}"
+            for item in owner_failures[:8]
+        ]
+        print(f"  owner: {', '.join(summary)}")
 
 
 if __name__ == "__main__":

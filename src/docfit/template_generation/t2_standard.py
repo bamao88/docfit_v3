@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from .text_utils import _normalize_for_match
+
 
 T2_STANDARD_RELATIVE_PATH = Path("template_generation/t2_unit_pagination.standard.yaml")
+CATALOG_UNIT_IDS = {"toc", "figure_list", "table_list"}
 
 
 def load_t2_unit_pagination_standard(
@@ -61,6 +65,8 @@ def expected_units_from_t2_standard(standard: dict[str, Any]) -> list[dict[str, 
 def audit_unit_map_against_t2_standard(
     unit_map: dict[str, Any],
     standard: dict[str, Any],
+    *,
+    source_tree: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     expected_unit_ids = expected_unit_ids_from_t2_standard(standard)
     expected_units = expected_units_from_t2_standard(standard)
@@ -86,6 +92,15 @@ def audit_unit_map_against_t2_standard(
         expected_unit_ids=expected_unit_ids,
         expected_ids_from_units=expected_ids_from_units,
     )
+    anchor_owner_results = (
+        _audit_anchor_ownership(unit_map, standard, source_tree)
+        if source_tree is not None
+        else []
+    )
+    anchor_owner_failures = [
+        result for result in anchor_owner_results if result.get("status") != "PASS"
+    ]
+
     findings: list[dict[str, Any]] = []
     if schema_errors:
         findings.append(
@@ -139,6 +154,21 @@ def audit_unit_map_against_t2_standard(
                     "affected_ids": custom_unit_ids,
                 }
             )
+        if anchor_owner_failures:
+            findings.append(
+                {
+                    "type": "t2_standard_anchor_owner_mismatch",
+                    "status": "FAIL",
+                    "expected": "standard anchors are owned by their expected unit_id",
+                    "actual": anchor_owner_failures,
+                    "affected_ids": sorted(
+                        {
+                            str(item.get("expected_unit_id"))
+                            for item in anchor_owner_failures
+                        }
+                    ),
+                }
+            )
 
     audit_status = _audit_status(findings)
     gate_enabled = bool(standard.get("gate_enabled"))
@@ -157,6 +187,8 @@ def audit_unit_map_against_t2_standard(
         "unexpected_unit_ids": unexpected_unit_ids,
         "custom_unit_ids": custom_unit_ids,
         "unit_order_matches": unit_order_matches,
+        "anchor_owner_results": anchor_owner_results,
+        "anchor_owner_failures": anchor_owner_failures,
         "schema_errors": schema_errors,
         "findings": findings,
     }
@@ -171,6 +203,167 @@ def _actual_unit_ids(unit_map: dict[str, Any]) -> list[str]:
         for unit in units
         if isinstance(unit, dict) and unit.get("unit_id") is not None
     ]
+
+
+def _audit_anchor_ownership(
+    unit_map: dict[str, Any],
+    standard: dict[str, Any],
+    source_tree: dict[str, Any],
+) -> list[dict[str, Any]]:
+    seq_to_unit = _seq_to_unit_id(unit_map)
+    entries = _body_entries(source_tree)
+    results: list[dict[str, Any]] = []
+    for expected_unit in expected_units_from_t2_standard(standard):
+        unit_id = str(expected_unit.get("unit_id") or "")
+        anchors = expected_unit.get("anchors") or {}
+        boundary = expected_unit.get("boundary") or {}
+        if not isinstance(anchors, dict):
+            continue
+        if isinstance(boundary, dict) and boundary.get("expected_start") == "document_start":
+            first_entry = entries[0] if entries else None
+            if first_entry is not None:
+                matched = [first_entry]
+                terms_used = ["document_start"]
+            else:
+                matched = []
+                terms_used = ["document_start"]
+        else:
+            primary_terms, fallback_terms = _anchor_match_terms(anchors)
+            if not primary_terms and not fallback_terms:
+                continue
+            matched = _match_anchor_entries(
+                entries,
+                primary_terms,
+                expected_unit_id=unit_id,
+            )
+            terms_used = primary_terms
+            if not matched and fallback_terms:
+                matched = _match_anchor_entries(
+                    entries,
+                    fallback_terms,
+                    expected_unit_id=unit_id,
+                )
+                terms_used = fallback_terms
+        if not terms_used:
+            continue
+        if not matched:
+            results.append(
+                {
+                    "expected_unit_id": unit_id,
+                    "status": "UNKNOWN",
+                    "reason": "no source entry matched standard anchor terms",
+                    "anchor_terms": terms_used,
+                }
+            )
+            continue
+        for entry in matched:
+            seq = _int_or_none(entry.get("source_seq"))
+            actual_owner = seq_to_unit.get(seq) if seq is not None else None
+            status = "PASS" if actual_owner == unit_id else "FAIL"
+            results.append(
+                {
+                    "expected_unit_id": unit_id,
+                    "source_seq": seq,
+                    "text": entry.get("text"),
+                    "actual_unit_id": actual_owner,
+                    "status": status,
+                }
+            )
+    return results
+
+
+def _seq_to_unit_id(unit_map: dict[str, Any]) -> dict[int, str]:
+    mapping: dict[int, str] = {}
+    units = unit_map.get("units")
+    if not isinstance(units, list):
+        return mapping
+    for unit in units:
+        if not isinstance(unit, dict):
+            continue
+        unit_id = str(unit.get("unit_id") or "")
+        for seq in unit.get("source_seq_refs", []) or []:
+            parsed = _int_or_none(seq)
+            if parsed is not None:
+                mapping[parsed] = unit_id
+    return mapping
+
+
+def _body_entries(source_tree: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in source_tree.get("layers", {}).get("body_flow", [])
+        if item.get("structure_layer") == "body_flow" and item.get("text")
+    ]
+
+
+def _anchor_match_terms(anchors: dict[str, Any]) -> tuple[list[str], list[str]]:
+    primary: list[str] = []
+    fallback: list[str] = []
+    start_title = anchors.get("start_title")
+    if isinstance(start_title, str) and start_title not in {
+        "document_start",
+        "document_end",
+    }:
+        primary.append(start_title)
+    aliases = anchors.get("title_aliases")
+    if isinstance(aliases, list):
+        fallback.extend(str(alias) for alias in aliases if alias)
+    return _dedupe_normalized_terms(primary), _dedupe_normalized_terms(fallback)
+
+
+def _dedupe_normalized_terms(terms: list[str]) -> list[str]:
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for term in terms:
+        normalized = _normalize_for_match(term)
+        if not normalized or normalized in seen:
+            continue
+        deduped.append(normalized)
+        seen.add(normalized)
+    return deduped
+
+
+def _match_anchor_entries(
+    entries: list[dict[str, Any]],
+    terms: list[str],
+    *,
+    expected_unit_id: str,
+) -> list[dict[str, Any]]:
+    matches: list[dict[str, Any]] = []
+    for entry in entries:
+        text = str(entry.get("text") or "")
+        normalized = _normalize_for_match(text)
+        if not normalized:
+            continue
+        if expected_unit_id not in CATALOG_UNIT_IDS and _looks_like_toc_entry_text(text):
+            continue
+        if any(_term_matches_entry(term, normalized) for term in terms):
+            matches.append(entry)
+    return matches[:3]
+
+
+def _term_matches_entry(term: str, normalized_entry: str) -> bool:
+    if normalized_entry == term:
+        return True
+    if term == "附录" and normalized_entry.startswith(term):
+        return True
+    return len(term) >= 3 and normalized_entry.startswith(term)
+
+
+def _looks_like_toc_entry_text(text: str) -> bool:
+    stripped = str(text or "").strip()
+    page_suffix = r"(?:\d+|[ivxlcdmIVXLCDM]+|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+)"
+    return bool(
+        "\t" in stripped
+        or re.search(rf"(?:…|\.|．|·|•){{2,}}\s*{page_suffix}\s*$", stripped)
+    )
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _schema_errors(

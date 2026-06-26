@@ -92,6 +92,51 @@ def test_t2_standard_audit_reports_invalid_standard_as_unknown() -> None:
     assert "expected.units is missing or empty" in audit["schema_errors"]
 
 
+def test_t2_standard_audit_checks_anchor_owner_when_source_tree_is_supplied() -> None:
+    standard = _standard(["cover", "abstract_cn"], gate_enabled=False)
+    standard["expected"]["units"][1]["anchors"] = {
+        "start_title": "摘要",
+        "title_aliases": ["摘要"],
+    }
+    audit = audit_unit_map_against_t2_standard(
+        _unit_map_with_refs({"cover": [1], "abstract_cn": [2]}),
+        standard,
+        source_tree=_source_tree([(1, "封面"), (2, "摘□要（三号黑体）")]),
+    )
+
+    assert audit["anchor_owner_failures"] == []
+    assert audit["anchor_owner_results"][-1]["status"] == "PASS"
+    assert audit["anchor_owner_results"][-1]["actual_unit_id"] == "abstract_cn"
+
+
+def test_t2_standard_audit_reports_anchor_owner_mismatch() -> None:
+    standard = _standard(["cover", "abstract_cn"], gate_enabled=False)
+    standard["expected"]["units"][1]["anchors"] = {
+        "start_title": "摘要",
+        "title_aliases": ["摘要"],
+    }
+    audit = audit_unit_map_against_t2_standard(
+        _unit_map_with_refs({"cover": [1], "toc": [2]}),
+        standard,
+        source_tree=_source_tree([(1, "封面"), (2, "摘□要（三号黑体）")]),
+    )
+
+    assert audit["audit_status"] == "FAIL"
+    assert audit["anchor_owner_failures"] == [
+        {
+            "expected_unit_id": "abstract_cn",
+            "source_seq": 2,
+            "text": "摘□要（三号黑体）",
+            "actual_unit_id": "toc",
+            "status": "FAIL",
+        }
+    ]
+    assert any(
+        finding["type"] == "t2_standard_anchor_owner_mismatch"
+        for finding in audit["findings"]
+    )
+
+
 def _standard(unit_ids: list[str], *, gate_enabled: bool) -> dict:
     return {
         "school_id": "demo",
@@ -108,3 +153,27 @@ def _standard(unit_ids: list[str], *, gate_enabled: bool) -> dict:
 
 def _unit_map(unit_ids: list[str]) -> dict:
     return {"units": [{"unit_id": unit_id} for unit_id in unit_ids]}
+
+
+def _unit_map_with_refs(unit_refs: dict[str, list[int]]) -> dict:
+    return {
+        "units": [
+            {"unit_id": unit_id, "source_seq_refs": refs}
+            for unit_id, refs in unit_refs.items()
+        ]
+    }
+
+
+def _source_tree(entries: list[tuple[int, str]]) -> dict:
+    return {
+        "layers": {
+            "body_flow": [
+                {
+                    "structure_layer": "body_flow",
+                    "source_seq": seq,
+                    "text": text,
+                }
+                for seq, text in entries
+            ]
+        }
+    }
