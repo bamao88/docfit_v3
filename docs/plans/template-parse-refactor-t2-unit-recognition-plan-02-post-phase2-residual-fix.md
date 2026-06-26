@@ -1,5 +1,5 @@
 ---
-status: draft
+status: superseded_by_03
 owner: template-generation
 stage: T2
 topic: unit-recognition
@@ -27,6 +27,8 @@ related_code:
 ---
 
 # T2 单元识别 Plan 02：Post-Phase2 Residual Fix
+
+> 更新说明（2026-06-26）：本文保留为 issue-02 残余问题和数据流拆分背景。实际执行顺序已由 `docs/plans/template-parse-refactor-t2-unit-recognition-plan-03-state-machine-standard-gates.md` 接管；后续不要再从本文的并列 Phase 直接开工。
 
 ## 0. 文档定位
 
