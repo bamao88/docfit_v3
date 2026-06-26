@@ -16,7 +16,7 @@ previous_optimization:
   summary: Phase 2 deterministic mainline for derived signals, TOC block, boundary/label rewrite, custom_unit fallback
 next_plan:
   doc: docs/plans/template-parse-refactor-t2-unit-recognition-plan-02-post-phase2-residual-fix.md
-  summary: deterministic residual fix with explicit T2 data transformation and field-consumption contract
+  summary: deterministic residual fix; data transformation and field-consumption contract split into a dedicated data-contract document
 evidence_run:
   code_checkpoint: e861aa5
   command: "uv run python -B -c 'from pathlib import Path; from docfit.convert.orchestrator import run_template_generate_eval; ...'"
@@ -36,6 +36,8 @@ related_docs:
   - docs/plans/template-parse-refactor-issue-index.md
   - docs/plans/template-parse-refactor-t2-open-label-unit-recognition.md
   - docs/plans/template-parse-refactor-t2-unit-recognition-issue-01-boundary-label.md
+  - docs/plans/template-parse-refactor-t2-unit-recognition-plan-02-post-phase2-residual-fix.md
+  - docs/plans/template-parse-refactor-t2-unit-recognition-data-contract.md
   - docs/plans/template-parse-refactor-t2-visual-pagination.md
 ---
 

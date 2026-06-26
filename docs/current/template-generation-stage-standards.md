@@ -81,6 +81,8 @@ template_generation/
 
 这里的“标准质量衡量”指的是标准文件本身够不够资格当裁判。它不评价某一次运行产物是否通过。
 
+当前已有内容、尚未实现内容、补全顺序、调用方式和命名规范，见 `docs/current/template-generation-stage-standard-quality.md`。
+
 一份阶段标准至少要满足这些质量点：
 
 | 质量点 | 要证明什么 | 当前检查方式 |
