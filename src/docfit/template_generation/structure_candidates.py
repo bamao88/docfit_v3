@@ -433,6 +433,10 @@ def _boundary_decision(
                 "name": unit_hint["name"],
             }
         )
+    ambiguous_instruction_title = (
+        signals.get("instruction_class") == "ambiguous_instruction_title"
+        and not has_keyword
+    )
 
     # A formal top-level boundary requires a level-1 heading style, a labeled
     # heading of any level, or text_properties reinforced by a core/alias
@@ -440,14 +444,21 @@ def _boundary_decision(
     # (level 2+), text_properties alone, a bare keyword, or a bare mechanical
     # break are not enough — they become candidates or label-only (plan §6.5).
     is_boundary = (
-        has_top_heading
-        or (has_heading and has_keyword)
-        or (has_text_props and (has_keyword or has_break))
+        not ambiguous_instruction_title
+        and (
+            has_top_heading
+            or (has_heading and has_keyword)
+            or (has_text_props and (has_keyword or has_break))
+        )
     )
-    is_candidate = (not is_boundary) and (has_text_props or has_break or has_heading)
+    is_candidate = (not is_boundary) and (
+        has_text_props or has_break or has_heading or ambiguous_instruction_title
+    )
     candidate_reason = None
     if is_candidate:
-        if has_heading:
+        if ambiguous_instruction_title:
+            candidate_reason = "ambiguous_instruction_title"
+        elif has_heading:
             candidate_reason = "subheading_only"
         elif has_text_props:
             candidate_reason = "text_properties_only"
@@ -865,7 +876,7 @@ def _boundary_vetoes(signals: dict[str, Any]) -> list[str]:
         vetoes.append("toc_entry")
     if signals.get("is_spacing_line"):
         vetoes.append("spacing_line")
-    if signals.get("looks_like_instruction_text"):
+    if signals.get("instruction_class") == "pure_instruction":
         vetoes.append("instruction_text")
     return vetoes
 
@@ -1199,6 +1210,7 @@ def _entry_projection(entry: dict[str, Any]) -> dict[str, Any]:
                 "is_toc_entry",
                 "is_spacing_line",
                 "looks_like_instruction_text",
+                "instruction_class",
             )
         },
         "container_ref": entry.get("container_ref"),
@@ -1717,11 +1729,19 @@ def _rule_unknowns(source_tree: dict[str, Any], units: list[dict[str, Any]]) -> 
 
 def _unit_for_text(text: str, index: int) -> tuple[str | None, str | None]:
     normalized = _normalize_text(text)
+    normalized_match = _normalize_for_match(text)
+    alias = _alias_unit_id(normalized_match)
+    if alias and (alias != "cover" or index <= 12):
+        return alias, UNIT_DEFINITION_NAMES.get(alias, alias)
     for unit_id, name, needles in UNIT_DEFINITIONS:
         if unit_id == "cover" and index > 12:
             continue
         for needle in needles:
-            if _normalize_text(needle) in normalized:
+            needle_normalized = _normalize_text(needle)
+            needle_match = _normalize_for_match(needle)
+            if needle_normalized in normalized or (
+                needle_match and len(needle_match) >= 2 and needle_match in normalized_match
+            ):
                 return unit_id, name
     return None, None
 
@@ -1776,6 +1796,26 @@ def _looks_like_instruction(text: str) -> bool:
     if any(marker in text for marker in INSTRUCTION_MARKERS):
         return True
     return bool(re.search(r"[（(].*(宋体|黑体|楷体|居中|行距|字号|号字|pt).*[）)]", text))
+
+
+def _instruction_class(text: str) -> str:
+    canonical = canonical_title(text)
+    if _has_format_annotation(text) and canonical and _alias_unit_id(canonical):
+        return "title_with_format_annotation"
+    unit_id, _name = _unit_for_text(_strip_format_annotations(text), 999)
+    if _has_format_annotation(text) and unit_id:
+        return "title_with_format_annotation"
+    if not _looks_like_instruction(text):
+        return "not_instruction"
+    if canonical and len(canonical) <= 16 and _has_format_annotation(text):
+        return "ambiguous_instruction_title"
+    return "pure_instruction"
+
+
+def _has_format_annotation(text: str) -> bool:
+    return bool(
+        re.search(r"[（(].*(宋体|黑体|楷体|仿宋|居中|行距|字号|号字|pt).*[）)]", text)
+    )
 
 
 def _has_substantive_template_text(text: str) -> bool:
@@ -1845,12 +1885,14 @@ def _structural_signals(entry: dict[str, Any]) -> dict[str, Any]:
     details = entry.get("style_details") or {}
     paragraph = details.get("paragraph") or {}
     dominant = details.get("dominant_run") or {}
+    instruction_class = _instruction_class(text)
     return {
         "centered": paragraph.get("alignment") == "center",
         "short_text": len(text.strip()) <= 20,
         "large_font": (dominant.get("font_size_pt") or 0) >= 16,
         "bold": bool(dominant.get("bold")),
-        "looks_like_instruction_text": _looks_like_instruction(text),
+        "looks_like_instruction_text": instruction_class == "pure_instruction",
+        "instruction_class": instruction_class,
         "is_toc_entry": _is_toc_entry(entry),
         "is_spacing_line": _is_spacing_line(text),
         # Compatibility-only advisory signal. T2 owns boundary decisions.
@@ -1981,7 +2023,7 @@ def _region_has_variant_marker(region_entries: list[dict[str, Any]]) -> bool:
 
 def _t2_derived_signals_by_source_seq(
     entries: list[dict[str, Any]],
-) -> dict[str, dict[str, bool]]:
+) -> dict[str, dict[str, Any]]:
     """Per-paragraph T2 structure signals derived only from T1 atomic facts.
 
     Emitted for observability and downstream (AI input) consumption. Only
@@ -1989,7 +2031,7 @@ def _t2_derived_signals_by_source_seq(
     compact. T2 never writes these back to document_facts and never reads any
     legacy `structural_signals` to compute them (plan §0.3, §6.1).
     """
-    derived: dict[str, dict[str, bool]] = {}
+    derived: dict[str, dict[str, Any]] = {}
     for entry in entries:
         seq = entry.get("source_seq")
         if seq is None:
@@ -1999,6 +2041,7 @@ def _t2_derived_signals_by_source_seq(
             "toc_title_like": _toc_title_like(entry),
             "toc_entry_like": _toc_entry_like(entry),
             "instruction_like": _looks_like_instruction(text),
+            "instruction_class": _instruction_class(text),
             "spacing_line_like": _is_spacing_line(text),
             "unit_heading_like": _heading_level(entry) is not None,
             "variant_marker_like": _looks_like_variant_marker(entry),

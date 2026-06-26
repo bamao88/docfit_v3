@@ -347,6 +347,44 @@ def test_t2_canonical_title_strips_format_annotations_and_placeholders() -> None
     assert canonical_title("□□Abstract(小四号Times New Roman, 加粗)") == "abstract"
 
 
+def test_t2_title_with_format_annotation_is_not_instruction_veto() -> None:
+    candidates = build_template_structure_candidates(
+        _source_tree(
+            [
+                _entry(1, "封面"),
+                _entry(2, "摘□要（三号黑体，居中）", style="Heading 1"),
+                _entry(3, "摘要正文"),
+                _entry(4, "正文", style="Heading 1"),
+            ]
+        )
+    )
+
+    abstract = _units_by_id(candidates)["abstract_cn"]
+    signals = candidates["debug"]["t2_derived_signals_by_source_seq"]["2"]
+
+    assert abstract["source_range"]["start_source_ref"] == "word/document.xml:p[2]"
+    assert signals["instruction_class"] == "title_with_format_annotation"
+
+
+def test_t2_pure_instruction_is_still_vetoed_as_boundary() -> None:
+    candidates = build_template_structure_candidates(
+        _source_tree(
+            [
+                _entry(1, "封面"),
+                _entry(2, "（三号黑体，居中）", style="Heading 1"),
+                _entry(3, "正文", style="Heading 1"),
+            ]
+        )
+    )
+
+    assert _unit_at_seq(candidates, 2)["unit_id"] == "cover"
+    assert not [
+        unit
+        for unit in candidates["units"]
+        if unit["source_range"].get("start_source_ref") == "word/document.xml:p[2]"
+    ]
+
+
 def test_t2_derives_toc_entry_like_from_atomic_facts() -> None:
     # leader + page number, Normal style — derived purely from atomic text facts.
     assert _toc_entry_like(_entry(1, "□□摘要……………………1"))
