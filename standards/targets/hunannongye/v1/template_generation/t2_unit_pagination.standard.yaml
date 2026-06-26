@@ -1,0 +1,338 @@
+baseline_type: template_generation_t2_unit_pagination
+profile_id: real-core-v0
+school_id: hunannongye
+stage_id: T2
+standard_id: hunannongye-v1-template-generation-t2-unit-pagination
+standard_scope: single_template_generation_t2_unit_pagination
+standard_state: signed_pending_verifier
+verifier_state: not_configured
+gate_enabled: false
+artifact_under_test: unit_map
+legacy_compatibility: false
+review_metadata:
+  reviewed_by: user-reviewed-source-fact-packet
+  review_source: docs/human/real-core-v0-review-packet.md#source-hunannongye
+  source_docx_sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
+  change_reason: split T2 unit and pagination standard from the legacy structure discovery stage contract
+  auto_update_allowed: false
+accepted_source_facts:
+  review_packet: docs/human/real-core-v0-review-packet.md
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  source_section_id: hunannongye
+  source_section_sha256: sha256:e3a0d411c694df992467c6dfc009125192be56ba265a3e240405879fc5d264b3
+  template_docx: inputs/targets/hunannongye/raw/source_template.docx
+  template_docx_sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
+  upstream_template_generation_final: ../template_quality/final_template.expected.yaml
+scope:
+  - unit_detection
+  - unit_order
+  - unit_boundary
+  - unit_source_seq_range
+  - unit_page_policy
+expected:
+  unit_order:
+    - cover
+    - integrity_statement
+    - toc
+    - body_title_block
+    - abstract_cn
+    - abstract_en
+    - body_main
+    - references
+    - acknowledgement
+    - appendix
+    - design_task
+    - proposal
+    - proposal_record
+    - defense_record
+    - topic_change_approval
+    - grade_form
+  units:
+    - unit_id: cover
+      name: 封面
+      status: required
+      policy: fixed
+      anchors:
+        title_aliases: [封面, 附件1, 封面基本格式]
+        start_title: 附件1 封面基本格式
+        stop_before: 诚 信 声 明
+      boundary:
+        expected_start: document_start
+        expected_end: before_next_unit
+      page:
+        page_break: document_start
+        page_isolation: true
+        allow_multi_page: false
+        keep_together: true
+      notes: 封面是学校固定模板块；附件标题和格式说明只作识别证据，不进入最终正文。
+    - unit_id: integrity_statement
+      name: 诚信声明
+      status: manual_only
+      policy: manual_only
+      anchors:
+        title_aliases: [诚信声明, 诚 信 声 明]
+        start_title: 诚 信 声 明
+        stop_before: 目录
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: true
+        allow_multi_page: false
+        keep_together: true
+      notes: 固定声明页，签名和日期空位不得自动填写。
+    - unit_id: toc
+      name: 目录
+      status: required
+      policy: generated
+      anchors:
+        title_aliases: [目录, 目 录, 目□□录]
+        start_title: 目□□录
+        stop_before: 正文题名信息
+      boundary:
+        expected_start: anchor_based
+        expected_end: after_last_toc_entry
+      page:
+        page_break: true
+        page_isolation: true
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 目录条目中的摘要、正文、参考文献、致谢、附录等文字不得打开新顶层单元。
+    - unit_id: body_title_block
+      name: 正文题名信息
+      status: required
+      policy: fill
+      anchors:
+        title_aliases: [正文题名信息, 论文题名, 学生, 指导老师]
+        start_title: 正文题名信息
+        stop_before: 摘要
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: false
+        allow_multi_page: false
+        keep_together: local_groups_only
+      notes: 该单元随正文首页出现在目录后；当前阶段不自动填元数据。
+    - unit_id: abstract_cn
+      name: 中文摘要
+      status: required
+      policy: fill
+      anchors:
+        title_aliases: [摘要, 摘 要, 中文摘要, 摘□要]
+        start_title: 摘□要
+        stop_before: Abstract
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: false
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 带占位符和括号格式说明的“摘 要”仍是中文摘要边界。
+    - unit_id: abstract_en
+      name: 英文摘要
+      status: required
+      policy: fill
+      anchors:
+        title_aliases: [Abstract, ABSTRACT, Key words]
+        start_title: Abstract
+        stop_before: 正文主体
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: false
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 英文题名、Student、Tutor、Abstract、Key words 属于英文摘要单元。
+    - unit_id: body_main
+      name: 正文主体
+      status: required
+      policy: fill
+      anchors:
+        title_aliases: [正文, 前言, 第一章, 1前言]
+        start_title: 正文主体
+        stop_before: 参考文献
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: false
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 农理工类和文法经管类标题体系都属于正文内部结构，不得切成后置表单。
+    - unit_id: references
+      name: 参考文献
+      status: required
+      policy: fill
+      anchors:
+        title_aliases: [参考文献, References]
+        start_title: 参考文献
+        stop_before: 致谢
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: false
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 参考文献不得吞并致谢、附录或后置固定表单。
+    - unit_id: acknowledgement
+      name: 致谢
+      status: template_default_optional
+      policy: template_default_optional
+      anchors:
+        title_aliases: [致谢, 致 谢, Acknowledgement]
+        start_title: 致谢
+        stop_before: 附录
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: false
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 草稿或审阅输出默认保留；正式删除需人工确认。
+    - unit_id: appendix
+      name: 附录
+      status: template_default_optional
+      policy: template_default_optional
+      anchors:
+        title_aliases: [附录, 附录1, Appendix]
+        start_title: 附录
+        stop_before: 毕业设计任务书
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: false
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 源模板说明没有附录可不标注，但审阅稿默认保留占位。
+    - unit_id: design_task
+      name: 毕业设计任务书
+      status: manual_only
+      policy: manual_only
+      anchors:
+        title_aliases: [毕业设计任务书, 毕业论文任务书, 任务书]
+        start_title: 毕业设计任务书
+        stop_before: 开题报告
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: true
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 学校固定表单，保留表格结构和签名日期区。
+    - unit_id: proposal
+      name: 开题报告
+      status: manual_only
+      policy: manual_only
+      anchors:
+        title_aliases: [开题报告]
+        start_title: 开题报告
+        stop_before: 开题论证记录表
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: true
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 学校固定表单，不自动填意见、签名或日期。
+    - unit_id: proposal_record
+      name: 开题论证记录表
+      status: manual_only
+      policy: manual_only
+      anchors:
+        title_aliases: [开题论证记录表]
+        start_title: 开题论证记录表
+        stop_before: 答辩记录表
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: true
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 学校固定记录表，签名和论证地点日期不得单独掉页。
+    - unit_id: defense_record
+      name: 答辩记录表
+      status: manual_only
+      policy: manual_only
+      anchors:
+        title_aliases: [答辩记录表, 答 辩 记 录 表]
+        start_title: 答辩记录表
+        stop_before: 题目变更审批表
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: true
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 学校固定记录表，答辩质疑、记录、成员签名和日期均 manual_only。
+    - unit_id: topic_change_approval
+      name: 题目变更审批表
+      status: manual_only
+      policy: manual_only
+      anchors:
+        title_aliases: [题目变更审批表, 题目变更]
+        start_title: 题目变更审批表
+        stop_before: 成绩评定表
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: true
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 学校固定审批表，意见和签名区不得拆成普通正文。
+    - unit_id: grade_form
+      name: 成绩评定表
+      status: manual_only
+      policy: manual_only
+      anchors:
+        title_aliases: [成绩评定表]
+        start_title: 成绩评定表
+        stop_before: document_end
+      boundary:
+        expected_start: anchor_based
+        expected_end: document_end
+      page:
+        page_break: true
+        page_isolation: true
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 学校固定成绩评定表，成绩、评语、委员会意见、签名日期均 manual_only。
+dimensions:
+  - dimension_id: template_generation.t2.artifact_under_test
+    required: true
+    comparator_mode: exact
+    expected_path: artifact_under_test
+    actual_path: artifact_under_test
+  - dimension_id: template_generation.t2.unit_order
+    required: true
+    comparator_mode: ordered_sequence
+    expected_path: expected.unit_order
+    actual_path: unit_order
+  - dimension_id: template_generation.t2.legacy_compatibility
+    required: true
+    comparator_mode: exact
+    expected_path: legacy_compatibility
+    actual_path: legacy_compatibility

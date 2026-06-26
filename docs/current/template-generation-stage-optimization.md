@@ -200,9 +200,9 @@ manifest = build_template_generation_manifest(
 | --- | --- | --- | --- |
 | 输入文件不对 | `00_input_source_template.docx`、request | `00_input_request` | 调用命令或 profile 绑定 |
 | 源 Word 内容没解析出来 | `01_source_template_tree.json` | `01_source_parse` | `source_tree.py` 或底层 inspector |
-| unit 没识别或边界错 | `02_template_structure_candidates.json` | `02_structure_discovery` | `structure_candidates.py` |
-| logical element 合并错 | `02` 的 `entry_refs[]`、`source_seq_refs[]`、`merge` | `02_structure_discovery` | `_logical_entry_groups` |
-| 源模板元素 12 不该删除 | 先查 `by_source_seq["12"]`，再查阶段二/三/四引用链 | `02_structure_discovery` / `03_generation_model` / `04_plan_build` | 找到第一次把 12 判错的阶段再改 |
+| unit 没识别或边界错 | `unit_map.yaml`，调试时看 `02_template_structure_candidates.json` | `T2/t2_unit_pagination` | `structure_candidates.py` |
+| logical element 合并错 | T2 调试视图里的 `entry_refs[]`、`source_seq_refs[]`、`merge` | `T2/t2_unit_pagination` | `_logical_entry_groups` |
+| 源模板元素 12 不该删除 | 先查 `by_source_seq["12"]`，再查 T2/T3/T4 引用链 | `T2/t2_unit_pagination` / `03_generation_model` / `04_plan_build` | 找到第一次把 12 判错的阶段再改 |
 | 应 copy-only 的单元生成了 slot | `03_template_generation_model.json` 的 `unit_strategies[]` 和 `slots[]` | `03_generation_model` | copy-only 基线、源模板责任推断规则或不确定性表达 |
 | plan 对但 Word 没变 | `04_template_generation_plan.json`、`05.0`、`05.1` | `05_action_execution` | `executor.py` |
 | Word 看起来不合格 | `generated_template_tree.json`、`template_gap_report.*` | `06_final_template_gap` 或更早阶段 | 先看 gap 指向的源证据，再回查 01-05 |

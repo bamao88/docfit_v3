@@ -182,7 +182,7 @@ docfit_v3/
 | --- | --- |
 | `standards/schools/<x>/v1/{template,student_content,placement,render}_contract.json`（**每校重复**） | 去重后只留一份 → `standards/contracts/*.contract.json` |
 | `standards/schools/<x>/v1/signed_standard.yaml` | `standards/targets/<x>/v1/target.standard.yaml` |
-| `standards/schools/<x>/v1/template_generation_stages/0N_*.yaml` | `standards/targets/<x>/v1/template_generation/0N_*.expected.yaml` |
+| `standards/schools/<x>/v1/template_generation_stages/0N_*.yaml` | `standards/targets/<x>/v1/template_generation/*.expected.yaml`；T2 单元/分页标准为 `template_generation/t2_unit_pagination.standard.yaml` |
 | `standards/schools/<x>/v1/template_generation_final.yaml` | `standards/targets/<x>/v1/template_quality/final_template.expected.yaml` |
 | `standards/schools/demo-school/v1/golden/*` 、 `exceptions.yaml` | `standards/targets/demo-school/v1/golden/*` 、 `exceptions.yaml` |
 | `standards/eval_profiles/real-core-v0/expected/student_content_trees/real-student-00N.yaml` | `standards/students/real-student-00N/v1/content_extract/student_content_artifact.expected.yaml` |

@@ -1,0 +1,266 @@
+baseline_type: template_generation_t2_unit_pagination
+profile_id: real-core-v0
+school_id: pku-graduate
+stage_id: T2
+standard_id: pku-graduate-v1-template-generation-t2-unit-pagination
+standard_scope: single_template_generation_t2_unit_pagination
+standard_state: signed_pending_verifier
+verifier_state: not_configured
+gate_enabled: false
+artifact_under_test: unit_map
+legacy_compatibility: false
+review_metadata:
+  reviewed_by: user-reviewed-source-fact-packet
+  review_source: docs/human/real-core-v0-review-packet.md#source-pku-graduate
+  source_docx_sha256: sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14
+  change_reason: split T2 unit and pagination standard from the legacy structure discovery stage contract
+  auto_update_allowed: false
+accepted_source_facts:
+  review_packet: docs/human/real-core-v0-review-packet.md
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  source_section_id: pku-graduate
+  source_section_sha256: sha256:c4067e225d83e45fc96b9ae82f6a222f6315c8d32ff7c7618d2fc21cb8ea4638
+  template_docx: inputs/targets/pku-graduate/raw/source_template.docx
+  template_docx_sha256: sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14
+  upstream_template_generation_final: ../template_quality/final_template.expected.yaml
+scope:
+  - unit_detection
+  - unit_order
+  - unit_boundary
+  - unit_source_seq_range
+  - unit_page_policy
+expected:
+  unit_order:
+    - cover
+    - copyright_notice
+    - abstract_cn
+    - abstract_en
+    - toc
+    - figure_list
+    - table_list
+    - body_main
+    - references
+    - academic_achievements
+    - acknowledgement
+    - originality_authorization_statement
+  units:
+    - unit_id: cover
+      name: 封面
+      status: required
+      policy: fixed
+      anchors:
+        title_aliases: [封面, 博士研究生学位论文, 题目]
+        start_title: 博士研究生学位论文
+        stop_before: 版权声明
+      boundary:
+        expected_start: document_start
+        expected_end: before_next_unit
+      page:
+        page_break: document_start
+        page_isolation: true
+        allow_multi_page: false
+        keep_together: true
+      notes: 封面固定模块，删除不属于模板的说明文字。
+    - unit_id: copyright_notice
+      name: 版权声明
+      status: manual_only
+      policy: manual_only
+      anchors:
+        title_aliases: [版权声明]
+        start_title: 版权声明
+        stop_before: 摘要
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: true
+        allow_multi_page: false
+        keep_together: true
+      notes: 固定版权页，包含二维码替换说明，不自动填充。
+    - unit_id: abstract_cn
+      name: 中文摘要
+      status: required
+      policy: fill
+      anchors:
+        title_aliases: [摘要, 中文摘要, 关键词]
+        start_title: 摘要
+        stop_before: ABSTRACT
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 中文摘要标题、摘要正文和关键词标签属于同一单元。
+    - unit_id: abstract_en
+      name: 英文摘要
+      status: required
+      policy: fill
+      anchors:
+        title_aliases: [ABSTRACT, English Title, KEY WORDS]
+        start_title: ABSTRACT
+        stop_before: 目录
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 英文题名、作者、导师、ABSTRACT 和 KEY WORDS 属于英文摘要单元。
+    - unit_id: toc
+      name: 目录
+      status: required
+      policy: generated
+      anchors:
+        title_aliases: [目录, Contents]
+        start_title: 目录
+        stop_before: 图目录
+      boundary:
+        expected_start: anchor_based
+        expected_end: after_last_toc_entry
+      page:
+        page_break: true
+        page_isolation: true
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 主目录、图目录、表目录必须识别为三个独立单元。
+    - unit_id: figure_list
+      name: 图目录
+      status: required
+      policy: generated
+      anchors:
+        title_aliases: [图目录, 图 目录, List of Figures]
+        start_title: 图目录
+        stop_before: 表目录
+      boundary:
+        expected_start: anchor_based
+        expected_end: after_last_toc_entry
+      page:
+        page_break: true
+        page_isolation: true
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 图目录可复用 TOC-like block 检测，但 unit_id 必须是 figure_list。
+    - unit_id: table_list
+      name: 表目录
+      status: required
+      policy: generated
+      anchors:
+        title_aliases: [表目录, 表 目录, List of Tables]
+        start_title: 表目录
+        stop_before: 正文主体
+      boundary:
+        expected_start: anchor_based
+        expected_end: after_last_toc_entry
+      page:
+        page_break: true
+        page_isolation: true
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 表目录可复用 TOC-like block 检测，但 unit_id 必须是 table_list。
+    - unit_id: body_main
+      name: 正文主体
+      status: required
+      policy: fill
+      anchors:
+        title_aliases: [研究背景, 第一章, 正文, 结论与讨论]
+        start_title: 研究背景
+        stop_before: 参考文献
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 进入正文后，章标题和小节标题属于 body_main 内部结构，直到真正后置参考文献。
+    - unit_id: references
+      name: 参考文献
+      status: required
+      policy: fill
+      anchors:
+        title_aliases: [参考文献, References]
+        start_title: 参考文献
+        stop_before: 附录A 博士期间工作成果
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 正文说明中的“参考文献”不是后置 references；后置区真实标题才打开本单元。
+    - unit_id: academic_achievements
+      name: 附录A  博士期间工作成果
+      status: template_default
+      policy: fixed
+      anchors:
+        title_aliases: [附录A 博士期间工作成果, 博士期间工作成果, 学术成果]
+        start_title: 附录A  博士期间工作成果
+        stop_before: 致谢
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 该后置成果模块默认保留，不归为普通 appendix。
+    - unit_id: acknowledgement
+      name: 致谢
+      status: template_default
+      policy: fixed
+      anchors:
+        title_aliases: [致谢, Acknowledgement]
+        start_title: 致谢
+        stop_before: 原创性声明
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 致谢位于成果模块之后、原创性声明和使用授权说明之前。
+    - unit_id: originality_authorization_statement
+      name: 北京大学学位论文原创性声明和使用授权说明
+      status: manual_only
+      policy: manual_only
+      anchors:
+        title_aliases: [原创性声明, 使用授权说明, 北京大学学位论文原创性声明和使用授权说明]
+        start_title: 北京大学学位论文原创性声明和使用授权说明
+        stop_before: document_end
+      boundary:
+        expected_start: anchor_based
+        expected_end: document_end
+      page:
+        page_break: true
+        page_isolation: true
+        allow_multi_page: false
+        keep_together: true
+      notes: 固定签名和授权页，签名、日期、授权勾选项均 manual_only。
+dimensions:
+  - dimension_id: template_generation.t2.artifact_under_test
+    required: true
+    comparator_mode: exact
+    expected_path: artifact_under_test
+    actual_path: artifact_under_test
+  - dimension_id: template_generation.t2.unit_order
+    required: true
+    comparator_mode: ordered_sequence
+    expected_path: expected.unit_order
+    actual_path: unit_order
+  - dimension_id: template_generation.t2.legacy_compatibility
+    required: true
+    comparator_mode: exact
+    expected_path: legacy_compatibility
+    actual_path: legacy_compatibility

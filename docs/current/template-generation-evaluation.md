@@ -31,7 +31,7 @@ Last updated: 2026-06-25
 | 层次 | 要回答的问题 | 当前真实状态 | 输入 | 输出 |
 | --- | --- | --- | --- | --- |
 | 最终结果验证 | 最终 `generated_template.docx` 是否符合学校签收标准 | 已经有 `template-gap`，是当前唯一稳定可用的模板生成验收检查 | `generated_template.docx`、`final_template.expected.yaml` | `generated_template_tree.json`、`template_gap_report.*`、状态 |
-| 阶段产物验证 | 每个中间阶段的输出是否符合该阶段标准 | 三校已有 01-05 各自独立的 `template_generation/*.expected.yaml`；统一聚合入口和阶段 verifier 还没有 | 某阶段输入产物和输出产物、对应阶段标准文件 | 阶段状态、问题列表、可疑的首次出错阶段 |
+| 阶段产物验证 | 每个中间阶段的输出是否符合该阶段标准 | 三校已有模板生成阶段标准；T2 使用 `t2_unit_pagination.standard.yaml`，统一聚合入口和阶段 verifier 还没有 | 某阶段输入产物和输出产物、对应阶段标准文件 | 阶段状态、问题列表、可疑的首次出错阶段 |
 
 最终结果验证可以先跑，因为它的检查对象、标准和 verifier 都已经存在。阶段产物验证现在已经有标准入口，但还不能输出阶段 `PASS`：下一步要补的是读取已有 run 目录的聚合入口，以及逐个阶段的确定性 verifier。
 
@@ -72,7 +72,7 @@ Last updated: 2026-06-25
 | 模板生成命令 | `docfit eval template-generate` 能写出 `source_template_tree.json`、`template_structure_candidates.json`、`template_generation_model.json`、`template_generation_plan.json`、`generated_template.docx` 和 `template_generation_manifest.json` | 这个命令返回 `PASS` 只说明生成流程完成，不说明 Word 已符合学校标准 |
 | 最终 gap 检查 | `docfit eval template-gap` 会检查被测 `generated_template.docx` | 这是当前可作为阶段化评测示例的真实检查器 |
 | 已有产物复用 | 现在只有最终 gap 已经能直接消费已有 `generated_template.docx`；01-05 还没有“读取已有 run 目录并聚合阶段检查”的统一入口 | 所以当前如果只想检查已有 Word，跑 `template-gap`；如果要验证整个新链路，才跑 `template` / `e2e` |
-| 01-05 阶段标准 | 三校已有 `standards/targets/<target_id>/v1/template_generation/<stage_id>.expected.yaml` | 每个阶段一个文件；它来自人工 review、`template_quality/final_template.expected.yaml#/expected/units` 和阶段校准运行证据，说明该阶段该守住什么；它不是运行产物，也不表示阶段已通过 |
+| 阶段标准 | 三校已有 `standards/targets/<target_id>/v1/template_generation/*.expected.yaml`，并为 T2 单独使用 `t2_unit_pagination.standard.yaml` | T2 标准只覆盖单元识别、顺序、边界范围和分页归属；它来自人工 review 和 `template_quality/final_template.expected.yaml#/expected/units`，不是运行产物，也不表示阶段已通过 |
 | 阶段检查聚合 | 当前没有统一的“阶段产物 -> 标准文件 -> 检查器 -> 状态/问题 -> 聚合报告”骨架 | 所以现在更像是有阶段产物、阶段标准和最终 gap，缺少中间统一评测入口与 verifier |
 | 合同测试 | `tests/contract/test_template_generate.py` 覆盖模板生成产物链；`tests/contract/test_real_core_generated_template_gap.py` 覆盖最终 gap | 现有测试还没有证明阶段检查聚合架构存在 |
 
@@ -85,9 +85,9 @@ docs/current/template-generation-evaluation.md  # 本文；只定义模板生成
 
 standards/
   targets/<target_id>/v1/target.standard.yaml  # 目标模板评测标准入口。
-  targets/<target_id>/v1/template_generation/  # 01-05 阶段标准；每个阶段一个文件，标准已签收，verifier 未启用。
+  targets/<target_id>/v1/template_generation/  # 模板生成阶段标准；T2 使用专用 unit/pagination 文件。
     01_source_parse.expected.yaml
-    02_structure_discovery.expected.yaml
+    t2_unit_pagination.standard.yaml
     03_generation_model.expected.yaml
     04_plan_build.expected.yaml
     05_action_execution.expected.yaml
@@ -149,7 +149,7 @@ inputs/targets/<target_id>/fixtures/template_gap/
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | `00` | `00_input_request` | 记录本次运行拿的是哪个学校原始模板、输出到哪里 | `--template` 指向的学校原始模板 Word、`--out` 输出目录 | 请求记录 JSON、源模板副本 | CLI 能写出请求记录；CLI 只接受模板输入，不接受学校标准作为生成输入 | 不适用 | 输入记录；不作为质量 verifier |
 | `01` | `01_source_parse` | 把学校原始模板 Word 解析成源 Word 事实 | `00_input_request` 里的源模板 Word | `source_template_tree.json`；说明源 Word 里实际观察到了哪些段落、表格、页眉页脚和来源序号 | 源元素有连续 `source_seq`，可以通过索引反查原始位置 | `template_generation/01_source_parse.expected.yaml` | `not_configured` |
-| `02` | `02_structure_discovery` | 从源 Word 事实识别候选 unit、logical element、角色提示和来源证据 | `source_template_tree.json` | `template_structure_candidates.json`；说明系统把哪些源元素看成候选封面、摘要、正文、说明文字或填写位 | 表格 label/value 合并、跨段落业务句合并、copy-only 内部候选和说明文字识别行为稳定 | `template_generation/02_structure_discovery.expected.yaml` | `not_configured` |
+| `T2` | `t2_unit_pagination` | 从源 Word 事实识别模板单元、单元顺序、边界范围和分页归属 | `source_template_tree.json` | `unit_map.yaml`；调试视图仍可查看 `template_structure_candidates.json` | 三校单元顺序、关键边界、source_seq 归属和分页口径有签收标准 | `template_generation/t2_unit_pagination.standard.yaml` | `not_configured` |
 | `03` | `03_generation_model` | 把候选结构整理成模板业务模型和处理策略 | `template_generation_request.json`、`template_structure_candidates.json` | `template_generation_model.json`；说明每个 unit 最终倾向复制、局部 patch、生成 slot、cleanup 或 unresolved question | whole-unit copy、references fillable、copy-only 内部 candidate materialize 等策略行为稳定 | `template_generation/03_generation_model.expected.yaml` | `not_configured` |
 | `04` | `04_plan_build` | 把生成模型转成具体 Word action 列表 | `template_generation_model.json` | `template_generation_plan.json`；说明生成器准备对 Word 做哪些动作、每个动作影响哪些源元素 | 每个 action 带 `affected_source_seq_refs[]`；copy-only 和 references 相关 action 类型稳定 | `template_generation/04_plan_build.expected.yaml` | `not_configured` |
 | `05` | `05_action_execution` | 先整包复制源 Word，再执行 action，写出生成模板和执行记录 | 源模板 Word、`template_generation_plan.json` | `generated_template.docx`、`template_generation_manifest.json`、copy-only 停点和完整执行后的 debug Word | 生成模板能写出；已有 body slot 不重复；表格说明文字能清理；无效 DOCX 会失败而不是伪装成功 | `template_generation/05_action_execution.expected.yaml` | `not_configured` |
@@ -185,8 +185,8 @@ inputs/targets/<target_id>/fixtures/template_gap/
 | --- | --- | --- | --- |
 | `01_source_parse` | `source_template_tree` | `metadata.source_template_hash`、`layers.package_global`、`layers.section_rules`、`layers.header_footer`、`layers.body_flow`、`layers.unknown_objects`、`indexes.by_source_ref`、`indexes.by_source_seq`、`warnings` | 把 Word 里的段落、表格、页眉页脚、分节、字段、编号和未知对象保存成事实证据；后续只能引用这些事实，不能改写事实 |
 | `01_source_parse` | `layers.body_flow[]` | `node_id`、`source_seq`、`source_seq_label`、`structure_layer`、`flow_item_type`、`source_ref`、`part_name`、`order`、`container_ref`、`text`、`style_details`、`structural_signals` | 给每个可见源元素一个稳定定位。`source_seq` 是后续追溯 first_bad_stage 的主锚点 |
-| `02_structure_discovery` | `template_structure_candidates` | `source_template_hash`、`input_hashes.source_template_tree`、`discovery_method`、`source_context`、`units[]`、`unknowns`、`open_questions` | 说明系统基于源事实树发现了哪些候选单元和候选逻辑元素，并绑定输入 hash |
-| `02_structure_discovery` | `units[]` / `elements[]` | `unit_id`、`name`、`order`、`status`、`candidate_policy`、`source_refs`、`source_seq_refs`、`source_range`、`source_seq_range`、`anchors`、`role_hint`、`evidence`、`entry_refs`、`merge` | 把源元素组织成候选单元和元素；`role_hint` 是候选角色，`candidate_policy` 是候选策略，还不是最终生成策略 |
+| `t2_unit_pagination` | `unit_map` | `unit_id`、`name`、`order`、`status`、`source_refs`、`source_seq_refs`、`source_range`、`source_seq_range`、`anchors`、`page`、`boundary_signals`、`open_questions` | 把源事实组织成 T2 单元和分页归属；只负责单元/边界/分页，不负责 T3 元素策略 |
+| `t2_unit_pagination` | `template_structure_candidates` 调试视图 | `source_template_hash`、`input_hashes.source_template_tree`、`discovery_method`、`source_context`、`units[]`、`unknowns`、`open_questions` | 兼作调试证据；标准入口不再使用旧结构发现标准文件 |
 | `03_generation_model` | `template_generation_model` | `input_hashes`、`provenance`、`source_context`、`units`、`unit_strategies`、`slots`、`regions`、`protected_zones`、`cleanup`、`required_fields`、`unsupported`、`unresolved_questions`、`data` | 把候选结构整理成生成模型：哪些要填、哪些要保护、哪些说明文字要清理、哪些问题还不能确定 |
 | `03_generation_model` | `units[].elements[]` | `candidate_policy`、最终 `policy`、`type`、`fill` | 保留“候选策略”和“最终策略”的差异。比如 copy-only 单元里的候选 fill 可能最终变成 fixed |
 | `04_plan_build` | `template_generation_plan` | `strategy`、`source_template_docx`、`input_hashes.template_generation_model`、`actions[]` | 把生成模型转成可执行 action，并证明 action 是从哪个模型 hash 来的 |
@@ -194,7 +194,7 @@ inputs/targets/<target_id>/fixtures/template_gap/
 | `05_action_execution` | `generated_template.docx` + `template_generation_manifest` | `input_hashes`、`output.generated_template_docx_hash`、`slots`、`generated_fields`、`page_breaks`、`section_breaks`、`synthesized_texts`、`actions_executed`、`actions_requiring_review`、`debug_snapshot` | 证明 action 实际执行了什么，输出 Word 的 hash 是什么，是否有需要人工复核的动作 |
 | `06_final_template_gap` | `generated_template_tree` + `template_gap_report` | `generated_template.path/source_path/sha256`、`standard.path/sha256`、`input`、`units[]`、`global_checks`、`unmodeled_objects`、`summary`、`coverage` | 读取最终 Word 的实际结构，并和学校 `final_template.expected.yaml` 比对，输出真正的阻断状态 |
 
-01-05 的阶段标准文件也有自己的字段层次。它们不是运行产物，而是未来 verifier 的裁判口径：
+模板生成阶段标准文件也有自己的字段层次。它们不是运行产物，而是未来 verifier 的裁判口径：
 
 | 标准字段 | 含义 |
 | --- | --- |
@@ -202,19 +202,19 @@ inputs/targets/<target_id>/fixtures/template_gap/
 | `standard_state`、`verifier_state`、`gate_enabled` | 说明标准已存在，但检查器是否启用；现在 01-05 是 `signed_pending_verifier` + `not_configured` + `false` |
 | `review_metadata` | 谁 review、来源在哪里、为什么改、是否允许自动更新 |
 | `accepted_source_facts` | 绑定人工 review、源模板 Word、上游 `final_template.expected.yaml` 和 hash |
-| `expected.final_review_unit_order` | 人工签收的最终单元顺序 |
+| `expected.final_review_unit_order` | 通用阶段标准中的人工签收最终单元顺序；T2 专用标准改用 `expected.unit_order` |
 | `expected.final_review_unit_summaries` | 每个单元的名称、顺序、状态、策略、元素数量和处理口径摘要 |
 | `expected.final_review_policy_groups` | manual_only、fillable、generated、template_default、fixed/protected 等单元分组 |
 | `expected.stage_boundary` | 这个阶段读什么、写什么、检查什么、不允许做什么 |
 | `expected.verifier_requirements` | 这个阶段未来 verifier 最少要检查哪些字段 |
 | `dimensions[]` | 将来 verifier 可直接执行的比较维度，例如 exact、subset、ordered_sequence |
 
-未来 01-05 verifier 的检测逻辑应该按这个顺序走：
+未来阶段 verifier 的检测逻辑应该按这个顺序走：
 
 | 阶段 | 应该怎么检测 | 出错时怎么判 |
 | --- | --- | --- |
-| `01_source_parse` | 读取 `01_source_parse.yaml` 和 `source_template_tree.json`；检查 `artifact_type`、源模板 hash、必需事实类别 `paragraphs/tables/headers_footers/sections/fields/numbering_definitions/unknown_objects`、`source_seq` 连续性、`source_ref` 和索引可回查 | 文件缺失、hash 对不上、必需事实类别缺失或定位字段缺失应为 `UNKNOWN`；事实明显不完整时可为 `FAIL` |
-| `02_structure_discovery` | 读取 `02_structure_discovery.yaml` 和 `template_structure_candidates.json`；检查候选 `unit_id` 顺序是否覆盖 `expected.final_review_unit_order`，元素是否保留 `source_seq_refs`、`role_hint`、`evidence`，合并关系是否可追溯 | 无法证明候选来自源事实时 `UNKNOWN`；候选单元边界、manual_only/fillable/generated 分组明显错时 `FAIL` |
+| `01_source_parse` | 读取 `01_source_parse.expected.yaml` 和 `source_template_tree.json`；检查 `artifact_type`、源模板 hash、必需事实类别 `paragraphs/tables/headers_footers/sections/fields/numbering_definitions/unknown_objects`、`source_seq` 连续性、`source_ref` 和索引可回查 | 文件缺失、hash 对不上、必需事实类别缺失或定位字段缺失应为 `UNKNOWN`；事实明显不完整时可为 `FAIL` |
+| `t2_unit_pagination` | 读取 `t2_unit_pagination.standard.yaml` 和 `unit_map.yaml`；检查单元顺序、边界、关键 `source_seq_refs` 和分页口径是否符合三校标准 | 无法证明单元来自源事实时 `UNKNOWN`；单元边界、顺序或分页归属明显错时 `FAIL` |
 | `03_generation_model` | 读取 `03_generation_model.yaml` 和 `template_generation_model.json`；检查 `candidate_policy` 到最终 `policy` 的转换、`unit_strategies`、`slots`、`protected_zones`、`cleanup` 是否符合人工 review 的 status/policy/handling | 策略证据缺失为 `UNKNOWN`；把 manual_only 当 fill、把说明文字保留进最终模板等为 `FAIL` |
 | `04_plan_build` | 读取 `04_plan_build.yaml` 和 `template_generation_plan.json`；检查每个修改型 action 是否有 `affected_source_seq_refs`、`unit_id`、`action_type`、`reason`，cleanup 是否有 review 依据，protected/manual_only 单元是否被越界修改 | action 无法回溯来源为 `UNKNOWN`；生成越界删除、替换或 slot action 为 `FAIL` |
 | `05_action_execution` | 读取 `05_action_execution.yaml`、`generated_template.docx`、`template_generation_manifest.json` 和 debug 停点；检查输出文件存在且 hash 绑定，manifest 是否绑定所有输入 hash，`actions_executed` 是否保留来源，是否有 `actions_requiring_review` | 缺 Word、缺 manifest 或 hash 不一致为 `UNKNOWN`；执行记录和 plan 明显不一致为 `FAIL` |
@@ -223,7 +223,7 @@ inputs/targets/<target_id>/fixtures/template_gap/
 这里有两个关键约束：
 
 - 阶段产物字段是证据链，不是越多越好。新增字段必须说明生产者、消费者、门禁影响、缺失后果和 AI 边界。
-- 01-05 标准文件现在只是“裁判口径已经写下来了”，不是“裁判已经开始执法”。真正执法要等阶段 verifier 和聚合入口接入。
+- 模板生成阶段标准文件现在只是“裁判口径已经写下来了”，不是“裁判已经开始执法”。真正执法要等阶段 verifier 和聚合入口接入。
 
 ## 产品评测能力和测试代码边界
 
@@ -280,14 +280,14 @@ inputs/targets/<target_id>/fixtures/template_gap/
 
 ## 阶段标准文件
 
-一句话结论：01-05 现在是每个阶段一个人工签收标准文件，不再共用一个 `template_generation_stage_contract.yaml`；每个文件都绑定三校人工 review、上游 `final_template.expected.yaml#/expected/units`，以及本次正式 `template-generate` 运行观察到的对应阶段产物 hash。
+一句话结论：模板生成阶段标准不再共用一个 `template_generation_stage_contract.yaml`；T2 不再沿用旧结构发现阶段标准，而是使用专用 `t2_unit_pagination.standard.yaml`。
 
-当前每所真实学校都有五份：
+当前每所真实学校登记这些文件：
 
 ```text
 standards/targets/<target_id>/v1/template_generation/
   01_source_parse.expected.yaml
-  02_structure_discovery.expected.yaml
+  t2_unit_pagination.standard.yaml
   03_generation_model.expected.yaml
   04_plan_build.expected.yaml
   05_action_execution.expected.yaml
@@ -299,10 +299,10 @@ standards/targets/<target_id>/v1/template_generation/
 
 | 字段 | 含义 | 生产者 | 消费者 | 判定影响 | 缺失后果 | AI 边界 |
 | --- | --- | --- | --- | --- | --- | --- |
-| `baseline_type` | 标明这是模板生成阶段标准，固定为 `template_generation_stage_contract` | 人工 review 转成签收标准时写入 | 阶段检查聚合、合同测试、人工排查 | 不直接决定 `PASS`；用于确认文件类型 | 类型缺失或错误时应为 `UNKNOWN` | AI 可解释，不能擅自改类型 |
-| `stage_id` | 说明这个文件只对应哪一个阶段，例如 `02_structure_discovery` | 标准整理流程 | 阶段检查聚合、对应阶段 verifier | 防止拿错阶段标准 | 缺失或和登记键不一致时应为 `UNKNOWN` | AI 只能解释 |
+| `baseline_type` | 标明标准类型；通用阶段为 `template_generation_stage_contract`，T2 专用标准为 `template_generation_t2_unit_pagination` | 人工 review 转成签收标准时写入 | 阶段检查聚合、合同测试、人工排查 | 不直接决定 `PASS`；用于确认文件类型 | 类型缺失或错误时应为 `UNKNOWN` | AI 可解释，不能擅自改类型 |
+| `stage_id` | 说明这个文件只对应哪一个阶段；T2 专用标准固定写 `T2` | 标准整理流程 | 阶段检查聚合、对应阶段 verifier | 防止拿错阶段标准 | 缺失或和登记键不一致时应为 `UNKNOWN` | AI 只能解释 |
 | `accepted_source_facts.*` | 绑定人工 review、源模板 Word、上游 `../template_quality/final_template.expected.yaml`、本次校准运行产物路径和 hash | 标准整理流程 | 阶段检查聚合、审计、人工复核 | 证明标准来自已签收人工材料和已生成阶段产物 | 缺失或 hash 不一致时应为 `UNKNOWN` | AI 只能引用，不能补造 hash |
-| `expected.final_review_unit_order` | 从人工 review 的单元顺序抽出的目标单元顺序 | `final_template.expected.yaml#/expected/units` | `02_structure_discovery` 到 `05_action_execution` verifier | 后续 verifier 启用后可参与 `FAIL` / `UNKNOWN` | 缺失时无法检查单元顺序，应为 `UNKNOWN` | AI 不能把当前运行结果反写进标准 |
+| `expected.unit_order` | T2 专用标准中的目标单元顺序 | `final_template.expected.yaml#/expected/units` | `t2_unit_pagination` verifier | 后续 verifier 启用后可参与 `FAIL` / `UNKNOWN` | 缺失时无法检查单元顺序，应为 `UNKNOWN` | AI 不能把当前运行结果反写进标准 |
 | `expected.final_review_policy_groups` | 从人工 review 的元素策略抽出的 manual_only、fillable、generated、template_default 等单元分组 | `final_template.expected.yaml#/expected/units` | `02` 到 `04` verifier、first_bad_stage 排查 | 后续用于检查候选角色、模型策略和 plan action 是否越界 | 缺失时不能证明策略边界，应为 `UNKNOWN` | AI 只能解释策略，不裁定通过 |
 | `expected.verifier_requirements` | 这个阶段的最小检查口径 | 人工 review、最终单元标准、阶段边界 | 对应阶段 verifier | 标准存在但 `verifier_state=not_configured` 时不能 `PASS` | 阶段要求缺失时该阶段应为 `missing_standard/UNKNOWN` | AI 可指出缺口，不能补造裁判结果 |
 | `expected.calibration_observation` | 本次正式业务流程产物的观察摘要，例如当前候选单元、action 数量、缺失最终单元 | `template-generate` 校准运行 + 人工整理 | 人工排查、first_bad_stage 定位 | 这是校准证据，不是通过证据 | 缺失时仍可保留标准，但无法复核这次校准运行 | AI 可解释，不能把观察值当标准通过 |
@@ -315,7 +315,7 @@ standards/targets/<target_id>/v1/template_generation/
 | verifier 阶段 | 检查对象 | 当前检查状态 | 当前建议 |
 | --- | --- | --- | --- |
 | `01_source_parse` | `source_template_tree.json` 是否完整表达源 Word 事实 | `standard_defined_pending_verifier`；verifier 仍是 `not_configured` | 读取 `template_generation/01_source_parse.expected.yaml` 后，检查源 Word 事实、hash、`source_seq`、`source_ref` |
-| `02_structure_discovery` | `template_structure_candidates.json` 是否正确识别候选 unit 和 logical element | `standard_defined_pending_verifier`；verifier 仍是 `not_configured` | 对照 `expected.final_review_unit_order`、`final_review_policy_groups` 和 `source_seq_refs[]` 检查候选边界 |
+| `t2_unit_pagination` | `unit_map.yaml` 是否正确识别单元、顺序、边界范围和分页归属 | `standard_defined_pending_verifier`；verifier 仍是 `not_configured` | 对照 `expected.unit_order`、`expected.units[].boundary`、`expected.units[].page` 和 `source_seq_refs[]` 检查 T2 |
 | `03_generation_model` | `template_generation_model.json` 是否把候选结构转成正确策略 | `standard_defined_pending_verifier`；verifier 仍是 `not_configured` | 对照人工 review 的 unit status/policy/handling 检查策略，不把启发式当签收结论 |
 | `04_plan_build` | `template_generation_plan.json` 是否完整表达要执行的 Word action | `standard_defined_pending_verifier`；verifier 仍是 `not_configured` | 检查 action 来源、protected/manual_only 边界和 cleanup 依据 |
 | `05_action_execution` | `generated_template.docx` 和 `template_generation_manifest.json` 是否与 plan 对齐 | `standard_defined_pending_verifier`；verifier 仍是 `not_configured` | 检查 manifest/hash/action 执行证据，并把最终质量交给 `06_final_template_gap` |
@@ -323,7 +323,7 @@ standards/targets/<target_id>/v1/template_generation/
 
 这张表的重点是先把“有产物”和“产物已验收”分开。前五个阶段现在可以有产物、可以有 debug、可以被人工排查，但不能因为命令跑完就算阶段验证通过。
 
-阶段清单的输入应该来自同一个 artifact bundle。比如 `02_structure_discovery` 读取的 `source_template_tree.json`，必须和 `05_action_execution` 的 manifest 指向同一次源模板运行；如果聚合入口只能找到零散文件但不能证明它们属于同一次 run，状态应是 `UNKNOWN`，不是自动拼起来继续判定。
+阶段清单的输入应该来自同一个 artifact bundle。比如 `t2_unit_pagination` 读取的 `unit_map.yaml`，必须和 `05_action_execution` 的 manifest 指向同一次源模板运行；如果聚合入口只能找到零散文件但不能证明它们属于同一次 run，状态应是 `UNKNOWN`，不是自动拼起来继续判定。
 
 ## 聚合状态规则
 
@@ -366,7 +366,7 @@ standards/targets/<target_id>/v1/template_generation/
 | --- | --- | --- | --- | --- |
 | `tests/contract/test_template_generate.py` | 11 个测试 | `00` 到 `05`，以及 `99` debug index | 模板生成能写出完整产物链、debug 编号稳定、`source_seq` 可追踪、阶段二合并和 copy-only 策略行为稳定 | 不证明 `01` 到 `05` 已经有独立 verifier；不证明最终 Word 符合学校标准 |
 | `tests/contract/test_real_core_generated_template_gap.py` | 33 个测试 | `06_final_template_gap` | 最终 `template-gap` 能对真实学校和聚焦 fixture 输出 `PASS` / `FAIL` / `UNKNOWN`，并写出 tree 和报告 | 不证明 `01` 到 `05` 的中间产物已经逐阶段验收 |
-| `tests/contract/test_real_core_baseline_harness.py` | 覆盖 real-core 标准登记 | 三校标准入口 | 15 个 `template_generation/*.expected.yaml` 存在、可解析、绑定到 `target.standard.yaml`，并且 `not_configured` 不会被写成 `PASS` | 不证明阶段 verifier 已经实现 |
+| `tests/contract/test_real_core_baseline_harness.py` | 覆盖 real-core 标准登记 | 三校标准入口 | 三校各 5 个模板生成标准入口存在、可解析、绑定到 `target.standard.yaml`；其中 T2 为 `t2_unit_pagination.standard.yaml`，并且 `not_configured` 不会被写成 `PASS` | 不证明阶段 verifier 已经实现 |
 
 按阶段看当前测试输入输出：
 
@@ -374,7 +374,7 @@ standards/targets/<target_id>/v1/template_generation/
 | --- | --- | --- |
 | `00_input_request` | 测试临时生成的学校模板 DOCX；CLI 参数 `--template`、`--out` | 请求 JSON、summary、debug 00 文件存在；CLI 不接受 `--school` |
 | `01_source_parse` | 测试模板 DOCX 里的段落和表格 | `source_template_tree.json` 存在，`source_seq` 连续，`indexes.by_source_seq` 可反查 |
-| `02_structure_discovery` | `source_template_tree.json` 里的可见节点 | `template_structure_candidates.json` 里有 unit、element、`source_seq_refs[]`、`merge.type`、`role_hint` |
+| `t2_unit_pagination` | `source_template_tree.json` 里的可见节点 | `unit_map.yaml` 里有 unit、`source_seq_refs[]`、边界和分页口径；`template_structure_candidates.json` 只作为调试视图 |
 | `03_generation_model` | `template_structure_candidates.json` 和 request | `template_generation_model.json` 里有 `unit_strategies[]`、最终 `policy`、`slots[]`、`cleanup[]` |
 | `04_plan_build` | `template_generation_model.json` | `template_generation_plan.json` 里 action 类型正确，并带 `affected_source_seq_refs[]` |
 | `05_action_execution` | 源模板 DOCX 和 `template_generation_plan.json` | `generated_template.docx`、manifest、`05.0`、`05.1`、`05.2` 存在；说明文字被清理；slot 行为正确 |
@@ -387,7 +387,7 @@ standards/targets/<target_id>/v1/template_generation/
 | --- | --- |
 | 阶段清单稳定 | 报告里列出 `01_source_parse` 到 `06_final_template_gap` |
 | 阶段标准入口稳定 | 三校 `target.standard.yaml` 都引用 `template_generation/01_source_parse.expected.yaml` 到 `05_action_execution.expected.yaml` |
-| 阶段标准不伪装成通过 | 标准文件里 `gate_policy.not_configured_is_not_pass = true`，01-05 的 `gate_enabled = false` |
+| 阶段标准不伪装成通过 | 标准文件里明确 `verifier_state = not_configured`、`gate_enabled = false`，未启用检查器不算 PASS |
 | 未配置阶段不伪装成通过 | `verifier_state = not_configured` 时没有 `status = PASS` |
 | 最终 gap 作为示例接入 | `06_final_template_gap` 能复用现有 gap 检查结果 |
 | 已有产物包复用 | 给定一个已有 `template-generate` run 目录时，聚合检查读取现有文件，不重新调用生成器 |
@@ -397,11 +397,11 @@ standards/targets/<target_id>/v1/template_generation/
 
 ## 当前最小落地顺序
 
-1. 已完成：三校 01-05 阶段标准已拆成 `template_generation/*.expected.yaml`，并在 `target.standard.yaml` 中登记。
+1. 已完成：三校模板生成阶段标准已拆成 `template_generation/*.expected.yaml` 和 `t2_unit_pagination.standard.yaml`，并在 `target.standard.yaml` 中登记。
 2. 下一步定义“已有 `template-generate` run 目录 / artifact bundle”作为阶段检查聚合的输入。
 3. 新增阶段检查聚合结构，只登记阶段、产物路径、hash、标准路径和检查状态。
 4. 把现有 `template-gap` 挂成 `06_final_template_gap` 的第一个已启用检查器，并让它消费同一个 bundle 里的 `generated_template.docx`。
-5. 让 01-05 未配置 verifier 的阶段明确显示 `not_configured`，不参与 gate，也不显示成 `PASS`。
+5. 让未配置 verifier 的阶段明确显示 `not_configured`，不参与 gate，也不显示成 `PASS`。
 6. 每补一个检查器，都补合同测试证明它的 `PASS` / `FAIL` / `UNKNOWN` 行为，以及复用已有产物时不会偷偷重跑生成器。
 
 这样做的目的不是把架构写大，而是防止两个误判：一是最终 gap 失败时不知道从哪里追；二是中间阶段只有产物却被误认为已经验收通过。

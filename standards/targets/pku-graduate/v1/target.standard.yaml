@@ -23,7 +23,7 @@ evidence_baselines:
   template_generation_final: template_quality/final_template.expected.yaml
   template_generation_stages:
     01_source_parse: template_generation/01_source_parse.expected.yaml
-    02_structure_discovery: template_generation/02_structure_discovery.expected.yaml
+    t2_unit_pagination: template_generation/t2_unit_pagination.standard.yaml
     03_generation_model: template_generation/03_generation_model.expected.yaml
     04_plan_build: template_generation/04_plan_build.expected.yaml
     05_action_execution: template_generation/05_action_execution.expected.yaml

@@ -48,7 +48,7 @@ def test_real_core_profile_declares_fixed_case_matrix() -> None:
 def test_real_core_template_generation_stage_standards_are_registered() -> None:
     expected_stage_refs = {
         "01_source_parse": "template_generation/01_source_parse.expected.yaml",
-        "02_structure_discovery": "template_generation/02_structure_discovery.expected.yaml",
+        "t2_unit_pagination": "template_generation/t2_unit_pagination.standard.yaml",
         "03_generation_model": "template_generation/03_generation_model.expected.yaml",
         "04_plan_build": "template_generation/04_plan_build.expected.yaml",
         "05_action_execution": "template_generation/05_action_execution.expected.yaml",
@@ -71,6 +71,9 @@ def test_real_core_template_generation_stage_standards_are_registered() -> None:
 
         assert stage_contract_refs == expected_stage_refs
         assert not (school_dir / "template_generation_stage_contract.yaml").exists()
+        assert not (
+            school_dir / "template_generation/02_structure_discovery.expected.yaml"
+        ).exists()
 
         for stage_id, stage_contract_ref in expected_stage_refs.items():
             stage_contract_path = school_dir / stage_contract_ref
@@ -78,20 +81,30 @@ def test_real_core_template_generation_stage_standards_are_registered() -> None:
                 stage_contract_path.read_text(encoding="utf-8")
             )
 
-            assert stage_contract["baseline_type"] == "template_generation_stage_contract"
+            if stage_id == "t2_unit_pagination":
+                assert (
+                    stage_contract["baseline_type"]
+                    == "template_generation_t2_unit_pagination"
+                )
+                assert stage_contract["stage_id"] == "T2"
+                assert stage_contract["artifact_under_test"] == "unit_map"
+                assert stage_contract["legacy_compatibility"] is False
+                assert stage_contract["expected"]["unit_order"] == [
+                    unit["unit_id"] for unit in template_generation_final["expected"]["units"]
+                ]
+            else:
+                assert stage_contract["baseline_type"] == "template_generation_stage_contract"
+                assert stage_contract["stage_id"] == stage_id
+                assert stage_contract["accepted_source_facts"][
+                    "upstream_template_generation_final"
+                ] == "../template_quality/final_template.expected.yaml"
+                assert stage_contract["expected"]["final_review_unit_order"] == [
+                    unit["unit_id"] for unit in template_generation_final["expected"]["units"]
+                ]
+                assert stage_contract["expected"]["artifact_type"]
             assert stage_contract["school_id"] == school_id
-            assert stage_contract["stage_id"] == stage_id
-            assert stage_contract["standard_scope"] == "single_template_generation_stage"
             assert stage_contract["verifier_state"] == "not_configured"
             assert stage_contract["gate_enabled"] is False
-            assert stage_contract["gate_policy"]["not_configured_is_not_pass"] is True
-            assert stage_contract["accepted_source_facts"][
-                "upstream_template_generation_final"
-            ] == "../template_quality/final_template.expected.yaml"
-            assert stage_contract["expected"]["final_review_unit_order"] == [
-                unit["unit_id"] for unit in template_generation_final["expected"]["units"]
-            ]
-            assert stage_contract["expected"]["artifact_type"]
             assert validate_baseline_document(stage_contract, stage="standards") == []
 
 

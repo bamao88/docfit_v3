@@ -1,0 +1,248 @@
+baseline_type: template_generation_t2_unit_pagination
+profile_id: real-core-v0
+school_id: nannong-undergraduate
+stage_id: T2
+standard_id: nannong-undergraduate-v1-template-generation-t2-unit-pagination
+standard_scope: single_template_generation_t2_unit_pagination
+standard_state: signed_pending_verifier
+verifier_state: not_configured
+gate_enabled: false
+artifact_under_test: unit_map
+legacy_compatibility: false
+review_metadata:
+  reviewed_by: user-reviewed-source-fact-packet
+  review_source: docs/human/real-core-v0-review-packet.md#source-nannong-undergraduate
+  source_docx_sha256: sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536
+  change_reason: split T2 unit and pagination standard from the legacy structure discovery stage contract
+  auto_update_allowed: false
+accepted_source_facts:
+  review_packet: docs/human/real-core-v0-review-packet.md
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  source_section_id: nannong-undergraduate
+  source_section_sha256: sha256:a4bdd5a4cb6cfcf9ad6396586c9330381681d50e998675ab5a8078fdbd83025f
+  template_docx: inputs/targets/nannong-undergraduate/raw/source_template.docx
+  template_docx_sha256: sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536
+  upstream_template_generation_final: ../template_quality/final_template.expected.yaml
+scope:
+  - unit_detection
+  - unit_order
+  - unit_boundary
+  - unit_source_seq_range
+  - unit_page_policy
+expected:
+  unit_order:
+    - cover
+    - originality_statement
+    - authorization_statement
+    - toc
+    - abstract_cn
+    - abstract_en
+    - body_main
+    - references
+    - appendix
+    - academic_achievements
+    - acknowledgement
+  units:
+    - unit_id: cover
+      name: 封面
+      status: required
+      policy: fixed
+      anchors:
+        title_aliases: [封面, 本科生毕业论文, 本科生毕业论文（设计）]
+        start_title: 本科生毕业论文（设计）
+        stop_before: 原创性声明
+      boundary:
+        expected_start: document_start
+        expected_end: before_next_unit
+      page:
+        page_break: document_start
+        page_isolation: true
+        allow_multi_page: false
+        keep_together: true
+      notes: 封面是 1x1 表格固定模块，当前阶段不填字段。
+    - unit_id: originality_statement
+      name: 原创性声明
+      status: manual_only
+      policy: manual_only
+      anchors:
+        title_aliases: [原创性声明, 南京农业大学本科生毕业论文（设计）原创性声明]
+        start_title: 南京农业大学本科生毕业论文（设计）原创性声明
+        stop_before: 使用授权声明
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: false
+        allow_multi_page: false
+        keep_together: true
+      notes: 固定声明页，不自动填写姓名、日期或签名。
+    - unit_id: authorization_statement
+      name: 使用授权声明
+      status: manual_only
+      policy: manual_only
+      anchors:
+        title_aliases: [使用授权声明, 南京农业大学本科生毕业论文（设计）使用授权声明]
+        start_title: 南京农业大学本科生毕业论文（设计）使用授权声明
+        stop_before: 目录
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: false
+        page_isolation: true
+        allow_multi_page: false
+        keep_together: true
+      notes: 允许与原创性声明同页连续出现，但作为独立 T2 单元识别。
+    - unit_id: toc
+      name: 目录
+      status: required
+      policy: generated
+      anchors:
+        title_aliases: [目录, 目 录]
+        start_title: 目 录
+        stop_before: 摘要
+      boundary:
+        expected_start: anchor_based
+        expected_end: after_last_toc_entry
+      page:
+        page_break: true
+        page_isolation: true
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 南农目录位于中英文摘要之前，目录条目不得触发正文或后置单元。
+    - unit_id: abstract_cn
+      name: 中文摘要
+      status: required
+      policy: fill
+      anchors:
+        title_aliases: [摘要, 摘 要, 中文摘要]
+        start_title: 摘 要
+        stop_before: ABSTRACT
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 中文题名、摘 要、摘要正文和关键词标签属于中文摘要单元。
+    - unit_id: abstract_en
+      name: 英文摘要
+      status: required
+      policy: fill
+      anchors:
+        title_aliases: [ABSTRACT, TITLE, KEY WORDS]
+        start_title: ABSTRACT
+        stop_before: 正文主体
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 英文题名和 ABSTRACT/KEY WORDS 属于英文摘要单元，不应拆成 custom 单元。
+    - unit_id: body_main
+      name: 正文主体
+      status: required
+      policy: fill
+      anchors:
+        title_aliases: [第一章, 文献综述, 正文, 第X章 结论与展望]
+        start_title: 第一章 文献综述
+        stop_before: 参考文献
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: “第X章 结论与展望”是正文固定结尾章类型，仍归入 body_main。
+    - unit_id: references
+      name: 参考文献
+      status: required
+      policy: fill
+      anchors:
+        title_aliases: [参考文献, References]
+        start_title: 参考文献
+        stop_before: 附录
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 参考文献必须在附录、成果目录和致谢之前结束。
+    - unit_id: appendix
+      name: 附录
+      status: template_default_optional
+      policy: template_default_optional
+      anchors:
+        title_aliases: [附录, 附 录, Appendix]
+        start_title: 附 录
+        stop_before: 相关的学术成果目录
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 源模板标注此项非必需项，审阅输出默认保留。
+    - unit_id: academic_achievements
+      name: 相关的学术成果目录
+      status: template_default_optional
+      policy: template_default_optional
+      anchors:
+        title_aliases: [相关的学术成果目录, 学术成果目录, 学术成果]
+        start_title: 相关的学术成果目录
+        stop_before: 致谢
+      boundary:
+        expected_start: anchor_based
+        expected_end: before_next_unit
+      page:
+        page_break: true
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 该页不得被 references 或 appendix 吞并。
+    - unit_id: acknowledgement
+      name: 致谢
+      status: template_default
+      policy: fixed
+      anchors:
+        title_aliases: [致谢, 致 谢, Acknowledgement]
+        start_title: 致谢
+        stop_before: document_end
+      boundary:
+        expected_start: anchor_based
+        expected_end: document_end
+      page:
+        page_break: true
+        page_isolation: false
+        allow_multi_page: true
+        keep_together: local_groups_only
+      notes: 默认保留学校模板中的致谢模块；无学生内容时保留占位和评论。
+dimensions:
+  - dimension_id: template_generation.t2.artifact_under_test
+    required: true
+    comparator_mode: exact
+    expected_path: artifact_under_test
+    actual_path: artifact_under_test
+  - dimension_id: template_generation.t2.unit_order
+    required: true
+    comparator_mode: ordered_sequence
+    expected_path: expected.unit_order
+    actual_path: unit_order
+  - dimension_id: template_generation.t2.legacy_compatibility
+    required: true
+    comparator_mode: exact
+    expected_path: legacy_compatibility
+    actual_path: legacy_compatibility
