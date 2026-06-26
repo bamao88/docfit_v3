@@ -1,0 +1,104 @@
+baseline_type: template_generation_t4_global_layout
+profile_id: real-core-v0
+school_id: hunannongye
+stage_id: T4
+standard_id: hunannongye-v1-template-generation-t4-global-layout
+standard_scope: single_template_generation_t4_global_layout
+standard_state: signed_pending_verifier
+verifier_state: not_configured
+gate_enabled: false
+artifact_under_test: global_spec
+legacy_compatibility: false
+review_metadata:
+  reviewed_by: user-reviewed-source-fact-packet
+  review_source: docs/human/real-core-v0-review-packet.md#source-hunannongye
+  source_docx_sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
+  change_reason: split T4 global layout standard from the legacy plan build stage contract
+  auto_update_allowed: false
+accepted_source_facts:
+  review_packet: docs/human/real-core-v0-review-packet.md
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  source_section_id: hunannongye
+  source_section_sha256: sha256:e3a0d411c694df992467c6dfc009125192be56ba265a3e240405879fc5d264b3
+  template_docx: inputs/targets/hunannongye/raw/source_template.docx
+  template_docx_sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
+  upstream_t2_standard: template_generation/t2_unit_pagination.standard.yaml
+  upstream_template_generation_final: ../template_quality/final_template.expected.yaml
+scope:
+  - section_profiles
+  - section_boundaries
+  - page_setup
+  - page_numbering
+  - header_footer_policy
+  - numbering_rules
+  - unit_page_policy_binding
+expected:
+  unit_order:
+    - cover
+    - integrity_statement
+    - toc
+    - body_title_block
+    - abstract_cn
+    - abstract_en
+    - body_main
+    - references
+    - acknowledgement
+    - appendix
+    - design_task
+    - proposal
+    - proposal_record
+    - defense_record
+    - topic_change_approval
+    - grade_form
+  layout_policy:
+    page_policy_source: template_generation/t2_unit_pagination.standard.yaml
+    document_start_units:
+      - cover
+    standalone_units:
+      - cover
+      - integrity_statement
+      - toc
+      - design_task
+      - proposal
+      - proposal_record
+      - defense_record
+      - topic_change_approval
+      - grade_form
+    flowing_units:
+      - body_title_block
+      - abstract_cn
+      - abstract_en
+      - body_main
+      - references
+      - acknowledgement
+      - appendix
+  global_layout_contract:
+    artifact_type: global_spec
+    section_profiles_required: true
+    section_profile_ids_unique: true
+    section_boundaries_must_trace_to_source_seq: true
+    page_numbering_display_status_required: true
+    detected_page_numbering_requires_page_field_evidence: true
+    no_page_field_requires_checked_scope: true
+    header_footer_refs_must_resolve_to_parsed_parts: true
+    numbering_rules_must_be_preserved_from_document_facts: true
+    must_not_change_t2_unit_order: true
+    notes:
+      - T4 只解释全局页面、分节、页眉页脚、页码和编号事实，不给元素分配 fill/manual/generated 策略。
+      - 湖南农大后置表单需要独立页策略；正文题名、摘要、正文、参考文献、致谢和附录可连续流动。
+dimensions:
+  - dimension_id: template_generation.t4.artifact_under_test
+    required: true
+    comparator_mode: exact
+    expected_path: artifact_under_test
+    actual_path: artifact_under_test
+  - dimension_id: template_generation.t4.unit_order
+    required: true
+    comparator_mode: ordered_sequence
+    expected_path: expected.unit_order
+    actual_path: unit_order
+  - dimension_id: template_generation.t4.legacy_compatibility
+    required: true
+    comparator_mode: exact
+    expected_path: legacy_compatibility
+    actual_path: legacy_compatibility

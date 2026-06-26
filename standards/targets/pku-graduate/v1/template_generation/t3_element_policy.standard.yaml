@@ -1,0 +1,115 @@
+baseline_type: template_generation_t3_element_policy
+profile_id: real-core-v0
+school_id: pku-graduate
+stage_id: T3
+standard_id: pku-graduate-v1-template-generation-t3-element-policy
+standard_scope: single_template_generation_t3_element_policy
+standard_state: signed_pending_verifier
+verifier_state: not_configured
+gate_enabled: false
+artifact_under_test: element_spec
+legacy_compatibility: false
+review_metadata:
+  reviewed_by: user-reviewed-source-fact-packet
+  review_source: docs/human/real-core-v0-review-packet.md#source-pku-graduate
+  source_docx_sha256: sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14
+  change_reason: split T3 element policy standard from the legacy generation model stage contract
+  auto_update_allowed: false
+accepted_source_facts:
+  review_packet: docs/human/real-core-v0-review-packet.md
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  source_section_id: pku-graduate
+  source_section_sha256: sha256:c4067e225d83e45fc96b9ae82f6a222f6315c8d32ff7c7618d2fc21cb8ea4638
+  template_docx: inputs/targets/pku-graduate/raw/source_template.docx
+  template_docx_sha256: sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14
+  upstream_t2_standard: template_generation/t2_unit_pagination.standard.yaml
+  upstream_template_generation_final: ../template_quality/final_template.expected.yaml
+scope:
+  - element_detection
+  - element_order
+  - element_policy
+  - fill_source
+  - manual_semantics
+  - generated_field_semantics
+  - instruction_cleanup
+  - element_source_trace
+expected:
+  unit_order:
+    - cover
+    - copyright_notice
+    - abstract_cn
+    - abstract_en
+    - toc
+    - figure_list
+    - table_list
+    - body_main
+    - references
+    - academic_achievements
+    - acknowledgement
+    - originality_authorization_statement
+  policy_groups:
+    fixed_units:
+      - cover
+    manual_only_units:
+      - copyright_notice
+      - originality_authorization_statement
+    fill_units:
+      - abstract_cn
+      - abstract_en
+      - body_main
+      - references
+    generated_units:
+      - toc
+      - figure_list
+      - table_list
+    template_default_optional_units:
+      - academic_achievements
+      - acknowledgement
+  element_policy_contract:
+    artifact_type: element_spec
+    allowed_policies:
+      - fixed
+      - template_default
+      - fill
+      - manual_only
+      - generated
+      - instruction_remove
+    required_fields_by_policy:
+      fill:
+        - fill_source
+        - source_refs
+        - source_seq_refs
+      manual_only:
+        - manual_semantics
+        - source_refs
+        - source_seq_refs
+      generated:
+        - generated.field_type
+        - source_refs
+      instruction_remove:
+        - source_refs
+        - source_seq_refs
+    unit_boundary_policy:
+      source_unit_order_must_match_t2: true
+      manual_only_units_must_not_materialize_fill_slots: true
+      generated_units_must_declare_field_type: true
+      instruction_text_must_be_instruction_remove_or_fixed_evidence: true
+    notes:
+      - 北大研究生图目录、表目录和目录均为 generated 单元，不得被误判为正文小节。
+      - 版权声明、原创性声明和授权说明为 manual_only，签字、日期和授权选项不得自动填写。
+dimensions:
+  - dimension_id: template_generation.t3.artifact_under_test
+    required: true
+    comparator_mode: exact
+    expected_path: artifact_under_test
+    actual_path: artifact_under_test
+  - dimension_id: template_generation.t3.unit_order
+    required: true
+    comparator_mode: ordered_sequence
+    expected_path: expected.unit_order
+    actual_path: unit_order
+  - dimension_id: template_generation.t3.legacy_compatibility
+    required: true
+    comparator_mode: exact
+    expected_path: legacy_compatibility
+    actual_path: legacy_compatibility

@@ -49,9 +49,31 @@ def test_real_core_template_generation_stage_standards_are_registered() -> None:
     expected_stage_refs = {
         "01_source_parse": "template_generation/01_source_parse.expected.yaml",
         "t2_unit_pagination": "template_generation/t2_unit_pagination.standard.yaml",
-        "03_generation_model": "template_generation/03_generation_model.expected.yaml",
-        "04_plan_build": "template_generation/04_plan_build.expected.yaml",
-        "05_action_execution": "template_generation/05_action_execution.expected.yaml",
+        "t3_element_policy": "template_generation/t3_element_policy.standard.yaml",
+        "t4_global_layout": "template_generation/t4_global_layout.standard.yaml",
+        "t5_template_spec": "template_generation/t5_template_spec.standard.yaml",
+    }
+    expected_stage_metadata = {
+        "t2_unit_pagination": (
+            "template_generation_t2_unit_pagination",
+            "T2",
+            "unit_map",
+        ),
+        "t3_element_policy": (
+            "template_generation_t3_element_policy",
+            "T3",
+            "element_spec",
+        ),
+        "t4_global_layout": (
+            "template_generation_t4_global_layout",
+            "T4",
+            "global_spec",
+        ),
+        "t5_template_spec": (
+            "template_generation_t5_template_spec",
+            "T5",
+            "template_spec",
+        ),
     }
 
     for school in REAL_CORE_SCHOOLS:
@@ -74,6 +96,12 @@ def test_real_core_template_generation_stage_standards_are_registered() -> None:
         assert not (
             school_dir / "template_generation/02_structure_discovery.expected.yaml"
         ).exists()
+        for legacy_stage in [
+            "03_generation_model.expected.yaml",
+            "04_plan_build.expected.yaml",
+            "05_action_execution.expected.yaml",
+        ]:
+            assert not (school_dir / "template_generation" / legacy_stage).exists()
 
         for stage_id, stage_contract_ref in expected_stage_refs.items():
             stage_contract_path = school_dir / stage_contract_ref
@@ -81,13 +109,13 @@ def test_real_core_template_generation_stage_standards_are_registered() -> None:
                 stage_contract_path.read_text(encoding="utf-8")
             )
 
-            if stage_id == "t2_unit_pagination":
-                assert (
-                    stage_contract["baseline_type"]
-                    == "template_generation_t2_unit_pagination"
+            if stage_id in expected_stage_metadata:
+                expected_baseline_type, expected_stage_id, expected_artifact = (
+                    expected_stage_metadata[stage_id]
                 )
-                assert stage_contract["stage_id"] == "T2"
-                assert stage_contract["artifact_under_test"] == "unit_map"
+                assert stage_contract["baseline_type"] == expected_baseline_type
+                assert stage_contract["stage_id"] == expected_stage_id
+                assert stage_contract["artifact_under_test"] == expected_artifact
                 assert stage_contract["legacy_compatibility"] is False
                 assert stage_contract["expected"]["unit_order"] == [
                     unit["unit_id"] for unit in template_generation_final["expected"]["units"]

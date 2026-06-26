@@ -1,0 +1,113 @@
+baseline_type: template_generation_t3_element_policy
+profile_id: real-core-v0
+school_id: nannong-undergraduate
+stage_id: T3
+standard_id: nannong-undergraduate-v1-template-generation-t3-element-policy
+standard_scope: single_template_generation_t3_element_policy
+standard_state: signed_pending_verifier
+verifier_state: not_configured
+gate_enabled: false
+artifact_under_test: element_spec
+legacy_compatibility: false
+review_metadata:
+  reviewed_by: user-reviewed-source-fact-packet
+  review_source: docs/human/real-core-v0-review-packet.md#source-nannong-undergraduate
+  source_docx_sha256: sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536
+  change_reason: split T3 element policy standard from the legacy generation model stage contract
+  auto_update_allowed: false
+accepted_source_facts:
+  review_packet: docs/human/real-core-v0-review-packet.md
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  source_section_id: nannong-undergraduate
+  source_section_sha256: sha256:a4bdd5a4cb6cfcf9ad6396586c9330381681d50e998675ab5a8078fdbd83025f
+  template_docx: inputs/targets/nannong-undergraduate/raw/source_template.docx
+  template_docx_sha256: sha256:1c387b1991720ab2452284b02d9388ed6ab94ffce143468f43ac60e812331536
+  upstream_t2_standard: template_generation/t2_unit_pagination.standard.yaml
+  upstream_template_generation_final: ../template_quality/final_template.expected.yaml
+scope:
+  - element_detection
+  - element_order
+  - element_policy
+  - fill_source
+  - manual_semantics
+  - generated_field_semantics
+  - instruction_cleanup
+  - element_source_trace
+expected:
+  unit_order:
+    - cover
+    - originality_statement
+    - authorization_statement
+    - toc
+    - abstract_cn
+    - abstract_en
+    - body_main
+    - references
+    - appendix
+    - academic_achievements
+    - acknowledgement
+  policy_groups:
+    fixed_units:
+      - cover
+    manual_only_units:
+      - originality_statement
+      - authorization_statement
+    fill_units:
+      - abstract_cn
+      - abstract_en
+      - body_main
+      - references
+    generated_units:
+      - toc
+    template_default_optional_units:
+      - appendix
+      - academic_achievements
+      - acknowledgement
+  element_policy_contract:
+    artifact_type: element_spec
+    allowed_policies:
+      - fixed
+      - template_default
+      - fill
+      - manual_only
+      - generated
+      - instruction_remove
+    required_fields_by_policy:
+      fill:
+        - fill_source
+        - source_refs
+        - source_seq_refs
+      manual_only:
+        - manual_semantics
+        - source_refs
+        - source_seq_refs
+      generated:
+        - generated.field_type
+        - source_refs
+      instruction_remove:
+        - source_refs
+        - source_seq_refs
+    unit_boundary_policy:
+      source_unit_order_must_match_t2: true
+      manual_only_units_must_not_materialize_fill_slots: true
+      generated_units_must_declare_field_type: true
+      instruction_text_must_be_instruction_remove_or_fixed_evidence: true
+    notes:
+      - 南农本科原创性声明和授权声明为 manual_only；签名、日期和授权勾选不得自动填写。
+      - 学术成果、附录和致谢为模板默认可选单元；没有学生内容时不得强制生成正文 slot。
+dimensions:
+  - dimension_id: template_generation.t3.artifact_under_test
+    required: true
+    comparator_mode: exact
+    expected_path: artifact_under_test
+    actual_path: artifact_under_test
+  - dimension_id: template_generation.t3.unit_order
+    required: true
+    comparator_mode: ordered_sequence
+    expected_path: expected.unit_order
+    actual_path: unit_order
+  - dimension_id: template_generation.t3.legacy_compatibility
+    required: true
+    comparator_mode: exact
+    expected_path: legacy_compatibility
+    actual_path: legacy_compatibility

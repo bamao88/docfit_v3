@@ -38,13 +38,13 @@ Last updated: 2026-06-25
 | ID | 待核实差距 | 当前证据 | 可能 first_bad_stage | 需要核实的问题 |
 | --- | --- | --- | --- | --- |
 | TG-GAP-001 | 源模板 unit 发现粒度可能过粗 | 湖南农业真实运行中，T2 识别的 unit 仍粗；gap 标准中可定位或期望的后置单元包括 `design_task`、`proposal`、`proposal_record`、`defense_record`、`topic_change_approval`、`grade_form` 等更细单元 | `T2/t2_unit_pagination` | 源模板里这些表单标题和表格边界是否足以自动拆成独立 unit？如果足够，应该补通用 unit 发现规则；如果不足，应写入不确定性 |
-| TG-GAP-002 | copy-only / patch 策略仍主要靠全局 `unit_id` 基线 | 当前 `generation_model` 里有 4 个 `whole_unit_copy`、5 个 `copy_then_patch`；策略没有读取学生源或标准，这是正确输入边界，但源模板责任推断还不够细 | `03_generation_model` | 哪些单元只靠源模板就能判断为固定、人工填写、学生内容或系统生成？哪些必须进入 `unresolved_questions[]`？ |
-| TG-GAP-003 | `unresolved_questions[]` 过弱 | 已部分修正：`unit_map`、`element_spec`、`global_spec` 的低/中置信和内联 `UNKNOWN` 会进入 `verification_report`；但 review queue 和 gold 比对仍未完成，最终 gap 的 UNKNOWN 还没有全部前移 | `T2/t2_unit_pagination` / `03_generation_model` | 哪些 UNKNOWN 应该在生成模型阶段提前暴露为证据不足？哪些只能由最终 gap 暴露？ |
-| TG-GAP-004 | 页面/分节规则没有形成有效 action | 本次 gap 有 16 个 `template_generation_page_rule_mismatch`；本次 manifest 中 `page_breaks=0`、`section_breaks=0` | `03_generation_model` / `04_plan_build` | 源模板中是否存在可解析的分页/分节证据？如果有，计划阶段为什么没有 action？如果没有，是否应登记不确定性？ |
-| TG-GAP-005 | 样式修正能力不足或责任边界不清 | 本次 gap 有 6 个 `template_generation_style_mismatch` 和 6 个 `template_generation_style_unverified` | `01_source_parse` / `05_action_execution` / `06_final_template_gap` | 这些样式差异是源模板本身不符合目标、执行阶段没有修样式，还是 inspector 不能证明？ |
-| TG-GAP-006 | 生成结果的 unit 顺序和定位仍会偏移 | gap 报告有 `template_generation_unit_order_mismatch`；`references` 在实际识别顺序里落到后置表单之后 | `T2/t2_unit_pagination` / `05_action_execution` / `06_final_template_gap` | 是源模板 unit 边界发现错、生成 action 改变了顺序，还是 gap locator 对生成 Word 的定位错？ |
+| TG-GAP-002 | 固定/可填/manual/generated 策略仍需要更细标准对照 | 当前 `element_spec` 已表达 policy/fill_source/manual_semantics，但还没有接入三校 T3 标准 verifier | `T3/t3_element_policy` | 哪些单元只靠源模板就能判断为固定、人工填写、学生内容或系统生成？哪些必须进入 review flags？ |
+| TG-GAP-003 | `review_flags[]` / `open_questions[]` 仍需和标准聚合 | 已部分修正：`unit_map`、`element_spec`、`global_spec` 的低/中置信和内联 `UNKNOWN` 会进入 `verification_report`；但 review queue 和 gold 比对仍未完成，最终 gap 的 UNKNOWN 还没有全部前移 | `T2/t2_unit_pagination` / `T3/t3_element_policy` / `T5/t5_template_spec` | 哪些 UNKNOWN 应该在解析阶段提前暴露为证据不足？哪些只能由最终 gap 暴露？ |
+| TG-GAP-004 | 页面/分节规则还需要接入 T4 标准 | 本次 gap 有 16 个 `template_generation_page_rule_mismatch`；需要判断 `global_spec.yaml` 是否已有可解析分页/分节证据，以及 T6 是否正确构建 | `T4/t4_global_layout` / `T6/build` | 源模板中是否存在可解析的分页/分节证据？如果有，T6 为什么没有构建出来？如果没有，是否应登记不确定性？ |
+| TG-GAP-005 | 样式修正能力不足或责任边界不清 | 本次 gap 有 6 个 `template_generation_style_mismatch` 和 6 个 `template_generation_style_unverified` | `T1/document_facts` / `T4/t4_global_layout` / `T6/build` / `06_final_template_gap` | 这些样式差异是源模板本身不符合目标、构建阶段没有修样式，还是 inspector 不能证明？ |
+| TG-GAP-006 | 生成结果的 unit 顺序和定位仍会偏移 | gap 报告有 `template_generation_unit_order_mismatch`；`references` 在实际识别顺序里落到后置表单之后 | `T2/t2_unit_pagination` / `T5/t5_template_spec` / `T6/build` / `06_final_template_gap` | 是源模板 unit 边界发现错、template_spec 合并错、构建改变了顺序，还是 gap locator 对生成 Word 的定位错？ |
 | TG-GAP-007 | 阶段产物还没有独立 verifier | `01` 到 `05` 有产物和合同测试，但 `docs/current/template-generation-evaluation.md` 明确 verifier 状态仍是 `not_configured` | harness/report 层 | 是否先做一个阶段检查聚合清单，把 `not_configured`、输入、输出和可能 first_bad_stage 显示出来？ |
-| TG-GAP-008 | manifest 可读性还不足以直接解释差距 | manifest 有 action 和来源序号，但还没有 05.0 到 05.1 的 diff 摘要，也没有按问题聚合到源模板元素 | `05_action_execution` / report 层 | 人工指出“源模板元素 N 不该删/该生成 slot”时，报告是否能一跳定位到阶段二、三、四的首次判断？ |
+| TG-GAP-008 | manifest 可读性还不足以直接解释差距 | manifest 有 action 和来源序号，但还没有构建前后 diff 摘要，也没有按问题聚合到源模板元素 | `T6/build` / report 层 | 人工指出“源模板元素 N 不该删/该生成 slot”时，报告是否能一跳定位到 T2/T3/T4/T5 的首次判断？ |
 
 ## 核实顺序建议
 

@@ -27,13 +27,16 @@ fillable_template.docx + final_template.expected.yaml -> template_gap_report.*
 
 `template-gap` 里的 `generated_template` 仍是历史检查术语，含义是“被测业务生成模板”。新生成器传入的是 `fillable_template.docx`。
 
-T2 的学校标准文件使用专用命名，不再沿用旧数字阶段标准入口：
+模板解析阶段的学校标准文件使用专用命名，不再沿用旧数字阶段标准入口：
 
 ```text
 standards/targets/<target_id>/v1/template_generation/t2_unit_pagination.standard.yaml
+standards/targets/<target_id>/v1/template_generation/t3_element_policy.standard.yaml
+standards/targets/<target_id>/v1/template_generation/t4_global_layout.standard.yaml
+standards/targets/<target_id>/v1/template_generation/t5_template_spec.standard.yaml
 ```
 
-这个文件只覆盖单元识别、单元顺序、边界范围和分页归属；不承载 T1/T3/T4/T5 标准，也不做旧路径兼容。
+这些文件只覆盖各自阶段：T2 是单元识别、单元顺序、边界范围和分页归属；T3 是元素策略；T4 是全局版式；T5 是 `template_spec` 合并契约。它们不做旧路径兼容。
 
 ## 当前数据流
 

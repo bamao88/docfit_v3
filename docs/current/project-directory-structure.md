@@ -96,7 +96,11 @@ docfit_v3/
 │   ├── targets/<target_id>/<version>/
 │   │   ├── target.standard.yaml    # 入口：owner、版本、输入 hash、合同、golden、exceptions
 │   │   ├── template_parse/
-│   │   ├── template_generation/<NN_stage>.expected.yaml
+│   │   ├── template_generation/01_source_parse.expected.yaml
+│   │   ├── template_generation/t2_unit_pagination.standard.yaml
+│   │   ├── template_generation/t3_element_policy.standard.yaml
+│   │   ├── template_generation/t4_global_layout.standard.yaml
+│   │   ├── template_generation/t5_template_spec.standard.yaml
 │   │   ├── template_quality/final_template.expected.yaml
 │   │   ├── golden/
 │   │   └── exceptions.yaml
@@ -182,7 +186,7 @@ docfit_v3/
 | --- | --- |
 | `standards/schools/<x>/v1/{template,student_content,placement,render}_contract.json`（**每校重复**） | 去重后只留一份 → `standards/contracts/*.contract.json` |
 | `standards/schools/<x>/v1/signed_standard.yaml` | `standards/targets/<x>/v1/target.standard.yaml` |
-| `standards/schools/<x>/v1/template_generation_stages/0N_*.yaml` | `standards/targets/<x>/v1/template_generation/*.expected.yaml`；T2 单元/分页标准为 `template_generation/t2_unit_pagination.standard.yaml` |
+| `standards/schools/<x>/v1/template_generation_stages/0N_*.yaml` | `standards/targets/<x>/v1/template_generation/01_source_parse.expected.yaml`；T2/T3/T4/T5 专用标准为 `t2_unit_pagination.standard.yaml`、`t3_element_policy.standard.yaml`、`t4_global_layout.standard.yaml`、`t5_template_spec.standard.yaml` |
 | `standards/schools/<x>/v1/template_generation_final.yaml` | `standards/targets/<x>/v1/template_quality/final_template.expected.yaml` |
 | `standards/schools/demo-school/v1/golden/*` 、 `exceptions.yaml` | `standards/targets/demo-school/v1/golden/*` 、 `exceptions.yaml` |
 | `standards/eval_profiles/real-core-v0/expected/student_content_trees/real-student-00N.yaml` | `standards/students/real-student-00N/v1/content_extract/student_content_artifact.expected.yaml` |

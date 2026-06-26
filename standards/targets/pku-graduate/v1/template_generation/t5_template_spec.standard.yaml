@@ -1,0 +1,89 @@
+baseline_type: template_generation_t5_template_spec
+profile_id: real-core-v0
+school_id: pku-graduate
+stage_id: T5
+standard_id: pku-graduate-v1-template-generation-t5-template-spec
+standard_scope: single_template_generation_t5_template_spec
+standard_state: signed_pending_verifier
+verifier_state: not_configured
+gate_enabled: false
+artifact_under_test: template_spec
+legacy_compatibility: false
+review_metadata:
+  reviewed_by: user-reviewed-source-fact-packet
+  review_source: docs/human/real-core-v0-review-packet.md#source-pku-graduate
+  source_docx_sha256: sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14
+  change_reason: split T5 template spec standard from the legacy action execution stage contract
+  auto_update_allowed: false
+accepted_source_facts:
+  review_packet: docs/human/real-core-v0-review-packet.md
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  source_section_id: pku-graduate
+  source_section_sha256: sha256:c4067e225d83e45fc96b9ae82f6a222f6315c8d32ff7c7618d2fc21cb8ea4638
+  template_docx: inputs/targets/pku-graduate/raw/source_template.docx
+  template_docx_sha256: sha256:720372f4e70b75ade60a302e95abc870e47d47ac7e6cbf0e5a16ceef4d619e14
+  upstream_t2_standard: template_generation/t2_unit_pagination.standard.yaml
+  upstream_t3_standard: template_generation/t3_element_policy.standard.yaml
+  upstream_t4_standard: template_generation/t4_global_layout.standard.yaml
+  upstream_template_generation_final: ../template_quality/final_template.expected.yaml
+scope:
+  - template_spec_merge
+  - unit_element_binding
+  - unit_section_binding
+  - source_trace_preservation
+  - input_hash_binding
+  - review_flag_preservation
+expected:
+  unit_order:
+    - cover
+    - copyright_notice
+    - abstract_cn
+    - abstract_en
+    - toc
+    - figure_list
+    - table_list
+    - body_main
+    - references
+    - academic_achievements
+    - acknowledgement
+    - originality_authorization_statement
+  template_spec_contract:
+    artifact_type: template_spec
+    merge_inputs:
+      - document_facts
+      - unit_map
+      - element_spec
+      - global_spec
+    required_input_hashes:
+      - document_facts
+      - unit_map
+      - element_spec
+      - global_spec
+    must_preserve_unit_order: true
+    unit_ids_must_be_unique_except_reviewed_other: true
+    every_unit_must_have_section_profile_refs: true
+    unit_section_refs_must_resolve_to_global_section_profiles: true
+    unit_section_ranges_must_overlap_unit_source_seq_range: true
+    fill_elements_must_preserve_fill_source: true
+    review_flags_must_not_be_dropped: true
+    no_word_action_execution: true
+    downstream_owner_for_docx_build: T6
+    notes:
+      - T5 是模板解析主规格，不执行 Word 修改；可填模板构建动作归 T6。
+      - 北大研究生图目录、表目录、学术成果、致谢和原创授权声明必须保持为独立 unit。
+dimensions:
+  - dimension_id: template_generation.t5.artifact_under_test
+    required: true
+    comparator_mode: exact
+    expected_path: artifact_under_test
+    actual_path: artifact_under_test
+  - dimension_id: template_generation.t5.unit_order
+    required: true
+    comparator_mode: ordered_sequence
+    expected_path: expected.unit_order
+    actual_path: unit_order
+  - dimension_id: template_generation.t5.legacy_compatibility
+    required: true
+    comparator_mode: exact
+    expected_path: legacy_compatibility
+    actual_path: legacy_compatibility

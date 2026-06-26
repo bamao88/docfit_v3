@@ -24,9 +24,9 @@ evidence_baselines:
   template_generation_stages:
     01_source_parse: template_generation/01_source_parse.expected.yaml
     t2_unit_pagination: template_generation/t2_unit_pagination.standard.yaml
-    03_generation_model: template_generation/03_generation_model.expected.yaml
-    04_plan_build: template_generation/04_plan_build.expected.yaml
-    05_action_execution: template_generation/05_action_execution.expected.yaml
+    t3_element_policy: template_generation/t3_element_policy.standard.yaml
+    t4_global_layout: template_generation/t4_global_layout.standard.yaml
+    t5_template_spec: template_generation/t5_template_spec.standard.yaml
 coverage_requirements:
   profile: real-core-v0
   required_capabilities:
