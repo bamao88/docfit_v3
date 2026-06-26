@@ -91,6 +91,7 @@ flowchart TD
 | `docs/current/README.md` | 项目目标、业务四阶段、当前主线、读文档顺序 |
 | `docs/current/contracts-and-gates.md` | 四阶段产物、判定、AI 边界 |
 | `docs/current/template-generation.md` | 模板生成支撑流程：字段、执行、证据、template-gap |
+| `docs/current/template-generation-stage-standards.md` | 模板生成 T1-T5 阶段标准：准备方式、使用环节、标准质量和 verify 报告的区别 |
 | `docs/current/template-generation-stage-optimization.md` | 模板生成各阶段代码优化地图：当前实现、下一步改哪里、first_bad_stage 定位 |
 | `docs/current/template-generation-evaluation.md` | 模板生成评测与测试架构：最终 gap、阶段检查骨架、测试边界 |
 | `docs/current/template-generation-open-gaps.md` | 模板生成当前待核实差距：哪些是已确认问题，哪些还要逐项验证 |
@@ -103,6 +104,7 @@ flowchart TD
 | 理解项目整体 | 本文件 |
 | 判断状态能不能通过 | `docs/current/contracts-and-gates.md` |
 | 修改模板生成、字段或 gap 报告 | `docs/current/template-generation.md` |
+| 查看 T1-T5 标准如何准备、给谁用 | `docs/current/template-generation-stage-standards.md` |
 | 讨论模板生成各阶段代码怎么优化 | `docs/current/template-generation-stage-optimization.md` |
 | 核实模板生成当前差距 | `docs/current/template-generation-open-gaps.md` |
 | 讨论模板生成评测或测试架构 | `docs/current/template-generation-evaluation.md` |
