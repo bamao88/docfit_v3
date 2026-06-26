@@ -29,7 +29,40 @@ source_issue:
 
 说明：反引号里的英文多为代码字段名、产物名（artifact）或枚举值，需要和实现保持一致；其他说明文字尽量使用中文。
 
-## 1. 总流水线
+## 1. 口径说明：这是目标态契约，不是现状截图
+
+本文档描述的是 **Plan 02 完成后的目标数据流转契约**。
+
+它不是当前代码的逐行现状说明。当前代码已经有一部分基础能力，但还没有完整实现本文档里的所有步骤和字段。
+
+状态标记：
+
+| 标记 | 含义 |
+| --- | --- |
+| 当前已有 | 当前代码已经存在，可能还需要调整字段或消费关系 |
+| 计划修改 | 当前已有相近能力，但 Plan 02 要改变形状、命名或消费关系 |
+| 计划新增 | 当前代码还没有，需要本轮新增 |
+
+现状和目标态对照：
+
+| 数据流步骤 | 当前状态 | 当前实现/差距 |
+| --- | --- | --- |
+| `source_tree_from_document_facts()` | 当前已有 | T1 facts 已能转换成 T2 source tree |
+| T2 源条目整理 | 当前已有 | `_body_entries()` 已按 body_flow 提取可见文本条目 |
+| T2 派生信号 | 当前已有 + 计划修改 | 已有 `_structural_signals()` 和 debug `t2_derived_signals_by_source_seq`，但 `canonical_label_hint`、`instruction_class` 等还需补齐 |
+| 目录类块分段 | 计划修改 | 当前是 `_segment_toc_blocks()`，只按 TOC block 建模；目标态要扩成目录/图目录/表目录的 list-like block |
+| 边界识别 | 当前已有 + 计划修改 | 当前有 `_boundary_anchors()` / `_boundary_decision()`；目标态要消费更明确的 canonical hint 和 instruction class |
+| 标签识别 | 当前已有 + 计划修改 | 当前有 `_label_boundaries()`；目标态要补 taxonomy scope、duplicate contextual rule |
+| 前置/正文/后置状态机 | 计划新增 | 当前没有独立 `reconcile_document_zones()` pass；这是北大正文过切修复的新增步骤 |
+| 单元范围生成 | 当前已有 + 计划修改 | 当前在 `_infer_units()` 中直接从 anchors 生成 units；目标态要接入 state pass 和 block/list range |
+| 范围审计 | 计划新增 | 当前没有 `unit_range_audit`；这是防止 unowned/overlap/expected mismatch 只停在 debug 的新增门禁 |
+| `build_unit_map()` | 当前已有 + 计划修改 | 当前会转换 units/open_questions/flags；目标态要消费 range audit 的 FAIL/UNKNOWN 项 |
+| 验证器 T2 finding | 计划修改 | 当前 `_verify_t2_unit_map()` 只查基础 unit_map 问题；目标态要消费 expected mismatch / critical unowned flags |
+| 指标脚本 | 当前已有 + 计划修改 | 当前 `scripts/t2_metrics.py` 只做 TOC coverage；目标态要新增 `--unit-ranges` |
+
+因此，下面的“总流水线”请按 **目标态设计图** 理解。实现时可以保留当前函数名，也可以用等价函数名，但必须满足每一步的输入、输出和消费关系。
+
+## 2. 总流水线
 
 ```text
 T1 document_facts
@@ -91,7 +124,7 @@ verification_report + 回归门禁 + 下游规格
 5. 指标脚本、单元测试、验证器必须复用同一套预期契约加载器。
 ```
 
-## 2. T2 可以消费的 T1 字段
+## 3. T2 可以消费的 T1 字段
 
 | 字段 | 来源 | T2 用途 |
 | --- | --- | --- |
@@ -123,7 +156,7 @@ confidence
 
 如果旧产物里有这些字段，T2 必须忽略并重新派生。
 
-## 3. T2 派生条目信号
+## 4. T2 派生条目信号
 
 这些字段由 T2 从 T1 原子事实派生，不写回 T1。
 
@@ -174,7 +207,7 @@ ambiguous_instruction_title:
   默认进入候选/open_question；若命中预期 source_seq，升级为审计项。
 ```
 
-## 4. 目录类块
+## 5. 目录类块
 
 本轮不再把所有目录类 block 都叫 TOC。内部统一叫“目录类块”，覆盖主目录、图目录、表目录。
 
@@ -209,7 +242,7 @@ ambiguous_instruction_title:
 
 如果 block 字段只进入调试信息，不影响最终 unit 范围，则视为无效实现。
 
-## 5. 边界锚点
+## 6. 边界锚点
 
 边界锚点表示“这里可能开始一个顶层单元”。所有 boundary 来源统一成同一种数据形状：
 
@@ -264,7 +297,7 @@ body_main 兜底
 | `block_range` | 单元范围生成器 | list block 必须按 range 收口 |
 | `confidence` | open_questions、unit_map flags | medium/low 必须可追踪 |
 
-## 6. 标签和分类
+## 7. 标签和分类
 
 标签识别步骤把边界锚点映射成初步单元标签。
 
@@ -316,7 +349,7 @@ unknown
 4. 自定义单元必须保留 `raw_title` / `normalized_title` / `display_name` / `source_seq`。
 ```
 
-## 7. 前置 / 正文 / 后置状态
+## 8. 前置 / 正文 / 后置状态
 
 状态机在初步边界之后、最终单元之前运行。它负责判断当前段落属于前置材料、正文主体，还是后置材料。
 
@@ -363,7 +396,7 @@ open_question
 4. 北大 seq 50 / 92 / 221 / 302 必须可解释为 `body_main` 内部标题。
 ```
 
-## 8. 单元范围
+## 9. 单元范围
 
 最终单元范围是 T2 对下游的主要契约。
 
@@ -380,7 +413,7 @@ open_question
 | `evidence` | 验证器/调试信息 | 解释切分原因 |
 | `flags` | unit_map、verification_report | UNKNOWN/FAIL 必须进入报告 |
 
-## 9. 范围审计
+## 10. 范围审计
 
 范围审计在单元范围生成之后运行。它负责回答“每个关键 source_seq 到底归谁”。
 
@@ -428,7 +461,7 @@ flag 建议形状：
 }
 ```
 
-## 10. 预期契约
+## 11. 预期契约
 
 三校预期契约是回归测试输入，不是调试输出。
 
@@ -460,7 +493,7 @@ scripts/t2_metrics.py --unit-ranges
 验证器 T2 expected-source-seq 问题记录
 ```
 
-## 11. `structure_candidates` 到 `unit_map`
+## 12. `structure_candidates` 到 `unit_map`
 
 转换规则：
 
@@ -499,7 +532,7 @@ PASS 状态的状态机追踪
 PASS 状态的 duplicate core 决策记录
 ```
 
-## 12. 验证器 / 指标脚本分工
+## 13. 验证器 / 指标脚本分工
 
 | 能力 | 指标脚本 | 验证器 |
 | --- | --- | --- |
@@ -526,7 +559,7 @@ PASS 状态的 duplicate core 决策记录
   必须包含 open_question
 ```
 
-## 13. 新字段检查清单
+## 14. 新字段检查清单
 
 每新增一个字段，必须回答：
 
