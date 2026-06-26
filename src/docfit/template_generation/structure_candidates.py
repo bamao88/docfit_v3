@@ -51,6 +51,9 @@ def build_template_structure_candidates(source_tree: dict[str, Any]) -> dict[str
     toc_blocks = inference.get("toc_blocks")
     if toc_blocks:
         debug["toc_blocks"] = toc_blocks
+    state_machine_trace = inference.get("state_machine_trace")
+    if state_machine_trace:
+        debug["state_machine_trace"] = state_machine_trace
     result["debug"] = debug
     t2_input = inference.get("t2_input")
     if t2_input is not None:
@@ -132,7 +135,8 @@ def _infer_units(
     context = _boundary_context(source_tree)
     boundary_result = _boundary_anchors(entries, context)
     label_result = _label_boundaries(boundary_result["anchors"])
-    anchors = label_result["anchors"]
+    zone_result = _reconcile_document_zones(label_result["anchors"])
+    anchors = zone_result["anchors"]
     open_questions = list(label_result["open_questions"])
     open_questions.extend(
         _candidate_open_question(candidate)
@@ -216,6 +220,7 @@ def _infer_units(
         "open_questions": open_questions,
         "taxonomy_review_queue": taxonomy_review_queue,
         "toc_blocks": boundary_result.get("toc_blocks", []),
+        "state_machine_trace": zone_result.get("trace", []),
     }
     if open_questions:
         result["t2_input"] = _t2_input_projection(
@@ -844,6 +849,223 @@ def _label_boundaries(boundaries: list[dict[str, Any]]) -> dict[str, Any]:
         "anchors": anchors,
         "open_questions": open_questions,
         "taxonomy_review_queue": taxonomy_review_queue,
+    }
+
+
+FRONT_MATTER_UNIT_IDS = {
+    "cover",
+    "integrity_statement",
+    "copyright_notice",
+    "originality_statement",
+    "authorization_statement",
+    "originality_authorization_statement",
+    "abstract_cn",
+    "abstract_en",
+    "toc",
+    "figure_list",
+    "table_list",
+    "body_title_block",
+}
+
+BACK_MATTER_UNIT_IDS = {
+    "references",
+    "appendix",
+    "academic_achievements",
+    "acknowledgement",
+    "originality_statement",
+    "authorization_statement",
+    "originality_authorization_statement",
+    "design_task",
+    "proposal",
+    "proposal_record",
+    "defense_record",
+    "topic_change_approval",
+    "grade_form",
+}
+
+BODY_ABSORBABLE_UNIT_IDS = {"body_main", "toc", "figure_list", "table_list"}
+
+
+def _reconcile_document_zones(anchors: list[dict[str, Any]]) -> dict[str, Any]:
+    final: list[dict[str, Any]] = []
+    trace: list[dict[str, Any]] = []
+    state = "front_matter"
+    body_ready = False
+
+    for index, anchor in enumerate(anchors):
+        unit_id = str(anchor.get("unit_id") or "")
+        canonical_unit_id = _canonical_unit_for_anchor(anchor) or unit_id
+
+        if state == "front_matter":
+            if unit_id in {"abstract_en", "toc", "figure_list", "table_list"}:
+                body_ready = True
+            if unit_id == "body_main" or (
+                body_ready and _is_custom_unit_id(unit_id) and canonical_unit_id == unit_id
+            ):
+                body_anchor = (
+                    anchor
+                    if unit_id == "body_main"
+                    else _relabel_anchor(anchor, "body_main", "start_body_main")
+                )
+                final.append(body_anchor)
+                state = "body_main"
+                trace.append(
+                    _zone_trace(anchor, "front_matter", state, body_anchor, "start_body_main")
+                )
+                continue
+            final.append(anchor)
+            continue
+
+        if state == "body_main":
+            if _is_references_inside_body(anchors, index):
+                trace.append(
+                    _zone_trace(
+                        anchor,
+                        "body_main",
+                        "body_main",
+                        final[-1] if final else anchor,
+                        "absorb_internal_references_heading",
+                    )
+                )
+                continue
+            if canonical_unit_id in BACK_MATTER_UNIT_IDS:
+                relabeled = (
+                    _relabel_anchor(anchor, canonical_unit_id, "start_back_matter_unit")
+                    if canonical_unit_id != unit_id
+                    else anchor
+                )
+                final.append(relabeled)
+                state = "back_matter"
+                trace.append(
+                    _zone_trace(
+                        anchor,
+                        "body_main",
+                        state,
+                        relabeled,
+                        "start_back_matter_unit",
+                    )
+                )
+                continue
+            if unit_id in BODY_ABSORBABLE_UNIT_IDS or _is_custom_unit_id(unit_id):
+                trace.append(
+                    _zone_trace(
+                        anchor,
+                        "body_main",
+                        "body_main",
+                        final[-1] if final else anchor,
+                        "absorb_into_body_main",
+                    )
+                )
+                continue
+            final.append(anchor)
+            continue
+
+        if state == "back_matter":
+            if unit_id in BODY_ABSORBABLE_UNIT_IDS or _is_custom_unit_id(unit_id):
+                trace.append(
+                    _zone_trace(
+                        anchor,
+                        "back_matter",
+                        "back_matter",
+                        final[-1] if final else anchor,
+                        "absorb_after_back_matter",
+                    )
+                )
+                continue
+            if (
+                unit_id == "originality_statement"
+                and any(str(prev.get("unit_id")) == "acknowledgement" for prev in final[-2:])
+            ):
+                relabeled = _relabel_anchor(
+                    anchor,
+                    "originality_authorization_statement",
+                    "back_matter_declaration_merge",
+                )
+                final.append(relabeled)
+                trace.append(
+                    _zone_trace(
+                        anchor,
+                        "back_matter",
+                        "back_matter",
+                        relabeled,
+                        "back_matter_declaration_merge",
+                    )
+                )
+                continue
+            final.append(anchor)
+
+    return {"anchors": final, "trace": trace}
+
+
+def _canonical_unit_for_anchor(anchor: dict[str, Any]) -> str | None:
+    normalized_title = str(anchor.get("normalized_title") or "")
+    alias = _alias_unit_id(normalized_title)
+    if alias:
+        return alias
+    unit_id = str(anchor.get("unit_id") or "")
+    if _is_custom_unit_id(unit_id):
+        return _alias_unit_id(canonical_title(str(anchor.get("raw_title") or "")))
+    return unit_id or None
+
+
+def _is_references_inside_body(
+    anchors: list[dict[str, Any]],
+    index: int,
+) -> bool:
+    if _canonical_unit_for_anchor(anchors[index]) != "references":
+        return False
+    for future in anchors[index + 1 :]:
+        future_canonical = _canonical_unit_for_anchor(future)
+        future_unit_id = str(future.get("unit_id") or "")
+        if future_canonical in BACK_MATTER_UNIT_IDS - {"references"}:
+            return False
+        if _is_custom_unit_id(future_unit_id) or future_unit_id == "body_main":
+            return True
+    return False
+
+
+def _is_custom_unit_id(unit_id: str) -> bool:
+    return unit_id.startswith("custom:")
+
+
+def _relabel_anchor(
+    anchor: dict[str, Any],
+    unit_id: str,
+    label_status: str,
+) -> dict[str, Any]:
+    flags = [
+        flag
+        for flag in anchor.get("flags", [])
+        if flag.get("type") != "unit_label_repeated_custom"
+    ]
+    return {
+        **anchor,
+        "unit_id": unit_id,
+        "name": UNIT_DEFINITION_NAMES.get(unit_id, unit_id),
+        "label_status": label_status,
+        "canonical_label_id": unit_id,
+        "confidence": "medium"
+        if anchor.get("confidence") == "low"
+        else anchor.get("confidence", "medium"),
+        "flags": flags,
+    }
+
+
+def _zone_trace(
+    original: dict[str, Any],
+    from_state: str,
+    to_state: str,
+    result: dict[str, Any],
+    decision: str,
+) -> dict[str, Any]:
+    return {
+        "source_seq": original.get("source_seq"),
+        "raw_title": original.get("raw_title") or original.get("text"),
+        "from_state": from_state,
+        "to_state": to_state,
+        "preliminary_unit_id": original.get("unit_id"),
+        "final_unit_id": result.get("unit_id"),
+        "decision": decision,
     }
 
 
@@ -1780,7 +2002,10 @@ def _element_policy(unit_id: str, text: str, entry: dict[str, Any]) -> str:
         label in text for label in FILLABLE_LABELS
     ):
         return "fill"
-    if unit_id in FILLABLE_CONTENT_UNIT_IDS and not _looks_like_heading(entry):
+    if unit_id in FILLABLE_CONTENT_UNIT_IDS and not _looks_like_unit_heading(
+        entry,
+        unit_id,
+    ):
         return "fill"
     return "fixed"
 
@@ -2293,6 +2518,18 @@ def _looks_like_heading(entry: dict[str, Any]) -> bool:
         short_text
         and (centered or large_font)
     )
+
+
+def _looks_like_unit_heading(entry: dict[str, Any], unit_id: str) -> bool:
+    text_unit_id, _ = _unit_for_text(
+        str(entry.get("text", "")),
+        int(float(entry.get("order") or 0)),
+    )
+    if text_unit_id and text_unit_id != unit_id:
+        return False
+    if text_unit_id == unit_id:
+        return True
+    return _looks_like_heading(entry)
 
 
 def _first_body_like_index(

@@ -304,7 +304,7 @@ def test_t2_custom_unit_not_other_for_high_confidence_unknown_heading() -> None:
     )
 
 
-def test_t2_repeated_core_section_becomes_custom_not_other() -> None:
+def test_t2_repeated_core_section_can_be_reconciled_by_document_zone_state() -> None:
     candidates = build_template_structure_candidates(
         _source_tree(
             [
@@ -317,9 +317,8 @@ def test_t2_repeated_core_section_becomes_custom_not_other() -> None:
     )
 
     second = _unit_at_seq(candidates, 4)
-    assert second["unit_id"].startswith("custom:template:")
-    assert second["label_status"] == "custom_detected"
-    assert any(flag["type"] == "unit_label_repeated_custom" for flag in second["flags"])
+    assert second["unit_id"] == "references"
+    assert second["label_status"] == "start_back_matter_unit"
     assert not [unit for unit in candidates["units"] if unit["unit_id"] == "other"]
 
 
@@ -383,6 +382,67 @@ def test_t2_pure_instruction_is_still_vetoed_as_boundary() -> None:
         for unit in candidates["units"]
         if unit["source_range"].get("start_source_ref") == "word/document.xml:p[2]"
     ]
+
+
+def test_t2_state_machine_absorbs_body_internal_headings() -> None:
+    candidates = build_template_structure_candidates(
+        _source_tree(
+            [
+                _entry(1, "封面"),
+                _entry(2, "目录", style="Heading 1"),
+                _entry(3, "摘要…………………1", style="toc 1"),
+                _entry(4, "ABSTRACT", style="Heading 1"),
+                _entry(5, "第一章 文献综述", style="Heading 1"),
+                _entry(6, "1□×××××（四号黑体，居左，□代表空格）", style="Heading 1"),
+                _entry(7, "第X章 结论与展望", style="Heading 1"),
+                _entry(8, "参考文献", style="Heading 1"),
+                _entry(9, "附 录 附录名称（三号黑体，居中）", style="Heading 1"),
+            ]
+        )
+    )
+
+    units = _units_by_id(candidates)
+
+    assert _unit_at_seq(candidates, 6)["unit_id"] == "body_main"
+    assert _unit_at_seq(candidates, 7)["unit_id"] == "body_main"
+    assert units["body_main"]["source_seq_refs"] == [5, 6, 7]
+    assert units["references"]["source_seq_refs"] == [8]
+    assert units["appendix"]["source_seq_refs"] == [9]
+    assert any(
+        trace["decision"] == "absorb_into_body_main"
+        and trace["source_seq"] == 6
+        for trace in candidates["debug"]["state_machine_trace"]
+    )
+
+
+def test_t2_state_machine_keeps_true_later_references() -> None:
+    candidates = build_template_structure_candidates(
+        _source_tree(
+            [
+                _entry(1, "封面"),
+                _entry(2, "ABSTRACT", style="Heading 1"),
+                _entry(3, "图目录", style="Heading 1"),
+                _entry(4, "图1 研究框架…………3", style="toc 1"),
+                _entry(5, "研究背景", style="Heading 1"),
+                _entry(6, "参考文献", style="Heading 1"),
+                _entry(7, "进一步讨论", style="Heading 1"),
+                _entry(8, "结论与讨论", style="Heading 1"),
+                _entry(9, "参考文献", style="Heading 1"),
+                _entry(10, "附录A 博士期间工作成果", style="Heading 1"),
+            ]
+        )
+    )
+
+    units = _units_by_id(candidates)
+
+    assert units["body_main"]["source_seq_refs"] == [5, 6, 7, 8]
+    assert units["references"]["source_seq_refs"] == [9]
+    assert units["academic_achievements"]["source_seq_refs"] == [10]
+    assert any(
+        trace["decision"] == "absorb_internal_references_heading"
+        and trace["source_seq"] == 6
+        for trace in candidates["debug"]["state_machine_trace"]
+    )
 
 
 def test_t2_derives_toc_entry_like_from_atomic_facts() -> None:
