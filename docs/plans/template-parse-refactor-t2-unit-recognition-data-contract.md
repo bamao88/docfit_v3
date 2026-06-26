@@ -5,6 +5,7 @@ stage: T2
 topic: unit-recognition
 doc_id: T2-UNIT-DATA-CONTRACT-01
 created: 2026-06-26
+last_updated: 2026-06-26
 source_plan:
   id: T2-UNIT-PLAN-02
   doc: docs/plans/template-parse-refactor-t2-unit-recognition-plan-02-post-phase2-residual-fix.md
@@ -13,564 +14,263 @@ source_issue:
   doc: docs/plans/template-parse-refactor-t2-unit-recognition-issue-02-post-phase2-residuals.md
 ---
 
-# T2 单元识别数据转换契约
+# T2 单元识别数据流转说明
 
-## 0. 目的
+## 0. 怎么读这份文档
 
-这个文档只说明 T2 的数据怎么流、字段由谁生产、由谁消费。
-
-它要防止三类断层：
+这份文档不是字段大全。它只回答三个问题：
 
 ```text
-1. 前面步骤产了字段，但后面步骤没消费。
-2. 调试信息里能看到问题，但 unit_map、验证器、指标脚本看不到。
-3. 脚本和测试各写一套预期 source_seq 逻辑，结果互相不一致。
+1. 当前代码里，T2 数据实际怎么流。
+2. Plan 02 准备新增或修改哪些数据流转点。
+3. 这些新增点影响哪里，能不能解决 Issue 02 里的真实问题。
 ```
-
-说明：反引号里的英文多为代码字段名、产物名（artifact）或枚举值，需要和实现保持一致；其他说明文字尽量使用中文。
-
-## 1. 口径说明：这是目标态契约，不是现状截图
-
-本文档描述的是 **Plan 02 完成后的目标数据流转契约**。
-
-它不是当前代码的逐行现状说明。当前代码已经有一部分基础能力，但还没有完整实现本文档里的所有步骤和字段。
 
 状态标记：
 
 | 标记 | 含义 |
 | --- | --- |
-| 当前已有 | 当前代码已经存在，可能还需要调整字段或消费关系 |
-| 计划修改 | 当前已有相近能力，但 Plan 02 要改变形状、命名或消费关系 |
-| 计划新增 | 当前代码还没有，需要本轮新增 |
+| 当前已有 | 当前代码已经存在 |
+| 计划修改 | 当前已有相近逻辑，但本轮要改变判断、字段或消费方式 |
+| 计划新增 | 当前代码没有，本轮要新增 |
 
-现状和目标态对照：
+反引号里的英文通常是代码函数、字段、文件名或枚举值，保留英文是为了和实现对得上。
 
-| 数据流步骤 | 当前状态 | 当前实现/差距 |
-| --- | --- | --- |
-| `source_tree_from_document_facts()` | 当前已有 | T1 facts 已能转换成 T2 source tree |
-| T2 源条目整理 | 当前已有 | `_body_entries()` 已按 body_flow 提取可见文本条目 |
-| T2 派生信号 | 当前已有 + 计划修改 | 已有 `_structural_signals()` 和 debug `t2_derived_signals_by_source_seq`，但 `canonical_label_hint`、`instruction_class` 等还需补齐 |
-| 目录类块分段 | 计划修改 | 当前是 `_segment_toc_blocks()`，只按 TOC block 建模；目标态要扩成目录/图目录/表目录的 list-like block |
-| 边界识别 | 当前已有 + 计划修改 | 当前有 `_boundary_anchors()` / `_boundary_decision()`；目标态要消费更明确的 canonical hint 和 instruction class |
-| 标签识别 | 当前已有 + 计划修改 | 当前有 `_label_boundaries()`；目标态要补 taxonomy scope、duplicate contextual rule |
-| 前置/正文/后置状态机 | 计划新增 | 当前没有独立 `reconcile_document_zones()` pass；这是北大正文过切修复的新增步骤 |
-| 单元范围生成 | 当前已有 + 计划修改 | 当前在 `_infer_units()` 中直接从 anchors 生成 units；目标态要接入 state pass 和 block/list range |
-| 范围审计 | 计划新增 | 当前没有 `unit_range_audit`；这是防止 unowned/overlap/expected mismatch 只停在 debug 的新增门禁 |
-| `build_unit_map()` | 当前已有 + 计划修改 | 当前会转换 units/open_questions/flags；目标态要消费 range audit 的 FAIL/UNKNOWN 项 |
-| 验证器 T2 finding | 计划修改 | 当前 `_verify_t2_unit_map()` 只查基础 unit_map 问题；目标态要消费 expected mismatch / critical unowned flags |
-| 指标脚本 | 当前已有 + 计划修改 | 当前 `scripts/t2_metrics.py` 只做 TOC coverage；目标态要新增 `--unit-ranges` |
+## 1. 当前真实数据流
 
-因此，下面的“总流水线”请按 **目标态设计图** 理解。实现时可以保留当前函数名，也可以用等价函数名，但必须满足每一步的输入、输出和消费关系。
-
-## 2. 总流水线
+这是当前代码已经在跑的 T2 数据流。
 
 ```text
 T1 document_facts
-  # T1 的原始事实，只描述 DOCX 里“有什么”，不做语义判断。
   ↓ source_tree_from_document_facts()
-T2 源条目（source entries）
-  # T2 可处理的正文条目列表，每条有 text、style、source_seq、source_ref 等事实。
-  ↓ derive_t2_entry_signals()
-T2 派生条目信号（derived entry signals）
-  # T2 自己派生的结构信号，例如“像目录条目”“像标题”“像说明文字”。
-  ↓ segment_list_like_blocks()
-已锁定的目录类块（locked list-like blocks）
-  # 先锁住目录/图目录/表目录这类连续块，避免内部条目被误当成普通单元边界。
-  ↓ detect_boundary_candidates()
-原始边界候选 / 锚点
-  # 找出可能开新单元的位置；锚点是已决定参与后续标签识别的边界点。
-  ↓ label_boundary_candidates()
-初步带标签锚点（preliminary labeled anchors）
-  # 给边界点打初步 unit_id，例如 toc、abstract_cn、custom:template:*。
-  ↓ reconcile_document_zones()
-最终锚点（final anchors）
-  # 用前置/正文/后置状态机修正边界，例如正文内一级标题应被 body_main 吸收。
-  ↓ build_unit_spans()
-template_structure_candidates.units
-  # 把最终边界点扩展成单元范围，每个 unit 拥有哪些 source_seq 在这里确定。
-  ↓ audit_unit_ranges_and_expected_contract()
-unit_range_audit
-  # 审计有没有无人认领、重叠、预期 source_seq 归属错误。
+source_tree
+  ↓ build_template_structure_candidates()
+template_structure_candidates
   ↓ build_unit_map()
-unit_map.units + unit_map.flags + unit_map.open_questions
-  # 下游正式消费的 T2 契约；阻断问题必须进入 flags/open_questions。
-  ↓ 验证器 / 指标脚本 / T3 / T4
-verification_report + 回归门禁 + 下游规格
-  # 验证报告、回归门禁和后续 T3/T4 都从 unit_map 与审计结果继续消费。
+unit_map
+  ↓ verify_template_parse_build()
+verification_report
 ```
 
-逐步说明：
+展开看，当前 `build_template_structure_candidates()` 内部主要是：
 
-| 步骤 | 做什么 | 产物 | 谁消费 |
+```text
+source_tree
+  ↓ _body_entries()
+entries
+  ↓ _boundary_anchors()
+boundary anchors
+  ↓ _label_boundaries()
+labeled anchors
+  ↓ _infer_units() 根据 anchor 到下一个 anchor 生成 unit range
+structure_candidates.units
+```
+
+当前关键步骤：
+
+| 步骤 | 当前函数/产物 | 当前做了什么 | 当前限制 |
 | --- | --- | --- | --- |
-| T1 原始事实 | 从 DOCX 提取文本、样式、位置、表格、分页等事实 | `document_facts` | T2 源树转换 |
-| T2 条目整理 | 把 T1 事实整理成 T2 顺序扫描的正文条目 | `source entries` | T2 派生信号 |
-| T2 派生信号 | 基于事实判断“像目录”“像标题”“像说明”，但不写回 T1 | `derived entry signals` | 块分段、边界识别、审计 |
-| 目录类块分段 | 先整体识别目录/图目录/表目录，锁住内部范围 | `locked list-like blocks` | 边界识别、单元范围生成 |
-| 边界识别 | 找出哪些段落可能开始一个顶层单元 | 边界候选 / 锚点 | 标签识别 |
-| 标签识别 | 把边界映射成初步 `unit_id` | `preliminary labeled anchors` | 状态机 |
-| 状态机修正 | 判断前置、正文、后置区域，避免正文标题被过切 | `final anchors` | 单元范围生成 |
-| 单元范围生成 | 按最终边界切出每个 unit 的 source_seq 范围 | `template_structure_candidates.units` | 范围审计、unit_map |
-| 范围审计 | 检查无人认领、重叠、预期 source_seq 错归属 | `unit_range_audit` | unit_map flags、验证器、指标脚本 |
-| unit_map 转换 | 生成下游正式消费的 T2 契约 | `unit_map` | 验证器、T3、T4、指标脚本 |
+| 读取 T2 条目 | `_body_entries()` | 从 `source_tree.layers.body_flow` 取可见文本条目 | 只做过滤，不做语义判断 |
+| 派生结构信号 | `_structural_signals()`、`debug.t2_derived_signals_by_source_seq` | 从 T1 原子事实派生 TOC、说明文字、空行、标题等信号 | 信号主要用于本阶段判断和 debug，缺少统一字段消费契约 |
+| TOC block | `_segment_toc_blocks()`、`_toc_block_anchor()` | 先锁住主目录块，避免 TOC 条目被当正文边界 | 只按 TOC 建模，`图目录` / `表目录` 仍会混到 `toc` |
+| 边界识别 | `_boundary_anchors()`、`_boundary_decision()` | 用 heading、break、text properties、keyword 等判断单元边界 | 没有独立的 `canonical_label_hint` 和 `instruction_class` |
+| 标签识别 | `_label_boundaries()` | 把边界映射到 core/custom/other | duplicate core 规则偏粗，第二次 core 容易被降 custom |
+| 单元范围 | `_infer_units()` | 用当前 anchor 到下一个 anchor 切 unit range，并消费 TOC block end | 没有全局 ownership audit，不知道哪些关键 source_seq 无 owner |
+| unit_map 转换 | `build_unit_map()` | 把 structure candidates 转成下游正式 `unit_map` | 不消费 range audit，因为当前没有 audit |
+| T2 验证 | `_verify_t2_unit_map()` | 查 `units`、`body_main`、`page_start`、flags | 不检查 expected source_seq / critical unowned |
+| 指标脚本 | `scripts/t2_metrics.py` | 当前只检查三校 TOC coverage 和 TOC leak | 不检查最终 unit label/range 是否正确 |
+
+当前可以确认：
+
+```text
+1. TOC coverage 已经能 PASS。
+2. T2 派生信号和 TOC block 已经存在。
+3. unit_map 已经是 T3/T4/T5 的正式输入。
+4. 但 range ownership、expected source_seq、front/body/back 状态机还没有形成闭环。
+```
+
+## 2. 当前断层在哪里
+
+Issue 02 的核心不是“前面没有生产任何东西”，而是这些地方没有闭环：
+
+| 断层 | 当前表现 | 为什么影响交付 |
+| --- | --- | --- |
+| TOC 指标只覆盖目录条目 | 三校 TOC coverage PASS，但湖南 `abstract_cn` 仍缺失 | TOC PASS 不能证明最终 unit_map 正确 |
+| debug 不等于 gate | debug 里能看到 TOC block 和信号，但 verifier 不看 expected source_seq | 问题可能只停在调试信息里，不影响 `first_bad_stage` |
+| 没有 range audit | 湖南 seq 50-64 无 owner，南农 seq 35-36 无 owner | 关键段落无人认领时没有统一门禁 |
+| 目录类 block 没拆类型 | 北大 `图目录` / `表目录` 仍在 `toc` | 下游无法按图目录/表目录生成策略处理 |
+| 边界 hint 不够前置 | 湖南 `□□摘□要...`、南农 `附 录...` 不能稳定成边界 | label 阶段再强也拿不到没形成的 boundary |
+| instruction 只有布尔判断 | 标题括注和纯说明文字容易混淆 | 核心标题可能被误伤，纯说明也可能被误切 |
+| 没有正文状态机 | 北大正文 Heading 1 被切成多个 top-level custom | `body_main` 范围错误，后续 T3/T4 都会错 |
+| duplicate core 规则过粗 | 北大后置 `参考文献` 降成 custom | 真后置单元无法按标准 unit 处理 |
+
+## 3. Plan 02 引入的增量
+
+下面是本轮计划新增或修改的内容。重点看“影响面”，这决定了改动会传到哪里。
+
+| 编号 | 变更 | 状态 | 生产什么 | 谁消费 | 影响面 |
+| --- | --- | --- | --- | --- | --- |
+| D1 | expected contract loader | 计划新增 | 三校 expected units / expected source_seq / allowed unowned 配置 | 单测、`scripts/t2_metrics.py --unit-ranges`、验证器 | 把真实模板预期写成统一门禁 |
+| D2 | `canonical_label_hint` 前移到边界阶段 | 计划修改 | 每个候选标题的标准 label hint | 边界评分、标签识别、range audit | 解决核心标题没形成 boundary 的问题 |
+| D3 | `instruction_class` 替代单一 instruction bool | 计划修改 | `pure_instruction` / `title_with_format_annotation` 等分类 | 边界否决、open question、元素策略 | 区分“标题带格式说明”和“纯说明文字” |
+| D4 | TOC block 扩成目录类 block | 计划修改 | `toc` / `figure_list` / `table_list` block | 边界识别、unit range、metrics | 北大图目录/表目录不再混进 `toc` |
+| D5 | taxonomy 扩展 | 计划修改 | `figure_list`、`table_list`、`academic_achievements`、声明类 label | 标签识别、下游 unit policy | 减少错误 custom，给下游稳定 unit_id |
+| D6 | front/body/back 状态机 | 计划新增 | final anchors、状态转移 trace | unit range builder、open_questions | 修正文正文档内部 Heading 1 过切 |
+| D7 | range ownership audit | 计划新增 | `unit_range_audit`、critical unowned、expected seq results | unit_map flags、metrics、验证器 | 防止无人认领/错归属只停在 debug |
+| D8 | verifier 消费 T2 range flags | 计划修改 | T2 finding | `verification_report.first_bad_stage` | 让真实生成报告能暴露 T2 结构错误 |
+| D9 | duplicate core contextual rule | 计划修改 | duplicate core decision | 标签识别、状态机、open_questions | 真后置 `references` 不再被粗暴降 custom |
+
+## 4. 目标态数据流
+
+Plan 02 完成后，目标数据流应该变成：
+
+```text
+T1 document_facts
+  # 原始 DOCX 事实，不含 T2 语义判断。
+  ↓ source_tree_from_document_facts()
+source_tree
+  # T2 的输入树。
+  ↓ _body_entries()
+entries
+  # T2 顺序扫描的正文条目。
+  ↓ derive_t2_entry_signals()
+derived entry signals
+  # T2 自己计算的结构信号：TOC、标题、说明文字、canonical hint 等。
+  ↓ segment_list_like_blocks()
+locked list-like blocks
+  # 主目录/图目录/表目录先整体锁住，避免内部条目被误切。
+  ↓ detect_boundary_candidates()
+raw boundary candidates / anchors
+  # 找出可能开始顶层 unit 的位置。
+  ↓ label_boundary_candidates()
+preliminary labeled anchors
+  # 初步打上 unit_id。
+  ↓ reconcile_document_zones()
+final anchors
+  # 用前置/正文/后置状态机修正 top-level 边界。
+  ↓ build_unit_spans()
+structure_candidates.units
+  # 每个 unit 的 source_seq 范围。
+  ↓ audit_unit_ranges_and_expected_contract()
+unit_range_audit
+  # 检查 unowned、overlap、expected source_seq mismatch。
+  ↓ build_unit_map()
+unit_map.units + unit_map.flags + unit_map.open_questions
+  # 下游正式契约；关键问题不能只留在 debug。
+  ↓ verifier / metrics / T3 / T4
+verification_report + metrics + downstream specs
+```
+
+和当前相比，新增的关键节点只有三个：
+
+```text
+1. reconcile_document_zones()
+   负责正文状态机，解决正文 Heading 1 过切。
+
+2. audit_unit_ranges_and_expected_contract()
+   负责 owner / overlap / expected source_seq 审计。
+
+3. verifier/metrics 消费 audit 结果
+   负责把结构错误从 debug 推进到真实门禁。
+```
+
+## 5. 字段按状态分层
+
+### 5.1 当前已有字段
+
+这些字段当前已经存在，可以继续沿用：
+
+| 字段/产物 | 当前位置 | 当前用途 |
+| --- | --- | --- |
+| `source_ref` | T1/T2 entries | OOXML 追踪 |
+| `source_seq` | T1/T2 entries | 顺序和范围归属 |
+| `structural_signals` | T2 内部兼容字段 | 当前 T2 自己重算，不应信任旧 T1 语义 |
+| `debug.t2_derived_signals_by_source_seq` | `template_structure_candidates.debug` | 观测 T2 派生信号 |
+| `debug.toc_blocks` | `template_structure_candidates.debug` | 观测 TOC block |
+| `unit_id` | units / unit_map | 下游主键 |
+| `source_seq_refs` | units / unit_map | 单元覆盖的 source_seq |
+| `source_seq_range` | units / unit_map | 单元范围摘要 |
+| `raw_title` / `normalized_title` | units / unit_map | 复核和 taxonomy |
+| `open_questions` | structure candidates / unit_map | 不确定问题交互入口 |
+| `flags` | unit_map | 当前验证器会消费部分 flags |
+
+### 5.2 本轮计划新增或改变的字段
+
+| 字段/产物 | 状态 | 为什么需要 | 必须被谁消费 |
+| --- | --- | --- | --- |
+| `canonical_label_hint` | 计划新增/修改 | 让核心标题在 boundary 阶段就有 label hint | boundary decision、labeling、audit |
+| `instruction_class` | 计划新增 | 区分纯说明和标题括注 | boundary veto、open_questions |
+| `list_block.block_type` | 计划新增/修改 | 区分 `toc` / `figure_list` / `table_list` | block anchor、unit label、metrics |
+| `taxonomy_scope` | 计划新增 | 区分 global_core / global_extended / school_expected / custom | label review、expected contract |
+| `state_machine_trace` | 计划新增 | 解释正文标题为何被 body_main 吸收 | debug、open_questions |
+| `unit_range_audit` | 计划新增 | 统一记录 unowned/overlap/expected mismatch | unit_map flags、metrics、verifier |
+| `expected_source_seq_results` | 计划新增 | 证明关键 source_seq 归属正确 | tests、metrics、verifier |
 
 硬规则：
 
 ```text
-1. T1 只提供事实，T2 不把派生语义写回 document_facts。
-2. T2 调试字段只能用于观察。
-3. 影响验收的字段必须进入 `unit_map.flags`、`open_questions` 或验证器问题记录（finding）。
-4. 每个新增字段必须有生产方和消费方。
-5. 指标脚本、单元测试、验证器必须复用同一套预期契约加载器。
+新增字段如果没有消费方，就不能进入正式 artifact。
+如果只是观测信息，必须放在 debug 下，并标明不会影响验收。
+如果影响验收，必须进入 unit_map.flags/open_questions 或 verification_report finding。
 ```
 
-## 3. T2 可以消费的 T1 字段
+## 6. 影响面地图
 
-| 字段 | 来源 | T2 用途 |
-| --- | --- | --- |
-| `source_ref` | T1 OOXML 坐标 | 追踪、范围、证据 |
-| `source_seq` | T1 body 顺序 | 归属审计、预期契约 |
-| `node_id` / `paragraph_id` | T1 追踪信息 | 调试、entry_refs |
-| `kind` / `flow_item_type` | T1 事实 | 表格单元格否决、正文流过滤 |
-| `text` | T1 可见文本 | 规范化、标题/目录检测 |
-| `style` / `style_details.paragraph.style_name` | T1 样式事实 | 标题级别、TOC 样式提示 |
-| `style_details.paragraph.alignment` | T1 段落事实 | 居中、文本属性信号 |
-| `style_details.dominant_run.font_size_pt` | T1 run 事实 | 字号信号 |
-| `style_details.dominant_run.bold` | T1 run 事实 | 加粗信号 |
-| `container_ref` / table refs | T1 结构事实 | 表格单元格否决、容器追踪 |
-| `data.breaks` / section breaks | T1 OOXML 事实 | 分页/分节证据、状态提示 |
-
-T2 禁止消费旧 T1 语义字段：
-
-```text
-is_toc_entry
-is_spacing_line
-looks_like_instruction_text
-likely_unit_heading
-large_font
-short_text
-unit_id
-policy
-confidence
-```
-
-如果旧产物里有这些字段，T2 必须忽略并重新派生。
-
-## 4. T2 派生条目信号
-
-这些字段由 T2 从 T1 原子事实派生，不写回 T1。
-
-| 字段 | 生产方 | 消费方 | 作用 |
+| 模块 | 本轮影响 | 风险 | 对应门禁 |
 | --- | --- | --- | --- |
-| `toc_title_like` | 目录标题分类器 | 目录块分段器 | 主目录标题识别 |
-| `toc_entry_like` | TOC 条目分类器 | block 分段器、TOC 指标 | TOC 覆盖率 |
-| `list_title_type` | 规范标题分类器 | block 分段器 | 区分 `toc` / `figure_list` / `table_list` |
-| `list_entry_like` | 目录条目分类器 | block 分段器 | 目录类块覆盖率 |
-| `instruction_like` | 说明文字分类器 | 说明文字上下文分类器 | 不能直接决定硬否决 |
-| `instruction_class` | 说明文字上下文分类器 | 边界否决、元素策略 | 区分纯说明和标题括注 |
-| `spacing_line_like` | 空行/分隔行分类器 | 边界否决、审计 | 可解释无人认领段落 |
-| `unit_heading_like` | 样式/文本分类器 | 边界候选、审计 | 关键无人认领判定 |
-| `canonical_title` | 标题规范化器 | 标签提示、调试信息 | 标题规范化 |
-| `canonical_label_hint` | 别名/分类匹配器 | 边界评分、标签识别、审计 | 核心标签提示 |
+| `structure_candidates.py` | 最大。新增/修改 boundary、label、state、audit 主逻辑 | 边界误切、unit 数暴涨、正文误吞后置 | unit tests + 三校 expected source_seq |
+| `constants.py` | 扩 taxonomy 和 unit policy | taxonomy 膨胀、错误 promote 学校字段 | taxonomy scope 测试 |
+| `artifacts.py` | `build_unit_map()` 要消费 audit flags | debug 问题没有进 unit_map | unit_map flags 测试 |
+| `verifier.py` | T2 verifier 要消费 expected mismatch / critical unowned | `first_bad_stage` 仍不暴露 T2 错误 | verification_report 测试 |
+| `scripts/t2_metrics.py` | 增加 `--unit-ranges` | 脚本和测试逻辑分叉 | 复用 expected contract loader |
+| `tests/fixtures/t2_expected_units/*.yaml` | 新增三校预期契约 | source_seq 写错会误导门禁 | 真实模板回归 |
+| T3/T4 | 不直接改内部解析，但会收到更准确 unit_map | unit_id 变化可能影响策略 | 合同测试 + 三校生成 |
 
-`canonical_label_hint` 建议形状：
+## 7. 问题到计划的映射
 
-```json
-{
-  "unit_id": "abstract_cn",
-  "scope": "global_core",
-  "match_type": "exact_canonical_title",
-  "confidence": "high",
-  "normalized_title": "摘要"
-}
-```
+用这个表判断 Plan 02 是否真的覆盖 Issue 02。
 
-`instruction_class` 可取值：
+| 当前问题 | 对应增量 | 为什么能解决 | 验收方式 |
+| --- | --- | --- | --- |
+| 湖南 `abstract_cn` 缺失，seq 57 无 owner | D2、D3、D7 | `canonical_label_hint` 让摘要标题形成边界；range audit 防止 seq 57 静默无 owner | `abstract_cn` 存在；seq 57 属于 `abstract_cn` |
+| 湖南 seq 50-64 无 owner | D1、D7 | expected contract 明确哪些 gap 允许，哪些 critical unowned 必须 fail | `critical_unowned_ranges=0` 或有 allowed reason |
+| 南农 appendix 被 references 吞并 | D2、D3、D5、D7 | `附 录...` 不再被说明括注误伤，taxonomy 有 `appendix` | seq 109 属于 `appendix`，不属于 `references` |
+| 南农 acknowledgement 被 academic achievements 吞并 | D2、D3、D5、D7 | `致 谢...` 形成独立边界，range audit 检查 seq 113 | seq 113 属于 `acknowledgement` |
+| 北大图目录/表目录都在 toc | D4、D5 | list block 拆 `block_type`，label 不再都映射 `toc` | `toc` / `figure_list` / `table_list` 三者独立 |
+| 北大正文 Heading 1 过切 custom | D6 | front/body/back 状态机把正文内部 Heading 1 吸收到 `body_main` | seq 50 / 92 / 221 / 302 属于 `body_main` |
+| 北大后置 references 降 custom | D6、D9 | 状态机识别后置区，duplicate core 不再一律 custom | seq 306 属于 `references` |
+| debug 能看到但报告不 fail | D7、D8 | audit 结果进入 unit_map flags，再由 verifier 变成 T2 finding | verification_report 能暴露 expected mismatch |
 
-```text
-not_instruction
-pure_instruction
-title_with_format_annotation
-ambiguous_instruction_title
-```
+## 8. 不在本轮解决的事
 
-消费规则：
+这些不要混进 Plan 02：
 
 ```text
-pure_instruction:
-  边界硬否决，可作为审计中的可忽略原因。
-
-title_with_format_annotation + canonical_label_hint:
-  不 veto，增加 boundary evidence。
-
-ambiguous_instruction_title:
-  默认进入候选/open_question；若命中预期 source_seq，升级为审计项。
+1. 不接入 live AI。
+2. 不实现 visual page policy。
+3. 不做 T3 正文内部章节解析。
+4. 不做 DOCX 渲染、bbox、blank ratio。
+5. 不把所有学校自定义标题提升成 global core。
 ```
 
-## 5. 目录类块
+## 9. 实现前检查清单
 
-本轮不再把所有目录类 block 都叫 TOC。内部统一叫“目录类块”，覆盖主目录、图目录、表目录。
-
-建议字段：
-
-```json
-{
-  "block_id": "list-block-0003",
-  "block_type": "figure_list",
-  "unit_id": "figure_list",
-  "start_index": 31,
-  "end_index": 45,
-  "start_source_seq": 31,
-  "end_source_seq": 45,
-  "title_source_seq": 31,
-  "entries_count": 14,
-  "title_led": true,
-  "weak": false,
-  "locked_source_seq_refs": [31, 32, 33]
-}
-```
-
-字段消费关系：
-
-| 字段 | 消费方 | 必须效果 |
-| --- | --- | --- |
-| `block_type` | block anchor、标签识别、指标脚本 | 区分 `toc` / `figure_list` / `table_list` |
-| `unit_id` | 目录类块 anchor | 生成对应 unit anchor |
-| `start_index` / `end_index` | 锁定范围、单元范围生成器 | block unit 按 block end 收口 |
-| `locked_source_seq_refs` | 边界检测器、范围审计 | block 内 entry 不参与普通边界检测 |
-| `weak` | confidence/open_question | 弱 block 必须可复核 |
-
-如果 block 字段只进入调试信息，不影响最终 unit 范围，则视为无效实现。
-
-## 6. 边界锚点
-
-边界锚点表示“这里可能开始一个顶层单元”。所有 boundary 来源统一成同一种数据形状：
+新增或修改任意字段前，先回答：
 
 ```text
-普通边界判定
-目录类块锚点
-关键词精确兜底
-body_main 兜底
-文档起点兜底
+1. 这个字段是当前已有、计划修改，还是计划新增？
+2. 生产方是谁？
+3. 消费方是谁？
+4. 如果字段缺失，下游怎么失败？
+5. 如果字段冲突，谁裁决？
+6. 它只是 debug，还是会影响 unit_map / verifier / metrics？
+7. 它是否需要进入三校 expected contract？
+8. 它是否违反 T1 只产事实的边界？
 ```
 
-建议字段：
-
-```json
-{
-  "entry_index": 57,
-  "source_ref": "word/document.xml:p[57]",
-  "source_seq": 57,
-  "text": "□□摘□要（小四黑体）：...",
-  "normalized_text": "摘要",
-  "canonical_label_hint": {
-    "unit_id": "abstract_cn",
-    "scope": "global_core",
-    "match_type": "exact_canonical_title",
-    "confidence": "high"
-  },
-  "instruction_class": "title_with_format_annotation",
-  "score": 4,
-  "signals": [
-    {"kind": "canonical_label_hint", "weight": 2, "unit_id": "abstract_cn"},
-    {"kind": "instruction_annotation", "weight": 0}
-  ],
-  "vetoes": [],
-  "unit_id_hint": "abstract_cn",
-  "name_hint": "中文摘要",
-  "is_boundary": true,
-  "is_candidate": false,
-  "confidence": "high",
-  "block_range": null
-}
-```
-
-字段消费关系：
-
-| 字段 | 消费方 | 说明 |
-| --- | --- | --- |
-| `canonical_label_hint` | 边界评分、标签识别、审计 | 要影响核心标题识别 |
-| `instruction_class` | 否决规则、open_question、元素策略 | 避免纯说明误切 |
-| `signals` | unit evidence、open_questions、调试信息 | 解释为什么切/不切 |
-| `vetoes` | open_questions、调试信息 | 否决后保留原因 |
-| `unit_id_hint` | 标签识别步骤 | 提示，不是最终标签 |
-| `block_range` | 单元范围生成器 | list block 必须按 range 收口 |
-| `confidence` | open_questions、unit_map flags | medium/low 必须可追踪 |
-
-## 7. 标签和分类
-
-标签识别步骤把边界锚点映射成初步单元标签。
-
-建议字段：
-
-```json
-{
-  "unit_id": "figure_list",
-  "name": "图目录",
-  "label_status": "alias_matched",
-  "canonical_label_id": "figure_list",
-  "taxonomy_scope": "global_extended",
-  "raw_title": "图目录",
-  "normalized_title": "图目录",
-  "display_name": "图目录",
-  "flags": []
-}
-```
-
-`label_status`：
+最重要的一条：
 
 ```text
-core_matched
-alias_matched
-school_expected_matched
-custom_detected
-candidate_only
-unmapped
-duplicate_held
+任何影响验收的结构问题，都不能只停留在 debug。
+必须进入 unit_map.flags/open_questions、metrics 或 verification_report。
 ```
-
-`taxonomy_scope`：
-
-```text
-global_core
-global_extended
-school_expected
-template_optional
-custom
-unknown
-```
-
-消费规则：
-
-```text
-1. `unit_id` 是下游 T3/T4/T5 主键。
-2. `canonical_label_id` 记录闭集标签；custom 为 null。
-3. `school_expected` 必须由预期契约或学校配置（profile）支撑。
-4. 自定义单元必须保留 `raw_title` / `normalized_title` / `display_name` / `source_seq`。
-```
-
-## 8. 前置 / 正文 / 后置状态
-
-状态机在初步边界之后、最终单元之前运行。它负责判断当前段落属于前置材料、正文主体，还是后置材料。
-
-状态追踪字段：
-
-```json
-{
-  "source_seq": 92,
-  "from_state": "body_main",
-  "to_state": "body_main",
-  "anchor_unit_id": "custom:template:插图公式与表格:92",
-  "decision": "absorb_into_body_main",
-  "reason": "heading1_inside_body_without_back_matter_label",
-  "result_unit_id": "body_main"
-}
-```
-
-状态取值：
-
-```text
-front_matter
-body_main
-back_matter
-unknown
-```
-
-决策取值：
-
-```text
-keep_top_level_unit
-start_body_main
-absorb_into_body_main
-start_back_matter_unit
-hold_as_custom
-open_question
-```
-
-消费规则：
-
-```text
-1. `absorb_into_body_main` 必须改变最终单元范围。
-2. `start_back_matter_unit` 必须结束 `body_main` 范围。
-3. 无法判断的状态转移进入 `open_questions`。
-4. 北大 seq 50 / 92 / 221 / 302 必须可解释为 `body_main` 内部标题。
-```
-
-## 9. 单元范围
-
-最终单元范围是 T2 对下游的主要契约。
-
-关键字段：
-
-| 字段 | 消费方 | 失败表现 |
-| --- | --- | --- |
-| `unit_id` | generation_model、T3/T4/T5、指标脚本 | 标签错导致策略错 |
-| `source_seq_refs` | 范围审计、预期契约、T4/T5 binding | 缺失导致归属断层 |
-| `source_seq_range` | 指标脚本、调试信息、template_spec binding | 范围错导致吞并/漏段 |
-| `label_status` | unit_map flags、分类复核队列 | unknown/custom 必须可审 |
-| `canonical_label_id` | 下游 known-unit policy | null 只能用于 custom/unknown |
-| `raw_title` / `normalized_title` | 复核、调试信息、分类 | custom 不能丢标题 |
-| `evidence` | 验证器/调试信息 | 解释切分原因 |
-| `flags` | unit_map、verification_report | UNKNOWN/FAIL 必须进入报告 |
-
-## 10. 范围审计
-
-范围审计在单元范围生成之后运行。它负责回答“每个关键 source_seq 到底归谁”。
-
-建议字段：
-
-```json
-{
-  "unit_range_audit": {
-    "unowned_ranges": [],
-    "overlaps": [],
-    "critical_unowned_ranges": [],
-    "expected_source_seq_results": [
-      {
-        "school": "hunannongye",
-        "source_seq": 57,
-        "expected_unit_ids": ["abstract_cn"],
-        "actual_unit_id": "abstract_cn",
-        "status": "PASS"
-      }
-    ]
-  }
-}
-```
-
-消费规则：
-
-```text
-1. 明细进入 template_structure_candidates.debug。
-2. `critical_unowned` 非空必须生成 unit_map flag。
-3. 预期 source_seq FAIL 必须生成 unit_map flag，并由验证器输出 T2 问题记录（finding）。
-4. 指标脚本复用审计结果，不重新实现归属逻辑。
-```
-
-flag 建议形状：
-
-```json
-{
-  "type": "unit_range_expected_source_seq_mismatch",
-  "status": "FAIL",
-  "source_seq": 57,
-  "expected": "abstract_cn",
-  "actual": null,
-  "reason": "expected source_seq is unowned",
-  "affected_ids": ["abstract_cn"]
-}
-```
-
-## 11. 预期契约
-
-三校预期契约是回归测试输入，不是调试输出。
-
-建议 YAML 结构：
-
-```yaml
-school: hunannongye
-source_template: inputs/targets/hunannongye/raw/source_template.docx
-expected_units:
-  - unit_id: toc
-    required: true
-    source_seq_contains_any: [24, 27, 49]
-    source_seq_excludes: [50, 57, 64]
-  - unit_id: abstract_cn
-    required: true
-    source_seq_contains_any: [57]
-critical_unowned_forbidden:
-  - [57, 57]
-allowed_unowned_ranges:
-  - range: [50, 56]
-    reason: title_fragment_or_instruction
-```
-
-消费方：
-
-```text
-tests/unit/test_t2_unit_range_contracts.py
-scripts/t2_metrics.py --unit-ranges
-验证器 T2 expected-source-seq 问题记录
-```
-
-## 12. `structure_candidates` 到 `unit_map`
-
-转换规则：
-
-```text
-structure_candidates.units[*]
-  -> unit_map.units[*]
-
-structure_candidates.open_questions
-  -> unit_map.open_questions
-
-structure_candidates.taxonomy_review_queue
-  -> unit_map.taxonomy_review_queue
-
-structure_candidates.debug.unit_range_audit 中的关键/FAIL 项
-  -> unit_map.flags
-  -> verification_report.findings
-```
-
-不能只停在调试信息里的问题：
-
-```text
-预期 source_seq 归属不一致
-关键无人认领范围
-单元范围重叠
-必需预期单元缺失
-body_main 状态转移冲突
-影响最终 unit_id 的 duplicate core 歧义
-```
-
-允许仅调试记录：
-
-```text
-原始派生信号图
-PASS 状态的目录类块追踪
-PASS 状态的状态机追踪
-PASS 状态的 duplicate core 决策记录
-```
-
-## 13. 验证器 / 指标脚本分工
-
-| 能力 | 指标脚本 | 验证器 |
-| --- | --- | --- |
-| TOC 覆盖率 | 必须 | 可选 |
-| 预期单元 PASS/FAIL | 必须 | 必须消费 FAIL flags |
-| 预期 source_seq 归属 | 必须 | 必须消费 FAIL flags |
-| 关键无人认领范围 | 必须 | 必须消费 FAIL flags |
-| 调试追踪打印 | 必须 | 不需要 |
-| `summary.first_bad_stage` | 不负责 | 必须负责 |
-
-状态规则：
-
-```text
-预期 source_seq 归属不一致：
-  status = FAIL
-  first_bad_stage = T2
-
-关键无人认领，但没有命中预期契约：
-  status = UNKNOWN
-  first_bad_stage = T2，除非契约显式允许
-
-弱目录块 / 歧义标题：
-  status = UNKNOWN
-  必须包含 open_question
-```
-
-## 14. 新字段检查清单
-
-每新增一个字段，必须回答：
-
-```text
-1. 生产方是哪个函数？
-2. 消费方是哪个函数、脚本、测试或产物？
-3. 如果字段缺失，下游怎么失败？
-4. 如果字段冲突，谁裁决？
-5. 字段是仅用于调试，还是会影响 unit_map/验证器？
-6. 是否需要进入预期契约？
-7. 是否违反 T1 只产事实的边界？
-```
-
-没有消费方的字段不得进入正式产物。只为观察服务的字段必须放在 `debug` 下，并明确不影响产品决策。
