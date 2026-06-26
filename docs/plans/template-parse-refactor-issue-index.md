@@ -52,6 +52,13 @@ next_plan: ...
 | 02 | issue | `docs/plans/template-parse-refactor-t2-copy-only-policy-issue-02-disable-copy-only.md` | implemented | 在学校级策略和开洞门禁补齐前，默认关闭 copy-only 能力 |
 | 02 | optimization plan | TBD | pending | 后续若恢复 copy-only，需先定义学校级策略来源和内部开洞门禁 |
 
+## T2T3 agent-proposal
+
+| 顺序 | 类型 | 文档 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| 01 | issue | `docs/plans/template-parse-refactor-t2t3-agent-proposal-issue-01-advisory-reconciler-overlay.md` | draft | 首次引入 AI 语义提案层（Advisory + 确定性 reconciler + overlay 重生）；默认关闭、与 standard-gate 工作并行 |
+| 01 | optimization plan | TBD | pending | 基于 issue-01 讨论后产出实施顺序与门禁细化 |
+
 ## T3 element-policy
 
 | 顺序 | 类型 | 文档 | 状态 | 说明 |
