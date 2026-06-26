@@ -1,0 +1,112 @@
+baseline_type: template_generation_t1_document_facts
+profile_id: real-core-v0
+school_id: hunannongye
+stage_id: T1
+standard_id: hunannongye-v1-template-generation-t1-document-facts
+standard_scope: single_template_generation_t1_document_facts
+standard_state: signed_pending_verifier
+verifier_state: not_configured
+gate_enabled: false
+artifact_under_test: document_facts
+legacy_compatibility: false
+review_metadata:
+  reviewed_by: user-reviewed-source-fact-packet
+  review_source: docs/human/real-core-v0-review-packet.md#source-hunannongye
+  source_docx_sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
+  change_reason: split T1 document facts standard from the legacy source parse stage contract
+  auto_update_allowed: false
+accepted_source_facts:
+  review_packet: docs/human/real-core-v0-review-packet.md
+  review_packet_sha256: sha256:afd5d042b9a6e20102571b7ccbe59ecfe415049350ad3aa94e9cc2977854369c
+  source_section_id: hunannongye
+  source_section_sha256: sha256:e3a0d411c694df992467c6dfc009125192be56ba265a3e240405879fc5d264b3
+  template_docx: inputs/targets/hunannongye/raw/source_template.docx
+  template_docx_sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
+  original_review_source: inputs/targets/hunannongye/raw/source_review.md
+  original_review_source_sha256: sha256:65bb89715ad40cc8e2948f65441312d3da7efb56b5973d8f2c4c507c177c9794
+  upstream_template_generation_final: ../template_quality/final_template.expected.yaml
+scope:
+  - source_docx_identity
+  - package_global_facts
+  - body_flow_facts
+  - run_facts
+  - style_facts
+  - table_facts
+  - section_facts
+  - header_footer_facts
+  - field_facts
+  - numbering_facts
+  - image_facts
+  - unknown_object_facts
+  - source_locator_indexes
+expected:
+  artifact_type: document_facts
+  source_template_docx_sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
+  source_section_sha256: sha256:e3a0d411c694df992467c6dfc009125192be56ba265a3e240405879fc5d264b3
+  source_fact_contract:
+    primary_artifact: document_facts.json
+    compatibility_debug_view: source_template_tree.json
+    compatibility_debug_view_is_standard: false
+    required_top_level_fields:
+      - artifact_type
+      - metadata
+      - body_flow
+      - runs
+      - data
+      - indexes
+      - warnings
+    required_data_groups:
+      - sections
+      - headers_footers
+      - fields
+      - numbering_definitions
+      - numbering_refs
+      - images
+      - tables
+    locator_contract:
+      source_seq_required_for_visible_body_flow: true
+      source_ref_required_for_visible_body_flow: true
+      part_name_required: true
+      indexes_must_resolve_source_ref: true
+      indexes_must_resolve_source_seq: true
+    ooxml_fact_policy:
+      preserve_visible_text: true
+      preserve_style_details: true
+      preserve_run_boundaries: true
+      preserve_table_structure: true
+      preserve_section_rules: true
+      preserve_header_footer_parts: true
+      preserve_fields_and_numbering: true
+      preserve_unknown_visible_objects: true
+    notes:
+      - T1 只读取并输出源 DOCX 事实；不得识别单元、策略或置信度。
+      - 源模板中附件标题、说明文字、表格和页眉页脚均应作为可追溯事实保留，后续阶段再判断用途。
+  forbidden_semantic_fields:
+    - is_toc_entry
+    - is_spacing_line
+    - looks_like_instruction_text
+    - likely_unit_heading
+    - large_font
+    - short_text
+    - unit_id
+    - policy
+    - confidence
+    - candidate_policy
+    - fill_source
+    - page_start
+dimensions:
+  - dimension_id: template_generation.t1.artifact_under_test
+    required: true
+    comparator_mode: exact
+    expected_path: artifact_under_test
+    actual_path: artifact_under_test
+  - dimension_id: template_generation.t1.artifact_type
+    required: true
+    comparator_mode: exact
+    expected_path: expected.artifact_type
+    actual_path: artifact_type
+  - dimension_id: template_generation.t1.legacy_compatibility
+    required: true
+    comparator_mode: exact
+    expected_path: legacy_compatibility
+    actual_path: legacy_compatibility

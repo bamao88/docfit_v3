@@ -22,7 +22,7 @@ contracts:
 evidence_baselines:
   template_generation_final: template_quality/final_template.expected.yaml
   template_generation_stages:
-    01_source_parse: template_generation/01_source_parse.expected.yaml
+    t1_document_facts: template_generation/t1_document_facts.standard.yaml
     t2_unit_pagination: template_generation/t2_unit_pagination.standard.yaml
     t3_element_policy: template_generation/t3_element_policy.standard.yaml
     t4_global_layout: template_generation/t4_global_layout.standard.yaml

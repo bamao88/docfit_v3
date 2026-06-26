@@ -96,7 +96,7 @@ docfit_v3/
 │   ├── targets/<target_id>/<version>/
 │   │   ├── target.standard.yaml    # 入口：owner、版本、输入 hash、合同、golden、exceptions
 │   │   ├── template_parse/
-│   │   ├── template_generation/01_source_parse.expected.yaml
+│   │   ├── template_generation/t1_document_facts.standard.yaml
 │   │   ├── template_generation/t2_unit_pagination.standard.yaml
 │   │   ├── template_generation/t3_element_policy.standard.yaml
 │   │   ├── template_generation/t4_global_layout.standard.yaml
@@ -186,7 +186,7 @@ docfit_v3/
 | --- | --- |
 | `standards/schools/<x>/v1/{template,student_content,placement,render}_contract.json`（**每校重复**） | 去重后只留一份 → `standards/contracts/*.contract.json` |
 | `standards/schools/<x>/v1/signed_standard.yaml` | `standards/targets/<x>/v1/target.standard.yaml` |
-| `standards/schools/<x>/v1/template_generation_stages/0N_*.yaml` | `standards/targets/<x>/v1/template_generation/01_source_parse.expected.yaml`；T2/T3/T4/T5 专用标准为 `t2_unit_pagination.standard.yaml`、`t3_element_policy.standard.yaml`、`t4_global_layout.standard.yaml`、`t5_template_spec.standard.yaml` |
+| `standards/schools/<x>/v1/template_generation_stages/0N_*.yaml` | T1/T2/T3/T4/T5 专用标准：`t1_document_facts.standard.yaml`、`t2_unit_pagination.standard.yaml`、`t3_element_policy.standard.yaml`、`t4_global_layout.standard.yaml`、`t5_template_spec.standard.yaml` |
 | `standards/schools/<x>/v1/template_generation_final.yaml` | `standards/targets/<x>/v1/template_quality/final_template.expected.yaml` |
 | `standards/schools/demo-school/v1/golden/*` 、 `exceptions.yaml` | `standards/targets/demo-school/v1/golden/*` 、 `exceptions.yaml` |
 | `standards/eval_profiles/real-core-v0/expected/student_content_trees/real-student-00N.yaml` | `standards/students/real-student-00N/v1/content_extract/student_content_artifact.expected.yaml` |
@@ -279,9 +279,9 @@ docfit_v3/
 | target id | 小写 kebab-case | `pku-graduate` |
 | student id | 小写 kebab-case（与仓库一致） | `real-student-001` |
 | case id | `<target>__<student>`（双下划线） | `pku-graduate__real-student-001` |
-| stage id | 两位序号 + snake_case | `01_source_parse` |
+| stage id | 阶段语义名；模板生成标准使用 T 编号 + snake_case | `t1_document_facts` |
 | 原始输入 | 语义名，**不带** `.input` | `source_template.docx` |
-| 冻结 fixture | `<artifact>.input.<ext>` | `source_template_tree.input.json` |
+| 冻结 fixture | `<artifact>.input.<ext>` | `document_facts.input.json` |
 | 签收标准 | `<stage_or_artifact>.expected.<ext>` | `placement_plan.expected.yaml` |
 | 通用合同 | `<domain>.contract.json` | `render.contract.json` |
 | 标准入口 | `<domain>.standard.yaml` | `target.standard.yaml` / `case.standard.yaml` |

@@ -31,11 +31,12 @@ Last updated: 2026-06-25
 
 ```text
 00 输入和请求
-  -> 01 source_template_tree
-  -> 02 template_structure_candidates
-  -> 03 template_generation_model
-  -> 04 template_generation_plan
-  -> 05 执行 Word action 和 manifest
+  -> T1 document_facts
+  -> T2 unit_map
+  -> T3 element_spec
+  -> T4 global_spec
+  -> T5 template_spec
+  -> T6 构建 fillable_template 和 manifest
   -> 06 template-gap 检查生成模板是否符合学校标准
 ```
 
@@ -43,24 +44,12 @@ Last updated: 2026-06-25
 
 ```python
 request = build_template_generation_request(...)
-source_tree = inspect_source_template_docx(source_template_docx)
-structure_candidates = build_template_structure_candidates(source_tree)
-generation_model = build_template_generation_model(
-    request,
-    structure_candidates=structure_candidates,
-)
-plan = build_template_generation_plan(
-    request,
-    generation_model=generation_model,
-)
-manifest = build_template_generation_manifest(
-    request=request,
-    source_tree=source_tree,
-    structure_candidates=structure_candidates,
-    generation_model=generation_model,
-    plan=plan,
-    ...
-)
+document_facts = inspect_source_template_docx(source_template_docx)
+unit_map = build_unit_map(document_facts, structure_candidates)
+element_spec = build_element_spec(generation_model)
+global_spec = build_global_spec(document_facts)
+template_spec = build_template_spec(document_facts, unit_map, element_spec, global_spec)
+build_manifest = build_manifest(..., template_spec=template_spec)
 ```
 
 注意：这里的 `template_generation_model.json` 只属于 `template_generate` 支撑流程。业务四阶段里的模板解析产物 `template_artifact.json` 仍然属于 `template_parse`，不是这次改名范围。
@@ -70,13 +59,12 @@ manifest = build_template_generation_manifest(
 | 编号 | 产物 | 当前生产者 | 主要消费者 | 能证明什么 |
 | --- | --- | --- | --- | --- |
 | `00` | `template_generation_request.json`、`00_input_source_template.docx` | `request.py`、`outputs.py` | 后续所有阶段、debug | 本次运行用的是哪份源模板和哪些输入 |
-| `01` | `source_template_tree.json` | `source_tree.py` | `structure_candidates.py` | 源 Word 里实际观察到了什么 |
-| `02` | `template_structure_candidates.json` | `structure_candidates.py` | `generation_model.py` | 候选 unit、logical element、`role_hint`、证据和来源序号 |
-| `03` | `template_generation_model.json` | `generation_model.py` | `plan.py` | 最终模板业务模型、单元策略、slots、protected zones、cleanup |
-| `04` | `template_generation_plan.json` | `plan.py` | `executor.py`、manifest | 要执行哪些 Word action，每个 action 影响哪些源元素 |
-| `05.0` | `05.0_copy_source_docx.docx` | `executor.py` | 人工 diff、debug | 只做整包复制后的停点 |
-| `05.1` | `generated_template.docx`、`05.1_generated_template.docx` | `executor.py` | `template-gap`、后续流程 | 执行 action 后的生成模板 Word |
-| `05.2` | `template_generation_manifest.json` | `manifest.py` | 报告、审计、debug | 实际执行了什么、输出 hash 是什么 |
+| `T1` | `document_facts.json` | inspector / OOXML 解析 | T2/T4/verifier；`source_template_tree.json` 仅作兼容调试视图 | 源 DOCX 里实际观察到了什么 |
+| `T2` | `unit_map.yaml` | unit mapper | T3/T5/verifier；`template_structure_candidates.json` 仅作兼容调试视图 | 单元、边界、来源序号和分页归属 |
+| `T3` | `element_spec.yaml` | element classifier | T5/T6/verifier；`template_generation_model.json` 仅作兼容调试视图 | 元素策略、fill/manual/generated 语义和证据 |
+| `T4` | `global_spec.yaml` | global rule builder | T5/T6/verifier | 页面、分节、页眉页脚、页码和编号事实 |
+| `T5` | `template_spec.yaml` | spec merger | T6、后续流程、verifier | 模板解析主规格 |
+| `T6` | `fillable_template.docx`、`build_manifest.json` | builder | `template-gap`、后续流程、报告、审计 | 构建动作和可填写 Word 模板 |
 | `99` | `99_template_generation_debug_index.json` | `outputs.py` | 人工排查 | 调试目录索引 |
 
 编号规则：整数部分对应阶段；点后面是阶段内子产物；`00` 给输入和请求；`99` 给索引和非阶段性说明。小数点不是数学小数，也不是旧流水编号兼容。
@@ -102,9 +90,9 @@ manifest = build_template_generation_manifest(
 
 | 项 | 当前情况 |
 | --- | --- |
-| 模块 | `src/docfit/template_generation/source_tree.py` |
-| 产物 | `source_template_tree.json` |
-| 已完成 | 解析段落、表格、页眉页脚、section、编号、unknown objects；给 `body_flow[]` 分配连续 `source_seq`；写 `indexes.by_source_seq` |
+| 模块 | OOXML inspector 与 `src/docfit/template_generation/artifacts.py` 的兼容视图转换 |
+| 产物 | `document_facts.json`；`source_template_tree.json` 仅作兼容调试视图 |
+| 已完成 | 解析段落、表格、页眉页脚、section、编号、unknown objects；给可见 body flow 分配连续 `source_seq`；写 `indexes.by_source_seq` |
 | 不负责 | 不判断 unit，不决定 copy-only，不生成 slot，不判断学校标准 |
 
 下一步优化：
@@ -199,7 +187,7 @@ manifest = build_template_generation_manifest(
 | 现象 | 先看什么 | first_bad_stage | 应该改哪里 |
 | --- | --- | --- | --- |
 | 输入文件不对 | `00_input_source_template.docx`、request | `00_input_request` | 调用命令或 profile 绑定 |
-| 源 Word 内容没解析出来 | `01_source_template_tree.json` | `01_source_parse` | `source_tree.py` 或底层 inspector |
+| 源 Word 内容没解析出来 | `document_facts.json`，调试时看 `01_source_template_tree.json` | `T1/t1_document_facts` | OOXML inspector 或 T1 artifact 输出 |
 | unit 没识别或边界错 | `unit_map.yaml`，调试时看 `02_template_structure_candidates.json` | `T2/t2_unit_pagination` | `structure_candidates.py` |
 | logical element 合并错 | T2 调试视图里的 `entry_refs[]`、`source_seq_refs[]`、`merge` | `T2/t2_unit_pagination` | `_logical_entry_groups` |
 | 源模板元素 12 不该删除 | 先查 `by_source_seq["12"]`，再查 T2/T3/T4/T5 引用链 | `T2/t2_unit_pagination` / `T3/t3_element_policy` / `T4/t4_global_layout` / `T5/t5_template_spec` | 找到第一次把 12 判错的阶段再改 |

@@ -16,7 +16,7 @@ standards/
   targets/
     <target_id>/v1/
       target.standard.yaml
-      template_generation/01_source_parse.expected.yaml
+      template_generation/t1_document_facts.standard.yaml
       template_generation/t2_unit_pagination.standard.yaml
       template_generation/t3_element_policy.standard.yaml
       template_generation/t4_global_layout.standard.yaml
@@ -39,7 +39,7 @@ standards/
 | --- | --- | --- |
 | `contracts/` | 保存跨学校复用的阶段检查契约 | 不保存学校原始 Word 或某次运行输出 |
 | `targets/<target>/v1/target.standard.yaml` | 目标模板标准入口，登记来源、contract、基线和覆盖要求 | 不证明生成模板已经通过 |
-| `targets/<target>/v1/template_generation/01_source_parse.expected.yaml` | T1 源 Word 事实解析期望 | 不承载 T2/T3/T4/T5 标准 |
+| `targets/<target>/v1/template_generation/t1_document_facts.standard.yaml` | T1 源 DOCX 事实解析标准 | 不承载单元、元素策略、全局版式或 `template_spec` 合并标准 |
 | `targets/<target>/v1/template_generation/t2_unit_pagination.standard.yaml` | T2 单元识别、单元顺序、边界范围和分页归属标准 | 不兼容旧结构发现标准入口 |
 | `targets/<target>/v1/template_generation/t3_element_policy.standard.yaml` | T3 元素策略、fill/manual/generated 语义和 source trace 标准 | 不负责全局页面规则或 Word 构建执行 |
 | `targets/<target>/v1/template_generation/t4_global_layout.standard.yaml` | T4 页面、分节、页眉页脚、页码和编号规则标准 | 不负责元素策略或 Word 构建执行 |
@@ -53,5 +53,5 @@ standards/
 
 - 缺标准、缺输入、缺输出或缺 verifier 都不能通过；结果应为 `UNKNOWN`。
 - `*.expected.yaml` / `*.expected.json` / `*.standard.yaml` 是人工签收后的期望或标准，不允许为了让测试变绿自动更新。
-- `target.standard.yaml` 可以登记 `evidence_baselines.template_generation_stages` 字段；T2/T3/T4/T5 使用 `t2_unit_pagination`、`t3_element_policy`、`t4_global_layout`、`t5_template_spec` 四个专用标准入口，不再登记旧数字阶段标准。
+- `target.standard.yaml` 可以登记 `evidence_baselines.template_generation_stages` 字段；T1/T2/T3/T4/T5 使用 `t1_document_facts`、`t2_unit_pagination`、`t3_element_policy`、`t4_global_layout`、`t5_template_spec` 五个专用标准入口，不再登记旧数字阶段标准。
 - `eval_profiles/` 只定义要跑哪些学校、学生和 case；expected 本体必须放在 `standards/targets`、`standards/students` 或 `standards/cases`。
