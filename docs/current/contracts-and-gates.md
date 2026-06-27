@@ -1,8 +1,8 @@
 # 契约和门禁规则
 
-Last updated: 2026-06-25
+Last updated: 2026-06-27
 
-一句话结论：DocFit 只能由确定性证据决定 `PASS` / `FAIL` / `UNKNOWN`；AI 可以解释和建议，不能裁判。
+一句话结论：当前只对模板阶段启用标准、检查器和 gate；学生内容提取、内容放置和 DOCX 渲染暂缓，不能用未定义流程制作标准。
 
 ## 三态判定
 
@@ -14,7 +14,20 @@ Last updated: 2026-06-25
 
 禁止把 `FAIL` 或 `UNKNOWN` 降成 `WARN` 来通过 gate。
 
-## 业务四阶段契约
+## 当前启用范围
+
+| 范围 | 状态 | 说明 |
+| --- | --- | --- |
+| 模板生成 T1-T5 | active | 标准已拆为 `t1_document_facts` 到 `t5_template_spec`，后续由标准裁判读取 |
+| 可填写模板构建 / T6 | active | 输出 `fillable_template.docx`、`build_manifest.json`，由内置 verifier 和 gap 检查 |
+| 模板 gap | active | 对照 `template_quality/final_template.expected.yaml` 检查被测模板 |
+| 学生内容提取 | deferred | 流程、阶段产物和签收标准尚未定义清楚 |
+| 内容放置 | deferred | 依赖学生内容提取结果，当前不制作标准 |
+| DOCX 渲染 | deferred | 依赖放置计划，当前不制作标准 |
+
+deferred 范围里的 historical fixture 或 expected 文件不能作为当前 gate 依据；它们只能作为后续设计时的参考材料。
+
+## 长期产品阶段契约草图
 
 | 阶段 | 主要产物 | 必须证明什么 | 常见阻断 |
 | --- | --- | --- | --- |
@@ -25,12 +38,12 @@ Last updated: 2026-06-25
 
 ## 模板侧支撑检查
 
-模板生成和 `template-gap` 是当前模板侧的支撑流程，不是业务四阶段之外新增的业务阶段。
+上表后三个非模板阶段是长期产品草图，不是当前验收对象。等学生内容提取流程、内容 ledger、放置计划和渲染 manifest 的真实语义明确后，才能制作对应标准。
 
 | 支撑流程 | 主要产物 | 能证明什么 | 不能证明什么 |
 | --- | --- | --- | --- |
 | 模板解析/可填模板生成 | `document_facts.json`、`template_spec.yaml`、`fillable_template.docx`、`build_manifest.json`、`verification_report.json` | 源模板事实、单元/元素/全局规则、构建动作和成品 Word 可追溯 | 不能替代学校签收标准下的最终格式验收 |
-| generated-template gap | `generated_template_tree.json`、`template_gap_report.*` | 被测生成模板和学校签收标准之间的差距 | 不能替代四阶段转换验收 |
+| generated-template gap | `generated_template_tree.json`、`template_gap_report.*` | 被测生成模板和学校签收标准之间的差距 | 不能证明学生内容提取、放置或最终论文渲染正确 |
 
 ## 产物不能互相冒充
 

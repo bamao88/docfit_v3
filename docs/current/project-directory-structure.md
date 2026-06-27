@@ -43,7 +43,7 @@
 | `tests/` | 代码本身对不对 |
 | `docs/` | 这套东西怎么回事 |
 
-核心边界：业务永远只有四个阶段——**模板解析、内容提取、内容放置、DOCX 渲染**。`template_generation` 和 `template_gap` 是模板侧支撑流程，**不是第五个业务阶段**。
+当前 active 边界：只推进模板阶段，包括模板解析、模板生成 T1-T6、模板 gap 和模板标准裁判。学生内容提取、内容放置和最终 DOCX 渲染保留为长期产品方向；在流程和阶段产物未定义清楚前，不制作对应标准。
 
 ---
 
@@ -74,11 +74,11 @@ docfit_v3/
 │   │   └── template_generation_judge_reports.py       # 聚合报告与 Markdown/JSON 输出
 │   ├── core/                       # 跨切面：io / models / status
 │   ├── contracts/                  # 契约 schema 与 verifier 基类（不放具体学校标准）
-│   ├── stages/                     # ✅ 只放四个业务阶段
-│   │   ├── template_parse/
-│   │   ├── content_extract/
-│   │   ├── placement/
-│   │   └── render/
+│   ├── stages/                     # 业务阶段代码；当前 active 只有模板侧
+│   │   ├── template_parse/         # active
+│   │   ├── content_extract/        # reserved，流程未清晰前不做标准
+│   │   ├── placement/              # reserved，依赖 content_extract
+│   │   └── render/                 # reserved，依赖 placement
 │   ├── template_generation/        # 模板侧支撑流程（非业务阶段）
 │   ├── template_gap/               # 模板质量差距检查（非业务阶段）
 │   ├── template_model/             # 模板结构共享模型，不做门禁裁判
@@ -94,7 +94,7 @@ docfit_v3/
 │   │   └── fixtures/              # 为单阶段测试冻结的上游输出（文件名带 .input）
 │   │       ├── template_generation/<NN_stage>/
 │   │       └── template_gap/
-│   └── students/<student_id>/
+│   └── students/<student_id>/       # reserved for later student-content work
 │       ├── input_manifest.yaml
 │       └── raw/
 │
@@ -117,10 +117,10 @@ docfit_v3/
 │   │   ├── template_quality/final_template.expected.yaml
 │   │   ├── golden/
 │   │   └── exceptions.yaml
-│   ├── students/<student_id>/<version>/
+│   ├── students/<student_id>/<version>/      # reserved until content extraction flow is defined
 │   │   ├── student.standard.yaml
 │   │   └── content_extract/student_content_artifact.expected.yaml
-│   └── cases/<target_id>__<student_id>/<version>/
+│   └── cases/<target_id>__<student_id>/<version>/  # reserved until placement/render flows are defined
 │       ├── case.standard.yaml
 │       ├── placement/placement_plan.expected.yaml
 │       └── render/{render_manifest,feature_snapshot,word_image_evidence}.expected.*
@@ -176,7 +176,7 @@ docfit_v3/
 | 6 | 标准入口名 | `case_standard.yaml`（下划线） | `case.standard.yaml`（点） | **`*.standard.yaml`（后缀）** | 同 #2，后缀体系自洽 |
 | 7 | `runs/` 子目录 | `eval/` + `convert/` + `template_generation/` + `workbench/` | `template_generation/` + `conversion/` + `reports/` | **`template_generation/` + `eval/` + `convert/` + `workbench/`** | 与 CLI 动词（`docfit eval` / `docfit convert`）对齐；`reports/` 实为 eval 输出的子集 |
 | 8 | src 模块视图 | 给出完整模块树 | 未展开 | **采用架构稿，并按 §6 对齐现状** | 架构稿更完整 |
-| 9 | 业务阶段边界 | 四阶段 + 支撑模块分离 | 同 | **四阶段固定**；`template_generation`/`template_gap` 为支撑模块 | 两稿一致，作为不可动摇约束 |
+| 9 | 当前启用阶段边界 | 四阶段 + 支撑模块分离 | 模板侧先行 | **当前 active 只有模板侧**；学生/放置/render 保留为长期方向 | 学生内容流程和标准尚未定义清楚，不能提前当作当前 gate |
 
 ---
 
@@ -206,9 +206,9 @@ docfit_v3/
 | `standards/schools/<x>/v1/template_generation_stages/0N_*.yaml` | T1/T2/T3/T4/T5 专用标准：`t1_document_facts.standard.yaml`、`t2_unit_pagination.standard.yaml`、`t3_element_policy.standard.yaml`、`t4_global_layout.standard.yaml`、`t5_template_spec.standard.yaml` |
 | `standards/schools/<x>/v1/template_generation_final.yaml` | `standards/targets/<x>/v1/template_quality/final_template.expected.yaml` |
 | `standards/schools/demo-school/v1/golden/*` 、 `exceptions.yaml` | `standards/targets/demo-school/v1/golden/*` 、 `exceptions.yaml` |
-| `standards/eval_profiles/real-core-v0/expected/student_content_trees/real-student-00N.yaml` | `standards/students/real-student-00N/v1/content_extract/student_content_artifact.expected.yaml` |
-| `standards/eval_profiles/real-core-v0/expected/render_plans/real_core_v0_<x>_real-student-00N.yaml` | `standards/cases/<x>__real-student-00N/v1/placement/placement_plan.expected.yaml` |
-| `standards/eval_profiles/real-core-v0/expected/render_feature_snapshots/*.json` | `standards/cases/<x>__real-student-00N/v1/render/feature_snapshot.expected.json` |
+| `standards/eval_profiles/real-core-v0/expected/student_content_trees/real-student-00N.yaml` | 未来如需启用，再整理到 `standards/students/real-student-00N/v1/content_extract/student_content_artifact.expected.yaml`；当前不新增 |
+| `standards/eval_profiles/real-core-v0/expected/render_plans/real_core_v0_<x>_real-student-00N.yaml` | 未来如需启用，再整理到 `standards/cases/<x>__real-student-00N/v1/placement/placement_plan.expected.yaml`；当前不新增 |
+| `standards/eval_profiles/real-core-v0/expected/render_feature_snapshots/*.json` | 未来如需启用，再整理到 `standards/cases/<x>__real-student-00N/v1/render/feature_snapshot.expected.json`；当前不新增 |
 | `standards/eval_profiles/bootstrap-core/expected/{feature_snapshot,placement_plan}.json` | `standards/cases/demo-school__bootstrap-demo/v1/render|placement/*.expected.*` |
 
 ### 5.3 组合：历史 `standards/eval_profiles/` → 当前顶层 `eval_profiles/`
@@ -231,14 +231,14 @@ docfit_v3/
 
 ## 6. 代码侧当前状态
 
-`src/docfit/` 已按“四阶段 + 模板侧支撑模块 + harness 控制平面”收敛：
+`src/docfit/` 已按“模板侧 active + 后续阶段 reserved + harness 控制平面”收敛：
 
 | 模块 | 当前身份 | 规则 |
 | --- | --- | --- |
-| `src/docfit/stages/template_parse/` | 四个业务阶段之一 | 只放业务模板解析阶段 |
-| `src/docfit/stages/content_extract/` | 四个业务阶段之一 | 只放学生内容提取阶段 |
-| `src/docfit/stages/placement/` | 四个业务阶段之一 | 只放内容放置阶段 |
-| `src/docfit/stages/render/` | 四个业务阶段之一 | 只放 DOCX 渲染阶段 |
+| `src/docfit/stages/template_parse/` | active | 当前模板解析业务入口 |
+| `src/docfit/stages/content_extract/` | reserved | 学生内容提取流程未定义清楚前，不制作标准 |
+| `src/docfit/stages/placement/` | reserved | 内容放置依赖学生内容产物，不制作标准 |
+| `src/docfit/stages/render/` | reserved | 渲染依赖放置计划，不制作标准 |
 | `src/docfit/template_generation/` | 模板侧支撑流程 | 生成 `fillable_template.docx` 和 T1-T6 调试产物，不是第五业务阶段 |
 | `src/docfit/template_gap/` | 模板质量差距检查 | 读取被测模板和最终标准，输出 gap 报告 |
 | `src/docfit/harness/` | 控制平面 | 加载标准、绑定运行产物、判 `PASS/FAIL/UNKNOWN` |
@@ -290,6 +290,7 @@ template_generation_judge_reports.py
 | 新增目录规则 | 先改本文，再改代码或其它文档引用 |
 | 读旧文档里的旧路径 | 按 §5 翻译，不把旧路径复制到新文档 |
 | 新增标准 | 放 `standards/targets`、`standards/students` 或 `standards/cases`，不要放 `eval_profiles/` |
+| 新增学生/placement/render 标准 | 当前不要新增；先定义流程、产物和验收口径 |
 | 新增运行证据 | 放 `runs/`，不要放 `standards/` 或 `inputs/` |
 | 新增小型代码 fixture | 放 `tests/fixtures/`；业务级冻结输入放 `inputs/**/fixtures/` |
 | 新增 profile | 放 `eval_profiles/<profile>/profile.yaml`，只组合 case 和 coverage gate |
