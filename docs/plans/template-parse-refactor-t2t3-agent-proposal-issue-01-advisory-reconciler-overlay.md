@@ -6,11 +6,11 @@ topic: agent-proposal
 issue_id: T2T3-AGENT-ISSUE-01
 issue_sequence: 1
 created: 2026-06-26
-last_updated: 2026-06-26
-version: 2
+last_updated: 2026-06-27
+version: 3
 review:
-  date: 2026-06-26
-  summary: 引入 AI 是新变量，探索期目标是测准 AI 能力并区分 AI/代码致因；reconciler 放开语义与闭集关键词，重心在归因而非阻塞。
+  date: 2026-06-27
+  summary: 探索期测 AI 能力与归因；reconciler 放开语义拦截；AI 主输入改为 PDF/视觉 render 层、分层 I/O 对齐 T2/T3/T4，不以 T1 整理投影为主输入。
 previous_issue:
   id: none
   doc: none
@@ -28,6 +28,8 @@ source_proposal:
 related_issues:
   - docs/plans/template-parse-refactor-t2-unit-recognition-issue-03-state-machine-standard-gates.md
   - docs/plans/template-parse-refactor-t3-element-policy-issue-02-post-confidence-residuals.md
+  - docs/plans/template-parse-refactor-t2-open-label-unit-recognition.md
+  - docs/plans/template-parse-refactor-t2-visual-pagination.md
 related_code:
   - src/docfit/template_generation/runner.py
   - src/docfit/template_generation/artifacts.py
@@ -39,7 +41,7 @@ related_code:
 
 # T2/T3 Agent 提案层 Issue 01：引入 AI 语义提案 + 确定性 reconciler + overlay
 
-## Review 建议（2026-06-26 讨论）
+## Review 建议（2026-06-26 / 2026-06-27 讨论）
 
 相对初稿的方向修订。细节见下文各节；本节只记录**问题、目标、大方向**。
 
@@ -56,7 +58,7 @@ related_code:
 3. AI 输入单独讨论：packet 给什么、给多少，决定 AI 能不能判对——具体方案见 §5.5 与 §8，不在此展开。
 ```
 
-### 方向修订（三条）
+### 方向修订（四条）
 
 **1）Reconciler：放开，不做语义二审**
 
@@ -72,7 +74,56 @@ related_code:
 本阶段重点不是设计更多 gate，而是引入 AI 后仍能**准确追踪问题归属**（AI vs 确定性代码）。
 具体 artifact、diff、对照运行等实现留 plan-01；本节只确立：没有可归因留痕，就不应宣称「评估过 AI 路径」。
 
+**4）AI 输入输出：PDF/视觉主输入 + 分层 I/O（对齐 T2/T3/T4）**
+
+初稿（及 §5.5 基线）让 AI 读 `t2_input` / `body_flow_windows` / round-0 初稿——本质是 **T1 整理后的 OOXML 投影 + 规则引擎错题本**。修订为：
+
+```text
+AI 推理面 ≠ T1 document_facts / structure_candidates 投影
+AI 推理面 = docx→PDF→渲染提取后的「人类可见层」
+  - clean / annotated page images（页上叠 source_seq 标签）
+  - page_text_index（页内文本 + 段落顺序）
+  - page_layout_index（page_no、bbox、page_top_ratio 等，按 Tier 分级）
+  基建与契约见 template-parse-refactor-t2-open-label-unit-recognition.md §7–8、
+  template-parse-refactor-t2-visual-pagination.md Phase 1A/1B。
+
+AI 输出面 ≠ 扁平 proposals[]{kind: split|merge|classify...}
+AI 输出面 = 按现有阶段分层对齐的结构化语义（与 L2 语义解析层一致）：
+  - T2 层：unit_candidates、block_candidates（toc/form）、boundary_adjustments
+  - T3 层：element_policy_candidates（占位符/表格/填写区策略）
+  - T4 层：section_profile_hints、page_numbering_hints、page_policy_candidates
+  各层独立 schema（如 t2_ai_response / t3_ai_response / t4_ai_response），
+  由 reconciler 分层落 overlay → 重跑对应 build_*，而非一锅扁平 patch。
+
+分层输入策略（与 open-label §8.1 一致，plan-01 定稿调用形态）：
+  - full-pass overview：全书低分辨率缩略图 + page index → 整体单元结构与分页模式
+  - focused-pass review：按层/按可疑区间给高分辨率局部页
+    · T2 窗：单元边界可疑页
+    · T3 窗：单元内表格/占位符/填写区页
+    · T4 窗：分节变化、页码样式、页眉页脚样本页
+
+明确不给 AI 作为主输入（避免规则视角带偏）：
+  - T1 body_flow 全文或整理切片
+  - t2_derived_signals、deterministic_candidates、round-0 draft_unit_map / draft_element_spec
+  - 闭集 ontology / UNIT_DEFINITIONS 关键词约束
+
+双轨而非单轨（硬约束保留）：
+  - T1 继续服务确定性 hash、verifier、manifest；默认关闭 Agent 时行为不变。
+  - AI 走 Render 轨做语义；两轨在 source_seq 汇合（page_text_index 文本回绑，非 T1 语义字段）。
+  - 没有 annotated source_seq / page_text_index 可绑定的 AI 输出不得进入正式候选（open-label §7.2）。
+
+round-0 确定性初稿的新定位：
+  - 仍要跑（归因 baseline、默认关 Agent 时的正式产物）
+  - 不作为 Agent packet 必填输入；agent 开/关对照用于 attribution，不是「让 AI 修草稿」。
+
+待 plan-01 拍板（记入 §8）：
+  - 一次调用产出 layers{t2,t3,t4} vs T2→T3→T4 多轮 focused-pass
+  - T4 是否纳入首轮 AI，或 Phase 1 仅 page_policy_candidates（与 visual-pagination 合流）
+  - reconciler 探索期是否完全不读 round-0 优先级（仅硬校验 + source_seq 可绑定性）
+```
+
 ---
+
 
 ## 0. 记录目的
 
@@ -216,40 +267,44 @@ convert/orchestrator.py（:151/:323）无需改动（不传 agent_config 即默�
 
 ### 5.5 Artifact JSON 概要（复用现有字段名）
 
-**AI 输入（template_agent_packet）——初稿基线 + Review 待决项**
+**AI 输入——初稿基线（已被 Review §4 修订；plan-01 以 render packet 为准）**
 
 ```text
-实现基线（读码）：尚无 agent 包；下列字段为计划投影目标。初稿若仅复用 t2_input.contexts，则 AI 只看到
-open_questions 附近 ±2 source_seq、每窗最多 12 条 entry（structure_candidates._entries_near_interval）。
-这不是 T1 全文，也覆盖不了 issue-03 中大量「规则引擎未提问」的 mismatch 区域 → 输入策略必须在 plan-01 单独设计。
+【初稿，保留作对照】若仅复用 t2_input.contexts，则 AI 只看到 open_questions 附近 ±2 source_seq……
+该路径不以 T1 整理投影为主输入，见 Review §4。
 
-计划字段（随 plan-01 调整）：
-template_agent_packet.json
-  advisory_only / status_authority="deterministic_harness_only" / allowed_ai_tasks / forbidden_ai_tasks
-  t2_input（structure_candidates.t2_input，可能扩展而非原样透传）
-  draft_unit_map（精简）/ draft_element_spec（精简）
-  body_flow_windows（初稿：t2_input.contexts；修订方向：unit 边界窗 + 低置信/custom 强制上下文）
-  findings_t2_t3（verifier peek；第二轮可扩展 verification_report 片段）
-  round0_snapshot_id（归因：关联 round-0 产物哈希）
+【修订方向】template_agent_render_packet.json（名称 plan-01 定稿）
+  advisory_only / status_authority / allowed_ai_tasks / forbidden_ai_tasks
+  render_artifacts:
+    clean_page_images[] / annotated_page_images[]
+    page_text_index[] / page_layout_index[]（含 tier）
+    render_hash / render_engine / render_version
+  input_windows（分层输入）:
+    full_pass: {page_thumbnails[], page_index_summary}
+    focused_pass[]: {layer: t2|t3|t4, page_nos[], reason}
+  optional_reference: canonical unit_id 建议列表（非约束）
+  round0_snapshot_id（仅归因关联，非推理必填）
+  findings_t2_t3（第二轮可选；verifier peek 片段）
 
-探索期取消：packet 内 ontology(unit_candidates) / policy_markers 闭集作为 AI 必填输入（见文首 Review）。
-可选参考：canonical unit_id 列表可作为「建议命名」非约束字段，不得用于 reconciler 拒绝。
+明确不含：t2_input.contexts、body_flow_windows、draft_unit_map、draft_element_spec、
+          t2_derived_signals、deterministic_candidates、闭集 ontology。
 ```
 
 **AI 输出与其它 artifact**
 
 ```text
-template_agent_proposals.json（AI 输出 / replay 输入）
-  proposals[]{proposal_id, kind, target_path, operation, source_seq_refs, evidence_refs,
-              confidence, reason, risk, requires_review}
-  review_questions[]
-  operation 按 kind：
-    split_unit            {from_unit_id, new_unit_id, split_at_source_seq}
-    merge_unit            {unit_ids, into_unit_id}
-    relabel_unit          {unit_id, new_unit_id}   # new_unit_id 可为 canonical 或 custom:template:...
-    adjust_boundary       {unit_id, edge, new_source_seq}
-    required_missing      {unit_id, source_seq_refs}
-    classify_element_policy {stable_id, policy, fill_source?, field_type?, manual_semantics?}
+【修订方向】template_agent_layered_response.json（一次调用）或分文件 t2/t3/t4_ai_response.json（多轮 focused-pass）
+  layers:
+    t2: {unit_candidates[], block_candidates[], boundary_adjustments[], open_questions[]}
+    t3: {element_policy_candidates[], open_questions[]}
+    t4: {section_profile_hints[], page_numbering_hints[], page_policy_candidates[], open_questions[]}
+  schema_version / prompt_version / source_render_hash / model
+
+【初稿扁平形态，保留作 overlay 操作对照】template_agent_proposals.json
+  proposals[]{proposal_id, kind, operation, source_seq_refs, ...}
+  operation 按 kind：split_unit / merge_unit / relabel_unit / adjust_boundary /
+    required_missing / classify_element_policy
+  reconciler 可将 layered response 投影为 proposals + overlay operations（plan-01 定稿）
 
 template_agent_decisions.json（reconciler 输出；探索期多为 accepted）
   decisions[]{proposal_id, kind, target_path, outcome:accepted|rejected, applied,
@@ -348,11 +403,14 @@ Phase 7  live 三校评估 + t2_standard/gap 归因报告（人工+脚本）
 ## 8. 待讨论的开放问题
 
 ```text
-Q1 packet 输入范围定稿：仅 open_question 窗是否足够；unit 边界窗 / custom 强制上下文 / 全文分段摘要的取舍。
-Q2 第二轮是否必须喂 verification_report + t2_standard probe mismatch 区间。
-Q3 T2 split/merge 的 source_seq 重切由 overlay 直接从 body_flow 切，还是要求 AI 给出完整 range。
-Q4 live 与 replay 的 proposals artifact 是否需要 schema 版本化以便长期回放。
-Q5 agent_attribution 与 verification_report / template_gap_report 的字段合流方式。
-Q6 产品化阶段是否恢复 reconciler 语义/置信 gate（探索期明确不做）。
-Q7 与 issue-03 standard-gate 合流：归因度量是否统一使用 audit_unit_map_against_t2_standard 前后 delta。
+Q1 【Review §4 取代初稿 Q1】render packet 分层输入定稿：full-pass 缩略图粒度；T2/T3/T4 focused-pass 窗划分与页数上限。
+Q2 一次调用产出 layers{t2,t3,t4} vs T2→T3→T4 多轮 focused-pass（成本、归因、prompt cache 权衡）。
+Q3 T4 是否纳入首轮 AI，或 Phase 1 仅 page_policy_candidates（与 visual-pagination 合流）。
+Q4 reconciler 探索期是否完全不读 round-0 合并优先级（仅硬校验 + source_seq 可绑定性）。
+Q5 第二轮是否喂 verification_report + focused-pass 定向到 mismatch 页（不再喂 t2_input 窗）。
+Q6 layered response → overlay operations 的投影规则（plan-01 schema）。
+Q7 live 与 replay 的 response artifact schema 版本化与 render_hash 绑定。
+Q8 agent_attribution 与 verification_report / template_gap_report 的字段合流方式。
+Q9 产品化阶段是否恢复 reconciler 语义/置信 gate（探索期明确不做）。
+Q10 与 issue-03 standard-gate 合流：归因度量是否统一使用 audit_unit_map_against_t2_standard 前后 delta。
 ```
