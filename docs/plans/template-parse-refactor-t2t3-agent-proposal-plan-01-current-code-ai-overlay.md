@@ -7,6 +7,7 @@ doc_type: implementation_plan
 plan_id: T2T3-AGENT-PLAN-01
 created: 2026-06-27
 last_updated: 2026-06-27
+model_transport: openai-sdk-kimi-minimax
 related_docs:
   - docs/plans/template-parse-refactor-t2-unit-recognition-issue-03-state-machine-standard-gates.md
   - docs/plans/template-parse-refactor-t3-element-policy-issue-02-post-confidence-residuals.md
@@ -21,6 +22,94 @@ related_code:
 ---
 
 # T2/T3 Agent 方案 Plan 01：Agent Harness + AI Overlay
+
+## 0. 流程总览
+
+### 0.1 当前已有主链路
+
+```mermaid
+flowchart LR
+  DOCX["source_template.docx"] --> T1["T1 document_facts\ninspect_document_facts_docx"]
+  T1 --> ST["source_tree\nsource_tree_from_document_facts"]
+  ST --> T2A["T2 structure_candidates\nbuild_template_structure_candidates"]
+  T1 --> T2B["T2 unit_map\nbuild_unit_map"]
+  T2A --> T2B
+  T2A --> T3A["T3 generation_model\nbuild_template_generation_model"]
+  T3A --> T3B["T3 element_spec\nbuild_element_spec"]
+  T1 --> T4["T4 global_spec\nbuild_global_spec"]
+  T1 --> T5["T5 template_spec\nbuild_template_spec"]
+  T2B --> T5
+  T3B --> T5
+  T4 --> T5
+  T3A --> PLAN["T5 plan\nbuild_template_generation_plan"]
+  PLAN --> T6["T6 execution/manifest\nexecute + build_manifest"]
+  T1 --> VERIFY["verify_template_parse_build\n唯一 status 权威"]
+  T2B --> VERIFY
+  T3B --> VERIFY
+  T4 --> VERIFY
+  T5 --> VERIFY
+  T6 --> VERIFY
+```
+
+现状阶段 I/O：
+
+| 阶段 | 当前代码入口 | 输入 | 输出 | 责任边界 |
+| --- | --- | --- | --- | --- |
+| T1 | `inspect_document_facts_docx` | `source_template.docx` | `document_facts` | 只产 DOCX 事实，不产语义判断 |
+| source tree | `source_tree_from_document_facts` | `document_facts` | `source_tree` | 将 T1 事实组织成 T2 可消费索引 |
+| T2 candidates | `build_template_structure_candidates` | `source_tree` | `structure_candidates` | 生成候选单元、元素、T2 调试信号 |
+| T2 unit map | `build_unit_map` | `document_facts` + `structure_candidates` | `unit_map` | 从候选结构派生最终单元图 |
+| T3 model/spec | `build_template_generation_model` / `build_element_spec` | `request` + `structure_candidates` | `generation_model` / `element_spec` | 由 `candidate_policy` 派生元素策略 |
+| T4 | `build_global_spec` | `document_facts` | `global_spec` | 全局页眉页脚、分节、页码等事实/策略 |
+| T5/T6 | `build_template_spec` / `build_template_generation_plan` / executor | T1-T4 产物 | `template_spec` / `plan` / `manifest` | 生成可执行计划并写 DOCX |
+| verifier | `verify_template_parse_build` | T1-T6 产物 | `verification_report` / status | 唯一 PASS/FAIL/UNKNOWN 权威 |
+
+### 0.2 加入 AI 后的耦合点
+
+```mermaid
+flowchart TB
+  DOCX["source_template.docx"] --> T1["T1 document_facts"]
+  DOCX --> RENDER["Render pipeline\ndocx -> PDF/images/index"]
+  RENDER --> PACKET["template_agent_render_packet\nimages + page_text_index + page_layout_index"]
+
+  T1 --> ST["source_tree"]
+  ST --> SC0["round-0 structure_candidates"]
+  SC0 --> UM0["round-0 unit_map"]
+  SC0 --> GM0["round-0 generation_model / element_spec"]
+
+  PACKET --> AH["Agent Harness loop\nview/query/submit/abstain"]
+  AH --> SUB["layered submissions\nT2 candidates / T3 policies / T4 hints"]
+  SUB --> DH["Deterministic Harness\nschema + reconciler + overlay"]
+
+  SC0 --> DH
+  DH --> O2["agent_t2_overlay"]
+  DH --> O3["agent_t3_overlay"]
+  DH --> H4["agent_t4_hints\nartifact only"]
+
+  O2 --> SCP["patched structure_candidates"]
+  O3 --> SCP
+  SCP --> UMP["post-agent unit_map"]
+  SCP --> GMP["post-agent generation_model / element_spec"]
+
+  UMP --> VERIFY["verify_template_parse_build\nfinal status"]
+  GMP --> VERIFY
+  H4 --> ATTR["agent_attribution\nround/proposal -> diff"]
+  VERIFY --> ATTR
+  DH --> FEEDBACK["rejected reasons + verifier peek"]
+  FEEDBACK --> AH
+```
+
+AI 只耦合在 `structure_candidates` 重生 seam 周围：
+
+| AI 组件 | 输入 | 输出 | 耦合到当前阶段 | 不允许做 |
+| --- | --- | --- | --- | --- |
+| Render packet | `annotated_page_images` + `page_text_index` + `page_layout_index` | `template_agent_render_packet.json` | 给 Agent 提供可见层观察面；通过 `source_seq` 回绑 T1/T2 | 不替代 `document_facts`，不生成语义事实 |
+| Agent Harness | render packet + allowed windows + deterministic feedback | `template_agent_transcript.json` / `layered_submission_round_*` | 编排多轮 `view/query/submit` | 不直接改文件，不直接写 T2/T3/T4 正式产物 |
+| T2 submission | page/source evidence | unit/block/boundary proposals | 投影为 `agent_t2_overlay` 后 patch `structure_candidates.units` | 不直接写 `unit_map` |
+| T3 submission | `source_seq` / render target | element policy proposals | 映射 round-0 element stable_id 后写 `agent_t3_overlay` | 不绕过 `candidate_policy` enum |
+| T4 submission | page/section/page-number hints | `agent_t4_hints.json` | 首轮只供归因和后续计划使用 | 不 patch `global_spec` / `template_spec` / `plan` |
+| Deterministic Harness | submissions + round-0 `structure_candidates` | decisions / overlays / feedback | schema、reconciler、overlay、regenerate、verifier peek | 不做语义二审，不改 verifier status |
+| Attribution | round-0/post-agent 产物 + decisions | `agent_attribution.json` | 连接 proposal/round 与字段 diff、verification/template-gap | 不修改验收标准 |
 
 ## 1. 目标
 
@@ -127,12 +216,28 @@ agent_config=None 或 enabled=false:
   - replay.py：按 transcript 零网络重放；
   - feedback.py：把 reconciler/verifier peek 转成下一轮可行动反馈。
 
-Anthropic SDK transport（live eval 才启用）
-  - messages.create；
-  - vision image blocks；
-  - tool_use / tool_result；
-  - tool input schema 约束 submit_* 参数；
-  - 可选 extended thinking。
+OpenAI SDK transport（live eval 才启用）
+  - 统一用 `openai` Python SDK；Kimi（Moonshot）与 Minimax 均走 OpenAI-compatible endpoint，通过 `base_url` + `api_key` 切换，二者任选其一即可；
+  - `chat.completions.create`（或厂商等价的 completions 路径）；
+  - vision：`image_url` / base64 image content blocks；
+  - `tools` + `tool_choice` 约束 submit_* 参数（等价于 function calling）；
+  - `tool` role messages 回传 deterministic feedback；
+  - 默认模型示例：Kimi `moonshot-v1-8k-vision-preview` / Minimax 对应 vision+tools 型号，以 eval 时厂商文档为准。
+
+Provider 配置（live eval，二选一即可）：
+
+```text
+Kimi (Moonshot):
+  base_url: https://api.moonshot.cn/v1
+  api_key: MOONSHOT_API_KEY
+  model: moonshot-v1-8k-vision-preview  # eval 时按厂商文档选型
+
+Minimax:
+  base_url: <Minimax OpenAI-compatible endpoint>
+  api_key: MINIMAX_API_KEY
+  model: <vision + tools 型号>
+
+二者共用同一 OpenAI SDK client 构造方式；transport 实现不 fork 两套调用逻辑。
 ```
 
 不采用通用 Agent 框架作为主路径：
@@ -327,7 +432,8 @@ Phase 6 runner / CLI 接线
   - 默认关闭、convert/orchestrator 默认不变。
 
 Phase 7 live eval
-  - Anthropic SDK transport：messages.create + vision + tool_use；
+  - OpenAI SDK transport：`chat.completions.create` + vision + tools/function calling；
+  - 模型后端接 Kimi 或 Minimax（OpenAI-compatible `base_url`，eval 时二选一或 A/B 对比均可）；
   - 不引入 LangChain/LangGraph/CrewAI 主架构；
   - 三校人工 eval；
   - 非 CI 门禁。
@@ -345,7 +451,7 @@ Phase 7 live eval
 7. T4 边界：首轮只产 hints artifact，不 patch T4 产物。
 8. 工具边界：AI 只能通过 Agent Harness 工具观察/提交；不能直接改文件或最终 artifact。
 9. 终止条件：changed=False、max_rounds、或 verifier peek 无 T2/T3 finding 时停止。
-10. 框架边界：Plan-01 不新增通用 Agent 框架依赖；live 只通过 Anthropic SDK transport 接入。
+10. 框架边界：Plan-01 不新增通用 Agent 框架依赖；live 只通过 OpenAI SDK transport 接入 Kimi / Minimax。
 11. 归因：同一模板可对比 agent off/on，并把变化映射到 round_id / applied_proposal_ids。
 12. 非回归：standards/targets/** 不被自动更新；t2_standard gate 接线不被本路径触碰。
 ```

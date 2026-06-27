@@ -56,6 +56,7 @@ next_plan: ...
 
 | 顺序 | 类型 | 文档 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
+| 01 | issue | `docs/plans/template-parse-refactor-t2t3-agent-proposal-issue-01-one-shot-vs-agent.md` | draft | 验证当前代码没有 one-shot/agent runtime；单次 LLM 只能作为 max_rounds=1 transcript，不能替代 harness/replay/overlay/verifier feedback |
 | 01 | implementation plan | `docs/plans/template-parse-refactor-t2t3-agent-proposal-plan-01-current-code-ai-overlay.md` | draft | 基于当前代码的新实施方案：确定性契约收口 + render packet/replay/fixture + AI overlay；默认关闭、与 standard-gate 工作并行 |
 
 ## Standard judge
