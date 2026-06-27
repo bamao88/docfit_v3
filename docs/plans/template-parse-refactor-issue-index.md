@@ -2,7 +2,7 @@
 status: active
 owner: template-generation
 created: 2026-06-25
-last_updated: 2026-06-26
+last_updated: 2026-06-27
 ---
 
 # 模板解析重构 issue 迭代索引
@@ -56,8 +56,8 @@ next_plan: ...
 
 | 顺序 | 类型 | 文档 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
-| 01 | issue | `docs/plans/template-parse-refactor-t2t3-agent-proposal-issue-01-advisory-reconciler-overlay.md` | draft | 首次引入 AI 语义提案层（Advisory + 确定性 reconciler + overlay 重生）；默认关闭、与 standard-gate 工作并行 |
-| 01 | optimization plan | TBD | pending | 基于 issue-01 讨论后产出实施顺序与门禁细化 |
+| 01 | proposal（legacy issue slot） | `docs/plans/template-parse-refactor-t2t3-agent-proposal-issue-01-advisory-reconciler-overlay.md` | draft | 基于当前代码的新实施方案：确定性契约收口 + render packet/replay/fixture + AI 语义提案层；默认关闭、与 standard-gate 工作并行 |
+| 01 | implementation plan | TBD | pending | 基于 proposal-01 产出实施顺序与门禁细化 |
 
 ## Standard judge
 

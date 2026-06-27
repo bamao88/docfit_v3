@@ -3,25 +3,27 @@ status: draft
 owner: template-generation
 stage: T2T3
 topic: agent-proposal
+doc_type: implementation_proposal
 issue_id: T2T3-AGENT-ISSUE-01
 issue_sequence: 1
+proposal_id: T2T3-AGENT-PROPOSAL-01
 created: 2026-06-26
 last_updated: 2026-06-27
-version: 3
+version: 4
 review:
   date: 2026-06-27
-  summary: 探索期测 AI 能力与归因；reconciler 放开语义拦截；AI 主输入改为 PDF/视觉 render 层、分层 I/O 对齐 T2/T3/T4，不以 T1 整理投影为主输入。
+  summary: 文档定位改为基于当前代码的新实施方案；拆成现有确定性代码改进与 AI 增量两条线；探索期测 AI 能力与归因，reconciler 放开语义二审但保留可执行硬校验，AI 主输入改为 PDF/render 可见层。
 previous_issue:
   id: none
   doc: none
 previous_optimization:
   id: none
   doc: none
-  summary: T2/T3 多轮纯确定性优化后，三校单元识别/元素策略仍与 standard 大量 mismatch；本 issue 首次引入 AI 语义提案层作为新方向。
+  summary: T2/T3 多轮纯确定性优化后，三校单元识别/元素策略仍与 standard 大量 mismatch；本 proposal 在当前代码基础上同时推进确定性契约收口与 AI 语义提案层。
 next_plan:
   id: TBD
   doc: TBD
-  summary: 基于 Review 建议产出 plan-01。
+  summary: 基于本 implementation proposal 产出 plan-01。
 source_proposal:
   doc: /Users/fl/Documents/Codex/2026-06-26/ai-agent-ai/outputs/docfit-template-generation-agent-driven.md
   summary: AI 提 proposal、确定性 reconciler 校验并应用 overlay、现有 verifier/template-gap 裁判的中间形态方案。
@@ -39,7 +41,27 @@ related_code:
   - src/docfit/ai_rca/packets.py
 ---
 
-# T2/T3 Agent 提案层 Issue 01：引入 AI 语义提案 + 确定性 reconciler + overlay
+# T2/T3 Agent 方案 01：当前代码改进 + AI 语义提案层
+
+## 定位说明（2026-06-27 修订）
+
+这份文档不再按“某一轮优化后的残余 issue”使用，而是作为**基于当前代码的新增方案基线**：
+
+```text
+1. 现有代码层面的改进：
+   - 保持 T1 fact-only 边界；
+   - 梳理 T2/T3 可重生 seam；
+   - 补齐 render packet、overlay、replay、归因 artifact、默认关闭门禁；
+   - 对现有确定性路径做必要的契约收口，确保 AI 关闭时行为不变。
+
+2. AI 增量：
+   - 新增基于 docx→PDF/render 的人类可见层输入；
+   - AI 只产结构化语义建议，不裁判 PASS/FAIL；
+   - reconciler 探索期不做语义二审，但保留 schema / source_seq / overlay 可执行性 / policy 可执行枚举等硬校验；
+   - 通过 round-0 与 post-agent 对照记录 AI 是否改善、引入或放大 mismatch。
+```
+
+文件名和 `issue_id` 暂保留，用于既有 `docs/plans/template-parse-refactor-issue-index.md` 链路兼容；后续若拆出正式 plan，可命名为 `template-parse-refactor-t2t3-agent-proposal-plan-01-current-code-ai-overlay.md`。
 
 ## Review 建议（2026-06-26 / 2026-06-27 讨论）
 
@@ -64,6 +86,7 @@ related_code:
 
 初稿把 reconciler 当作「第二道语义裁判」（置信度、闭集本体、破坏性 policy 预审等）。修订为：探索期**默认信任 AI**，reconciler 仅做 pass-through 留痕 + 防 pipeline 崩溃的硬校验（如幻觉 seq、不可执行的 overlay）。
 **关键词 / unit_id 开放，就是 reconciler 的探索期指向**：不因「不在闭集 ontology」拒绝 proposal；各校标题变体交给 AI 读文本判断，不再复用 `UNIT_DEFINITIONS` 关键词体系约束 AI 输出。
+但“放开语义二审”不等于放开执行层枚举：overlay operation、T3 `candidate_policy`、T4 hint kind 等必须属于当前代码可消费的有限集合；否则会把不可解释字符串写进 generation model / plan / executor。
 
 **2）闭集关键词：从 Agent 路径移除**
 
@@ -91,11 +114,11 @@ AI 输出面 ≠ 扁平 proposals[]{kind: split|merge|classify...}
 AI 输出面 = 按现有阶段分层对齐的结构化语义（与 L2 语义解析层一致）：
   - T2 层：unit_candidates、block_candidates（toc/form）、boundary_adjustments
   - T3 层：element_policy_candidates（占位符/表格/填写区策略）
-  - T4 层：section_profile_hints、page_numbering_hints、page_policy_candidates
+  - T4 层：section_profile_hints、page_numbering_hints、page_policy_candidates（首轮只落 hints，不直接改 T4 产物）
   各层独立 schema（如 t2_ai_response / t3_ai_response / t4_ai_response），
   由 reconciler 分层落 overlay → 重跑对应 build_*，而非一锅扁平 patch。
 
-分层输入策略（与 open-label §8.1 一致，plan-01 定稿调用形态）：
+分层输入策略（参考 open-label §8.1，但本方案首轮收紧 AI 推理主输入，plan-01 定稿调用形态）：
   - full-pass overview：全书低分辨率缩略图 + page index → 整体单元结构与分页模式
   - focused-pass review：按层/按可疑区间给高分辨率局部页
     · T2 窗：单元边界可疑页
@@ -107,6 +130,11 @@ AI 输出面 = 按现有阶段分层对齐的结构化语义（与 L2 语义解�
   - t2_derived_signals、deterministic_candidates、round-0 draft_unit_map / draft_element_spec
   - 闭集 ontology / UNIT_DEFINITIONS 关键词约束
 
+与 open-label §8.1 的关系：
+  - 本方案有意收紧 AI 推理主输入，避免 deterministic_candidates / known_taxonomy 带偏；
+  - 若为了成本或命名稳定性提供 canonical unit_id 建议列表，只能作为 non-binding reference；
+  - T3 不把 round-0 element stable_id 暴露为 AI 主输入，AI 用 source_seq/render evidence 指向目标，reconciler 再映射到 round-0 stable_id。
+
 双轨而非单轨（硬约束保留）：
   - T1 继续服务确定性 hash、verifier、manifest；默认关闭 Agent 时行为不变。
   - AI 走 Render 轨做语义；两轨在 source_seq 汇合（page_text_index 文本回绑，非 T1 语义字段）。
@@ -117,8 +145,8 @@ round-0 确定性初稿的新定位：
   - 不作为 Agent packet 必填输入；agent 开/关对照用于 attribution，不是「让 AI 修草稿」。
 
 待 plan-01 拍板（记入 §8）：
-  - 一次调用产出 layers{t2,t3,t4} vs T2→T3→T4 多轮 focused-pass
-  - T4 是否纳入首轮 AI，或 Phase 1 仅 page_policy_candidates（与 visual-pagination 合流）
+  - 一次调用产出 layers{t2,t3,t4_hints} vs T2→T3 focused-pass + T4 hints later
+  - current-code improvements 是否作为 plan-01 Phase 1 独立合并
   - reconciler 探索期是否完全不读 round-0 优先级（仅硬校验 + source_seq 可绑定性）
 ```
 
@@ -127,12 +155,12 @@ round-0 确定性初稿的新定位：
 
 ## 0. 记录目的
 
-本 issue 记录「在模板生成 T2/T3 引入 AI」的事实基线、锁定决策和提议方案，作为后续讨论与 plan-01 的基准。
+本文记录「在当前模板生成代码基础上同时做确定性代码改进与 AI 增量」的事实基线、锁定决策和提议方案，作为后续 plan-01 的基准。
 
 ```text
-1. 当前 T2/T3 还错在哪里、为什么纯规则优化收敛困难。
-2. 为什么这次引入 AI，且采用"中间形态"（AI 提案 + 确定性裁判），而不是 AI 直接改代码或只做 review。
-3. AI 介入的确切位置、边界、artifact、reconciler、重生方式、测试与实施顺序。
+1. 当前代码有哪些可利用 seam，哪些契约需要先收口。
+2. 哪些问题继续由确定性代码改进解决，哪些问题交给 AI 语义建议探索。
+3. AI 介入的确切位置、边界、artifact、reconciler、重生方式、归因与测试顺序。
 ```
 
 重要边界（与现有架构一致）：
@@ -192,16 +220,31 @@ AI 改的不是源代码，而是 T2/T3 结构化中间产物的 overlay / propo
 ## 4. 锁定决策（已与用户确认；2026-06-26 Review 修订见文首）
 
 ```text
-1) 范围 = Advisory + 薄 Reconciler（pass-through）+ Overlay 应用 + AI 归因留痕。
+1) 范围 = 当前代码契约收口 + Advisory + 薄 Reconciler（pass-through）+ Overlay 应用 + AI 归因留痕。
    探索期：schema 合法且硬校验通过的 proposal 默认 accepted 并应用；不在 reconciler 做语义/置信拦截。
-2) 基础设施 = 直接接真实 Claude API。附加硬约束（不与该选择冲突）：
-   - API 调用收敛在单一 client 边界模块（可 mock）。
-   - proposals / decisions / overlays 落盘为 artifact，支持 replay 模式离线重跑 overlay+重生。
+
+2) 当前代码层面的先决改进：
+   - runner seam：round-0 产物保留，post-agent 只通过 patched structure_candidates 重生；
+   - artifact seam：packet / response / decisions / overlay / attribution 均落盘并可 replay；
+   - executable enum：operation kind、T3 candidate_policy、T4 hint kind 限定在当前代码可消费集合；
+   - AI 关闭时不改现有输出、hash、manifest、verifier status。
+
+3) AI 基础设施 = fixture/replay first，live client later。
+   - CI 与默认开发流只跑 fixture/replay，不依赖 live API。
+   - 网络调用收敛在单一 client/transport 边界模块（可 mock）。
+   - live Claude 作为后续非门禁 eval 开关接入；模型名和参数不写死在核心流程，落地时再确认。
    - AI 步骤默认关闭，env/CLI flag 显式开启；现有确定性运行与测试 0 变化。
-   - 默认模型 claude-opus-4-8，可配置。
-3) 阶段聚焦 = T2 + T3 一起；探索期第一优先级 = AI 输入设计 + 归因度量，非 reconciler 阻塞。
-4) Agent 路径不使用闭集关键词 / unit_candidates ontology 约束 AI；各校标题变体由 AI 读 text 判断。
-5) 排序 = 与确定性 standard-gate 工作（issue-03/plan-03）并行，互不依赖，后期合流。
+
+4) 阶段聚焦 = T2 + T3 一起，T4 首轮只收 hints。
+   - T2/T3 可进入 overlay + regenerate；
+   - T4 只写 section/page/page-numbering hints artifact，不直接改 global_spec/template_spec/plan，除非后续 plan 明确补齐 T4 overlay 与门禁。
+
+5) Agent 路径不使用闭集关键词 / UNIT_DEFINITIONS 约束 AI 判断。
+   - AI 输出 raw_label / display_name / optional canonical_label_id_suggestion；
+   - reconciler 不因 label 不在 ontology 拒绝；
+   - final unit_id 仍由确定性映射层产出 canonical 或 custom，并写 trace，AI 不直接写最终 unit_id。
+
+6) 排序 = 与确定性 standard-gate 工作（issue-03/plan-03）并行，互不依赖，后期在 audit/gap 归因报告合流。
 ```
 
 ## 5. 提议方案
@@ -209,11 +252,12 @@ AI 改的不是源代码，而是 T2/T3 结构化中间产物的 overlay / propo
 ### 5.1 总体运行时流程
 
 ```text
-确定性 T2/T3 初稿（round-0）
-  → 组 template_agent_packet（输入范围见 §5.5，plan-01 定稿）
-  → AI 提 template_agent_proposals
+确定性 T2/T3 初稿（round-0，作为 baseline 与重生起点）
+  → 可选 render 轨：docx→PDF→page images/page_text_index/page_layout_index
+  → 组 template_agent_render_packet（AI 推理主输入，见 §5.5）
+  → fixture/replay 或 live transport 产出 layered AI response
   → reconciler 薄校验（硬约束 only）→ template_agent_decisions（探索期默认 accepted）
-  → agent_t2_overlay / agent_t3_overlay
+  → agent_t2_overlay / agent_t3_overlay；T4 首轮只产 hints artifact
   → patch structure_candidates → 重跑 build_unit_map + build_template_generation_model/build_element_spec
   → verify_template_parse_build 裁判
   → 归因留痕：round-0 vs post-agent diff、proposal_id → 字段变更映射（见文首 Review）
@@ -237,15 +281,19 @@ build_template_generation_model(request, structure_candidates) # generation_mode
 新建包 `src/docfit/template_generation/agent/`（复用 `ai_rca/packets.py` 的 advisory 边界范式，不耦合其 RCA 诊断面）：
 
 ```text
-config.py      AgentConfig(enabled=False, model="claude-opus-4-8", max_rounds=2,
-               proposals_path=None)；from_env()；探索期不设 confidence_floor
-packet.py      build_template_agent_packet(...)   纯投影；输入范围 plan-01 定稿（§5.5）；不含 hash/OOXML 字节
-proposals.py   Proposal 类型 + parse_proposals()（永不抛）；
-               T2_KINDS=(split_unit,merge_unit,relabel_unit,adjust_boundary,required_missing)
-               T3_KINDS=(classify_element_policy,)
-client.py      唯一网络边界；anthropic 懒导入；
-               TemplateAgentClient(Protocol) / ClaudeTemplateAgentClient / ReplayTemplateAgentClient / AgentUnavailable
-reconciler.py  reconcile_proposals(...) -> decisions   探索期 pass-through + 硬校验 only（§5.6）
+config.py      AgentConfig(enabled=False, model=None, max_rounds=2,
+               response_path=None, transport="replay")；from_env()；探索期不设 confidence_floor
+packet.py      build_template_agent_render_packet(...)   纯投影；render 可见层为主输入（§5.5）；
+               可带 round0_snapshot_id 供归因关联，但不把 round-0 draft 当作 AI 推理主输入
+response.py    LayeredResponse 类型 + parse_layered_response()（永不抛）；
+               T2: unit/block/boundary candidates；T3: element_policy candidates；T4: hints only
+proposal.py    将 layered response 投影为 overlay proposals；T3 target 先用 source_seq/render target，
+               再由 reconciler 映射到 round-0 element stable_id
+client.py      唯一 transport/client 边界；
+               TemplateAgentTransport(Protocol) / ReplayTemplateAgentTransport / FixtureTemplateAgentTransport /
+               ClaudeTemplateAgentTransport(later) / AgentUnavailable
+reconciler.py  reconcile_proposals(...) -> decisions   探索期 pass-through + 硬校验 only（§5.6）；
+               不做语义/置信拦截，但校验 source_seq、schema、overlay 可执行性、policy 可执行枚举
 overlay.py     build_t2_overlay/build_t3_overlay；apply_overlays(...)->patched structure_candidates（deepcopy）
 regenerate.py  regenerate_unit_map_and_element_spec(...)->(unit_map,generation_model,element_spec)
 decisions.py   decisions artifact 组装/写出；含 applied_proposal_ids 供归因
@@ -282,12 +330,16 @@ convert/orchestrator.py（:151/:323）无需改动（不传 agent_config 即默�
   input_windows（分层输入）:
     full_pass: {page_thumbnails[], page_index_summary}
     focused_pass[]: {layer: t2|t3|t4, page_nos[], reason}
-  optional_reference: canonical unit_id 建议列表（非约束）
+  optional_reference: canonical unit_id 建议列表（非约束；不得作为拒绝依据）
   round0_snapshot_id（仅归因关联，非推理必填）
   findings_t2_t3（第二轮可选；verifier peek 片段）
 
 明确不含：t2_input.contexts、body_flow_windows、draft_unit_map、draft_element_spec、
           t2_derived_signals、deterministic_candidates、闭集 ontology。
+
+与 open-label §8.1 的差异：open-label 曾把 deterministic_candidates / known_taxonomy
+列为 AI 输入，本方案为避免规则视角带偏，首轮不把它们作为推理主输入；若 plan-01
+为了命名稳定性保留 canonical 参考，也必须标为 non-binding reference。
 ```
 
 **AI 输出与其它 artifact**
@@ -296,15 +348,21 @@ convert/orchestrator.py（:151/:323）无需改动（不传 agent_config 即默�
 【修订方向】template_agent_layered_response.json（一次调用）或分文件 t2/t3/t4_ai_response.json（多轮 focused-pass）
   layers:
     t2: {unit_candidates[], block_candidates[], boundary_adjustments[], open_questions[]}
+        unit_candidates 输出 raw_label/display_name/canonical_label_id_suggestion，
+        不直接输出 final unit_id。
     t3: {element_policy_candidates[], open_questions[]}
+        element target 使用 source_seq_refs/render_target_id + visible evidence；
+        reconciler 再映射到 round-0 element stable_id。
     t4: {section_profile_hints[], page_numbering_hints[], page_policy_candidates[], open_questions[]}
+        首轮只落 hints artifact，不直接 patch T4 artifact。
   schema_version / prompt_version / source_render_hash / model
 
 【初稿扁平形态，保留作 overlay 操作对照】template_agent_proposals.json
   proposals[]{proposal_id, kind, operation, source_seq_refs, ...}
   operation 按 kind：split_unit / merge_unit / relabel_unit / adjust_boundary /
     required_missing / classify_element_policy
-  reconciler 可将 layered response 投影为 proposals + overlay operations（plan-01 定稿）
+  reconciler 可将 layered response 投影为 proposals + overlay operations（plan-01 定稿）；
+  投影层负责把 AI 的 source_seq/render target 映射为当前代码可执行 target_path。
 
 template_agent_decisions.json（reconciler 输出；探索期多为 accepted）
   decisions[]{proposal_id, kind, target_path, outcome:accepted|rejected, applied,
@@ -315,6 +373,10 @@ template_agent_decisions.json（reconciler 输出；探索期多为 accepted）
 agent_t2_overlay.json / agent_t3_overlay.json
   source_structure_candidates_hash（provenance，AI 不写）
   operations[]（携带 from_proposal_id）；T3 op 写回 structure_candidates.units[].elements[].candidate_policy + 支撑字段
+
+agent_t4_hints.json（首轮新增，非 overlay）
+  hints[]（section/page/page-numbering）；
+  仅供归因和后续 plan 使用，不直接改 global_spec/template_spec/plan。
 
 agent_attribution.json（探索期新增，见文首 Review）
   round0_hashes / post_agent_hashes
@@ -334,38 +396,46 @@ agent_attribution.json（探索期新增，见文首 Review）
 硬校验（保留）
   C-EVIDENCE-EXIST   source_seq_refs/evidence_refs 必须在 document_facts.body_flow 真实存在
   C-OVERLAY-EXEC     split/merge/boundary 应用后不制造 gap/overlap；不得移除 body_main unit
-  C-T3-TARGET        classify_element_policy 的 stable_id 必须存在于 round-0 element 列表
+  C-TARGET-BIND      AI target 必须能从 source_seq/render_target 映射到当前 structure_candidates 中的 unit/element；
+                     T3 映射结果 stable_id 必须存在于 round-0 element 列表
+  C-EXECUTABLE-ENUM  overlay operation kind、T3 candidate_policy、T4 hint kind 必须属于当前代码可消费集合
   C-SCHEMA           operation 字段满足 kind 契约（parse_proposals 已拦一层）
 
 探索期移除（产品化阶段再评估）
   C-CONFIDENCE / requires_review 拦截
-  relabel new_unit_id ∈ 闭集 ontology
-  policy ∈ 闭集、fill/manual/generated 预审、instruction_remove 证据、非破坏性 degraded
+  relabel new_unit_id ∈ 闭集 ontology（AI 不直接写 final unit_id；只给 label suggestion）
+  policy 的语义预审、fill/manual/generated 是否合理、instruction_remove 证据、非破坏性 degraded
   review_flags / open_questions 由 reconciler 预写
 
 记录：每条硬校验 append {check_id,status,reason}；accepted 决策写入 applied_proposal_ids 供归因。
 ```
 
-### 5.7 Claude client
+### 5.7 AI transport / client
 
 ```text
-propose 内懒导入 anthropic；model=claude-opus-4-8、thinking=adaptive、max_tokens=16000；
-导入失败/无 key → 抛 AgentUnavailable，loop 捕获后 no-op（generate_template 绝不硬失败）。
-system prompt 逐字编码边界（角色="提 T2/T3 结构化编辑，绝不裁判"、各 kind operation 契约、
-  "只引用 packet 内 source_ref/source_seq，不臆造 OOXML 证据"、forbidden 列表）；
-  探索期不写「闭集本体」硬约束；canonical unit_id 仅作命名建议。保持字节稳定以命中 prompt cache。
-结构化输出走 output_config.format=json_schema（proposals schema, additionalProperties:false）→ parse_proposals。
-重试：SDK 自动重 429/5xx；外加一次"schema 失败带 rejection 摘要重提"；仍畸形则丢弃并记 decisions.schema_rejections。
-门禁：仅 enabled（live）或 proposals_path（replay）时实例化 client；默认 generate_template 不构造 client、不触网。
+首轮实现顺序：
+  1. ReplayTemplateAgentTransport：读取已落盘 layered response，跑 overlay+regenerate+attribution。
+  2. FixtureTemplateAgentTransport：按 render_hash/prompt_version 加载测试 fixture，CI 只走该路径。
+  3. ClaudeTemplateAgentTransport：后续非门禁 eval 接入；anthropic 懒导入，导入失败/无 key → AgentUnavailable。
+
+system prompt 逐字编码边界（角色="提 T2/T3 结构化编辑和 T4 hints，绝不裁判"、各 layer schema、
+  "只引用 packet 内 source_ref/source_seq/render_target，不臆造 OOXML 证据"、forbidden 列表）；
+  探索期不写「闭集本体」硬约束；canonical unit_id 仅作 non-binding naming reference。
+
+结构化输出走 JSON schema（layered response schema, additionalProperties:false）→ parse_layered_response。
+schema 失败：Replay/Fixture 直接记录 schema_rejection；Live 后续可加一次"schema 失败带 rejection 摘要重提"。
+门禁：仅 enabled 且 transport != off 时实例化 transport；默认 generate_template 不构造 client、不触网。
 ```
 
 ### 5.8 测试策略（离线确定性为主覆盖面）
 
 ```text
 tests/unit/test_template_agent_reconciler.py   硬校验 only：伪造 seq→rejected / 合法 proposal→accepted / body_main 保护
+                                              / 不可执行 policy enum→rejected / T3 source_seq target→stable_id 映射
 tests/unit/test_template_agent_overlay.py      apply→regenerate 后过 T2/T3 子 verifier；range 连续、hash 重算
 tests/unit/test_template_agent_replay.py       ReplayTemplateAgentClient 全链路零网络、决策确定
-tests/unit/test_template_agent_packet.py       边界字段在、无 hash/OOXML 泄漏；输入窗覆盖待 plan-01 定稿后加断言
+tests/unit/test_template_agent_fixture.py      FixtureTemplateAgentTransport 按 render_hash 选 response，CI 零网络
+tests/unit/test_template_agent_packet.py       边界字段在、无 OOXML 字节泄漏；render packet 不含 round-0 draft_unit_map/draft_element_spec
 tests/unit/test_template_agent_attribution.py  round-0 vs post-agent diff；proposal_id 映射到 field_diffs
 tests/unit/test_template_agent_gating.py       AgentConfig() 默认与不传参运行字节一致（回归护栏）
 tests/unit/test_template_agent_client_boundary.py  monkeypatch 懒导入：无 anthropic/key→AgentUnavailable→no-op
@@ -377,40 +447,45 @@ CI 无 live 调用。
 ## 6. 提议实施顺序（每步独立可验、commit-per-feature）
 
 ```text
-Phase 0  本 issue 文档 + 文首 Review 建议 + 登记 index
-Phase 1  AI 输入（packet）设计定稿 + schema + config（不接 runner）；同步 attribution artifact 形状
-Phase 2  overlay+regenerate+薄 reconciler（pass-through + 硬校验）
-Phase 3  attribution diff + round-0/post-agent 对照
-Phase 4  client 边界+replay+loop；anthropic 放可选依赖组 [dependency-groups] agent
-Phase 5  runner 接线（gated, 默认关）；agent artifacts 进 debug snapshot（outputs.py 扩 08_template_agent_*）
-Phase 6  CLI/env 开关（--template-agent / --template-agent-proposals 或 DOCFIT_TEMPLATE_AGENT=1）；convert 默认关
-Phase 7  live 三校评估 + t2_standard/gap 归因报告（人工+脚本）
+Phase 0  本 proposal 文档定稿 + index 定位修正；明确 current-code improvements vs AI additions
+Phase 1  当前代码契约收口：AgentConfig 默认关闭、runner seam、round-0 snapshot、artifact 命名、可执行 enum 常量
+Phase 2  render packet schema + response schema + Replay/Fixture transport（不接 live，不接 runner）
+Phase 3  layered response → proposals → overlay projection；T3 source_seq/render target 映射 stable_id；T4 hints only
+Phase 4  薄 reconciler + overlay + regenerate；pass-through 语义，硬校验 source_seq/schema/exec enum/overlay 可执行
+Phase 5  attribution diff + round-0/post-agent 对照；proposal_id → field_diffs / mismatch delta
+Phase 6  loop + runner 接线（gated, 默认关）；agent artifacts 进 debug snapshot（outputs.py 扩 08_template_agent_*）
+Phase 7  CLI/env 开关（--template-agent / --template-agent-response 或 DOCFIT_TEMPLATE_AGENT=1）；convert 默认关
+Phase 8  可选 live Claude transport + 三校 eval；非 CI 门禁，输出 t2_standard/gap 归因报告
 ```
 
 ## 7. 后续验收门禁
 
 ```text
 1. 默认关闭门禁：不传 agent_config / env 未设 → 输出与当前字节一致；现有用例不破。
-2. 离线确定性门禁：薄 reconciler / overlay / regenerate / replay 全链路零网络可测，结果确定。
-3. 安全边界门禁：任一运行 AI 均未改 document_facts/standards/hash/manifest，未改写 status。
-4. 权威门禁：最终 status 仍由 verify_template_parse_build 产出。
-5. replay 端到端门禁：fixture proposals 跑通 → decisions/overlay/attribution 落盘、重生 unit_map 反映变更。
-6. AI 归因门禁（探索期重点）：同一模板可对比 agent 关/开；mismatch 变化可映射到 applied_proposal_ids；能回答「是否 AI 判断导致」。
-7. live 评估（人工，需 ANTHROPIC_API_KEY）：三校各跑一次，proposals 与 issue-03 expected vs observed 对照 + 归因表。
-8. 非回归门禁：T1 不恢复任何 semantic fields；standards/targets/** 不被自动更新；t2_standard gate 接线不被本路径触碰。
+2. 当前代码契约门禁：operation kind、T3 candidate_policy、T4 hint kind 有统一可执行 enum；未知值 rejected，不进入 generation model。
+3. 离线确定性门禁：薄 reconciler / overlay / regenerate / replay / fixture 全链路零网络可测，结果确定。
+4. 安全边界门禁：任一运行 AI 均未改 document_facts/standards/hash/manifest，未改写 status。
+5. 权威门禁：最终 status 仍由 verify_template_parse_build 产出。
+6. replay/fixture 端到端门禁：fixture response 跑通 → decisions/overlay/attribution 落盘、重生 unit_map/element_spec 反映变更。
+7. T3 target 门禁：AI response 只用 source_seq/render target；reconciler 映射到 round-0 stable_id，无法唯一映射则 rejected 或 open_question。
+8. T4 首轮门禁：T4 输出只落 hints artifact；不直接 patch global_spec/template_spec/plan。
+9. AI 归因门禁（探索期重点）：同一模板可对比 agent 关/开；mismatch 变化可映射到 applied_proposal_ids；能回答「是否 AI 判断导致」。
+10. live 评估（人工，需 API key）：三校各跑一次，response 与 issue-03 expected vs observed 对照 + 归因表；不作为 CI 门禁。
+11. 非回归门禁：T1 不恢复任何 semantic fields；standards/targets/** 不被自动更新；t2_standard gate 接线不被本路径触碰。
 ```
 
 ## 8. 待讨论的开放问题
 
 ```text
-Q1 【Review §4 取代初稿 Q1】render packet 分层输入定稿：full-pass 缩略图粒度；T2/T3/T4 focused-pass 窗划分与页数上限。
-Q2 一次调用产出 layers{t2,t3,t4} vs T2→T3→T4 多轮 focused-pass（成本、归因、prompt cache 权衡）。
-Q3 T4 是否纳入首轮 AI，或 Phase 1 仅 page_policy_candidates（与 visual-pagination 合流）。
-Q4 reconciler 探索期是否完全不读 round-0 合并优先级（仅硬校验 + source_seq 可绑定性）。
-Q5 第二轮是否喂 verification_report + focused-pass 定向到 mismatch 页（不再喂 t2_input 窗）。
-Q6 layered response → overlay operations 的投影规则（plan-01 schema）。
-Q7 live 与 replay 的 response artifact schema 版本化与 render_hash 绑定。
-Q8 agent_attribution 与 verification_report / template_gap_report 的字段合流方式。
-Q9 产品化阶段是否恢复 reconciler 语义/置信 gate（探索期明确不做）。
-Q10 与 issue-03 standard-gate 合流：归因度量是否统一使用 audit_unit_map_against_t2_standard 前后 delta。
+Q1 render packet 分层输入定稿：full-pass 缩略图粒度；T2/T3 focused-pass 窗划分与页数上限；T4 首轮 hints 的最小字段。
+Q2 首轮 response 形态：一次调用产出 layers{t2,t3,t4_hints}，还是 T2→T3 多轮 focused-pass + T4 hints later。
+Q3 current-code improvements 的最小交付面：AgentConfig/runner seam/artifact 命名/exec enum 是否作为 plan-01 Phase 1 独立合并。
+Q4 T3 source_seq/render target → round-0 element stable_id 的唯一映射规则；多候选时 rejected 还是 open_question。
+Q5 layered response → overlay operations 的投影规则：T2 label suggestion 如何落 canonical/custom；T3 policy 如何写支撑字段。
+Q6 reconciler 探索期是否完全不读 round-0 优先级（仅硬校验 + source_seq 可绑定性），还是允许用于 target 映射和冲突 trace。
+Q7 第二轮是否喂 verification_report + focused-pass 定向到 mismatch 页（不再喂 t2_input 窗）。
+Q8 replay / fixture / live response artifact schema 版本化与 render_hash、prompt_version 绑定方式。
+Q9 agent_attribution 与 verification_report / template_gap_report 的字段合流方式。
+Q10 产品化阶段是否恢复 reconciler 语义/置信 gate（探索期明确不做）。
+Q11 与 issue-03 standard-gate 合流：归因度量是否统一使用 audit_unit_map_against_t2_standard 前后 delta。
 ```
