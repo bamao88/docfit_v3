@@ -35,12 +35,19 @@ def build_template_generation_plan(
             continue
         page = unit.get("page") or {}
         page_break_rule = str(page.get("page_break") or "")
+        page_policy = _generation_page_policy(page)
+        policy_requires_new_page = page_policy.get("requires_new_page") is True
+        enforcement_hint = str(page_policy.get("enforcement_hint") or "")
         source_ref = _first_source_ref(unit)
         if not source_ref:
             continue
-        if _page_break_rule_requires_break(page_break_rule) and (
-            source_ref not in page_boundary_refs
-        ):
+        if (
+            _page_break_rule_requires_break(page_break_rule)
+            or (
+                policy_requires_new_page
+                and enforcement_hint not in {"section_break", "section"}
+            )
+        ) and source_ref not in page_boundary_refs:
             actions.append(
                 {
                     "action_id": f"a_{next_id:03d}",
@@ -57,9 +64,13 @@ def build_template_generation_plan(
             page_boundary_refs.add(source_ref)
             next_id += 1
         section_isolation_rule = str(page.get("section_isolation") or "")
-        if _page_break_rule_requires_break(section_isolation_rule) and (
-            source_ref not in section_boundary_refs
-        ):
+        if (
+            _page_break_rule_requires_break(section_isolation_rule)
+            or (
+                policy_requires_new_page
+                and enforcement_hint in {"section_break", "section"}
+            )
+        ) and source_ref not in section_boundary_refs:
             actions.append(
                 {
                     "action_id": f"a_{next_id:03d}",
@@ -259,4 +270,10 @@ def _target_ref_for_decision(decision: dict[str, Any]) -> str:
 
 def _page_break_rule_requires_break(rule: str) -> bool:
     normalized = _normalize_text(rule)
-    return normalized == "是" or normalized.startswith("是；")
+    return normalized in {"是", "true", "yes"} or normalized.startswith("是；")
+
+
+def _generation_page_policy(page: dict[str, Any]) -> dict[str, Any]:
+    page_policy = page.get("page_policy") or {}
+    generation_policy = page_policy.get("generation_policy") or {}
+    return generation_policy if isinstance(generation_policy, dict) else {}

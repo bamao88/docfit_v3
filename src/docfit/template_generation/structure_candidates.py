@@ -161,6 +161,12 @@ def _infer_units(
             if entry.get("source_ref")
         ]
         region_source_seq_refs = _source_seq_refs_for_entries(region_entries)
+        page = _mechanical_page_policy_for_unit(
+            anchor,
+            region_entries,
+            previous_entry=entries[start_index - 1] if start_index > 0 else None,
+            context=context,
+        )
         units.append(
             {
                 "unit_id": unit_id,
@@ -206,7 +212,7 @@ def _infer_units(
                 "boundary_score": anchor.get("score"),
                 "boundary_signals": anchor.get("signals", []),
                 "container": _unit_container(region_entries),
-                "page": {},
+                "page": page,
                 "elements": _copy_only_unit_elements(anchor, region_entries)
                 if _unit_is_copy_only_by_default(unit_id)
                 else _infer_elements(anchor, region_entries),
@@ -275,6 +281,93 @@ def _empty_body_main_unit() -> dict[str, Any]:
     }
 
 
+def _mechanical_page_policy_for_unit(
+    anchor: dict[str, Any],
+    region_entries: list[dict[str, Any]],
+    *,
+    previous_entry: dict[str, Any] | None,
+    context: dict[str, Any],
+) -> dict[str, Any]:
+    """Translate OOXML break facts near a unit boundary into unit page policy."""
+    if not region_entries:
+        return {}
+
+    first_entry = region_entries[0]
+    first_source_ref = str(
+        first_entry.get("source_ref") or anchor.get("source_ref") or ""
+    )
+    first_paragraph_index = _paragraph_index_from_source_ref(first_source_ref)
+    page_refs: list[str] = []
+    section_refs: list[str] = []
+
+    paragraph = (first_entry.get("style_details") or {}).get("paragraph") or {}
+    if paragraph.get("page_break_before") and first_source_ref:
+        page_refs.append(f"{first_source_ref}/pageBreakBefore")
+
+    break_items_by_paragraph = context.get("break_items_by_paragraph", {})
+    for paragraph_index in _boundary_scan_paragraph_indices(
+        first_paragraph_index,
+        previous_entry,
+    ):
+        for item in break_items_by_paragraph.get(paragraph_index, []):
+            kind = str(item.get("kind") or "")
+            source_ref = str(item.get("source_ref") or "")
+            if not source_ref:
+                continue
+            if kind == "break" and str(item.get("type") or "").lower() == "page":
+                page_refs.append(source_ref)
+            elif kind == "section":
+                section_refs.append(source_ref)
+
+    page_refs = _dedupe_str(page_refs)
+    section_refs = _dedupe_str(section_refs)
+    evidence_refs = _dedupe_str([*page_refs, *section_refs])
+    if not evidence_refs:
+        return {}
+
+    enforcement_hint = "section_break" if section_refs and not page_refs else "page_break"
+    page: dict[str, Any] = {
+        "page_policy": {
+            "mechanical": {
+                "has_explicit_break": True,
+                "page_break_evidence_refs": page_refs,
+                "section_break_evidence_refs": section_refs,
+            },
+            "observed": {},
+            "generation_policy": {
+                "requires_new_page": True,
+                "source": "mechanical_fact",
+                "confidence": "high",
+                "enforcement_hint": enforcement_hint,
+                "evidence_refs": evidence_refs,
+            },
+        }
+    }
+    if page_refs:
+        page["page_break"] = "是"
+    if section_refs:
+        page["section_isolation"] = "是"
+    return page
+
+
+def _boundary_scan_paragraph_indices(
+    first_paragraph_index: int | None,
+    previous_entry: dict[str, Any] | None,
+) -> list[int]:
+    if first_paragraph_index is None:
+        return []
+    previous_paragraph_index = _paragraph_index_from_source_ref(
+        str((previous_entry or {}).get("source_ref") or "")
+    )
+    if previous_paragraph_index is None:
+        return []
+    start = min(previous_paragraph_index, first_paragraph_index)
+    end = max(previous_paragraph_index, first_paragraph_index) - 1
+    if end < start:
+        return []
+    return list(range(start, end + 1))
+
+
 def _boundary_context(source_tree: dict[str, Any]) -> dict[str, Any]:
     data = source_tree.get("data", {})
     breaks = list(data.get("breaks", []))
@@ -292,6 +385,7 @@ def _boundary_context(source_tree: dict[str, Any]) -> dict[str, Any]:
         and item.get("kind") == "section"
     }
     break_refs_by_paragraph: dict[int, list[str]] = {}
+    break_items_by_paragraph: dict[int, list[dict[str, Any]]] = {}
     for item in breaks:
         paragraph_index = _int_or_none(item.get("paragraph_index"))
         if paragraph_index is None:
@@ -299,10 +393,12 @@ def _boundary_context(source_tree: dict[str, Any]) -> dict[str, Any]:
         break_refs_by_paragraph.setdefault(paragraph_index, []).append(
             str(item.get("source_ref") or "")
         )
+        break_items_by_paragraph.setdefault(paragraph_index, []).append(item)
     return {
         "page_break_paragraphs": page_break_paragraphs,
         "section_break_paragraphs": section_break_paragraphs,
         "break_refs_by_paragraph": break_refs_by_paragraph,
+        "break_items_by_paragraph": break_items_by_paragraph,
     }
 
 

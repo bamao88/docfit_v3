@@ -62,6 +62,7 @@ def build_unit_map(
             "source_seq_range": unit.get("source_seq_range", {}),
             "source_refs": unit.get("source_refs", []),
             "source_seq_refs": source_seq_refs,
+            "page": unit.get("page", {}),
             "page_start": _page_start_for_unit(unit),
             "section_profile": _section_profile_for_unit(
                 section_profiles,

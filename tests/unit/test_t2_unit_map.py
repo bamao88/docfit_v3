@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from docfit.template_generation.artifacts import build_unit_map
+from docfit.template_generation.plan import build_template_generation_plan
 from docfit.template_generation.structure_candidates import (
     _structural_signals,
     _toc_entry_like,
@@ -29,7 +31,15 @@ def _entry(
     alignment: str | None = None,
     font_size_pt: float | None = None,
     bold: bool | None = None,
+    page_break_before: bool = False,
 ) -> dict[str, Any]:
+    paragraph_style: dict[str, Any] = {
+        "style_name": style,
+        "style_id": style,
+        "alignment": alignment,
+    }
+    if page_break_before:
+        paragraph_style["page_break_before"] = True
     entry: dict[str, Any] = {
         "node_id": f"body_{index:04d}",
         "structure_layer": "body_flow",
@@ -43,11 +53,7 @@ def _entry(
         "text": text,
         "style": style,
         "style_details": {
-            "paragraph": {
-                "style_name": style,
-                "style_id": style,
-                "alignment": alignment,
-            },
+            "paragraph": paragraph_style,
             "dominant_run": {
                 "font_size_pt": font_size_pt,
                 "bold": bold,
@@ -59,12 +65,16 @@ def _entry(
     return entry
 
 
-def _source_tree(entries: list[dict[str, Any]]) -> dict[str, Any]:
+def _source_tree(
+    entries: list[dict[str, Any]],
+    *,
+    breaks: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     return {
         "metadata": {"source_template_hash": "sha256:test"},
         "layers": {"body_flow": entries},
         "indexes": {},
-        "data": {"breaks": [], "sections": [], "paragraphs": []},
+        "data": {"breaks": breaks or [], "sections": [], "paragraphs": []},
     }
 
 
@@ -254,6 +264,105 @@ def test_t2_splits_figure_and_table_lists_from_main_toc() -> None:
     assert units["table_list"]["source_seq_refs"] == [7, 8]
     assert _unit_at_seq(candidates, 6)["unit_id"] == "figure_list"
     assert _unit_at_seq(candidates, 8)["unit_id"] == "table_list"
+
+
+def test_t2_translates_page_break_before_to_unit_page_policy() -> None:
+    candidates = build_template_structure_candidates(
+        _source_tree(
+            [
+                _entry(1, "封面"),
+                _entry(2, "目录", style="Heading 1", page_break_before=True),
+                _entry(3, "摘要…………………1", style="toc 1"),
+                _entry(4, "正文", style="Heading 1"),
+            ]
+        )
+    )
+
+    toc = _units_by_id(candidates)["toc"]
+
+    assert toc["page"]["page_break"] == "是"
+    assert toc["page"]["page_policy"]["generation_policy"] == {
+        "requires_new_page": True,
+        "source": "mechanical_fact",
+        "confidence": "high",
+        "enforcement_hint": "page_break",
+        "evidence_refs": ["word/document.xml:p[2]/pageBreakBefore"],
+    }
+
+
+def test_t2_translates_previous_paragraph_page_break_to_next_unit() -> None:
+    candidates = build_template_structure_candidates(
+        _source_tree(
+            [
+                _entry(1, "封面"),
+                _entry(3, "目录", style="Heading 1"),
+                _entry(4, "正文", style="Heading 1"),
+            ],
+            breaks=[
+                {
+                    "kind": "break",
+                    "paragraph_index": 2,
+                    "type": "page",
+                    "source_ref": "word/document.xml:p[2]/br[1]",
+                }
+            ],
+        )
+    )
+    unit_map = build_unit_map({"data": {"sections": []}}, candidates)
+    generation_model = {"data": {"units": candidates["units"]}, "unit_strategies": []}
+    plan = build_template_generation_plan({}, generation_model=generation_model)
+
+    toc = _units_by_id(candidates)["toc"]
+    mapped_toc = next(unit for unit in unit_map["units"] if unit["unit_id"] == "toc")
+
+    assert toc["page"]["page_break"] == "是"
+    assert toc["page"]["page_policy"]["mechanical"]["page_break_evidence_refs"] == [
+        "word/document.xml:p[2]/br[1]"
+    ]
+    assert mapped_toc["page"] == toc["page"]
+    assert mapped_toc["page_start"] == "是"
+    assert any(
+        action["action_type"] == "insert_page_break_before_unit"
+        and action["unit_id"] == "toc"
+        and action["source_ref"] == "word/document.xml:p[3]"
+        for action in plan["actions"]
+    )
+
+
+def test_t2_translates_section_break_to_section_isolation_policy() -> None:
+    candidates = build_template_structure_candidates(
+        _source_tree(
+            [
+                _entry(1, "封面"),
+                _entry(2, "目录", style="Heading 1"),
+                _entry(3, "正文", style="Heading 1"),
+            ],
+            breaks=[
+                {
+                    "kind": "section",
+                    "paragraph_index": 1,
+                    "type": "section_properties",
+                    "source_ref": "word/document.xml:p[1]/sectPr",
+                }
+            ],
+        )
+    )
+    generation_model = {"data": {"units": candidates["units"]}, "unit_strategies": []}
+    plan = build_template_generation_plan({}, generation_model=generation_model)
+
+    toc = _units_by_id(candidates)["toc"]
+
+    assert toc["page"]["section_isolation"] == "是"
+    assert "page_break" not in toc["page"]
+    assert toc["page"]["page_policy"]["generation_policy"]["enforcement_hint"] == (
+        "section_break"
+    )
+    assert any(
+        action["action_type"] == "insert_section_break_before_unit"
+        and action["unit_id"] == "toc"
+        and action["source_ref"] == "word/document.xml:p[2]"
+        for action in plan["actions"]
+    )
 
 
 def test_t2_subheading_alone_is_not_top_level_unit() -> None:
