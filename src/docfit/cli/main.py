@@ -19,6 +19,10 @@ from docfit.harness.coverage import evaluate_profile_coverage
 from docfit.harness.profiles import BOOTSTRAP_PROFILE, get_eval_case
 from docfit.harness.reports import write_report_bundle
 from docfit.harness.standards import load_standard_bundle
+from docfit.harness.template_generation_standard_judge import (
+    evaluate_template_generation_standard_quality_command,
+    judge_template_generation_run,
+)
 
 app = typer.Typer(no_args_is_help=True)
 eval_app = typer.Typer(no_args_is_help=True)
@@ -70,6 +74,44 @@ def eval_template_generate(
     out: Path = typer.Option(..., "--out"),
 ) -> None:
     result = run_template_generate_eval(_root(), template, out)
+    _echo_status(result.status)
+
+
+@eval_app.command("template-generation-standard-quality")
+def eval_template_generation_standard_quality(
+    school: str | None = typer.Option(None, "--school"),
+    profile: str | None = typer.Option(None, "--profile"),
+    template_version: str = typer.Option("v1", "--template-version"),
+    out: Path = typer.Option(..., "--out"),
+) -> None:
+    if bool(school) == bool(profile):
+        raise typer.BadParameter("--school and --profile are mutually exclusive; pass exactly one")
+    result = evaluate_template_generation_standard_quality_command(
+        _root(),
+        out,
+        school_id=school,
+        profile_id=profile,
+        template_version=template_version,
+    )
+    _echo_status(result.status)
+
+
+@eval_app.command("template-generation-judge")
+def eval_template_generation_judge(
+    school: str = typer.Option(..., "--school"),
+    run: Path = typer.Option(..., "--run"),
+    template_version: str = typer.Option("v1", "--template-version"),
+    run_id: str | None = typer.Option(None, "--run-id"),
+    out: Path = typer.Option(..., "--out"),
+) -> None:
+    result = judge_template_generation_run(
+        _root(),
+        school,
+        run,
+        out,
+        template_version=template_version,
+        run_id=run_id,
+    )
     _echo_status(result.status)
 
 
