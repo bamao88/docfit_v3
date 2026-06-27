@@ -56,8 +56,7 @@ next_plan: ...
 
 | 顺序 | 类型 | 文档 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
-| 01 | proposal（legacy issue slot） | `docs/plans/template-parse-refactor-t2t3-agent-proposal-issue-01-advisory-reconciler-overlay.md` | draft | 基于当前代码的新实施方案：确定性契约收口 + render packet/replay/fixture + AI 语义提案层；默认关闭、与 standard-gate 工作并行 |
-| 01 | implementation plan | TBD | pending | 基于 proposal-01 产出实施顺序与门禁细化 |
+| 01 | implementation plan | `docs/plans/template-parse-refactor-t2t3-agent-proposal-plan-01-current-code-ai-overlay.md` | draft | 基于当前代码的新实施方案：确定性契约收口 + render packet/replay/fixture + AI overlay；默认关闭、与 standard-gate 工作并行 |
 
 ## Standard judge
 
