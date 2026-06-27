@@ -59,6 +59,13 @@ next_plan: ...
 | 01 | issue | `docs/plans/template-parse-refactor-t2t3-agent-proposal-issue-01-advisory-reconciler-overlay.md` | draft | 首次引入 AI 语义提案层（Advisory + 确定性 reconciler + overlay 重生）；默认关闭、与 standard-gate 工作并行 |
 | 01 | optimization plan | TBD | pending | 基于 issue-01 讨论后产出实施顺序与门禁细化 |
 
+## Standard judge
+
+| 顺序 | 类型 | 文档 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| 01 | issue | `docs/plans/template-parse-refactor-standard-judge-issue-01-run-bundle-stage-verifiers.md` | draft | 模板生成标准裁判模块：标准质量、run bundle、T1-T5 阶段 verifier、聚合报告和输出命名 |
+| 01 | optimization plan | TBD | pending | 基于 issue-01 拆出标准质量报告、run bundle 绑定、阶段 verifier 与 CLI 接入实施计划 |
+
 ## T3 element-policy
 
 | 顺序 | 类型 | 文档 | 状态 | 说明 |

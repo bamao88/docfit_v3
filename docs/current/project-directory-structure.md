@@ -59,6 +59,11 @@ docfit_v3/
 ├── src/docfit/                     # 生产代码（详见 §6）
 │   ├── cli/                        # 入口，只做参数解析与命令分发
 │   ├── harness/                    # 控制平面：决定测什么、用什么标准、判 PASS/FAIL/UNKNOWN
+│   │   ├── template_generation_standard_judge.py      # 模板生成标准裁判主入口
+│   │   ├── template_generation_standard_quality.py    # T1-T5 阶段标准本身的质量检查
+│   │   ├── template_generation_run_bundle.py          # 绑定某次 template-generate run 的产物和 hash
+│   │   ├── template_generation_stage_verifiers.py     # T1-T5 阶段标准 verifier
+│   │   └── template_generation_judge_reports.py       # 聚合报告与 Markdown/JSON 输出
 │   ├── core/                       # 跨切面：io / models / status
 │   ├── contracts/                  # 契约 schema 与 verifier 基类（不放具体学校标准）
 │   ├── stages/                     # ✅ 只放四个业务阶段
@@ -119,6 +124,8 @@ docfit_v3/
 ├── runs/                           # 运行输出；可删除、可重跑、不能当标准
 │   ├── template_generation/<run_id>/
 │   ├── eval/<run_id>/              # harness 门禁运行（coverage / e2e / 各阶段证据）
+│   ├── eval/template_generation_standard_quality/<scope>/  # T1-T5 标准质量报告
+│   ├── eval/template_generation_judge/<target_id>/<source_run_id>/  # 标准裁判读取某次 template-generate run 后的报告
 │   ├── convert/<run_id>/           # 产品转换运行（final.docx）
 │   └── workbench/                  # 本地实验，不进标准、不进门禁
 │
@@ -219,6 +226,7 @@ docfit_v3/
 1. **`template_generate` 当前在 `stages/` 里** → 移到 `src/docfit/template_generation/`。它是模板侧支撑流程，不是第五业务阶段。（参考 `docs/plans/template-generate-runner-split.md`）
 2. **`template_gap` 当前只是 `harness/generated_template_gap.py` 一个文件** → 抽成独立 `src/docfit/template_gap/`（runner / verifier / report）。（参考 `docs/plans/template-gap-engine-layering-refactor.md`）
 3. **通用合同被复制进每个学校目录** → 见 §5.2，收敛到 `standards/contracts/` 一份，各 target 用引用而非复制。
+4. **模板生成阶段标准已有但标准裁判未闭环** → 在 `src/docfit/harness/` 新增 `template_generation_standard_*` 与 `template_generation_*_judge*` 模块；裁判读取 `standards/targets/**` 与已有 `runs/template_generation/**`，输出到 `runs/eval/template_generation_judge/**`，不进入普通生成器输入。
 
 `src/docfit/core/`（io / models / status）保留——它是跨切面基础设施，不必并入 utils。
 
@@ -287,5 +295,10 @@ docfit_v3/
 | 标准入口 | `<domain>.standard.yaml` | `target.standard.yaml` / `case.standard.yaml` |
 | manifest | `*_manifest.{yaml,json}` | `input_manifest.yaml` |
 | 运行输出 | 生产产物原名，可带阶段序号，不带 `.expected` | `template_artifact.json` |
+| 标准质量输出 | `template_generation_stage_standard_quality_report.{json,md}` | `template_generation_stage_standard_quality_report.json` |
+| 标准裁判 run 绑定输出 | `template_generation_run_bundle.json` | `template_generation_run_bundle.json` |
+| 标准裁判阶段输出 | `template_generation_stage_checks.json` | `template_generation_stage_checks.json` |
+| 标准裁判聚合输出 | `template_generation_judge_report.{json,md}` | `template_generation_judge_report.md` |
+| 标准裁判输出目录 | `runs/eval/template_generation_judge/<target_id>/<source_run_id>/` | `runs/eval/template_generation_judge/hunannongye/template_generate/` |
 
 判文件角色只看后缀：`.input.*`=冻结输入；`.expected.*`=签收标准；`.contract.*`=通用合同；`.standard.yaml`=标准包入口；`*_manifest.*`=来源/hash/运行信息。**任何能删除重跑的东西都不该在 `standards/`。**

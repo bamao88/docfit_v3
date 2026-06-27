@@ -57,7 +57,7 @@ uv run docfit eval standards --school hunannongye --out runs/eval/standards_audi
 | 缺口 | 说明 |
 | --- | --- |
 | 没有标准质量报告产物 | 还没有 `template_generation_stage_standard_quality_report.json` 或 `.md` |
-| 没有专门 CLI | 还没有 `docfit eval template-stage-standard-quality` 之类的命令 |
+| 没有专门 CLI | 还没有 `docfit eval template-generation-standard-quality` 之类的命令 |
 | 没有阶段类型深校验 | 例如 T1 必须有 `forbidden_semantic_fields`，T3 必须有 `element_policy_contract`，T4 必须有 `global_layout_contract`，T5 必须有 `template_spec_contract`，这些还没有统一代码检查 |
 | 没有 hash 反查审计 | 标准里写的源模板、review packet、final template 引用和 sha256，还没有在阶段标准质量检查里逐项重新计算验证 |
 | 没有跨文件一致性报告 | 例如 `target.standard.yaml` 登记、标准文件内容、final template unit order、旧文件删除，目前主要靠合同测试，不是产品报告 |
@@ -187,17 +187,17 @@ uv run docfit eval standards \
 建议新增一个专用命令：
 
 ```bash
-uv run docfit eval template-stage-standard-quality \
+uv run docfit eval template-generation-standard-quality \
   --profile real-core-v0 \
-  --out runs/eval/real-core-v0/template_stage_standard_quality
+  --out runs/eval/template_generation_standard_quality/real-core-v0
 ```
 
 也可以支持单校：
 
 ```bash
-uv run docfit eval template-stage-standard-quality \
+uv run docfit eval template-generation-standard-quality \
   --school hunannongye \
-  --out runs/eval/standards/hunannongye_template_stage_standard_quality
+  --out runs/eval/template_generation_standard_quality/hunannongye
 ```
 
 建议输出：
@@ -275,44 +275,44 @@ template_gap_report.json
 建议 finding type 使用这个前缀：
 
 ```text
-template_stage_standard_quality_*
+template_generation_stage_standard_quality_*
 ```
 
 示例：
 
 | finding type | 含义 |
 | --- | --- |
-| `template_stage_standard_quality_missing_ref` | `target.standard.yaml` 缺阶段标准登记 |
-| `template_stage_standard_quality_legacy_file_present` | 旧 expected 文件仍存在 |
-| `template_stage_standard_quality_type_mismatch` | `baseline_type`、`stage_id` 或 `artifact_under_test` 不匹配 |
-| `template_stage_standard_quality_missing_contract` | 阶段专属 contract 缺失 |
-| `template_stage_standard_quality_hash_mismatch` | source/review/final template hash 不一致 |
-| `template_stage_standard_quality_unit_order_mismatch` | T2-T5 unit order 与 final template 不一致 |
-| `template_stage_standard_quality_t1_semantic_boundary_gap` | T1 禁用语义字段清单不完整 |
+| `template_generation_stage_standard_quality_missing_ref` | `target.standard.yaml` 缺阶段标准登记 |
+| `template_generation_stage_standard_quality_legacy_file_present` | 旧 expected 文件仍存在 |
+| `template_generation_stage_standard_quality_type_mismatch` | `baseline_type`、`stage_id` 或 `artifact_under_test` 不匹配 |
+| `template_generation_stage_standard_quality_missing_contract` | 阶段专属 contract 缺失 |
+| `template_generation_stage_standard_quality_hash_mismatch` | source/review/final template hash 不一致 |
+| `template_generation_stage_standard_quality_unit_order_mismatch` | T2-T5 unit order 与 final template 不一致 |
+| `template_generation_stage_standard_quality_t1_semantic_boundary_gap` | T1 禁用语义字段清单不完整 |
 
 ### 代码位置
 
 建议新增模块：
 
 ```text
-src/docfit/harness/template_stage_standard_quality.py
+src/docfit/harness/template_generation_standard_quality.py
 ```
 
 建议暴露函数：
 
 ```python
-evaluate_template_stage_standard_quality(root: Path, profile_id: str | None, school_id: str | None) -> tuple[dict, list[Finding]]
+evaluate_template_generation_standard_quality(root: Path, profile_id: str | None, school_id: str | None) -> tuple[dict, list[Finding]]
 ```
 
 CLI 只负责参数解析和写报告，不拥有检查语义。
 
 ## 补全顺序
 
-1. 新增 `template_stage_standard_quality.py`，先实现读取登记、文件存在、旧入口不存在和 `validate_baseline_document`。
+1. 新增 `template_generation_standard_quality.py`，先实现读取登记、文件存在、旧入口不存在和 `validate_baseline_document`。
 2. 加 real-core 合同测试，覆盖三校 `PASS` 和几个负例 fixture。
 3. 增加阶段类型深校验：T1 forbidden fields、T2 units、T3 policy contract、T4 layout contract、T5 template spec contract。
 4. 增加 source/review/final template hash 校验。
-5. 增加 CLI `docfit eval template-stage-standard-quality`。
+5. 增加 CLI `docfit eval template-generation-standard-quality`。
 6. 让后续 T1-T5 阶段 verifier 在执行前读取标准质量结果；不是 `PASS` 时，阶段结果最多只能是 `UNKNOWN`。
 
 做到第 6 步以后，阶段标准质量衡量才算从“静态测试兜底”变成“产品评测能力”。
