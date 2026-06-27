@@ -102,6 +102,7 @@ uv run docfit eval template-generation-judge \
   06.1_fillable_template.docx
   06.2_build_manifest.json
   07_verification_report.json
+  99_template_generation_debug_index.json
   artifacts/
     document_facts.json
     unit_map.yaml
@@ -113,6 +114,30 @@ uv run docfit eval template-generation-judge \
 ```
 
 优先读取顶层阶段编号文件；缺顶层文件时可读 `artifacts/` 兼容路径，但报告必须记录实际读取路径和 hash。
+
+run id 默认取 `--run` 目录名；如果调用方需要稳定命名，可以显式传 `--run-id`。报告必须同时写入：
+
+```text
+source_run_id
+source_run_dir
+source_run_dir_name
+```
+
+`source_run_id` 只用于输出命名和人读索引，不参与裁判通过与否。
+
+### 1.3 run bundle 绑定算法
+
+`template_generation_run_bundle.py` 第一版按下面顺序绑定证据：
+
+1. 确认 `--run` 是目录；否则输出 `UNKNOWN`，不尝试拼零散文件。
+2. 读取 `99_template_generation_debug_index.json`；存在时把其中 `files[].name/path/sha256` 作为 declared manifest。
+3. 对每个必需产物选择实际路径：先顶层编号文件，再 `artifacts/` 兼容文件。
+4. 对实际路径重新计算 sha256；如果 debug index 声明 hash，必须对比 declared vs actual。
+5. 校验 `00_template_generation_request.json#/source_template_hash` 是否等于标准包里 `source.template_docx_sha256` 或阶段标准 `accepted_source_facts.template_docx_sha256`。
+6. 校验 `06.2_build_manifest.json` 中的 fillable template hash 是否等于 `06.1_fillable_template.docx` 实际 hash。
+7. 任一必需产物缺失、hash mismatch、source hash mismatch，run bundle 状态为 `UNKNOWN`。
+
+允许兼容旧 run 缺 `99_template_generation_debug_index.json`，但必须产生 `template_generation_run_bundle_missing_debug_index` finding，并在报告中标记 `manifest_source=filesystem_scan`。
 
 ## 2. Expected vs Observed
 
@@ -244,7 +269,8 @@ runs/eval/template_generation_judge/hunannongye/template_generate/
   findings.json
   template_generation_run_bundle.json
   template_generation_stage_checks.json
-  template_generation_standard_quality_report.json
+  template_generation_stage_standard_quality_report.json
+  template_generation_stage_standard_quality_report.md
   template_generation_judge_report.json
   template_generation_judge_report.md
 ```
@@ -258,6 +284,37 @@ runs/eval/template_generation_judge/hunannongye/template_generate/
 | 阶段裁判列表 | `template_generation_stage_checks.json` |
 | 聚合裁判报告 | `template_generation_judge_report.{json,md}` |
 | CLI 输出目录 | `runs/eval/template_generation_judge/<target_id>/<source_run_id>/` |
+
+### 6.3 CLI 参数规则
+
+新增命令落在 Typer `eval_app` 下。
+
+```text
+docfit eval template-generation-standard-quality
+  --school <target_id> | --profile <profile_id>
+  --template-version v1
+  --out <dir>
+
+docfit eval template-generation-judge
+  --school <target_id>
+  --run <existing-template-generate-run-dir>
+  --template-version v1
+  --run-id <optional-stable-run-id>
+  --out <dir>
+```
+
+参数规则：
+
+| 参数 | 规则 |
+| --- | --- |
+| `--school` / `--profile` | 标准质量命令二选一；不能同时传，不能都不传 |
+| `--school` | 标准裁判命令必填；不从 run path 猜学校 |
+| `--run` | 必须是已存在目录；不能触发 `template-generate` 重跑 |
+| `--template-version` | 默认 `v1` |
+| `--run-id` | 可选；默认取 `Path(--run).name` |
+| `--out` | 必填；允许覆盖同名报告文件，但不得删除 out 目录外内容 |
+
+CLI 第一版只打印 `status = PASS|FAIL|UNKNOWN`。退出码沿用当前 eval 命令习惯：参数错误非 0，裁判状态为 `FAIL` 或 `UNKNOWN` 时仍正常写报告并返回 0；如后续要让 CI fail，应单独增加 `--fail-on-non-pass`。
 
 ## 7. 整体流程
 
@@ -325,6 +382,8 @@ class BoundArtifact:
     stage_id: str
     path: Path | None
     sha256: str | None
+    declared_sha256: str | None
+    source_kind: str
     status: Status
     payload: dict[str, Any] | None
 
@@ -342,6 +401,16 @@ class StageCheck:
     findings: list[Finding]
 ```
 
+`source_kind` 取值：
+
+| 值 | 含义 |
+| --- | --- |
+| `ordered_top_level` | 来自 `01_document_facts.json` 这类顶层编号文件 |
+| `artifacts_compat` | 来自 `artifacts/document_facts.json` 这类兼容路径 |
+| `missing` | 必需产物缺失 |
+
+finding 统一使用 `docfit.core.models.Finding`。已有 `t2_standard.py` 返回 dict findings，接入时必须经过 adapter 转换成 `Finding`，统一补齐 `finding_id`、`stage`、`severity`、`root_cause_bucket` 和 `evidence_refs`，再写入 `findings.json` / `issue_clusters.json`。
+
 ## 9. 阶段输入输出
 
 | 阶段 | 标准输入 | 运行输入 | 上下文输入 | 裁判输出 |
@@ -351,6 +420,20 @@ class StageCheck:
 | T3 | `t3_element_policy.standard.yaml` | `element_spec.yaml` | `unit_map.yaml` | policy、fill_source、manual_semantics、generated.field_type、source trace |
 | T4 | `t4_global_layout.standard.yaml` | `global_spec.yaml` | `document_facts.json` | section profile、page numbering、header/footer、numbering、page evidence |
 | T5 | `t5_template_spec.standard.yaml` | `template_spec.yaml` | T2/T3/T4 artifacts | unit/element/global 合并、unit-section 绑定、review flags 保留 |
+
+### 9.1 V1 verifier 最小范围
+
+第一版不能只做外壳。每个阶段至少要有下面这些可执行检查；超出部分可以先作为后续增强。
+
+| 阶段 | V1 必做检查 |
+| --- | --- |
+| T1 | `artifact_type=document_facts`；`expected.source_fact_contract.required_top_level_fields` 存在于实际产物；`expected.source_fact_contract.required_data_groups` 存在于 `data`；`body_flow` 可见项有 `source_seq`/`source_ref`；`expected.forbidden_semantic_fields` 不出现在 T1 产物任意 dict key |
+| T2 | 复用 `audit_unit_map_against_t2_standard`；检查 unit order、missing/unexpected/custom units；能拿到 `document_facts` 时执行 anchor owner audit |
+| T3 | `artifact_type=element_spec`；unit order 与 T2/标准一致；`policy_groups` 中的 unit policy 与实际元素 policy 不冲突；按 `element_policy_contract.required_fields_by_policy` 检查 fill/manual/generated/instruction_remove 字段 |
+| T4 | `artifact_type=global_spec`；存在 section profile、page numbering、header/footer/numbering 证据字段；标准声明的 global layout contract 缺失时为 `UNKNOWN` |
+| T5 | `artifact_type=template_spec`；unit order 与 T2/T3/T4 一致；T2/T3/T4 的 review flags 不能丢；unit-section 绑定缺失为 `UNKNOWN` |
+
+如果阶段标准 `verifier_state=not_configured`，V1 verifier 可以计算 `audit_status`，但 `status` 仍必须是 `UNKNOWN`，不能因为 audit pass 写成阶段 `PASS`。
 
 ## 10. 核心代码形状
 
@@ -363,6 +446,7 @@ def judge_template_generation_run(
     run_dir: Path,
     out_dir: Path,
     template_version: str = "v1",
+    run_id: str | None = None,
 ) -> StageResult:
     standard_set = load_template_generation_standard_set(
         root,
@@ -370,7 +454,11 @@ def judge_template_generation_run(
         template_version,
     )
     standard_quality = evaluate_template_generation_standard_quality(standard_set)
-    run_bundle = bind_template_generation_run_bundle(run_dir)
+    run_bundle = bind_template_generation_run_bundle(
+        run_dir,
+        standard_set=standard_set,
+        source_run_id=run_id,
+    )
 
     stage_checks = [
         judge_stage(
@@ -435,7 +523,7 @@ def aggregate_template_generation_judgement(...) -> JudgeReport:
 | --- | --- |
 | 阶段标准缺失 | `UNKNOWN` |
 | 阶段标准 YAML 无效 | `UNKNOWN` |
-| 标准质量不是 `PASS` | `UNKNOWN` |
+| 对应阶段标准质量不是 `PASS` | `UNKNOWN` |
 | run 产物缺失 | `UNKNOWN` |
 | run 产物不是同一次运行或 hash 绑定失败 | `UNKNOWN` |
 | `verifier_state=not_configured` | `UNKNOWN`；可附带 `audit_status`，不能 `PASS` |
@@ -451,6 +539,15 @@ def aggregate_template_generation_judgement(...) -> JudgeReport:
 没有 configured verifier 的阶段不能让总报告宣称全链路 PASS
 ```
 
+标准质量是前置门禁，但不能粗暴全局吞掉所有阶段。聚合时应区分：
+
+| 标准质量问题 | 影响 |
+| --- | --- |
+| 单个阶段标准缺字段、hash 缺失、contract 缺失 | 对应阶段最多 `UNKNOWN` |
+| `target.standard.yaml` 缺阶段登记或登记旧入口 | 相关阶段 `UNKNOWN`，并进入聚合 findings |
+| source template hash 与 run request 不一致 | run bundle `UNKNOWN`，所有依赖该 run 的阶段 `UNKNOWN` |
+| T2-T5 unit order 与 final template 不一致 | 对应阶段 `FAIL` 或 `UNKNOWN`，取决于是否是明确冲突还是证据缺失 |
+
 ## 12. 后续验收门禁
 
 最小闭环门禁：
@@ -461,8 +558,9 @@ def aggregate_template_generation_judgement(...) -> JudgeReport:
 3. T1-T5 都有 StageCheck，占位阶段也必须显示 not_configured，不可消失。
 4. T2 现有 audit 通过统一 StageCheck 出现在 judge report。
 5. 报告能写出 first_bad_stage、标准路径、产物路径、hash 和 findings。
-6. 所有输出进入 runs/eval/template_generation_judge/**，不写 standards/ 或 inputs/。
-7. 不修改 `standards/targets/**`，不自动重跑 template-generate。
+6. run bundle 报告能写出 source_run_id、source_run_dir、manifest_source、declared_sha256、actual_sha256 和 hash_match。
+7. 所有输出进入 runs/eval/template_generation_judge/**，不写 standards/ 或 inputs/。
+8. 不修改 `standards/targets/**`，不自动重跑 template-generate。
 ```
 
 代码验证建议：
@@ -494,6 +592,8 @@ summary.json
 findings.json
 template_generation_run_bundle.json
 template_generation_stage_checks.json
+template_generation_stage_standard_quality_report.json
+template_generation_stage_standard_quality_report.md
 template_generation_judge_report.json
 template_generation_judge_report.md
 ```
