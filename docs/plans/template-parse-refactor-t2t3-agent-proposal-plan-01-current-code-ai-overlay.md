@@ -51,6 +51,7 @@ related_code:
 5. 不在首轮直接 patch T4 global_spec/template_spec/plan。
 6. 不让 live API 成为 CI 或默认开发流依赖。
 7. 不给 AI 自由文件/代码执行能力；AI 只能调用 Agent Harness 暴露的窄工具。
+8. 不引入 LangChain / LangGraph / CrewAI / 云 Agent 平台作为主架构；不把 harness、replay、verifier feedback 交给通用 Agent 框架管理。
 ```
 
 ## 3. 当前代码基线
@@ -115,9 +116,43 @@ agent_config=None 或 enabled=false:
 
 单次 structured output 仍可作为最小实现，但只视为 `max_rounds=1` 的 transcript，不作为最终目标形态。
 
-## 5. Agent 输入 / 工具 / 输出契约
+## 5. 运行时选型
 
-### 5.1 输入：render packet
+采用**仓库自研薄 Agent Harness + 厂商 SDK transport**：
+
+```text
+自研 Agent Harness（业务核心）
+  - loop.py：轮次、window 选择、终止条件、transcript 落盘；
+  - tools.py：view_pages / query_text / submit_t2 / submit_t3 / submit_t4 / abstain；
+  - replay.py：按 transcript 零网络重放；
+  - feedback.py：把 reconciler/verifier peek 转成下一轮可行动反馈。
+
+Anthropic SDK transport（live eval 才启用）
+  - messages.create；
+  - vision image blocks；
+  - tool_use / tool_result；
+  - tool input schema 约束 submit_* 参数；
+  - 可选 extended thinking。
+```
+
+不采用通用 Agent 框架作为主路径：
+
+```text
+LangChain / LangGraph / CrewAI:
+  不作为 Plan-01 主架构依赖。
+
+原因：
+  1. 本项目要求 replay-first，CI 要能零网络重放 transcript。
+  2. source_seq 绑定、C-OVERLAY-EXEC、candidate_policy enum、verifier peek 是 DocFit 产品契约，不能交给通用 guardrail。
+  3. 当前依赖极简；Agent 框架生态会带来版本漂移和调试噪声。
+  4. T1 fact-only / verifier status 权威边界必须保留在本仓库 Python 代码中。
+```
+
+因此，“成熟能力”只用在底层模型 API 与 tool schema；“决策编排”和“确定性边界”留在仓库内。
+
+## 6. Agent 输入 / 工具 / 输出契约
+
+### 6.1 输入：render packet
 
 AI 主输入是 `template_agent_render_packet.json`：
 
@@ -147,7 +182,7 @@ round0_snapshot_id:
 4. AI 可给 raw_label/display_name/canonical_label_id_suggestion，但不直接写 final unit_id。
 ```
 
-### 5.2 工具边界
+### 6.2 工具边界
 
 Agent 只能通过以下工具观察和提交结果：
 
@@ -173,7 +208,7 @@ abstain(question)
 
 每个 `submit_*` 都必须生成 `round_id` / `proposal_id`，进入 schema 校验、reconciler、overlay 或 hints artifact。AI 不能绕过这些工具直接写文件或直接改中间产物。
 
-### 5.3 输出：layered submission
+### 6.3 输出：layered submission
 
 ```text
 每轮提交可以落为 template_agent_layered_submission.json：
@@ -188,7 +223,7 @@ T2/T3 可投影为 overlay proposals 并 patch structure_candidates。
 T4 首轮只写 agent_t4_hints.json，不 patch global_spec/template_spec/plan。
 ```
 
-## 6. Deterministic Harness 契约
+## 7. Deterministic Harness 契约
 
 Deterministic Harness 包含 schema、reconciler、overlay、regenerate、verifier peek。探索期不判断 AI 语义是否正确，只防止不可执行输出进入主链，并给 Agent Harness 返回可行动反馈。
 
@@ -223,7 +258,7 @@ findings_peek:
 next_window_suggestions[] optional
 ```
 
-## 7. Artifact
+## 8. Artifact
 
 首轮需要落盘的 artifact：
 
@@ -250,7 +285,7 @@ rejected_proposal_ids[]
 standard_probe_delta optional
 ```
 
-## 8. 实施阶段
+## 9. 实施阶段
 
 ```text
 Phase 1 当前代码契约收口
@@ -292,12 +327,13 @@ Phase 6 runner / CLI 接线
   - 默认关闭、convert/orchestrator 默认不变。
 
 Phase 7 live eval
-  - 可选 Claude transport；
+  - Anthropic SDK transport：messages.create + vision + tool_use；
+  - 不引入 LangChain/LangGraph/CrewAI 主架构；
   - 三校人工 eval；
   - 非 CI 门禁。
 ```
 
-## 9. 验收门禁
+## 10. 验收门禁
 
 ```text
 1. 默认关闭：不传 agent_config 时现有输出不变。
@@ -309,11 +345,12 @@ Phase 7 live eval
 7. T4 边界：首轮只产 hints artifact，不 patch T4 产物。
 8. 工具边界：AI 只能通过 Agent Harness 工具观察/提交；不能直接改文件或最终 artifact。
 9. 终止条件：changed=False、max_rounds、或 verifier peek 无 T2/T3 finding 时停止。
-10. 归因：同一模板可对比 agent off/on，并把变化映射到 round_id / applied_proposal_ids。
-11. 非回归：standards/targets/** 不被自动更新；t2_standard gate 接线不被本路径触碰。
+10. 框架边界：Plan-01 不新增通用 Agent 框架依赖；live 只通过 Anthropic SDK transport 接入。
+11. 归因：同一模板可对比 agent off/on，并把变化映射到 round_id / applied_proposal_ids。
+12. 非回归：standards/targets/** 不被自动更新；t2_standard gate 接线不被本路径触碰。
 ```
 
-## 10. 待确认问题
+## 11. 待确认问题
 
 ```text
 Q1 render packet 的 full-pass / focused-pass 页数上限。
