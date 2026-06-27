@@ -52,7 +52,7 @@ deferred 范围里的 historical fixture 或 expected 文件不能作为当前 g
 | `document_facts.json` | 学校源 Word 里实际解析到什么 | 不能承载单元/元素策略判断 |
 | `template_spec.yaml` | 系统如何理解学校源模板的单元、元素、策略和全局规则 | 不能替代 `fillable_template.docx` 的真实结构证据 |
 | `build_manifest.json` | 构建器执行了什么，输出 Word hash 是什么 | 不能单独证明 Word 里最终真的存在对应内容 |
-| `template_artifact.json` | 四阶段旧接口需要的包装视图 | 不能拥有独立于 `template_spec.yaml` 的模板语义 |
+| `template_artifact.json` | legacy downstream 接口需要的包装视图 | 不能拥有独立于 `template_spec.yaml` 的模板语义 |
 | `generated_template_tree.json` | 被测生成 Word 实际解析出了什么 | 不能替代学校签收标准 |
 | `template_gap_report.json` | 检查器如何判定差距和阻断状态 | 不能反过来当标准，不能被 AI 改成通过 |
 

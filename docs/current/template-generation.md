@@ -56,7 +56,7 @@ flowchart TD
   G --> J["template-gap"]
 ```
 
-旧 `source_template_tree.json`、`template_structure_candidates.json`、`template_generation_model.json`、`template_generation_plan.json` 仍会作为兼容调试视图落盘，方便现有定位和测试过渡；它们不再拥有独立模板语义。`template_artifact.json` 如果出现在 template-generate 输出里，也只是 `template_spec.yaml` 的四阶段包装视图。
+旧 `source_template_tree.json`、`template_structure_candidates.json`、`template_generation_model.json`、`template_generation_plan.json` 仍会作为兼容调试视图落盘，方便现有定位和测试过渡；它们不再拥有独立模板语义。`template_artifact.json` 如果出现在 template-generate 输出里，也只是 `template_spec.yaml` 的 legacy downstream 包装视图。
 
 ## 核心产物
 

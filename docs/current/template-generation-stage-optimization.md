@@ -52,7 +52,7 @@ template_spec = build_template_spec(document_facts, unit_map, element_spec, glob
 build_manifest = build_manifest(..., template_spec=template_spec)
 ```
 
-注意：这里的 `template_generation_model.json` 只属于 `template_generate` 支撑流程。业务四阶段里的模板解析产物 `template_artifact.json` 仍然属于 `template_parse`，不是这次改名范围。
+注意：这里的 `template_generation_model.json` 只属于 `template_generate` 支撑流程。legacy downstream 使用的模板解析产物 `template_artifact.json` 仍然属于 `template_parse`，不是这次改名范围。
 
 ## 阶段产物和文件编号
 

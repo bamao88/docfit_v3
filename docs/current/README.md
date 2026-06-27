@@ -44,8 +44,8 @@ flowchart TD
   D --> E["fillable_template.docx + build_manifest.json"]
   E --> F["template-gap / standard judge"]
 
-  G["学生源 Word"] -. deferred .-> H["内容提取"]
-  H -. deferred .-> I["内容放置 / DOCX 渲染"]
+  G["学生源 Word"] -. "deferred" .-> H["内容提取"]
+  H -. "deferred" .-> I["内容放置 / DOCX 渲染"]
 ```
 
 读图时记住三条边界：

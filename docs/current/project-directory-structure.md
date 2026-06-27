@@ -82,7 +82,7 @@ docfit_v3/
 │   ├── template_generation/        # 模板侧支撑流程（非业务阶段）
 │   ├── template_gap/               # 模板质量差距检查（非业务阶段）
 │   ├── template_model/             # 模板结构共享模型，不做门禁裁判
-│   ├── convert/                    # 产品转换编排，只串联已验证四阶段
+│   ├── convert/                    # 长期产品转换编排；当前不作为 active 标准制作入口
 │   ├── ooxml/                      # Word / OOXML 底层能力
 │   ├── ai_rca/                     # AI 只做根因分析建议，不做裁判
 │   └── utils/
@@ -209,7 +209,7 @@ docfit_v3/
 | `standards/eval_profiles/real-core-v0/expected/student_content_trees/real-student-00N.yaml` | 未来如需启用，再整理到 `standards/students/real-student-00N/v1/content_extract/student_content_artifact.expected.yaml`；当前不新增 |
 | `standards/eval_profiles/real-core-v0/expected/render_plans/real_core_v0_<x>_real-student-00N.yaml` | 未来如需启用，再整理到 `standards/cases/<x>__real-student-00N/v1/placement/placement_plan.expected.yaml`；当前不新增 |
 | `standards/eval_profiles/real-core-v0/expected/render_feature_snapshots/*.json` | 未来如需启用，再整理到 `standards/cases/<x>__real-student-00N/v1/render/feature_snapshot.expected.json`；当前不新增 |
-| `standards/eval_profiles/bootstrap-core/expected/{feature_snapshot,placement_plan}.json` | `standards/cases/demo-school__bootstrap-demo/v1/render|placement/*.expected.*` |
+| `standards/eval_profiles/bootstrap-core/expected/{feature_snapshot,placement_plan}.json` | 历史 bootstrap fixture；当前模板阶段不新增这类标准 |
 
 ### 5.3 组合：历史 `standards/eval_profiles/` → 当前顶层 `eval_profiles/`
 
