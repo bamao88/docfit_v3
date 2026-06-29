@@ -52,12 +52,12 @@ next_plan: ...
 | 02 | issue | `docs/plans/template-parse-refactor-t2-copy-only-policy-issue-02-disable-copy-only.md` | implemented | 在学校级策略和开洞门禁补齐前，默认关闭 copy-only 能力 |
 | 02 | optimization plan | TBD | pending | 后续若恢复 copy-only，需先定义学校级策略来源和内部开洞门禁 |
 
-## T2T3 agent-proposal
+## T2T3T4 agent-proposal
 
 | 顺序 | 类型 | 文档 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
-| 01 | issue | `docs/plans/template-parse-refactor-t2t3-agent-proposal-issue-01-one-shot-vs-agent.md` | draft | 验证当前代码没有 one-shot/agent runtime；单次 LLM 只能作为 max_rounds=1 transcript，不能替代 harness/replay/overlay/verifier feedback |
-| 01 | implementation plan | `docs/plans/template-parse-refactor-t2t3-agent-proposal-plan-01-current-code-ai-overlay.md` | draft | 基于当前代码的新实施方案：确定性契约收口 + render packet/replay/fixture + AI overlay；默认关闭、与 standard-gate 工作并行 |
+| 04 | consolidated plan（唯一保留） | `docs/plans/template-parse-refactor-t2t3t4-agent-proposal-plan-04-ai-code-generation-bridge.md` | draft | 阶段唯一保留文档，已合并 issue-01/02/03 与 plan-01/02/03/05。主线 = Module 2（AI 与代码生成衔接：comparison、compatible/conflict/missing/unknown、manual_review、attribution，冲突直接上报人工）；Module 1（AI 独立同形产物 ai_unit/element/layout_observation）作为上游输入；附录收敛演进史、当前实现现状与分级 gap、Module 1 详细契约、staged pass 数据契约、不变量、验证矩阵/风险/待决项。 |
+| 04 | issue | `docs/plans/2026-06-29-template-parse-refactor-t2t3t4-agent-proposal-issue-04-code-generation-bridge-execution.md` | implemented | 本轮执行 plan-04 的问题记录与验收：已新增 comparison/manual_review artifacts，并把 compatible+validated+low-risk 才进入 process_proposal 的桥接门禁接入 run_template_agent。 |
 
 ## Standard judge
 

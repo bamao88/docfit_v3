@@ -6,6 +6,7 @@ from docfit.core.models import StageResult, make_finding
 from docfit.core.status import Status
 from docfit.ooxml.package import is_valid_docx
 
+from .agent import AgentConfig, AgentConfigError, run_template_agent
 from .constants import BODY_SLOT_MARKER, DEFAULT_TEMPLATE_GENERATION_STRATEGY
 from .executor import execute_template_generation_plan
 from .generation_model import build_template_generation_model
@@ -36,6 +37,7 @@ def generate_template(
     *,
     strategy: str = DEFAULT_TEMPLATE_GENERATION_STRATEGY,
     debug_root: Path | None = None,
+    agent_config: AgentConfig | None = None,
 ) -> StageResult:
     if not source_template_docx.exists():
         return StageResult(
@@ -98,6 +100,47 @@ def generate_template(
         structure_candidates=structure_candidates,
     )
     element_spec = build_element_spec(generation_model)
+    effective_agent_config = agent_config or AgentConfig(enabled=False)
+    try:
+        agent_run = run_template_agent(
+            source_template_docx=source_template_docx,
+            request=request,
+            document_facts=document_facts,
+            structure_candidates=structure_candidates,
+            unit_map=unit_map,
+            generation_model=generation_model,
+            element_spec=element_spec,
+            agent_config=effective_agent_config,
+            render_artifacts_dir=out_dir / "agent_render_artifacts",
+        )
+    except AgentConfigError as exc:
+        return StageResult(
+            "template_generate",
+            Status.FAIL,
+            findings=[
+                make_finding(
+                    1,
+                    "template_generate",
+                    Status.FAIL,
+                    "template_generation_agent_config_invalid",
+                    "模板生成 Agent 配置无效",
+                    "valid default-off, replay, or live agent configuration",
+                    str(exc),
+                    root_cause_bucket="agent_config_invalid",
+                )
+            ],
+            coverage=_coverage(
+                input_exists=True,
+                input_valid_docx=True,
+                document_facts=bool(document_facts.get("body_flow")),
+            ),
+            blocked_at="template_generate",
+        )
+    structure_candidates = agent_run.structure_candidates
+    t2_input = structure_candidates.get("t2_input")
+    unit_map = agent_run.unit_map
+    generation_model = agent_run.generation_model
+    element_spec = agent_run.element_spec
     template_spec = build_template_spec(
         document_facts,
         unit_map,
@@ -164,6 +207,19 @@ def generate_template(
             build_manifest=build_manifest,
             verification_report=verification_report,
             t2_input=t2_input if isinstance(t2_input, dict) else None,
+            agent_render_packet=agent_run.render_packet,
+            agent_pass_plan=agent_run.pass_plan,
+            agent_post_t2_checkpoint=agent_run.post_t2_checkpoint,
+            agent_post_t2_input=agent_run.post_t2_input,
+            agent_unit_windows=agent_run.unit_windows,
+            agent_transcript=agent_run.transcript,
+            agent_submission_comparison=agent_run.submission_comparison,
+            agent_decisions=agent_run.decisions,
+            agent_manual_review_items=agent_run.manual_review_items,
+            agent_t2_overlay=agent_run.t2_overlay,
+            agent_t3_overlay=agent_run.t3_overlay,
+            agent_t4_hints=agent_run.t4_hints,
+            agent_attribution=agent_run.attribution,
         )
 
     artifact_paths = {
@@ -190,6 +246,34 @@ def generate_template(
     }
     if isinstance(t2_input, dict):
         artifacts["t2_input"] = t2_input
+    if agent_run.render_packet is not None:
+        artifacts["template_agent_render_packet"] = agent_run.render_packet
+    if agent_run.pass_plan is not None:
+        artifacts["template_agent_pass_plan"] = agent_run.pass_plan
+    if agent_run.post_t2_checkpoint is not None:
+        artifacts["template_agent_post_t2_checkpoint"] = agent_run.post_t2_checkpoint
+    if agent_run.post_t2_input is not None:
+        artifacts["template_agent_post_t2_input"] = agent_run.post_t2_input
+    if agent_run.unit_windows is not None:
+        artifacts["template_agent_unit_windows"] = agent_run.unit_windows
+    if agent_run.transcript is not None:
+        artifacts["template_agent_transcript"] = agent_run.transcript
+    if agent_run.submission_comparison is not None:
+        artifacts["template_agent_submission_comparison"] = (
+            agent_run.submission_comparison
+        )
+    if agent_run.decisions is not None:
+        artifacts["template_agent_decisions"] = agent_run.decisions
+    if agent_run.manual_review_items is not None:
+        artifacts["template_agent_manual_review_items"] = agent_run.manual_review_items
+    if agent_run.t2_overlay is not None:
+        artifacts["agent_t2_overlay"] = agent_run.t2_overlay
+    if agent_run.t3_overlay is not None:
+        artifacts["agent_t3_overlay"] = agent_run.t3_overlay
+    if agent_run.t4_hints is not None:
+        artifacts["agent_t4_hints"] = agent_run.t4_hints
+    if agent_run.attribution is not None:
+        artifacts["agent_attribution"] = agent_run.attribution
 
     return StageResult(
         "template_generate",

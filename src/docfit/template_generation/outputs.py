@@ -41,6 +41,19 @@ def write_template_generation_debug_snapshot(
     build_manifest: dict[str, Any],
     verification_report: dict[str, Any] | None = None,
     t2_input: dict[str, Any] | None = None,
+    agent_render_packet: dict[str, Any] | None = None,
+    agent_pass_plan: dict[str, Any] | None = None,
+    agent_post_t2_checkpoint: dict[str, Any] | None = None,
+    agent_post_t2_input: dict[str, Any] | None = None,
+    agent_unit_windows: dict[str, Any] | None = None,
+    agent_transcript: dict[str, Any] | None = None,
+    agent_submission_comparison: dict[str, Any] | None = None,
+    agent_decisions: dict[str, Any] | None = None,
+    agent_manual_review_items: dict[str, Any] | None = None,
+    agent_t2_overlay: dict[str, Any] | None = None,
+    agent_t3_overlay: dict[str, Any] | None = None,
+    agent_t4_hints: dict[str, Any] | None = None,
+    agent_attribution: dict[str, Any] | None = None,
 ) -> None:
     debug_dir.mkdir(parents=True, exist_ok=True)
     files: list[dict[str, Any]] = []
@@ -156,6 +169,84 @@ def write_template_generation_debug_snapshot(
             verification_report,
             "T1-T6 聚合 verifier 报告。",
         )
+    if agent_render_packet is not None:
+        write_step_json(
+            "08_agent_render_packet.json",
+            agent_render_packet,
+            "Agent 输入：可见层 render packet 与 source_seq/page 绑定。",
+        )
+    if agent_pass_plan is not None:
+        write_step_json(
+            "08.5_agent_pass_plan.json",
+            agent_pass_plan,
+            "Agent 编排：每个 pass 的阶段、窗口和允许输出层。",
+        )
+    if agent_post_t2_checkpoint is not None:
+        write_step_json(
+            "08.6_agent_post_t2_checkpoint.json",
+            agent_post_t2_checkpoint,
+            "Agent 编排：T2 pass 后的结构与 unit_map checkpoint。",
+        )
+    if agent_post_t2_input is not None:
+        write_step_json(
+            "08.65_agent_post_t2_input.json",
+            agent_post_t2_input,
+            "Agent 编排：T2 overlay 后的 source_seq ownership 与 unit input 视图。",
+        )
+    if agent_unit_windows is not None:
+        write_step_json(
+            "08.7_agent_unit_windows.json",
+            agent_unit_windows,
+            "Agent 编排：基于 post-T2 结构生成的 T3 unit windows。",
+        )
+    if agent_transcript is not None:
+        write_step_json(
+            "09_agent_transcript.json",
+            agent_transcript,
+            "Agent replay/live transcript。",
+        )
+    if agent_submission_comparison is not None:
+        write_step_json(
+            "09.5_agent_submission_comparison.json",
+            agent_submission_comparison,
+            "Agent 对账：AI submission 与 deterministic 当前结果的 compatible/conflict/missing/unknown 关系。",
+        )
+    if agent_decisions is not None:
+        write_step_json(
+            "10_agent_decisions.json",
+            agent_decisions,
+            "Agent deterministic reconciler 的 accepted/rejected 决策。",
+        )
+    if agent_manual_review_items is not None:
+        write_step_json(
+            "10.5_agent_manual_review_items.json",
+            agent_manual_review_items,
+            "Agent 人工待决：open_questions、comparison conflicts、validation failures 和高风险项。",
+        )
+    if agent_t2_overlay is not None:
+        write_step_json(
+            "11_agent_t2_overlay.json",
+            agent_t2_overlay,
+            "T2 Agent overlay：只 patch structure_candidates 后重生 unit_map。",
+        )
+    if agent_t3_overlay is not None:
+        write_step_json(
+            "12_agent_t3_overlay.json",
+            agent_t3_overlay,
+            "T3 Agent overlay：只 patch candidate_policy 后重生 element_spec。",
+        )
+    if agent_t4_hints is not None:
+        write_step_json(
+            "13_agent_t4_hints.json",
+            agent_t4_hints,
+            "T4 Agent hints：只做归因 artifact，不改 T4/T5/T6 权威产物。",
+        )
+    if agent_attribution is not None:
+        write_step_json(
+            "14_agent_attribution.json",
+            agent_attribution,
+            "Agent attribution：round0/post-agent diff 与 proposal 归因。",
+        )
     write_step_json(
         "99_template_generation_debug_index.json",
         {
@@ -181,6 +272,19 @@ def write_template_generation_outputs(out_dir: Path, result: StageResult) -> Non
         "t2_input",
         "template_generation_model",
         "template_generation_plan",
+        "template_agent_render_packet",
+        "template_agent_pass_plan",
+        "template_agent_post_t2_checkpoint",
+        "template_agent_post_t2_input",
+        "template_agent_unit_windows",
+        "template_agent_transcript",
+        "template_agent_submission_comparison",
+        "template_agent_decisions",
+        "template_agent_manual_review_items",
+        "agent_t2_overlay",
+        "agent_t3_overlay",
+        "agent_t4_hints",
+        "agent_attribution",
     ]
     yaml_keys = ["unit_map", "element_spec", "global_spec", "template_spec"]
     for key in json_keys:
@@ -327,6 +431,71 @@ def write_template_generation_ordered_files(out_dir: Path, result: StageResult) 
         "07_verification_report.json",
         "verification_report",
         "T1-T6 聚合 verifier 报告。",
+    )
+    write_step_json(
+        "08_agent_render_packet.json",
+        "template_agent_render_packet",
+        "Agent 输入：可见层 render packet 与 source_seq/page 绑定。",
+    )
+    write_step_json(
+        "08.5_agent_pass_plan.json",
+        "template_agent_pass_plan",
+        "Agent 编排：每个 pass 的阶段、窗口和允许输出层。",
+    )
+    write_step_json(
+        "08.6_agent_post_t2_checkpoint.json",
+        "template_agent_post_t2_checkpoint",
+        "Agent 编排：T2 pass 后的结构与 unit_map checkpoint。",
+    )
+    write_step_json(
+        "08.65_agent_post_t2_input.json",
+        "template_agent_post_t2_input",
+        "Agent 编排：T2 overlay 后的 source_seq ownership 与 unit input 视图。",
+    )
+    write_step_json(
+        "08.7_agent_unit_windows.json",
+        "template_agent_unit_windows",
+        "Agent 编排：基于 post-T2 结构生成的 T3 unit windows。",
+    )
+    write_step_json(
+        "09_agent_transcript.json",
+        "template_agent_transcript",
+        "Agent replay/live transcript。",
+    )
+    write_step_json(
+        "09.5_agent_submission_comparison.json",
+        "template_agent_submission_comparison",
+        "Agent 对账：AI submission 与 deterministic 当前结果的 compatible/conflict/missing/unknown 关系。",
+    )
+    write_step_json(
+        "10_agent_decisions.json",
+        "template_agent_decisions",
+        "Agent deterministic reconciler 的 accepted/rejected 决策。",
+    )
+    write_step_json(
+        "10.5_agent_manual_review_items.json",
+        "template_agent_manual_review_items",
+        "Agent 人工待决：open_questions、comparison conflicts、validation failures 和高风险项。",
+    )
+    write_step_json(
+        "11_agent_t2_overlay.json",
+        "agent_t2_overlay",
+        "T2 Agent overlay：只 patch structure_candidates 后重生 unit_map。",
+    )
+    write_step_json(
+        "12_agent_t3_overlay.json",
+        "agent_t3_overlay",
+        "T3 Agent overlay：只 patch candidate_policy 后重生 element_spec。",
+    )
+    write_step_json(
+        "13_agent_t4_hints.json",
+        "agent_t4_hints",
+        "T4 Agent hints：只做归因 artifact，不改 T4/T5/T6 权威产物。",
+    )
+    write_step_json(
+        "14_agent_attribution.json",
+        "agent_attribution",
+        "Agent attribution：round0/post-agent diff 与 proposal 归因。",
     )
     index_path = out_dir / "99_template_generation_debug_index.json"
     write_json(

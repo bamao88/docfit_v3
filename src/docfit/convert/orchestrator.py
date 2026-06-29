@@ -26,6 +26,7 @@ from docfit.harness.standards import load_standard_bundle
 from docfit.stages.content_extract.runner import extract_student_content, write_content_outputs
 from docfit.stages.placement.runner import build_placement_plan, write_placement_outputs
 from docfit.stages.render.runner import render_docx, write_render_outputs
+from docfit.template_generation.agent import AgentConfig
 from docfit.template_generation.runner import (
     generate_template,
     write_template_generation_outputs,
@@ -55,12 +56,15 @@ def _write_stage_report(out_dir: Path, result: StageResult) -> dict[str, Any]:
     )
 
 
-def _is_relative_to(path: Path, base: Path) -> bool:
-    try:
-        path.resolve().relative_to(base.resolve())
-    except ValueError:
-        return False
-    return True
+def _bundle_root_from_output_dir(out_dir: Path) -> Path:
+    resolved = out_dir.resolve()
+    parts = resolved.parts
+    for marker in ("eval_runs", "human"):
+        if marker in parts:
+            index = parts.index(marker)
+            if index > 0:
+                return Path(*parts[:index])
+    return resolved
 
 
 def _template_generation_project_dir(
@@ -69,15 +73,18 @@ def _template_generation_project_dir(
     template_docx: Path | None = None,
     out_dir: Path | None = None,
 ) -> Path:
-    base = root / "runs" / "template_generation"
-    if out_dir is not None and _is_relative_to(out_dir, base):
-        relative = out_dir.resolve().relative_to(base.resolve())
-        parts = relative.parts
-        if len(parts) >= 2 and parts[1] == "eval_runs":
-            return base / parts[0]
+    if out_dir is not None:
+        return _bundle_root_from_output_dir(out_dir) / "human"
     if template_docx is not None:
-        return base / template_docx.stem
-    return base
+        return (
+            root
+            / "test_outputs"
+            / "debug"
+            / "template_generation"
+            / template_docx.stem
+            / "human"
+        )
+    return root / "test_outputs" / "debug" / "template_generation" / "manual" / "human"
 
 
 def _required_capabilities(
@@ -146,12 +153,14 @@ def _run_template_generation_for_pipeline(
     out_dir: Path,
     *,
     debug_root: Path | None = None,
+    agent_config: AgentConfig | None = None,
 ) -> StageResult:
     generation_out_dir = out_dir / "template_generation"
     result = generate_template(
         template_docx,
         generation_out_dir,
         debug_root=debug_root,
+        agent_config=agent_config,
     )
     write_template_generation_outputs(generation_out_dir, result)
     _write_stage_report(generation_out_dir, result)
@@ -319,6 +328,8 @@ def run_template_generate_eval(
     root: Path,
     template_docx: Path,
     out_dir: Path,
+    *,
+    agent_config: AgentConfig | None = None,
 ) -> StageResult:
     result = generate_template(
         template_docx,
@@ -328,6 +339,7 @@ def run_template_generate_eval(
             template_docx=template_docx,
             out_dir=out_dir,
         ),
+        agent_config=agent_config,
     )
     write_template_generation_outputs(out_dir, result)
     _write_stage_report(out_dir, result)

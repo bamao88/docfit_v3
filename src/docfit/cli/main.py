@@ -23,6 +23,7 @@ from docfit.harness.template_generation_standard_judge import (
     evaluate_template_generation_standard_quality_command,
     judge_template_generation_run,
 )
+from docfit.template_generation.agent import AgentConfig, agent_config_from_env
 
 app = typer.Typer(no_args_is_help=True)
 eval_app = typer.Typer(no_args_is_help=True)
@@ -72,8 +73,33 @@ def eval_template_gap(
 def eval_template_generate(
     template: Path = typer.Option(..., "--template", exists=True),
     out: Path = typer.Option(..., "--out"),
+    agent_replay: Path | None = typer.Option(None, "--agent-replay", exists=True),
+    agent_render_packet: Path | None = typer.Option(None, "--agent-render-packet", exists=True),
+    agent_max_rounds: int = typer.Option(4, "--agent-max-rounds"),
+    agent_max_tokens: int = typer.Option(4000, "--agent-max-tokens"),
+    agent_temperature: float = typer.Option(1.0, "--agent-temperature"),
+    agent_provider: str = typer.Option("replay", "--agent-provider"),
+    agent_live: bool = typer.Option(False, "--agent-live"),
 ) -> None:
-    result = run_template_generate_eval(_root(), template, out)
+    env_config = agent_config_from_env()
+    agent_config = env_config
+    if agent_replay is not None or agent_render_packet is not None or agent_live:
+        agent_config = AgentConfig(
+            enabled=True,
+            transport="kimi" if agent_live and agent_provider == "replay" else agent_provider,  # type: ignore[arg-type]
+            max_rounds=agent_max_rounds,
+            max_tokens=agent_max_tokens,
+            temperature=agent_temperature,
+            transcript_path=agent_replay,
+            render_packet_path=agent_render_packet,
+            allow_live_without_render_packet=agent_live and agent_render_packet is None,
+        )
+    result = run_template_generate_eval(
+        _root(),
+        template,
+        out,
+        agent_config=agent_config,
+    )
     _echo_status(result.status)
 
 

@@ -5,6 +5,7 @@ description = "DocFit eval-harness-first DOCX conversion prototype."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+  "openai>=1.0.0",
   "python-docx>=1.1.2",
   "pyyaml>=6.0.2",
   "typer>=0.12.5",

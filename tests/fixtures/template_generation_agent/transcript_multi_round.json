@@ -1,0 +1,59 @@
+{
+  "artifact_type": "template_agent_transcript",
+  "artifact_version": "1.0",
+  "rounds": [
+    {
+      "round_id": "round_001",
+      "submission": {
+        "source_render_hash": "sha256:test",
+        "round_id": "round_001",
+        "model": "fixture",
+        "layers": {
+          "t2": {
+            "unit_candidates": [],
+            "block_candidates": [],
+            "boundary_adjustments": [],
+            "open_questions": []
+          },
+          "t3": {
+            "element_policy_candidates": [],
+            "open_questions": []
+          },
+          "t4": {
+            "page_policy_hints": [],
+            "section_profile_hints": [],
+            "page_numbering_hints": [],
+            "open_questions": []
+          }
+        }
+      }
+    },
+    {
+      "round_id": "round_002",
+      "submission": {
+        "source_render_hash": "sha256:test",
+        "round_id": "round_002",
+        "model": "fixture",
+        "layers": {
+          "t2": {
+            "unit_candidates": [],
+            "block_candidates": [],
+            "boundary_adjustments": [],
+            "open_questions": []
+          },
+          "t3": {
+            "element_policy_candidates": [],
+            "open_questions": []
+          },
+          "t4": {
+            "page_policy_hints": [],
+            "section_profile_hints": [],
+            "page_numbering_hints": [],
+            "open_questions": []
+          }
+        }
+      }
+    }
+  ],
+  "stop_reason": "fixture"
+}
