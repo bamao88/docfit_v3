@@ -49,6 +49,9 @@ def test_live_messages_include_quality_contract_and_evidence_rules(tmp_path) -> 
     assert payload["prompt_contract"]["contract_version"] == (
         "template-agent-prompt-quality-1.1"
     )
+    assert "page_text_index" not in payload["packet"]
+    assert payload["packet"]["text_outline"]["scope"] == "full_document_outline"
+    assert payload["packet"]["tool_access"]["query_text"].startswith("Use query_text")
     assert "rationale explains why" in payload["prompt_contract"]["proposal_quality_bar"][3]
     assert "Use submit_t2 only." in payload["prompt_contract"]["pass_specific_rules"]
 
@@ -72,10 +75,51 @@ def test_live_pass_specs_carry_t3_window_specific_quality_context(tmp_path) -> N
 
     assert payload["pass"]["unit_window"]["window_id"].startswith("unit:")
     assert payload["pass"]["allowed_layers"] == ["t3"]
+    assert payload["packet"]["text_outline"]["scope"] == "active_unit_window"
+    assert {
+        item["source_seq"] for item in payload["packet"]["text_outline"]["items"]
+    }.issubset(set(payload["pass"]["unit_window"]["source_seq_refs"]))
     rules = payload["prompt_contract"]["pass_specific_rules"]
     assert "Use submit_t3 only." in rules
     assert any("target_candidate_id" in rule for rule in rules)
     assert any("Never submit T2 boundary changes" in rule for rule in rules)
+
+
+def test_live_messages_do_not_embed_full_large_packet(tmp_path) -> None:
+    artifacts = round0_artifacts(tmp_path)
+    large_packet = {
+        **artifacts["packet"],
+        "page_text_index": [
+            {
+                "source_seq": index,
+                "page_no": 1,
+                "render_target_id": f"source_seq:{index}",
+                "text": "X" * 2000,
+            }
+            for index in range(1, 700)
+        ],
+        "page_layout_index": [{"large": "Y" * 2000} for _ in range(700)],
+    }
+    pass_spec = {
+        "pass_id": "t2_unit_scan",
+        "pass_kind": "t2_unit_scan",
+        "window_id": "full_document",
+        "allowed_layers": ["t2"],
+    }
+
+    messages = _live_messages(
+        large_packet,
+        artifacts["request"],
+        round_index=1,
+        pass_spec=pass_spec,
+    )
+    payload = _prompt_payload(messages[1]["content"])
+
+    assert len(messages[1]["content"]) < 120_000
+    assert payload["packet"]["text_outline"]["truncated"] is True
+    assert len(payload["packet"]["text_outline"]["items"]) == 520
+    assert "page_layout_index" not in payload["packet"]
+    assert "X" * 500 not in messages[1]["content"]
 
 
 def test_execute_agent_tool_call_queries_packet_text_and_submits_t2() -> None:
@@ -177,6 +221,14 @@ def test_openai_transport_executes_tool_loop_until_submit(monkeypatch) -> None:
     assert fake_completions.calls[0]["temperature"] == 0.25
     assert "response_format" not in fake_completions.calls[0]
     assert any(message["role"] == "tool" for message in fake_completions.calls[1]["messages"])
+    assert "tool_choice" not in fake_completions.calls[1]
+    assert any(
+        str(message.get("content", "")).startswith("DocFit terminal tool instruction:")
+        for message in fake_completions.calls[1]["messages"]
+    )
+    assert {
+        tool["function"]["name"] for tool in fake_completions.calls[1]["tools"]
+    } == {"submit_t2", "submit_t3", "submit_t4", "abstain"}
 
 
 def test_live_run_records_tool_trace_in_transcript(monkeypatch, tmp_path) -> None:

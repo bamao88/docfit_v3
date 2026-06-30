@@ -7,6 +7,12 @@ from typing import Any, Callable, Protocol
 
 
 ToolExecutor = Callable[[str, dict[str, Any] | str | None], dict[str, Any]]
+TERMINAL_TOOL_NAMES = {"submit_t2", "submit_t3", "submit_t4", "abstain"}
+TERMINAL_TOOL_INSTRUCTION = (
+    "DocFit terminal tool instruction: evidence inspection is complete for this "
+    "round. Call exactly one available terminal tool now: submit_t2, submit_t3, "
+    "submit_t4, or abstain. Do not write prose or continue analysis."
+)
 
 
 class AgentTransport(Protocol):
@@ -85,14 +91,17 @@ class OpenAICompatibleTransport:
         tool_trace: list[dict[str, Any]] = []
         max_tool_steps = 12
         for _step_index in range(max_tool_steps + 1):
+            active_tools = _active_tools_for_step(tools, tool_trace=tool_trace)
+            if tool_trace:
+                _ensure_terminal_tool_instruction(conversation)
             kwargs: dict[str, Any] = {
                 "model": self.model,
                 "messages": conversation,
                 "temperature": temperature,
                 "max_tokens": max_tokens,
             }
-            if tools:
-                kwargs["tools"] = tools
+            if active_tools:
+                kwargs["tools"] = active_tools
             elif response_format is not None:
                 kwargs["response_format"] = response_format
             completion = client.chat.completions.create(**kwargs)
@@ -152,6 +161,38 @@ class OpenAICompatibleTransport:
         raise AgentTransportError(
             f"{self.provider} exceeded max tool loop steps without a submission"
         )
+
+
+def _active_tools_for_step(
+    tools: list[dict[str, Any]],
+    *,
+    tool_trace: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if not tool_trace:
+        return tools
+    terminal_tools = [
+        tool
+        for tool in tools
+        if _tool_schema_name(tool) in TERMINAL_TOOL_NAMES
+    ]
+    return terminal_tools or tools
+
+
+def _ensure_terminal_tool_instruction(conversation: list[dict[str, Any]]) -> None:
+    for message in reversed(conversation):
+        content = message.get("content")
+        if isinstance(content, str) and content.startswith(
+            "DocFit terminal tool instruction:"
+        ):
+            return
+    conversation.append({"role": "user", "content": TERMINAL_TOOL_INSTRUCTION})
+
+
+def _tool_schema_name(tool: dict[str, Any]) -> str:
+    function = tool.get("function") if isinstance(tool, dict) else None
+    if not isinstance(function, dict):
+        return ""
+    return str(function.get("name") or "")
 
 
 class KimiOpenAICompatibleTransport(OpenAICompatibleTransport):

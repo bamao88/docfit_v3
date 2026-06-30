@@ -558,7 +558,7 @@ def _live_messages(
         "pass": pass_spec,
         "prompt_contract": _prompt_contract(pass_spec),
         "request": request,
-        "packet": packet,
+        "packet": _prompt_packet_view(packet, pass_spec=pass_spec),
     }
     return [
         {
@@ -604,6 +604,161 @@ def _user_prompt(payload: dict[str, Any]) -> str:
         + "\n"
         + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
     )
+
+
+def _prompt_packet_view(
+    packet: dict[str, Any],
+    *,
+    pass_spec: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "artifact_type": packet.get("artifact_type"),
+        "artifact_version": packet.get("artifact_version"),
+        "source_template_docx": packet.get("source_template_docx"),
+        "render_status": packet.get("render_status"),
+        "source_render_hash": packet.get("source_render_hash"),
+        "status_authority": packet.get("status_authority"),
+        "advisory_only": packet.get("advisory_only"),
+        "allowed_ai_tasks": packet.get("allowed_ai_tasks"),
+        "forbidden_ai_tasks": packet.get("forbidden_ai_tasks"),
+        "tool_access": {
+            "query_text": (
+                "Use query_text for exact visible text by source_seq_refs, "
+                "page_nos, or text_query. The tool sees the full packet."
+            ),
+            "view_pages": (
+                "Use view_pages for clean or annotated render references. "
+                "The tool sees the full packet."
+            ),
+        },
+        "render_artifacts": _prompt_render_artifact_summary(
+            packet.get("render_artifacts") or {}
+        ),
+        "page_index_summary": _prompt_page_index_summary(packet),
+        "text_outline": _prompt_text_outline(packet, pass_spec=pass_spec),
+        "optional_reference": packet.get("optional_reference"),
+        "round0_snapshot_id": packet.get("round0_snapshot_id"),
+    }
+
+
+def _prompt_render_artifact_summary(render_artifacts: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "render_status": render_artifacts.get("render_status"),
+        "render_engine": render_artifacts.get("render_engine"),
+        "render_version": render_artifacts.get("render_version"),
+        "page_count": render_artifacts.get("page_count"),
+        "text_binding_summary": render_artifacts.get("text_binding_summary"),
+        "render_error": render_artifacts.get("render_error"),
+        "clean_page_images": _prompt_page_artifacts(
+            render_artifacts.get("clean_page_images")
+        ),
+        "annotated_page_images": _prompt_page_artifacts(
+            render_artifacts.get("annotated_page_images")
+        ),
+    }
+
+
+def _prompt_page_artifacts(value: Any) -> list[dict[str, Any]]:
+    result = []
+    for item in value or []:
+        if not isinstance(item, dict):
+            continue
+        result.append(
+            {
+                "page_no": item.get("page_no"),
+                "path": item.get("path"),
+                "sha256": item.get("sha256"),
+                "width_px": item.get("width_px"),
+                "height_px": item.get("height_px"),
+                "image_type": item.get("image_type"),
+            }
+        )
+    return result
+
+
+def _prompt_page_index_summary(packet: dict[str, Any]) -> list[dict[str, Any]]:
+    full_pass = (packet.get("input_windows") or {}).get("full_pass") or {}
+    summary = full_pass.get("page_index_summary")
+    if isinstance(summary, list):
+        return [item for item in summary if isinstance(item, dict)]
+
+    counts: dict[int, int] = {}
+    for item in packet.get("page_text_index", []) or []:
+        if not isinstance(item, dict):
+            continue
+        page_no = _int_or_none(item.get("page_no")) or 1
+        counts[page_no] = counts.get(page_no, 0) + 1
+    return [
+        {"page_no": page_no, "text_items": counts[page_no]}
+        for page_no in sorted(counts)
+    ]
+
+
+def _prompt_text_outline(
+    packet: dict[str, Any],
+    *,
+    pass_spec: dict[str, Any],
+) -> dict[str, Any]:
+    pass_kind = str(pass_spec.get("pass_kind") or "")
+    wanted_refs = _prompt_source_ref_filter(pass_spec)
+    max_items = 180 if wanted_refs else 520
+    max_text_chars = 140 if pass_kind == "t2_unit_scan" else 180
+    items: list[dict[str, Any]] = []
+    total_matching = 0
+    for item in packet.get("page_text_index", []) or []:
+        if not isinstance(item, dict):
+            continue
+        source_seq = _int_or_none(item.get("source_seq"))
+        if wanted_refs and source_seq not in wanted_refs:
+            continue
+        total_matching += 1
+        if len(items) >= max_items:
+            continue
+        items.append(
+            {
+                "source_seq": source_seq,
+                "page_no": item.get("page_no"),
+                "render_target_id": item.get("render_target_id"),
+                "text": _truncate_prompt_text(item.get("text"), max_text_chars),
+            }
+        )
+    return {
+        "scope": "active_unit_window" if wanted_refs else "full_document_outline",
+        "total_matching_items": total_matching,
+        "items": items,
+        "truncated": total_matching > len(items),
+        "note": (
+            "Outline text is truncated for prompt size. Use query_text for exact "
+            "full packet evidence before submitting proposals."
+        ),
+    }
+
+
+def _prompt_source_ref_filter(pass_spec: dict[str, Any]) -> set[int]:
+    unit_window = pass_spec.get("unit_window")
+    if not isinstance(unit_window, dict):
+        return set()
+    return {
+        parsed
+        for value in unit_window.get("source_seq_refs", []) or []
+        if (parsed := _int_or_none(value)) is not None
+    }
+
+
+def _truncate_prompt_text(value: Any, limit: int) -> str:
+    text = str(value or "")
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        if value is None or value == "":
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _prompt_contract(pass_spec: dict[str, Any]) -> dict[str, Any]:
