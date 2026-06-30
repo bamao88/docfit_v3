@@ -4,9 +4,9 @@ school_id: nannong-undergraduate
 stage_id: T4
 standard_id: nannong-undergraduate-v1-template-generation-t4-global-layout
 standard_scope: single_template_generation_t4_global_layout
-standard_state: signed_pending_verifier
-verifier_state: not_configured
-gate_enabled: false
+standard_state: signed_active
+verifier_state: configured
+gate_enabled: true
 artifact_under_test: global_spec
 legacy_compatibility: false
 review_metadata:

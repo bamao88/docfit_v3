@@ -4,9 +4,9 @@ school_id: hunannongye
 stage_id: T2
 standard_id: hunannongye-v1-template-generation-t2-unit-pagination
 standard_scope: single_template_generation_t2_unit_pagination
-standard_state: signed_pending_verifier
-verifier_state: not_configured
-gate_enabled: false
+standard_state: signed_active
+verifier_state: configured
+gate_enabled: true
 artifact_under_test: unit_map
 legacy_compatibility: false
 review_metadata:

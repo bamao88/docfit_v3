@@ -4,9 +4,9 @@ school_id: hunannongye
 stage_id: T1
 standard_id: hunannongye-v1-template-generation-t1-document-facts
 standard_scope: single_template_generation_t1_document_facts
-standard_state: signed_pending_verifier
-verifier_state: not_configured
-gate_enabled: false
+standard_state: signed_active
+verifier_state: configured
+gate_enabled: true
 artifact_under_test: document_facts
 legacy_compatibility: false
 review_metadata:

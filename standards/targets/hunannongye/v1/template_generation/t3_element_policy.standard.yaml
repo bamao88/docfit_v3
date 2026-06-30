@@ -4,9 +4,9 @@ school_id: hunannongye
 stage_id: T3
 standard_id: hunannongye-v1-template-generation-t3-element-policy
 standard_scope: single_template_generation_t3_element_policy
-standard_state: signed_pending_verifier
-verifier_state: not_configured
-gate_enabled: false
+standard_state: signed_active
+verifier_state: configured
+gate_enabled: true
 artifact_under_test: element_spec
 legacy_compatibility: false
 review_metadata:
@@ -53,6 +53,8 @@ expected:
     - grade_form
   policy_groups:
     fixed_units:
+      - cover
+    fixed_units_allow_fill_elements:
       - cover
     manual_only_units:
       - integrity_statement
@@ -104,6 +106,7 @@ expected:
       instruction_text_must_be_instruction_remove_or_fixed_evidence: true
     notes:
       - 湖南农大后置设计任务书、开题、答辩、变更和成绩表按人工填写表单处理。
+      - 封面是固定模板块，但题名、学生信息等明确填空位允许生成 fill 元素。
       - 致谢和附录是模板默认可选单元；没有学生内容时不得强制生成正文 slot。
 dimensions:
   - dimension_id: template_generation.t3.artifact_under_test

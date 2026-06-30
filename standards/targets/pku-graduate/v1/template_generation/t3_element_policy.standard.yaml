@@ -4,9 +4,9 @@ school_id: pku-graduate
 stage_id: T3
 standard_id: pku-graduate-v1-template-generation-t3-element-policy
 standard_scope: single_template_generation_t3_element_policy
-standard_state: signed_pending_verifier
-verifier_state: not_configured
-gate_enabled: false
+standard_state: signed_active
+verifier_state: configured
+gate_enabled: true
 artifact_under_test: element_spec
 legacy_compatibility: false
 review_metadata:
@@ -49,6 +49,8 @@ expected:
     - originality_authorization_statement
   policy_groups:
     fixed_units:
+      - cover
+    fixed_units_allow_fill_elements:
       - cover
     manual_only_units:
       - copyright_notice
@@ -96,6 +98,7 @@ expected:
       instruction_text_must_be_instruction_remove_or_fixed_evidence: true
     notes:
       - 北大研究生图目录、表目录和目录均为 generated 单元，不得被误判为正文小节。
+      - 封面是固定模板块，但题名、学生信息等明确填空位允许生成 fill 元素。
       - 版权声明、原创性声明和授权说明为 manual_only，签字、日期和授权选项不得自动填写。
 dimensions:
   - dimension_id: template_generation.t3.artifact_under_test

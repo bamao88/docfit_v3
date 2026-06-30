@@ -4,9 +4,9 @@ school_id: pku-graduate
 stage_id: T5
 standard_id: pku-graduate-v1-template-generation-t5-template-spec
 standard_scope: single_template_generation_t5_template_spec
-standard_state: signed_pending_verifier
-verifier_state: not_configured
-gate_enabled: false
+standard_state: signed_active
+verifier_state: configured
+gate_enabled: true
 artifact_under_test: template_spec
 legacy_compatibility: false
 review_metadata:
