@@ -71,7 +71,7 @@ class LiveResponder:
         temperature: float = 0.4,
         max_tokens: int = 8000,
         max_tokens_cap: int = 32000,
-        thinking: bool = True,
+        thinking: bool = False,
         record: list[dict[str, Any]] | None = None,
         progress: bool = True,
         max_attempts: int = 3,

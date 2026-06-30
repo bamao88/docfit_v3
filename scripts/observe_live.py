@@ -54,17 +54,23 @@ def main() -> None:
     )
     parser.add_argument("--refresh", action="store_true", help="ignore cache and re-call the model")
     parser.add_argument(
+        "--thinking",
+        dest="thinking",
+        action="store_true",
+        help="enable Kimi thinking mode (higher quality on weak prompts, ~10x slower)",
+    )
+    parser.add_argument(
         "--no-thinking",
         dest="thinking",
         action="store_false",
-        help="disable Kimi thinking mode (faster; forces temperature=0.6)",
+        help="disable Kimi thinking mode (default; faster, forces temperature=0.6)",
     )
-    parser.set_defaults(thinking=True)
+    parser.set_defaults(thinking=False)
     args = parser.parse_args()
 
-    # thinking 关时另写一份输出，便于和 thinking 开的产物并排对比。
-    if not args.thinking and args.out == DEFAULT_OUT:
-        args.out = DEFAULT_OUT.parent / "observation_live_nothink"
+    # thinking 开时另写一份输出，便于和默认（关）的产物并排对比。
+    if args.thinking and args.out == DEFAULT_OUT:
+        args.out = DEFAULT_OUT.parent / "observation_live_think"
 
     facts = read_json(args.facts)
     packet = build_template_agent_render_packet(

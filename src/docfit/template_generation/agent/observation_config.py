@@ -29,8 +29,9 @@ class ObservationConfig:
     self_consistency_samples: int = 1
     transcript_path: Path | None = None
     model: str = "replay"
-    # live 推理模式开关：默认 ON 保准确率；关掉更快但欠分割、闸门违规多（见 observe_live --no-thinking）。
-    thinking: bool = True
+    # live 推理模式开关：默认 OFF——接地 prompt（1.1）下 thinking-off 质量已追平 thinking-on
+    # 且快约 10×（实测 hunannongye：16 单元 / 0 闸门违规 / 满覆盖 / 103s）。需要时显式置 True。
+    thinking: bool = False
 
 
 def validate_observation_config(config: ObservationConfig) -> list[str]:
