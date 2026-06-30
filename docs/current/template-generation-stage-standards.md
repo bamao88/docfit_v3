@@ -1,8 +1,8 @@
 # 模板生成阶段标准准备说明
 
-Last updated: 2026-06-26
+Last updated: 2026-06-28
 
-一句话结论：当前 real-core-v0 的三校模板生成阶段标准已经拆成 T1 到 T5 的阶段专用标准文件。它们是后续 verifier 的裁判口径，不是某一次运行产物，也不是代码里 `verification_report.json` 的替代品。
+一句话结论：当前 real-core-v0 的三校模板生成阶段标准已经拆成 T1 到 T5 的阶段专用标准文件，并已接入 `template-generation-judge` gate。它们是阶段标准裁判口径，不是某一次运行产物，也不是代码里 `verification_report.json` 的替代品。
 
 ## 当前版本
 
@@ -16,7 +16,7 @@ Last updated: 2026-06-26
 | 标准目录 | `standards/targets/<target_id>/v1/template_generation/` |
 | 登记入口 | `standards/targets/<target_id>/v1/target.standard.yaml#/evidence_baselines/template_generation_stages` |
 | 旧入口兼容 | 不兼容；旧 `01_source_parse.expected.yaml`、`02_structure_discovery.expected.yaml`、`03_generation_model.expected.yaml`、`04_plan_build.expected.yaml`、`05_action_execution.expected.yaml` 已移除 |
-| verifier 状态 | `not_configured`，表示标准已准备好，但阶段 verifier 还没有纳入 gate |
+| verifier 状态 | `configured` / `gate_enabled=true`，表示 real-core T1-T5 已纳入阶段标准裁判 gate |
 
 每所学校现在都只有这五个模板生成阶段标准：
 
@@ -59,7 +59,7 @@ template_generation/
 
 5. 最后更新登记和测试。
 
-   三校 `target.standard.yaml` 只登记新入口。合同测试检查新文件存在、旧文件不存在、`legacy_compatibility: false`、`verifier_state: not_configured`、`gate_enabled: false`，并用 baseline validator 检查标准文件自身可解析。
+   三校 `target.standard.yaml` 只登记新入口。合同测试检查新文件存在、旧文件不存在、`legacy_compatibility: false`、`verifier_state: configured`、`gate_enabled: true`，并用 baseline validator 检查标准文件自身可解析。
 
 ## 给哪些环节用
 
@@ -75,7 +75,7 @@ template_generation/
 
 当前正常的 `template-generate` 业务流程不读取这些标准。业务流程只接受学校原始模板 Word，产出 `document_facts.json`、`unit_map.yaml`、`element_spec.yaml`、`global_spec.yaml`、`template_spec.yaml`、`fillable_template.docx` 和 `build_manifest.json`。
 
-后续阶段化评测接入后，聚合入口应该读取同一次 run 里的产物，再按 `target.standard.yaml` 找到对应标准。缺产物、缺标准、hash 对不上或 verifier 未配置时，都应该输出 `UNKNOWN`，不能自动重跑生成器补证据。
+阶段化评测入口读取同一次 run 里的产物，再按 `target.standard.yaml` 找到对应标准。缺产物、缺标准、hash 对不上或 verifier 未配置时，都应该输出 `UNKNOWN`，不能自动重跑生成器补证据。
 
 ## 标准质量衡量
 
@@ -152,14 +152,16 @@ verify 报告回答的是：
 尺子要先被审过，测量结果只能说明本次被测对象。
 ```
 
-## 后续接入顺序
+## 接入状态
 
-后续实现阶段 verifier 时，建议按这个顺序接：
+当前已完成：
 
-1. 先做阶段标准聚合清单：读取 `target.standard.yaml`，列出 T1-T5 标准路径、产物路径、hash 和 verifier 状态。
-2. 再接 T1 verifier：检查 `document_facts.json` 的事实完整性和禁用语义字段。
-3. 再接 T2 verifier：检查 `unit_map.yaml` 的单元顺序、边界和分页。
-4. 再接 T3/T4/T5 verifier：分别检查元素策略、全局版式和 `template_spec` 合并。
-5. 最后把 `template-gap` 作为最终模板质量检查挂进同一个聚合报告。
+1. 阶段标准聚合清单：读取 `target.standard.yaml`，列出 T1-T5 标准路径、产物路径、hash 和 verifier 状态。
+2. T1 verifier：检查 `document_facts.json` 的事实完整性和禁用语义字段。
+3. T2 verifier：检查 `unit_map.yaml` 的单元顺序、边界和分页。
+4. T3/T4/T5 verifier：分别检查元素策略、全局版式和 `template_spec` 合并。
+5. real-core T1-T5 标准元数据已切换为 `configured/gate_enabled=true`。
 
-在任何一步，`not_configured` 都不能等同于 `PASS`。标准存在只说明裁判口径已写好，不说明裁判已经开始执法。
+后续仍需把 `template-gap` 作为最终模板质量检查挂进同一个聚合报告。
+
+在任何一步，`not_configured` 都不能等同于 `PASS`。real-core 当前已经开始执法；非 real-core 或 fixture 若仍未配置，仍必须保守输出 `UNKNOWN`。

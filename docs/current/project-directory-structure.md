@@ -218,13 +218,14 @@ docfit_v3/
 | `standards/eval_profiles/<profile>/cases.yaml` | `eval_profiles/<profile>/profile.yaml`（只引用标准路径，不再存 expected 本体） |
 | `standards/eval_profiles/<profile>/README.md` | `eval_profiles/<profile>/README.md` |
 
-### 5.4 输出：历史 `test_outputs/` → 当前 `runs/`
+### 5.4 输出：模板生成 run bundle
 
-| 历史路径 | 当前路径 |
+| 输出类型 | 当前路径 |
 | --- | --- |
-| `test_outputs/debug/template_generation/**` | `runs/template_generation/<run_id>/**` |
-| `test_outputs/debug/template_eval_runs/**` | `runs/eval/<run_id>/**` |
-| `test_outputs/debug/{template_parsing,content_extraction,content_placement,docx_rendering}/**` | 折叠进 `runs/eval/<run_id>/artifacts/**` |
+| 模板生成一次 run 的公开 eval 产物 | `test_outputs/debug/template_generation/<run_id>/eval_runs/<eval_run_id>/` |
+| 模板生成一次 run 的人工/debug 伴随产物 | `test_outputs/debug/template_generation/<run_id>/human/<timestamp>/` |
+| 模板生成同一 run 的后续 gap/judge eval | `test_outputs/debug/template_generation/<run_id>/eval_runs/<gap_or_judge_run_id>/` |
+| 非模板生成 eval / 长期评测报告 | `runs/eval/<run_id>/` |
 | `test_outputs/workbench/**` | `runs/workbench/**` |
 
 ---
@@ -294,7 +295,7 @@ template_generation_judge_reports.py
 | 新增运行证据 | 放 `runs/`，不要放 `standards/` 或 `inputs/` |
 | 新增小型代码 fixture | 放 `tests/fixtures/`；业务级冻结输入放 `inputs/**/fixtures/` |
 | 新增 profile | 放 `eval_profiles/<profile>/profile.yaml`，只组合 case 和 coverage gate |
-| 新增模板生成标准裁判输出 | 放 `runs/eval/template_generation_judge/<target_id>/<source_run_id>/` |
+| 新增某次模板生成 run 的标准裁判输出 | 放同一 run bundle：`test_outputs/debug/template_generation/<run_id>/eval_runs/template_generation_judge/` |
 
 如果确实要执行新的结构迁移，先写 `docs/plans/...`，再配套 `scripts/check_directory_policy.py` 或同等检查，避免重新出现多份目录规则。
 
@@ -334,10 +335,10 @@ template_generation_judge_reports.py
 | 标准入口 | `<domain>.standard.yaml` | `target.standard.yaml` / `case.standard.yaml` |
 | manifest | `*_manifest.{yaml,json}` | `input_manifest.yaml` |
 | 运行输出 | 生产产物原名，可带阶段序号，不带 `.expected` | `template_artifact.json` |
-| 标准质量输出 | `template_generation_stage_standard_quality_report.{json,md}` | `template_generation_stage_standard_quality_report.json` |
+| 阶段标准质量输出 | `<阶段产物编号和名称>_standard_quality_report.{json,md}` | `02_unit_map_standard_quality_report.json` |
 | 标准裁判 run 绑定输出 | `template_generation_run_bundle.json` | `template_generation_run_bundle.json` |
 | 标准裁判阶段输出 | `template_generation_stage_checks.json` | `template_generation_stage_checks.json` |
 | 标准裁判聚合输出 | `template_generation_judge_report.{json,md}` | `template_generation_judge_report.md` |
-| 标准裁判输出目录 | `runs/eval/template_generation_judge/<target_id>/<source_run_id>/` | `runs/eval/template_generation_judge/hunannongye/template_generate/` |
+| 标准裁判输出目录 | `test_outputs/debug/template_generation/<run_id>/eval_runs/template_generation_judge/` | `test_outputs/debug/template_generation/manual_hunannongye/eval_runs/template_generation_judge/` |
 
 判文件角色只看后缀：`.input.*`=冻结输入；`.expected.*`=签收标准；`.contract.*`=通用合同；`.standard.yaml`=标准包入口；`*_manifest.*`=来源/hash/运行信息。**任何能删除重跑的东西都不该在 `standards/`。**

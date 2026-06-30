@@ -6,7 +6,7 @@ topic: unit-recognition
 issue_id: T2-UNIT-ISSUE-03
 issue_sequence: 3
 created: 2026-06-26
-last_updated: 2026-06-26
+last_updated: 2026-06-28
 version: 1
 previous_issue:
   id: T2-UNIT-ISSUE-02
@@ -78,15 +78,84 @@ uv run python scripts/t2_metrics.py
 
 这个 PASS 只说明 TOC 条目覆盖率和 TOC leak 没问题，不说明 T2 已经满足三校 standard。
 
+### 1.1 2026-06-28 标准裁判复核
+
+运行命令：
+
+```text
+rm -rf /tmp/docfit_standard_acceptance_real_core_gate_check
+for school in hunannongye nannong-undergraduate pku-graduate; do
+  RUN_ROOT="/tmp/docfit_standard_acceptance_real_core_gate_check/$school"
+  uv run docfit eval template-generate \
+    --template "inputs/targets/$school/raw/source_template.docx" \
+    --out "$RUN_ROOT/eval_runs/template_generate"
+  uv run docfit eval template-generation-judge \
+    --school "$school" \
+    --run "$RUN_ROOT/eval_runs/template_generate" \
+    --out "$RUN_ROOT/eval_runs/template_generation_judge"
+done
+```
+
+首次复核结果：
+
+| 学校 | standard_acceptance_status | signoff_status | T2 audit | 主要阻断 | owner |
+| --- | --- | --- | --- | --- | --- |
+| hunannongye | UNKNOWN | NOT_SIGNABLE | PASS | `verifier_state=not_configured`、`gate_enabled=false` | verifier |
+| nannong-undergraduate | FAIL | NOT_SIGNABLE | FAIL | `body_main` 与 `abstract_en` 顺序/边界错误，seq 50 `第一章 文献综述` 被归入 `abstract_en` | code |
+| pku-graduate | FAIL | NOT_SIGNABLE | FAIL | 缺 expected units、正文/前置 custom 过切、anchor owner mismatch | code |
+
+首次复核结论：
+
+```text
+1. 湖南 T2/T3/T4/T5 deterministic audit 已通过，但标准文件仍未配置正式门禁，所以不能签收 PASS。
+2. 南农 first bad stage 是 T2：`TITLE（论文英文题目...）` 被 zone state machine 误提升为 body_main，
+   导致真正正文锚点 `第一章 文献综述（三号黑体居中）` 落在 abstract_en 范围内。
+3. 北大 first bad stage 仍是 T2：正文状态机、front matter 标题归属、figure/table list 与后置声明 taxonomy
+   仍未满足 signed standard。
+4. 这些 mismatch 来自产物生成逻辑，不是 AI/prompt，也不是标准文件本身错误；修复责任先归 code。
+```
+
+2026-06-28 修复后复核：
+
+```text
+output_root=/tmp/docfit_standard_acceptance_real_core_after_t3_fixed_fill_exception
+
+hunannongye:
+  standard_acceptance_status: PASS
+  signoff_status: SIGNABLE
+  stage audits: T1 PASS, T2 PASS, T3 PASS, T4 PASS, T5 PASS
+
+nannong-undergraduate:
+  standard_acceptance_status: PASS
+  signoff_status: SIGNABLE
+  stage audits: T1 PASS, T2 PASS, T3 PASS, T4 PASS, T5 PASS
+
+pku-graduate:
+  standard_acceptance_status: PASS
+  signoff_status: SIGNABLE
+  stage audits: T1 PASS, T2 PASS, T3 PASS, T4 PASS, T5 PASS
+```
+
+已解决：
+
+```text
+1. 南农 `TITLE` 不再抢占 body_main；英文题名/TITLE 并入 abstract_en，`第一章 文献综述` 归入 body_main。
+2. 北大封面日期并入 cover；English Title 并入 abstract_en；主 TOC 从 T1 content_control/TOC field 合成 toc；
+   声明总标题打开 originality_authorization_statement，内部“原创性声明/使用授权说明”作为同一单元内容吸收。
+3. 合成 TOC 使用主 TOC field source_ref 绑定 section_005，T5 `section_profile_refs` 不再缺失。
+4. real-core T1-T5 标准元数据已切换到 `verifier_state=configured`、`gate_enabled=true`。
+5. T3 标准新增 `fixed_units_allow_fill_elements: [cover]`：封面仍是固定模板块，但题名、学生信息等明确填空位允许生成 fill 元素；manual_only 单元仍禁止 fill。
+```
+
 ## 2. 三校 standard 当前状态
 
 三校都已经有 T2 standard：
 
 | 学校 | standard 文件 | artifact_under_test | verifier_state | gate_enabled |
 | --- | --- | --- | --- | --- |
-| hunannongye | `standards/targets/hunannongye/v1/template_generation/t2_unit_pagination.standard.yaml` | `unit_map` | `not_configured` | `false` |
-| nannong-undergraduate | `standards/targets/nannong-undergraduate/v1/template_generation/t2_unit_pagination.standard.yaml` | `unit_map` | `not_configured` | `false` |
-| pku-graduate | `standards/targets/pku-graduate/v1/template_generation/t2_unit_pagination.standard.yaml` | `unit_map` | `not_configured` | `false` |
+| hunannongye | `standards/targets/hunannongye/v1/template_generation/t2_unit_pagination.standard.yaml` | `unit_map` | `configured` | `true` |
+| nannong-undergraduate | `standards/targets/nannong-undergraduate/v1/template_generation/t2_unit_pagination.standard.yaml` | `unit_map` | `configured` | `true` |
+| pku-graduate | `standards/targets/pku-graduate/v1/template_generation/t2_unit_pagination.standard.yaml` | `unit_map` | `configured` | `true` |
 
 这些文件已经给出：
 
@@ -213,7 +282,9 @@ originality_authorization_statement 缺失。
 
 ### P0-A：standard gate 断开
 
-现象：
+状态：已解决。
+
+首次复核现象：
 
 ```text
 三校 standard 文件已经存在，但 verifier_state=not_configured、gate_enabled=false。
@@ -327,11 +398,11 @@ issue-02 已记录湖南 seq 50-64、南农 seq 35-36 等 unowned residual。
 | TOC block range 外溢 | 已解决 | issue-02 quick fix 后 TOC 不再吞正文段 |
 | T1/T2 责任边界 | 已明确 | T1 不输出语义判断；T2 自己派生 |
 | 数据流 producer/consumer 文档 | 已补 | 见 `template-parse-refactor-t2-unit-recognition-data-contract.md` |
-| 三校 T2 standard 文件 | 已存在 | 但 `verifier_state=not_configured` |
-| standard-backed verifier | 未解决 | 当前没有对 `expected.unit_order` 做 T2 gate |
-| taxonomy 对齐 standard | 未解决 | 多个 expected unit_id 仍为 custom 或旧泛化 unit |
-| front/body/back 状态机 | 未解决 | 正文 Heading 1 过切仍在 |
-| range ownership audit | 未解决 | source_seq 归属没有统一门禁 |
+| 三校 T2 standard 文件 | 已接入 gate | `verifier_state=configured`、`gate_enabled=true` |
+| standard-backed verifier | 已解决 | real-core T2 对 `expected.unit_order`、missing/unexpected/custom unit、anchor owner 做 gate |
+| taxonomy 对齐 standard | 已解决本轮签收范围 | real-core 三校 T2 audit PASS；后续新增学校仍需扩展 alias/taxonomy |
+| front/body/back 状态机 | 已解决本轮签收范围 | 南农/北大正文内部 Heading 1 不再过切成 top-level custom |
+| range ownership audit | 已解决本轮签收范围 | real-core 关键 anchors owner audit PASS；content control TOC 支持 source_ref owner |
 
 ## 6. 后续验收门禁
 

@@ -6,7 +6,7 @@ topic: template-generation-standard-judge
 issue_id: STANDARD-JUDGE-ISSUE-01
 issue_sequence: 1
 created: 2026-06-27
-last_updated: 2026-06-27
+last_updated: 2026-06-28
 version: 1
 previous_issue:
   id: none
@@ -15,9 +15,9 @@ previous_optimization:
   doc: none
   summary: none
 next_plan:
-  id: TBD
-  doc: TBD
-  summary: 基于本文档拆出标准质量、run bundle、阶段 verifier 和聚合报告的实施计划。
+  id: STANDARD-JUDGE-PLAN-01
+  doc: docs/plans/template-parse-refactor-standard-judge-plan-01-stage-diff-root-cause.md
+  summary: 明确 verify_report、stage_standard_diff_report、root_cause_report 三层输出，先补 run bundle/T1-T5 阶段 diff，再接 agent attribution 责任归因。
 related_docs:
   - docs/current/template-generation-stage-standards.md
   - docs/current/template-generation-stage-standard-quality.md
@@ -83,10 +83,11 @@ standards/targets/<target_id>/v1/template_quality/final_template.expected.yaml
 推荐命令形态：
 
 ```bash
+RUN_ROOT=test_outputs/debug/template_generation/manual_hunannongye
 uv run docfit eval template-generation-judge \
   --school hunannongye \
-  --run runs/template_generation/hunannongye/eval_runs/template_generate \
-  --out runs/eval/template_generation_judge/hunannongye/template_generate
+  --run "$RUN_ROOT/eval_runs/template_generate" \
+  --out "$RUN_ROOT/eval_runs/template_generation_judge"
 ```
 
 运行包至少包含：
@@ -249,28 +250,45 @@ runs/eval/template_generation_standard_quality/<scope>/
 推荐输出目录：
 
 ```text
-runs/eval/template_generation_judge/<target_id>/<source_run_id>/
+test_outputs/debug/template_generation/<run_id>/eval_runs/template_generation_judge/
 ```
 
 示例：
 
 ```bash
+RUN_ROOT=test_outputs/debug/template_generation/manual_hunannongye
 uv run docfit eval template-generation-judge \
   --school hunannongye \
-  --run runs/template_generation/hunannongye/eval_runs/template_generate \
-  --out runs/eval/template_generation_judge/hunannongye/template_generate
+  --run "$RUN_ROOT/eval_runs/template_generate" \
+  --out "$RUN_ROOT/eval_runs/template_generation_judge"
 ```
 
 输出：
 
 ```text
-runs/eval/template_generation_judge/hunannongye/template_generate/
+test_outputs/debug/template_generation/manual_hunannongye/eval_runs/template_generation_judge/
   summary.json
   findings.json
+  00_template_generation_request_standard_quality_report.json
+  00_template_generation_request_standard_quality_report.md
+  01_document_facts_standard_quality_report.json
+  01_document_facts_standard_quality_report.md
+  02_unit_map_standard_quality_report.json
+  02_unit_map_standard_quality_report.md
+  03_element_spec_standard_quality_report.json
+  03_element_spec_standard_quality_report.md
+  04_global_spec_standard_quality_report.json
+  04_global_spec_standard_quality_report.md
+  05_template_spec_standard_quality_report.json
+  05_template_spec_standard_quality_report.md
+  06.1_fillable_template_standard_quality_report.json
+  06.1_fillable_template_standard_quality_report.md
+  06.2_build_manifest_standard_quality_report.json
+  06.2_build_manifest_standard_quality_report.md
+  07_verification_report_standard_quality_report.json
+  07_verification_report_standard_quality_report.md
   template_generation_run_bundle.json
   template_generation_stage_checks.json
-  template_generation_stage_standard_quality_report.json
-  template_generation_stage_standard_quality_report.md
   template_generation_judge_report.json
   template_generation_judge_report.md
 ```
@@ -279,11 +297,20 @@ runs/eval/template_generation_judge/hunannongye/template_generate/
 
 | 产物 | 命名 |
 | --- | --- |
-| 标准质量报告 | `template_generation_stage_standard_quality_report.{json,md}` |
+| 阶段标准质量报告 | `<阶段产物编号和名称>_standard_quality_report.{json,md}` |
+| `00_template_generation_request.json` | `00_template_generation_request_standard_quality_report.{json,md}` |
+| `01_document_facts.json` | `01_document_facts_standard_quality_report.{json,md}` |
+| `02_unit_map.yaml` | `02_unit_map_standard_quality_report.{json,md}` |
+| `03_element_spec.yaml` | `03_element_spec_standard_quality_report.{json,md}` |
+| `04_global_spec.yaml` | `04_global_spec_standard_quality_report.{json,md}` |
+| `05_template_spec.yaml` | `05_template_spec_standard_quality_report.{json,md}` |
+| `06.1_fillable_template.docx` | `06.1_fillable_template_standard_quality_report.{json,md}` |
+| `06.2_build_manifest.json` | `06.2_build_manifest_standard_quality_report.{json,md}` |
+| `07_verification_report.json` | `07_verification_report_standard_quality_report.{json,md}` |
 | run 绑定报告 | `template_generation_run_bundle.json` |
 | 阶段裁判列表 | `template_generation_stage_checks.json` |
 | 聚合裁判报告 | `template_generation_judge_report.{json,md}` |
-| CLI 输出目录 | `runs/eval/template_generation_judge/<target_id>/<source_run_id>/` |
+| CLI 输出目录 | `test_outputs/debug/template_generation/<run_id>/eval_runs/template_generation_judge/` |
 
 ### 6.3 CLI 参数规则
 
@@ -559,7 +586,7 @@ def aggregate_template_generation_judgement(...) -> JudgeReport:
 4. T2 现有 audit 通过统一 StageCheck 出现在 judge report。
 5. 报告能写出 first_bad_stage、标准路径、产物路径、hash 和 findings。
 6. run bundle 报告能写出 source_run_id、source_run_dir、manifest_source、declared_sha256、actual_sha256 和 hash_match。
-7. 所有输出进入 runs/eval/template_generation_judge/**，不写 standards/ 或 inputs/。
+7. 某次 template-generate run 的裁判输出进入同一 `test_outputs/debug/template_generation/<run_id>/eval_runs/**`，不写 standards/ 或 inputs/。
 8. 不修改 `standards/targets/**`，不自动重跑 template-generate。
 ```
 
@@ -575,14 +602,15 @@ uv run pytest tests/contract/test_template_generation_standard_judge.py -q
 人工验收建议：
 
 ```bash
+RUN_ROOT=test_outputs/debug/template_generation/manual_hunannongye
 uv run docfit eval template-generate \
   --template inputs/targets/hunannongye/raw/source_template.docx \
-  --out runs/template_generation/hunannongye/eval_runs/template_generate
+  --out "$RUN_ROOT/eval_runs/template_generate"
 
 uv run docfit eval template-generation-judge \
   --school hunannongye \
-  --run runs/template_generation/hunannongye/eval_runs/template_generate \
-  --out runs/eval/template_generation_judge/hunannongye/template_generate
+  --run "$RUN_ROOT/eval_runs/template_generate" \
+  --out "$RUN_ROOT/eval_runs/template_generation_judge"
 ```
 
 验收时应能在输出目录看到：
@@ -590,10 +618,26 @@ uv run docfit eval template-generation-judge \
 ```text
 summary.json
 findings.json
+00_template_generation_request_standard_quality_report.json
+00_template_generation_request_standard_quality_report.md
+01_document_facts_standard_quality_report.json
+01_document_facts_standard_quality_report.md
+02_unit_map_standard_quality_report.json
+02_unit_map_standard_quality_report.md
+03_element_spec_standard_quality_report.json
+03_element_spec_standard_quality_report.md
+04_global_spec_standard_quality_report.json
+04_global_spec_standard_quality_report.md
+05_template_spec_standard_quality_report.json
+05_template_spec_standard_quality_report.md
+06.1_fillable_template_standard_quality_report.json
+06.1_fillable_template_standard_quality_report.md
+06.2_build_manifest_standard_quality_report.json
+06.2_build_manifest_standard_quality_report.md
+07_verification_report_standard_quality_report.json
+07_verification_report_standard_quality_report.md
 template_generation_run_bundle.json
 template_generation_stage_checks.json
-template_generation_stage_standard_quality_report.json
-template_generation_stage_standard_quality_report.md
 template_generation_judge_report.json
 template_generation_judge_report.md
 ```

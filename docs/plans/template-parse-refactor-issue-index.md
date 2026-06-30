@@ -2,12 +2,14 @@
 status: active
 owner: template-generation
 created: 2026-06-25
-last_updated: 2026-06-27
+last_updated: 2026-06-29
 ---
 
 # 模板解析重构 issue 迭代索引
 
 本文只维护阶段 issue 的命名和迭代链路，避免多轮优化后混淆“上一轮 issue”“上一轮优化文档”和“当前残余 issue”。
+
+目录级命名说明（含日期前缀、历史对照、frontmatter）：[`README.md`](./README.md)。
 
 命名约定：
 
@@ -64,7 +66,15 @@ next_plan: ...
 | 顺序 | 类型 | 文档 | 状态 | 说明 |
 | --- | --- | --- | --- | --- |
 | 01 | issue | `docs/plans/template-parse-refactor-standard-judge-issue-01-run-bundle-stage-verifiers.md` | draft | 模板生成标准裁判模块：标准质量、run bundle、T1-T5 阶段 verifier、聚合报告和输出命名 |
-| 01 | optimization plan | TBD | pending | 基于 issue-01 拆出标准质量报告、run bundle 绑定、阶段 verifier 与 CLI 接入实施计划 |
+| 01 | optimization plan | `docs/plans/template-parse-refactor-standard-judge-plan-01-stage-diff-root-cause.md` | draft | 明确 verify 报告、阶段产物 vs 阶段标准 diff、root cause/owner 归因三层目标和实施顺序 |
+| 02 | issue + implementation plan | `docs/plans/template-parse-refactor-standard-judge-issue-02-stage-standard-diff-diagnosis-priority.md` | draft | 纠偏：stage standard diff diagnosis 优先于 gate；先完成 mismatches/root_causes/owner_assignments/fix_plan 四层报告，再讨论 PASS/SIGNABLE |
+
+## Run bundle contract
+
+| 顺序 | 类型 | 文档 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| 01 | issue | `docs/plans/template-parse-refactor-run-bundle-template-generation-contract-issue-01-co-located-outputs.md` | draft | 模板生成运行包契约：伴随产物应跟随本次 run bundle，`eval_runs/` 与 `human/` 统一收在 `test_outputs/debug/template_generation/<run-id>/` 下 |
+| 01 | implementation plan | `docs/plans/template-parse-refactor-run-bundle-template-generation-contract-plan-01-phased-execution.md` | draft | 分阶段执行模板生成运行包契约：run root 推导、产物落盘、eval 共址、报告命名、证据绑定、文档同步和验收门禁 |
 
 ## T3 element-policy
 

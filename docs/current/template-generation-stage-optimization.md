@@ -170,7 +170,7 @@ build_manifest = build_manifest(..., template_spec=template_spec)
 | 项 | 当前情况 |
 | --- | --- |
 | 模块 | `executor.py`、`manifest.py`、`outputs.py` |
-| 产物 | `generated_template.docx`、`template_generation_manifest.json`、debug 快照 |
+| 产物 | `fillable_template.docx`、`build_manifest.json`、`verification_report.json`、debug 快照 |
 | 已完成 | 先整包复制，再执行 action；manifest 记录执行动作、slot、generated field、输出 hash；debug 文件按阶段编号写出 |
 | 不负责 | 不决定内容应该放哪里，不证明学校格式通过 |
 
@@ -204,7 +204,7 @@ build_manifest = build_manifest(..., template_spec=template_spec)
 | 2026-06-22 | `uv run pytest tests/contract -q` | `PASS`，71 passed | 合同测试矩阵通过，真实 real-core 链路没有说明文字泄漏回归 |
 | 2026-06-22 | `uv run pytest tests/contract/test_template_generate.py -q` | `PASS`，11 passed | 覆盖阶段二表格 label/value 合并、跨段落业务句 continuation 合并和来源序号保留 |
 | 2026-06-22 | `uv run pytest tests/contract -q` | `PASS`，73 passed | 合同测试矩阵通过，阶段二合并增强没有破坏现有消费者 |
-| 2026-06-22 | `uv run docfit eval template-generate --template inputs/targets/hunannongye/raw/source_template.docx --out runs/template_generation/school-hunannongye-requirement/eval_runs/template_generate_stage2_merge_check` | `PASS` | 真实湖南农业大学模板生成命令仍能写出生成模板和阶段产物 |
+| 2026-06-22 | `uv run docfit eval template-generate --template inputs/targets/hunannongye/raw/source_template.docx --out test_outputs/debug/template_generation/school-hunannongye-requirement/eval_runs/template_generate_stage2_merge_check` | `PASS` | 真实湖南农业大学模板生成命令仍能写出生成模板和阶段产物 |
 
 这些验证只证明模板生成支撑流程按当前合同工作；不证明任何真实学校生成模板已经满足最终学校格式标准。真实学校合格性仍必须看 `template-gap` 的 `PASS / FAIL / UNKNOWN`。
 
