@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import time
 from pathlib import Path
 
 from docfit.core.io import read_json
@@ -42,9 +43,16 @@ def main() -> None:
     parser.add_argument("--facts", type=Path, default=DEFAULT_FACTS, help="document_facts.json path")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="output dir")
     parser.add_argument("--samples", type=int, default=1, help="T2 self-consistency samples")
-    parser.add_argument("--t3-concurrency", type=int, default=3, help="parallel per-unit T3 calls")
+    parser.add_argument("--t3-concurrency", type=int, default=8, help="parallel per-unit T3 calls")
     parser.add_argument("--temperature", type=float, default=0.4)
-    parser.add_argument("--max-tokens", type=int, default=8000)
+    parser.add_argument("--max-tokens", type=int, default=16000)
+    parser.add_argument(
+        "--cache-dir",
+        type=Path,
+        default=DEFAULT_OUT / ".cache",
+        help="disk cache for model responses (keyed by prompt+model+temp+sample)",
+    )
+    parser.add_argument("--refresh", action="store_true", help="ignore cache and re-call the model")
     args = parser.parse_args()
 
     facts = read_json(args.facts)
@@ -62,12 +70,15 @@ def main() -> None:
         temperature=args.temperature,
         max_tokens=args.max_tokens,
         record=record,
+        cache_dir=args.cache_dir,
+        refresh=args.refresh,
     )
 
     print(f"facts      : {args.facts}")
     print(f"source_seq : {total}")
     print(f"model      : {model}")
-    print(f"samples    : {args.samples}  (calling real model — this will take a while)")
+    print(f"samples    : {args.samples}  t3_concurrency={args.t3_concurrency}  cache={args.cache_dir} refresh={args.refresh}")
+    wall_start = time.monotonic()
 
     bundle = run_observation_pipeline(
         packet=packet,
@@ -103,7 +114,8 @@ def main() -> None:
             f"owned={len(cov['owned_source_seq']):3d} unknown={len(cov['unknown_source_seq']):3d} "
             f"abstain={obs['abstain']} demotions={demotions}"
         )
-    print(f"  model calls: {len(record)}")
+    cache_hits = sum(1 for r in record if r.get("from_cache"))
+    print(f"  calls: {len(record)} (cache hits: {cache_hits})  wall: {time.monotonic() - wall_start:.1f}s")
 
 
 if __name__ == "__main__":

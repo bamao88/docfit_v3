@@ -14,7 +14,10 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 from typing import Any
+
+from docfit.core.io import sha256_json
 
 from .observation_prompts import (
     ALLOWED_LABELS,
@@ -67,19 +70,27 @@ class LiveResponder:
         model: str,
         temperature: float = 0.4,
         max_tokens: int = 8000,
+        max_tokens_cap: int = 32000,
         record: list[dict[str, Any]] | None = None,
         progress: bool = True,
         max_attempts: int = 3,
         retry_backoff: float = 5.0,
+        cache_dir: Path | None = None,
+        refresh: bool = False,
     ) -> None:
         self._client = client
         self._model = model
         self._temperature = temperature
         self._max_tokens = max_tokens
+        self._max_tokens_cap = max(max_tokens, max_tokens_cap)
         self._record = record
         self._progress = progress
         self._max_attempts = max(1, max_attempts)
         self._retry_backoff = retry_backoff
+        self._cache_dir = cache_dir
+        self._refresh = refresh
+        if cache_dir is not None:
+            cache_dir.mkdir(parents=True, exist_ok=True)
 
     def fetch_units(self, *, evidence: dict[str, Any], n_samples: int) -> list[dict[str, Any]]:
         # 自一致性：温度>0 下重复采样 N 次，交给上层投票。
@@ -112,12 +123,37 @@ class LiveResponder:
         tag = f"{stage}:{label or sample_index}"
         started = time.monotonic()
 
+        # 缓存键覆盖一切影响输出的东西：prompt 文本 + 模型 + 温度 + 采样序号。
+        # 改了 prompt（rubric/contract）键就变 → 自动失效；没改就命中、跳过真实调用。
+        cache_key = sha256_json(
+            {
+                "system": system,
+                "user": user,
+                "model": self._model,
+                "temperature": self._temperature,
+                "sample_index": sample_index,
+            }
+        )
+        cached = self._cache_load(cache_key)
+        if cached is not None:
+            payload = cached
+            if self._progress:
+                n = len(payload.get("items", payload.get("section_profiles", [])) or [])
+                print(f"  [ cache] {tag:28s} raw={n}", file=sys.stderr, flush=True)
+            if self._record is not None:
+                self._record.append(
+                    {"stage": stage, "label": label, "sample_index": sample_index,
+                     "from_cache": True, "payload": payload, "error": None}
+                )
+            return payload
+
         # 单次调用的网络/超时/限流/截断都不该拖垮整条流水线：重试若干次，
         # 仍失败就降级为该阶段弃权（空 payload）——物化闸门会把它落成
         # schema-valid 的全 unknown 产物。失败信息进 record。
         content = ""
         finish_reason: str | None = None
         error: str | None = None
+        attempt_tokens = self._max_tokens
         for attempt in range(1, self._max_attempts + 1):
             try:
                 completion = self._client.chat.completions.create(
@@ -127,13 +163,18 @@ class LiveResponder:
                         {"role": "user", "content": user},
                     ],
                     temperature=self._temperature,
-                    max_tokens=self._max_tokens,
+                    max_tokens=attempt_tokens,
                     response_format={"type": "json_object"},
                 )
                 choice = completion.choices[0]
                 finish_reason = choice.finish_reason
                 content = strip_think(choice.message.content or "")
                 error = None
+                # 截断（大表单 JSON 超出预算）→ 加倍预算重试，挽回被砍掉的元素。
+                if finish_reason == "length" and attempt < self._max_attempts:
+                    attempt_tokens = min(attempt_tokens * 2, self._max_tokens_cap)
+                    error = f"truncated (finish=length); escalating max_tokens to {attempt_tokens}"
+                    continue
                 break
             except Exception as exc:  # APITimeout/Connection/RateLimit/APIError 等
                 error = f"{type(exc).__name__}: {exc}"
@@ -150,6 +191,9 @@ class LiveResponder:
                 payload = {"items": []} if stage in {"t2", "t3"} else {"section_profiles": []}
         if finish_reason == "length" and not content.strip():
             error = error or "model hit max_tokens before emitting content (reasoning budget exhausted)"
+        # 只缓存成功结果；失败/降级不写缓存，下次还会真打。
+        if error is None:
+            self._cache_store(cache_key, payload)
         if self._progress:
             n = len(payload.get("items", payload.get("section_profiles", [])) or [])
             flag = f" ERROR={error}" if error else ""
@@ -171,6 +215,28 @@ class LiveResponder:
                 }
             )
         return payload
+
+    def _cache_path(self, cache_key: str) -> Path | None:
+        if self._cache_dir is None:
+            return None
+        return self._cache_dir / f"{cache_key}.json"
+
+    def _cache_load(self, cache_key: str) -> dict[str, Any] | None:
+        if self._refresh:
+            return None
+        path = self._cache_path(cache_key)
+        if path is None or not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    def _cache_store(self, cache_key: str, payload: dict[str, Any]) -> None:
+        path = self._cache_path(cache_key)
+        if path is None:
+            return
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 def _parse_json_object(content: str, *, stage: str) -> dict[str, Any]:
