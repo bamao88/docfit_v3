@@ -69,12 +69,20 @@ def _source_tree(
     entries: list[dict[str, Any]],
     *,
     breaks: list[dict[str, Any]] | None = None,
+    content_controls: list[dict[str, Any]] | None = None,
+    fields: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     return {
         "metadata": {"source_template_hash": "sha256:test"},
         "layers": {"body_flow": entries},
         "indexes": {},
-        "data": {"breaks": breaks or [], "sections": [], "paragraphs": []},
+        "data": {
+            "breaks": breaks or [],
+            "content_controls": content_controls or [],
+            "fields": fields or [],
+            "sections": [],
+            "paragraphs": [],
+        },
     }
 
 
@@ -615,3 +623,88 @@ def test_t2_pku_toc_17_of_17_without_ai() -> None:
     in_toc, leaked = _toc_coverage_for_real_template("pku-graduate")
     assert in_toc == 17
     assert leaked == 0
+
+
+def test_t2_synthesizes_content_control_toc_and_keeps_english_title_in_abstract() -> None:
+    candidates = build_template_structure_candidates(
+        _source_tree(
+            [
+                _entry(1, "博士研究生学位论文", alignment="center", font_size_pt=18),
+                _entry(2, "版权声明", alignment="center", font_size_pt=16),
+                _entry(3, "摘要", alignment="center", font_size_pt=16),
+                _entry(4, "English Title of Your Thesis", alignment="center", font_size_pt=16),
+                _entry(5, "Your Name", alignment="center"),
+                _entry(6, "ABSTRACT", alignment="center", font_size_pt=16),
+                _entry(7, "KEY WORDS: one; two", alignment="center"),
+                _entry(8, "图目录", alignment="center", font_size_pt=16),
+                _entry(9, "图 1.1\t示例\t1", style="table of figures"),
+                _entry(10, "表目录", alignment="center", font_size_pt=16),
+                _entry(11, "表1.1\t示例\t2", style="table of figures"),
+                _entry(12, "研究背景", style="Heading 1", alignment="center", font_size_pt=16),
+            ],
+            content_controls=[
+                {
+                    "source_ref": "word/document.xml:sdt[1]",
+                    "text": "目录摘要\tIABSTRACT\tII目录\tIII图目录\tV表目录\tVI第一章\t研究背景\t1",
+                }
+            ],
+            fields=[
+                {
+                    "field_type": "TOC",
+                    "instruction": 'TOC \\o "3-3" \\h \\z',
+                    "source_ref": "word/document.xml:p[65]/field[39]",
+                }
+            ],
+        )
+    )
+
+    units = candidates["units"]
+    assert [unit["unit_id"] for unit in units] == [
+        "cover",
+        "copyright_notice",
+        "abstract_cn",
+        "abstract_en",
+        "toc",
+        "figure_list",
+        "table_list",
+        "body_main",
+    ]
+    by_id = _units_by_id(candidates)
+    assert by_id["abstract_en"]["source_seq_refs"] == [4, 5, 6, 7]
+    assert by_id["toc"]["source_refs"] == ["word/document.xml:p[65]/field[39]"]
+    assert by_id["toc"]["source_seq_refs"] == []
+
+
+def test_t2_absorbs_declaration_subheadings_after_combined_declaration_title() -> None:
+    candidates = build_template_structure_candidates(
+        _source_tree(
+            [
+                _entry(1, "封面"),
+                _entry(2, "正文", style="Heading 1"),
+                _entry(3, "正文内容"),
+                _entry(4, "参考文献", alignment="center", font_size_pt=16),
+                _entry(5, "致谢", alignment="center", font_size_pt=16),
+                _entry(6, "感谢内容"),
+                _entry(
+                    7,
+                    "北京大学学位论文原创性声明和使用授权说明",
+                    alignment="center",
+                    font_size_pt=16,
+                ),
+                _entry(8, "原创性声明", alignment="center", bold=True),
+                _entry(9, "学位论文使用授权说明", alignment="center", bold=True),
+                _entry(10, "论文作者签名： 日期： 年 月 日"),
+            ]
+        )
+    )
+
+    units = _units_by_id(candidates)
+    assert [unit["unit_id"] for unit in candidates["units"]].count(
+        "originality_authorization_statement"
+    ) == 1
+    assert units["originality_authorization_statement"]["source_seq_refs"] == [
+        7,
+        8,
+        9,
+        10,
+    ]

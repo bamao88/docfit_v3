@@ -44,7 +44,9 @@ def test_live_messages_include_quality_contract_and_evidence_rules(tmp_path) -> 
     assert "advisory-only DocFit template agent" in system_prompt
     assert "never write final artifacts" in system_prompt
     assert "Prefer abstain over speculative proposals" in system_prompt
+    assert "text_outline and query_text source_seq evidence" in system_prompt
     assert "Include a short rationale and evidence list" in user_prompt
+    assert "For T2 unit boundaries" in user_prompt
     assert "duplicate existing units" in user_prompt
     assert payload["prompt_contract"]["contract_version"] == (
         "template-agent-prompt-quality-1.1"
@@ -52,6 +54,9 @@ def test_live_messages_include_quality_contract_and_evidence_rules(tmp_path) -> 
     assert "page_text_index" not in payload["packet"]
     assert payload["packet"]["text_outline"]["scope"] == "full_document_outline"
     assert payload["packet"]["tool_access"]["query_text"].startswith("Use query_text")
+    assert "sufficient even if rendered page images" in (
+        payload["packet"]["tool_access"]["query_text"]
+    )
     assert "rationale explains why" in payload["prompt_contract"]["proposal_quality_bar"][3]
     assert "Use submit_t2 only." in payload["prompt_contract"]["pass_specific_rules"]
 
@@ -117,7 +122,7 @@ def test_live_messages_do_not_embed_full_large_packet(tmp_path) -> None:
 
     assert len(messages[1]["content"]) < 120_000
     assert payload["packet"]["text_outline"]["truncated"] is True
-    assert len(payload["packet"]["text_outline"]["items"]) == 520
+    assert len(payload["packet"]["text_outline"]["items"]) == 120
     assert "page_layout_index" not in payload["packet"]
     assert "X" * 500 not in messages[1]["content"]
 
@@ -231,6 +236,251 @@ def test_openai_transport_executes_tool_loop_until_submit(monkeypatch) -> None:
     } == {"submit_t2", "submit_t3", "submit_t4", "abstain"}
 
 
+def test_openai_transport_normalizes_terminal_tool_submission(monkeypatch) -> None:
+    render_packet = packet()
+    fake_completions = _FakeCompletions(
+        [
+            _completion(
+                _tool_call(
+                    "call_submit",
+                    "submit_t2",
+                    json.dumps(
+                        {
+                            "boundary_adjustments": [
+                                {
+                                    "operation": "adjust_unit_range",
+                                    "unit_id": "body_main",
+                                    "new_start_seq": 2,
+                                    "new_end_seq": 4,
+                                    "evidence": [
+                                        {
+                                            "type": "source_seq",
+                                            "ref": 3,
+                                            "text": "学生姓名：____",
+                                        }
+                                    ],
+                                }
+                            ]
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        openai,
+        "OpenAI",
+        lambda **_kwargs: SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        ),
+    )
+    transport = KimiOpenAICompatibleTransport(api_key="test-key", model="fixture-model")
+
+    submission = transport.complete_round(
+        messages=[{"role": "user", "content": "submit t2"}],
+        tools=agent_tool_schemas(),
+        response_format=None,
+        max_tokens=123,
+        temperature=0.25,
+        tool_executor=lambda name, arguments: execute_agent_tool_call(
+            name,
+            arguments,
+            packet=render_packet,
+            round_id="round_001",
+            model=transport.model,
+        ),
+    )
+
+    proposal = submission["layers"]["t2"]["boundary_adjustments"][0]
+    assert proposal["proposal_id"] == "round_001_t2_boundary_adjustments_001"
+    assert proposal["kind"] == "boundary_adjustment"
+    assert proposal["target_unit_id"] == "body_main"
+    assert proposal["source_seq_refs"] == [3]
+    assert submission["model"] == "fixture-model"
+
+
+def test_openai_transport_falls_back_to_terminal_json_after_reasoning_only(
+    monkeypatch,
+) -> None:
+    render_packet = packet()
+    final_submission = layered_submission(render_packet["source_render_hash"], layers={})
+    fake_completions = _FakeCompletions(
+        [
+            _completion(
+                _tool_call(
+                    "call_query",
+                    "query_text",
+                    '{"source_seq_refs":[3]}',
+                )
+            ),
+            _content_completion(""),
+            _content_completion(json.dumps({"submission": final_submission})),
+        ]
+    )
+    monkeypatch.setattr(
+        openai,
+        "OpenAI",
+        lambda **_kwargs: SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        ),
+    )
+    transport = KimiOpenAICompatibleTransport(api_key="test-key", model="fixture-model")
+
+    submission = transport.complete_round(
+        messages=[{"role": "user", "content": "inspect then submit"}],
+        tools=agent_tool_schemas(),
+        response_format=None,
+        max_tokens=123,
+        temperature=0.25,
+        tool_executor=lambda name, arguments: execute_agent_tool_call(
+            name,
+            arguments,
+            packet=render_packet,
+            round_id="round_001",
+            model=transport.model,
+        ),
+    )
+
+    assert submission is not None
+    assert submission["source_render_hash"] == render_packet["source_render_hash"]
+    assert submission["_tool_trace"][0]["tool_name"] == "query_text"
+    assert fake_completions.calls[2]["response_format"] == {"type": "json_object"}
+    assert "tools" not in fake_completions.calls[2]
+    assert any(
+        str(message.get("content", "")).startswith("DocFit terminal JSON instruction:")
+        for message in fake_completions.calls[2]["messages"]
+    )
+
+
+def test_openai_transport_records_provider_failure_when_finalizer_is_empty(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    artifacts = round0_artifacts(tmp_path)
+    render_packet = artifacts["packet"]
+    pass_spec = {
+        "pass_id": "t2_unit_scan",
+        "pass_kind": "t2_unit_scan",
+        "window_id": "full_document",
+        "allowed_layers": ["t2"],
+    }
+    fake_completions = _FakeCompletions(
+        [
+            _completion(
+                _tool_call(
+                    "call_query",
+                    "query_text",
+                    '{"source_seq_refs":[3]}',
+                )
+            ),
+            _content_completion(""),
+            _content_completion(""),
+        ]
+    )
+    monkeypatch.setattr(
+        openai,
+        "OpenAI",
+        lambda **_kwargs: SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        ),
+    )
+    transport = KimiOpenAICompatibleTransport(api_key="test-key", model="fixture-model")
+
+    submission = transport.complete_round(
+        messages=_live_messages(
+            render_packet,
+            artifacts["request"],
+            round_index=1,
+            pass_spec=pass_spec,
+        ),
+        tools=agent_tool_schemas(),
+        response_format=None,
+        max_tokens=123,
+        temperature=0.25,
+        tool_executor=lambda name, arguments: execute_agent_tool_call(
+            name,
+            arguments,
+            packet=render_packet,
+            round_id="round_001",
+            model=transport.model,
+        ),
+    )
+
+    assert submission is not None
+    assert submission["abstain"] is False
+    assert submission["source_render_hash"] == render_packet["source_render_hash"]
+    assert submission["layers"]["t2"]["open_questions"][0]["blocking"] is True
+    assert "provider returned no terminal JSON" in (
+        submission["layers"]["t2"]["open_questions"][0]["question"]
+    )
+    assert submission["layers"]["t3"]["open_questions"] == []
+    assert submission["_tool_trace"][0]["tool_name"] == "query_text"
+
+
+def test_openai_transport_normalizes_terminal_json_submission(monkeypatch) -> None:
+    render_packet = packet()
+    final_submission = layered_submission(
+        render_packet["source_render_hash"],
+        layers={
+            "t2": {
+                "unit_candidates": [
+                    {
+                        "operation": "adjust_unit_range",
+                        "unit_id": "body_main",
+                        "source_seq_refs": [3, 4],
+                    }
+                ]
+            }
+        },
+    )
+    final_submission["model"] = "provider-model-name"
+    fake_completions = _FakeCompletions(
+        [
+            _completion(
+                _tool_call(
+                    "call_query",
+                    "query_text",
+                    '{"source_seq_refs":[3]}',
+                )
+            ),
+            _content_completion(""),
+            _content_completion(json.dumps({"submission": final_submission})),
+        ]
+    )
+    monkeypatch.setattr(
+        openai,
+        "OpenAI",
+        lambda **_kwargs: SimpleNamespace(
+            chat=SimpleNamespace(completions=fake_completions)
+        ),
+    )
+    transport = KimiOpenAICompatibleTransport(api_key="test-key", model="fixture-model")
+
+    submission = transport.complete_round(
+        messages=[{"role": "user", "content": "inspect then submit"}],
+        tools=agent_tool_schemas(),
+        response_format=None,
+        max_tokens=123,
+        temperature=0.25,
+        tool_executor=lambda name, arguments: execute_agent_tool_call(
+            name,
+            arguments,
+            packet=render_packet,
+            round_id="round_001",
+            model=transport.model,
+        ),
+    )
+
+    assert submission is not None
+    assert submission["layers"]["t2"]["unit_candidates"] == []
+    proposal = submission["layers"]["t2"]["boundary_adjustments"][0]
+    assert proposal["kind"] == "boundary_adjustment"
+    assert proposal["proposal_id"] == "round_001_t2_boundary_adjustments_001"
+    assert proposal["target_unit_id"] == "body_main"
+    assert submission["model"] == "fixture-model"
+
+
 def test_live_run_records_tool_trace_in_transcript(monkeypatch, tmp_path) -> None:
     artifacts = round0_artifacts(tmp_path)
     packet_path = tmp_path / "packet.json"
@@ -298,6 +548,16 @@ def _completion(tool_call: SimpleNamespace) -> SimpleNamespace:
         choices=[
             SimpleNamespace(
                 message=SimpleNamespace(content=None, tool_calls=[tool_call])
+            )
+        ]
+    )
+
+
+def _content_completion(content: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        choices=[
+            SimpleNamespace(
+                message=SimpleNamespace(content=content, tool_calls=[])
             )
         ]
     )

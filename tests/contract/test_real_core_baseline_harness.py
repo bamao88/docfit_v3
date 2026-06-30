@@ -139,8 +139,8 @@ def test_real_core_template_generation_stage_standards_are_registered() -> None:
                         unit["unit_id"] for unit in template_generation_final["expected"]["units"]
                     ]
             assert stage_contract["school_id"] == school_id
-            assert stage_contract["verifier_state"] == "not_configured"
-            assert stage_contract["gate_enabled"] is False
+            assert stage_contract["verifier_state"] == "configured"
+            assert stage_contract["gate_enabled"] is True
             assert validate_baseline_document(stage_contract, stage="standards") == []
 
 

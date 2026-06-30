@@ -186,6 +186,96 @@ def test_stage_check_marks_run_bundle_dependency_unknown(tmp_path: Path) -> None
     )
 
 
+def test_t3_fixed_units_reject_fill_elements_by_default(tmp_path: Path) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t3_element_policy",
+        "T3",
+        "element_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "unit_order": ["cover"],
+            "policy_groups": {"fixed_units": ["cover"]},
+        },
+    )
+    artifact = _element_spec_artifact(
+        tmp_path,
+        [
+            {
+                "stable_id": "cover.e_001",
+                "element_id": "e_001",
+                "unit_id": "cover",
+                "policy": "fill",
+                "fill_source": "student_input",
+                "source_refs": ["word/document.xml:p[1]"],
+                "source_seq_refs": [1],
+            }
+        ],
+    )
+
+    check = judge_template_generation_stage(
+        "t3_element_policy",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t3_element_policy"),
+        run_bundle=_bundle(Status.PASS, {"element_spec": artifact}),
+    )
+
+    assert check.audit_status == "FAIL"
+    assert check.status == Status.FAIL
+    assert any(finding.type == "t3_policy_group_conflict" for finding in check.findings)
+
+
+def test_t3_fixed_units_can_explicitly_allow_fill_elements(tmp_path: Path) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t3_element_policy",
+        "T3",
+        "element_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "unit_order": ["cover"],
+            "policy_groups": {
+                "fixed_units": ["cover"],
+                "fixed_units_allow_fill_elements": ["cover"],
+            },
+            "element_policy_contract": {
+                "required_fields_by_policy": {
+                    "fill": ["fill_source", "source_refs", "source_seq_refs"],
+                }
+            },
+        },
+    )
+    artifact = _element_spec_artifact(
+        tmp_path,
+        [
+            {
+                "stable_id": "cover.e_001",
+                "element_id": "e_001",
+                "unit_id": "cover",
+                "policy": "fill",
+                "fill_source": "student_input",
+                "source_refs": ["word/document.xml:p[1]"],
+                "source_seq_refs": [1],
+            }
+        ],
+    )
+
+    check = judge_template_generation_stage(
+        "t3_element_policy",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t3_element_policy"),
+        run_bundle=_bundle(Status.PASS, {"element_spec": artifact}),
+    )
+
+    assert check.audit_status == "PASS"
+    assert check.status == Status.PASS
+    assert check.audit["policy_group_conflicts"] == []
+
+
 def _stage_standard(
     tmp_path: Path,
     stage_key: str,
@@ -212,6 +302,24 @@ def _stage_standard(
             "gate_enabled": gate_enabled,
             "expected": expected,
         },
+    )
+
+
+def _element_spec_artifact(
+    tmp_path: Path,
+    elements: list[dict],
+) -> BoundArtifact:
+    return BoundArtifact(
+        artifact_key="element_spec",
+        stage_key="t3_element_policy",
+        stage_id="T3",
+        path=tmp_path / "03_element_spec.yaml",
+        sha256="sha256:artifact",
+        declared_sha256="sha256:artifact",
+        source_kind="ordered_top_level",
+        status=Status.PASS,
+        payload={"artifact_type": "element_spec", "elements": elements},
+        hash_match=True,
     )
 
 

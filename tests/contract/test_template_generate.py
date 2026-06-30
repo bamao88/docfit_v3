@@ -8,7 +8,10 @@ from docx import Document
 from typer.testing import CliRunner
 
 from docfit.cli.main import app
-from docfit.convert.orchestrator import run_template_generate_eval
+from docfit.convert.orchestrator import (
+    _template_generation_project_dir,
+    run_template_generate_eval,
+)
 from docfit.core.io import read_json, read_yaml, sha256_file
 from docfit.core.status import Status
 from docfit.template_generation.runner import BODY_SLOT_MARKER
@@ -50,13 +53,34 @@ def docx_sdt_tags(path: Path) -> set[str]:
     return tags
 
 
+def test_template_generation_debug_root_follows_run_bundle(tmp_path) -> None:
+    bundle_root = tmp_path / "test_outputs/debug/template_generation/run_001"
+
+    assert _template_generation_project_dir(
+        tmp_path,
+        out_dir=bundle_root / "eval_runs/template_generate",
+    ) == bundle_root / "human"
+    assert _template_generation_project_dir(
+        tmp_path,
+        out_dir=bundle_root / "human/20260628T000000+0800",
+    ) == bundle_root / "human"
+    assert _template_generation_project_dir(
+        tmp_path,
+        out_dir=tmp_path / "adhoc_template_generate",
+    ) == (tmp_path / "adhoc_template_generate" / "human").resolve()
+
+
 def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     write_source_docx(source, ["学校固定封面", "目录", "正文开始", "格式说明：小四宋体"])
 
-    out_dir = (
+    bundle_root = (
         tmp_path
-        / "runs/template_generation/school-template/eval_runs/template_generate"
+        / "test_outputs/debug/template_generation/20260621T160704467333+0800"
+    )
+    out_dir = (
+        bundle_root
+        / "eval_runs/template_generate"
     )
     result = run_template_generate_eval(tmp_path, source, out_dir)
 
@@ -64,7 +88,7 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     artifacts = out_dir / "artifacts"
     manifest_path = artifacts / "build_manifest.json"
     plan_path = artifacts / "template_generation_plan.json"
-    debug_root = tmp_path / "runs/template_generation/school-template"
+    debug_root = bundle_root / "human"
     summary = read_json(out_dir / "summary.json")
     manifest = read_json(manifest_path)
     plan = read_json(plan_path)
@@ -143,6 +167,7 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert all(run["raw_run_id"] and run["logical_run_id"] for run in document_facts["runs"])
     assert len(debug_dirs) == 1
     assert debug_dir.parent == debug_root
+    assert not (tmp_path / "runs/template_generation").exists()
     assert summary["artifacts"]["template_generation_debug_dir"] == str(debug_dir)
     assert (out_dir / "00_input_source_template.docx").exists()
     assert (out_dir / "00_template_generation_request.json").exists()

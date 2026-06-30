@@ -24,8 +24,8 @@ def test_t2_standard_loader_reads_three_school_unit_order() -> None:
 
         assert standard["artifact_under_test"] == "unit_map"
         assert standard["stage_id"] == "T2"
-        assert standard["verifier_state"] == "not_configured"
-        assert standard["gate_enabled"] is False
+        assert standard["verifier_state"] == "configured"
+        assert standard["gate_enabled"] is True
         assert expected_ids
         assert expected_ids == expected_ids_from_units
 
@@ -135,6 +135,49 @@ def test_t2_standard_audit_reports_anchor_owner_mismatch() -> None:
         finding["type"] == "t2_standard_anchor_owner_mismatch"
         for finding in audit["findings"]
     )
+
+
+def test_t2_standard_audit_accepts_anchor_owner_by_source_ref_without_source_seq() -> None:
+    standard = _standard(["toc"], gate_enabled=True)
+    standard["expected"]["units"][0]["anchors"] = {
+        "start_title": "目录",
+        "title_aliases": ["目录"],
+    }
+    audit = audit_unit_map_against_t2_standard(
+        {
+            "units": [
+                {
+                    "unit_id": "toc",
+                    "source_refs": ["word/document.xml:p[65]/field[39]"],
+                }
+            ]
+        },
+        standard,
+        source_tree={
+            "layers": {
+                "body_flow": [
+                    {
+                        "structure_layer": "body_flow",
+                        "source_ref": "word/document.xml:p[65]/field[39]",
+                        "text": "目录",
+                    }
+                ]
+            }
+        },
+    )
+
+    assert audit["audit_status"] == "PASS"
+    assert audit["gate_status"] == "PASS"
+    assert audit["anchor_owner_failures"] == []
+    assert audit["anchor_owner_results"] == [
+        {
+            "expected_unit_id": "toc",
+            "source_seq": None,
+            "text": "目录",
+            "actual_unit_id": "toc",
+            "status": "PASS",
+        }
+    ]
 
 
 def _standard(unit_ids: list[str], *, gate_enabled: bool) -> dict:
