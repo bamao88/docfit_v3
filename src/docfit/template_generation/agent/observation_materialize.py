@@ -29,6 +29,7 @@ from .observation_schema import (
     PROMPT_CONTRACT_VERSION,
     UNKNOWN_UNIT_ID,
     compute_coverage,
+    open_questions_from,
 )
 from .packet import packet_source_seq_set
 
@@ -348,7 +349,9 @@ def _envelope(
         "coverage": coverage,
         "items": items,
         "unknown_items": unknown_items,
-        "open_questions": [],
+        "open_questions": open_questions_from(
+            demotions=demotions, coverage=coverage, self_consistency=self_consistency
+        ),
         "abstain": not items,
         "self_consistency": self_consistency,
         "quality_report": {

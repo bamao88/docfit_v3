@@ -25,7 +25,7 @@ from docfit.core.io import now_iso, read_yaml
 from ..constants import UNIT_DEFINITIONS
 
 OBSERVATION_SCHEMA_VERSION = "ai-observation-1.0"
-PROMPT_CONTRACT_VERSION = "ai-observation-prompt-1.0"
+PROMPT_CONTRACT_VERSION = "ai-observation-prompt-1.1"
 
 UNKNOWN_UNIT_ID = "unknown_unit"
 CONFIDENCE_LEVELS = ("low", "medium", "high")
@@ -46,6 +46,14 @@ ALLOWED_POLICIES = frozenset(_ONTOLOGY.get("policies", ()))
 ALLOWED_ROLES = frozenset(_ONTOLOGY.get("roles", ()))
 ALLOWED_FILL_SOURCES = frozenset(_ONTOLOGY.get("fill_sources", ()))
 ALLOWED_FIELD_TYPES = frozenset(_ONTOLOGY.get("generated_field_types", ()))
+
+# 一行人话定义（注入 prompt 接地，非 gold）。来自 ontology.yaml，同一真相。
+POLICY_DEFINITIONS: dict[str, str] = dict(_ONTOLOGY.get("policy_definitions", {}))
+ROLE_DEFINITIONS: dict[str, str] = dict(_ONTOLOGY.get("role_definitions", {}))
+FIELD_TYPE_DEFINITIONS: dict[str, str] = dict(_ONTOLOGY.get("field_type_definitions", {}))
+FILL_SOURCE_DEFINITIONS: dict[str, str] = dict(_ONTOLOGY.get("fill_sources_definitions", {})) or dict(
+    _ONTOLOGY.get("fill_source_definitions", {})
+)
 
 
 def empty_observation(
@@ -153,6 +161,73 @@ def coverage_invariant_errors(
             )
         )
     return errors
+
+
+def open_questions_from(
+    *,
+    demotions: list[dict[str, Any]],
+    coverage: dict[str, Any],
+    self_consistency: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """把闸门抓到的真实不确定/冲突浮成可人工处理的 open_questions（Module 2 冲突种子）。
+
+    只收**需要人决定**的项：争用（contested）、自一致性低（<0.5）、未认领簇（unknown）；
+    routine 的 label/required-field 降级已被闸门修掉，不灌进来制造噪声。纯复用既有数据。
+    """
+
+    questions: list[dict[str, Any]] = []
+
+    for demotion in demotions:
+        if demotion.get("check_id") != "C-COVERAGE-CONTESTED":
+            continue
+        item_id = demotion.get("item_id")
+        questions.append(
+            {
+                "question_id": f"q_contested_{item_id}",
+                "blocking_level": "non_blocking",
+                "check_id": "C-COVERAGE-CONTESTED",
+                "affected_refs": [_as_int(item_id)] if _as_int(item_id) is not None else [],
+                "reason": demotion.get("reason"),
+            }
+        )
+
+    agreement = (self_consistency or {}).get("agreement") or {}
+    for seq, ratio in sorted(agreement.items(), key=lambda kv: kv[0]):
+        if isinstance(ratio, (int, float)) and ratio < 0.5:
+            questions.append(
+                {
+                    "question_id": f"q_low_consistency_{seq}",
+                    "blocking_level": "non_blocking",
+                    "check_id": "C-SELF-CONSISTENCY",
+                    "affected_refs": [_as_int(seq)] if _as_int(seq) is not None else [],
+                    "reason": f"self-consistency {ratio} < 0.5 at source_seq {seq}",
+                }
+            )
+
+    for start, end in _contiguous_ranges(coverage.get("unknown_source_seq", [])):
+        affected = list(range(start, end + 1))
+        questions.append(
+            {
+                "question_id": f"q_unknown_{start}_{end}",
+                "blocking_level": "non_blocking",
+                "check_id": "C-COVERAGE-UNKNOWN",
+                "affected_refs": affected,
+                "reason": f"{len(affected)} source_seq left unknown ({start}-{end})",
+            }
+        )
+
+    return questions
+
+
+def _contiguous_ranges(values: Any) -> list[tuple[int, int]]:
+    seqs = sorted({v for v in (_as_int(x) for x in (values or [])) if v is not None})
+    ranges: list[tuple[int, int]] = []
+    for seq in seqs:
+        if ranges and seq == ranges[-1][1] + 1:
+            ranges[-1] = (ranges[-1][0], seq)
+        else:
+            ranges.append((seq, seq))
+    return ranges
 
 
 def validate_observation(

@@ -116,10 +116,13 @@ class LiveResponder:
         label: str | None = None,
     ) -> dict[str, Any]:
         prompt = build_observation_prompt(stage=stage, evidence_view=evidence)  # firewall asserted
+        glossary = prompt.get("glossary") or ""
+        glossary_block = f"词典（领域先验，非答案）：\n{glossary}\n" if glossary else ""
         system = (
             "你是 DocFit 模板结构观察器。只依据给定的 Word 事实独立判断，"
             "看不到也不要假设任何代码已有结论。\n"
             f"任务：{prompt['rubric']}\n"
+            f"{glossary_block}"
             f"允许标签集：{json.dumps(ALLOWED_LABELS, ensure_ascii=False)}\n"
             f"输出契约：{OUTPUT_CONTRACT[stage]}\n"
             "弃权是合法输出：没有证据支撑就少认领、留 unknown。"
