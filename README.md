@@ -60,18 +60,20 @@ uv run pytest
 运行模板生成：
 
 ```bash
+RUN_ROOT=test_outputs/debug/template_generation/manual_hunannongye
 uv run docfit eval template-generate \
   --template inputs/targets/hunannongye/raw/source_template.docx \
-  --out runs/template_generation/hunannongye/eval_runs/template_generate
+  --out "$RUN_ROOT/eval_runs/template_generate"
 ```
 
 运行模板差距检查：
 
 ```bash
+RUN_ROOT=test_outputs/debug/template_generation/manual_hunannongye
 uv run docfit eval template-gap \
   --school hunannongye \
-  --generated-template runs/template_generation/hunannongye/eval_runs/template_generate/fillable_template.docx \
-  --out runs/eval/template_gap/hunannongye/template_generate
+  --generated-template "$RUN_ROOT/eval_runs/template_generate/fillable_template.docx" \
+  --out "$RUN_ROOT/eval_runs/template_gap"
 ```
 
 ## 继续读哪里
