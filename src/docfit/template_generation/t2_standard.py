@@ -210,7 +210,7 @@ def _audit_anchor_ownership(
     standard: dict[str, Any],
     source_tree: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    seq_to_unit = _seq_to_unit_id(unit_map)
+    owner_maps = _owner_maps(unit_map)
     entries = _body_entries(source_tree)
     results: list[dict[str, Any]] = []
     for expected_unit in expected_units_from_t2_standard(standard):
@@ -256,9 +256,16 @@ def _audit_anchor_ownership(
                 }
             )
             continue
+        owned_matches = [
+            entry
+            for entry in matched
+            if _entry_owner(entry, owner_maps) == unit_id
+        ]
+        if owned_matches:
+            matched = owned_matches
         for entry in matched:
             seq = _int_or_none(entry.get("source_seq"))
-            actual_owner = seq_to_unit.get(seq) if seq is not None else None
+            actual_owner = _entry_owner(entry, owner_maps)
             status = "PASS" if actual_owner == unit_id else "FAIL"
             results.append(
                 {
@@ -272,11 +279,25 @@ def _audit_anchor_ownership(
     return results
 
 
-def _seq_to_unit_id(unit_map: dict[str, Any]) -> dict[int, str]:
-    mapping: dict[int, str] = {}
+def _entry_owner(
+    entry: dict[str, Any],
+    owner_maps: dict[str, dict[Any, str]],
+) -> str | None:
+    seq = _int_or_none(entry.get("source_seq"))
+    if seq is not None and seq in owner_maps["source_seq"]:
+        return owner_maps["source_seq"][seq]
+    source_ref = str(entry.get("source_ref") or "")
+    if source_ref:
+        return owner_maps["source_ref"].get(source_ref)
+    return None
+
+
+def _owner_maps(unit_map: dict[str, Any]) -> dict[str, dict[Any, str]]:
+    seq_mapping: dict[int, str] = {}
+    ref_mapping: dict[str, str] = {}
     units = unit_map.get("units")
     if not isinstance(units, list):
-        return mapping
+        return {"source_seq": seq_mapping, "source_ref": ref_mapping}
     for unit in units:
         if not isinstance(unit, dict):
             continue
@@ -284,16 +305,74 @@ def _seq_to_unit_id(unit_map: dict[str, Any]) -> dict[int, str]:
         for seq in unit.get("source_seq_refs", []) or []:
             parsed = _int_or_none(seq)
             if parsed is not None:
-                mapping[parsed] = unit_id
-    return mapping
+                seq_mapping[parsed] = unit_id
+        for source_ref in unit.get("source_refs", []) or []:
+            if source_ref:
+                ref_mapping[str(source_ref)] = unit_id
+    return {"source_seq": seq_mapping, "source_ref": ref_mapping}
 
 
 def _body_entries(source_tree: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
+    entries = [
         item
         for item in source_tree.get("layers", {}).get("body_flow", [])
         if item.get("structure_layer") == "body_flow" and item.get("text")
     ]
+    return _with_synthetic_content_control_toc_entries(entries, source_tree)
+
+
+def _with_synthetic_content_control_toc_entries(
+    entries: list[dict[str, Any]],
+    source_tree: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if any(
+        _normalize_for_match(str(entry.get("text") or "")) == "目录"
+        for entry in entries
+    ):
+        return entries
+    for item in source_tree.get("data", {}).get("content_controls", []) or []:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "")
+        normalized = _normalize_for_match(text)
+        if not normalized.startswith("目录"):
+            continue
+        markers = ("摘要", "abstract", "图目录", "表目录", "参考文献")
+        if sum(1 for marker in markers if marker in normalized) < 3:
+            continue
+        toc_field = _main_toc_field(source_tree)
+        source_ref = toc_field.get("source_ref") if toc_field else item.get("source_ref")
+        synthetic = {
+            "structure_layer": "body_flow",
+            "source_ref": source_ref,
+            "text": "目录",
+            "synthetic": True,
+            "synthetic_kind": "content_control_toc",
+        }
+        insert_at = _first_catalog_entry_index(entries)
+        return [*entries[:insert_at], synthetic, *entries[insert_at:]]
+    return entries
+
+
+def _main_toc_field(source_tree: dict[str, Any]) -> dict[str, Any] | None:
+    for item in source_tree.get("data", {}).get("fields", []) or []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("field_type") or "").upper() != "TOC":
+            continue
+        instruction = str(item.get("instruction") or "")
+        if r"\c" in instruction:
+            continue
+        return item
+    return None
+
+
+def _first_catalog_entry_index(entries: list[dict[str, Any]]) -> int:
+    for index, entry in enumerate(entries):
+        normalized = _normalize_for_match(str(entry.get("text") or ""))
+        if normalized in {"图目录", "表目录", "listoffigures", "listoftables"}:
+            return index
+    return len(entries)
 
 
 def _anchor_match_terms(anchors: dict[str, Any]) -> tuple[list[str], list[str]]:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -8,7 +9,11 @@ from docfit.core.io import write_json, write_text
 from docfit.core.models import Finding, StageResult
 from docfit.core.status import Status, merge_statuses
 from docfit.harness.reports import write_report_bundle
-from docfit.harness.template_generation_run_bundle import TemplateGenerationRunBundle
+from docfit.harness.template_generation_run_bundle import (
+    RUN_ARTIFACT_SPECS,
+    RunArtifactSpec,
+    TemplateGenerationRunBundle,
+)
 from docfit.harness.template_generation_stage_verifiers import StageCheck
 from docfit.harness.template_generation_standard_quality import (
     TemplateGenerationStandardQualityReport,
@@ -27,10 +32,24 @@ class TemplateGenerationJudgeReport:
     findings: list[Finding]
 
     def to_dict(self) -> dict[str, Any]:
+        stage_standard_diffs = build_stage_standard_diffs(self)
+        mismatches = build_mismatches(self)
+        root_causes = build_diagnosis_root_causes(self, mismatches)
+        owner_assignments = build_owner_assignments(root_causes)
+        fix_plan = build_fix_plans(root_causes)
+        _attach_diagnosis_layers(mismatches, root_causes, owner_assignments, fix_plan)
+        acceptance = build_standard_acceptance_summary(
+            self,
+            stage_standard_diffs=stage_standard_diffs,
+            root_causes=root_causes,
+        )
         return {
             "artifact_type": "template_generation_judge_report",
             "artifact_version": "1.0",
             "status": self.status.value,
+            "standard_acceptance_status": acceptance["standard_acceptance_status"],
+            "signoff_status": acceptance["signoff_status"],
+            "signoff_blockers": acceptance["signoff_blockers"],
             "first_bad_stage": self.first_bad_stage,
             "source_run_id": self.run_bundle.source_run_id,
             "source_run_dir": str(self.run_bundle.source_run_dir),
@@ -39,16 +58,26 @@ class TemplateGenerationJudgeReport:
             "standard_quality": self.standard_quality.to_dict(),
             "run_bundle": self.run_bundle.to_dict(),
             "stage_checks": [check.to_dict() for check in self.stage_checks],
+            "stage_standard_quality_reports": _stage_standard_quality_report_refs(self),
+            "stage_standard_diff_reports": _stage_standard_diff_report_refs(self),
+            "mismatches": mismatches,
+            "stage_standard_diffs": stage_standard_diffs,
+            "root_causes": root_causes,
+            "owner_assignments": owner_assignments,
+            "fix_plan": fix_plan,
+            "owner_summary": acceptance["owner_summary"],
+            "top_blockers": acceptance["top_blockers"],
             "findings": [finding.to_dict() for finding in self.findings],
         }
 
     def to_stage_result(self) -> StageResult:
+        report_dict = self.to_dict()
         return StageResult(
             "template_generation_judge",
             self.status,
             findings=self.findings,
             artifacts={
-                "template_generation_judge_report": self.to_dict(),
+                "template_generation_judge_report": report_dict,
                 "template_generation_run_bundle": self.run_bundle.to_dict(),
                 "template_generation_stage_checks": [
                     check.to_dict() for check in self.stage_checks
@@ -56,6 +85,14 @@ class TemplateGenerationJudgeReport:
                 "template_generation_stage_standard_quality_report": (
                     self.standard_quality.to_dict()
                 ),
+                "stage_standard_quality_reports": _stage_standard_quality_report_refs(self),
+                "stage_standard_diff_reports": _stage_standard_diff_report_refs(self),
+                "mismatches": report_dict["mismatches"],
+                "stage_standard_diffs": report_dict["stage_standard_diffs"],
+                "root_causes": report_dict["root_causes"],
+                "owner_assignments": report_dict["owner_assignments"],
+                "fix_plan": report_dict["fix_plan"],
+                "owner_summary": report_dict["owner_summary"],
             },
             coverage={
                 "template_generation_judge.standard_quality": (
@@ -63,6 +100,10 @@ class TemplateGenerationJudgeReport:
                 ),
                 "template_generation_judge.run_bundle": self.run_bundle.status == Status.PASS,
                 "template_generation_judge.stage_checks": bool(self.stage_checks),
+                "template_generation_judge.standard_acceptance_status": report_dict[
+                    "standard_acceptance_status"
+                ],
+                "template_generation_judge.signoff_status": report_dict["signoff_status"],
             },
             blocked_at=self.first_bad_stage,
         )
@@ -147,17 +188,45 @@ def write_template_generation_judge_outputs(
     quality_md_path = out_dir / "template_generation_stage_standard_quality_report.md"
     judge_path = out_dir / "template_generation_judge_report.json"
     judge_md_path = out_dir / "template_generation_judge_report.md"
+    stage_quality_paths = write_stage_standard_quality_reports(out_dir, report)
+    stage_diff_paths = write_stage_standard_diff_reports(out_dir, report)
+    root_cause_path = out_dir / "template_generation_root_cause_report.json"
+    root_cause_md_path = out_dir / "template_generation_root_cause_report.md"
 
     write_json(run_bundle_path, report.run_bundle.to_dict())
     write_json(stage_checks_path, [check.to_dict() for check in report.stage_checks])
     write_json(quality_path, report.standard_quality.to_dict())
     write_text(quality_md_path, build_standard_quality_markdown(report.standard_quality))
-    write_json(judge_path, report.to_dict())
+    report_dict = report.to_dict()
+    root_cause_report = build_template_generation_root_cause_report(report, report_dict)
+    write_json(root_cause_path, root_cause_report)
+    write_text(root_cause_md_path, build_template_generation_root_cause_markdown(root_cause_report))
+    write_json(judge_path, report_dict)
     write_text(judge_md_path, build_judge_markdown(report))
 
     stage_statuses = {
         check.stage_key: check.status.value for check in report.stage_checks
     }
+    stage_quality_artifacts = {
+        report_id: paths["json"].name
+        for report_id, paths in stage_quality_paths.items()
+    }
+    stage_quality_artifacts.update(
+        {
+            f"{report_id}_md": paths["md"].name
+            for report_id, paths in stage_quality_paths.items()
+        }
+    )
+    stage_diff_artifacts = {
+        report_id: paths["json"].name
+        for report_id, paths in stage_diff_paths.items()
+    }
+    stage_diff_artifacts.update(
+        {
+            f"{report_id}_md": paths["md"].name
+            for report_id, paths in stage_diff_paths.items()
+        }
+    )
     summary = write_report_bundle(
         out_dir,
         stage="template_generation_judge",
@@ -170,12 +239,21 @@ def write_template_generation_judge_outputs(
             "template_generation_stage_standard_quality_report_md": quality_md_path.name,
             "template_generation_judge_report": judge_path.name,
             "template_generation_judge_report_md": judge_md_path.name,
+            "template_generation_root_cause_report": root_cause_path.name,
+            "template_generation_root_cause_report_md": root_cause_md_path.name,
+            **stage_quality_artifacts,
+            **stage_diff_artifacts,
         },
         coverage={
             "standard_quality_status": report.standard_quality.status.value,
             "run_bundle_status": report.run_bundle.status.value,
             "source_run_id": report.run_bundle.source_run_id,
             "first_bad_stage": report.first_bad_stage,
+            "standard_acceptance_status": report_dict["standard_acceptance_status"],
+            "signoff_status": report_dict["signoff_status"],
+            "mismatch_count": len(report_dict["mismatches"]),
+            "root_cause_count": len(report_dict["root_causes"]),
+            "owner_summary": report_dict["owner_summary"],
         },
         stage_statuses=stage_statuses,
         blocked_at=report.first_bad_stage,
@@ -191,10 +269,1305 @@ def write_template_generation_judge_outputs(
             "template_generation_stage_standard_quality_report_md": quality_md_path,
             "template_generation_judge_report": judge_path,
             "template_generation_judge_report_md": judge_md_path,
+            "template_generation_root_cause_report": root_cause_path,
+            "template_generation_root_cause_report_md": root_cause_md_path,
         }
     )
+    for report_id, paths in stage_quality_paths.items():
+        result.artifact_paths[report_id] = paths["json"]
+        result.artifact_paths[f"{report_id}_md"] = paths["md"]
+    for report_id, paths in stage_diff_paths.items():
+        result.artifact_paths[report_id] = paths["json"]
+        result.artifact_paths[f"{report_id}_md"] = paths["md"]
     result.artifacts["summary"] = summary
     return result
+
+
+def write_stage_standard_quality_reports(
+    out_dir: Path,
+    report: TemplateGenerationJudgeReport,
+) -> dict[str, dict[str, Path]]:
+    paths: dict[str, dict[str, Path]] = {}
+    for spec in RUN_ARTIFACT_SPECS:
+        stage_report = build_stage_standard_quality_report(report, spec)
+        report_id = stage_report["report_id"]
+        json_path = out_dir / f"{report_id}.json"
+        md_path = out_dir / f"{report_id}.md"
+        write_json(json_path, stage_report)
+        write_text(md_path, build_stage_standard_quality_markdown(stage_report))
+        paths[report_id] = {"json": json_path, "md": md_path}
+    return paths
+
+
+def write_stage_standard_diff_reports(
+    out_dir: Path,
+    report: TemplateGenerationJudgeReport,
+) -> dict[str, dict[str, Path]]:
+    paths: dict[str, dict[str, Path]] = {}
+    for spec in RUN_ARTIFACT_SPECS:
+        stage_report = build_stage_standard_diagnosis_report(report, spec)
+        report_id = stage_report["report_id"]
+        json_path = out_dir / f"{report_id}.json"
+        md_path = out_dir / f"{report_id}.md"
+        write_json(json_path, stage_report)
+        write_text(md_path, build_stage_standard_diagnosis_markdown(stage_report))
+        paths[report_id] = {"json": json_path, "md": md_path}
+    return paths
+
+
+def build_stage_standard_diffs(
+    report: TemplateGenerationJudgeReport,
+) -> list[dict[str, Any]]:
+    diffs: list[dict[str, Any]] = []
+    for check in report.stage_checks:
+        report_id = _stage_quality_report_id_for_stage(check.stage_key)
+        for finding in check.findings:
+            owner, owner_detail, next_action = _owner_for_finding(finding)
+            diffs.append(
+                {
+                    "diff_id": f"diff_{len(diffs) + 1:03d}",
+                    "stage_id": check.stage_id,
+                    "stage_key": check.stage_key,
+                    "report_ref": f"{report_id}.json" if report_id else None,
+                    "status": finding.status.value,
+                    "diff_kind": _diff_kind(finding),
+                    "finding_type": finding.type,
+                    "message": finding.message,
+                    "expected": finding.expected,
+                    "observed": finding.actual,
+                    "affected_ids": finding.affected_ids,
+                    "evidence_refs": finding.evidence_refs,
+                    "root_cause_bucket": finding.root_cause_bucket,
+                    "owner": owner,
+                    "owner_detail": owner_detail,
+                    "next_action": next_action,
+                }
+            )
+    return diffs
+
+
+def build_root_causes(
+    stage_standard_diffs: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    root_causes: list[dict[str, Any]] = []
+    for diff in stage_standard_diffs:
+        root_causes.append(
+            {
+                "root_cause_id": f"rc_{len(root_causes) + 1:03d}",
+                "diff_id": diff["diff_id"],
+                "stage_id": diff["stage_id"],
+                "stage_key": diff["stage_key"],
+                "status": diff["status"],
+                "finding_type": diff["finding_type"],
+                "root_cause_bucket": diff["root_cause_bucket"],
+                "owner": diff["owner"],
+                "owner_detail": diff["owner_detail"],
+                "reason": _root_cause_reason(diff),
+                "next_action": diff["next_action"],
+            }
+        )
+    return root_causes
+
+
+def build_mismatches(
+    report: TemplateGenerationJudgeReport,
+    *,
+    stage_key: str | None = None,
+) -> list[dict[str, Any]]:
+    mismatches: list[dict[str, Any]] = []
+    counters: dict[str, int] = {}
+    for check in report.stage_checks:
+        if stage_key is not None and check.stage_key != stage_key:
+            continue
+        standard = report.standard_set.stages.get(check.stage_key)
+        artifact = report.run_bundle.artifact_for_stage(check.stage_key)
+        for finding in check.findings:
+            stage_id = check.stage_id
+            counters[stage_id] = counters.get(stage_id, 0) + 1
+            mismatch_id = f"{stage_id}-MISMATCH-{counters[stage_id]:03d}"
+            finding_type = _normalized_mismatch_type(finding.type)
+            field = _mismatch_field(finding_type, finding)
+            expected = _parse_finding_value(finding.expected)
+            observed = _parse_finding_value(finding.actual)
+            mismatches.append(
+                {
+                    "id": mismatch_id,
+                    "mismatch_id": mismatch_id,
+                    "stage_id": stage_id,
+                    "stage_key": check.stage_key,
+                    "status": finding.status.value,
+                    "finding_type": finding.type,
+                    "type": finding_type,
+                    "field": field,
+                    "expected": expected,
+                    "observed": observed,
+                    "problem": _mismatch_problem(finding_type, finding),
+                    "affected_ids": finding.affected_ids,
+                    "evidence": {
+                        "artifact_path": str(artifact.path)
+                        if artifact is not None and artifact.path is not None
+                        else None,
+                        "standard_path": str(standard.path) if standard is not None else None,
+                        "source_seq_refs": _source_seq_refs_from_finding(finding),
+                        "evidence_refs": finding.evidence_refs,
+                    },
+                    "root_cause_bucket": finding.root_cause_bucket,
+                    "message": finding.message,
+                }
+            )
+    return mismatches
+
+
+def build_diagnosis_root_causes(
+    report: TemplateGenerationJudgeReport,
+    mismatches: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    root_causes: list[dict[str, Any]] = []
+    for mismatch in mismatches:
+        category = _root_cause_category(report, mismatch)
+        legacy_owner, owner_detail, next_action = _legacy_owner_for_mismatch(mismatch)
+        root_causes.append(
+            {
+                "id": _derived_id(mismatch["id"], "ROOT-CAUSE"),
+                "root_cause_id": f"rc_{len(root_causes) + 1:03d}",
+                "mismatch_id": mismatch["id"],
+                "stage_id": mismatch["stage_id"],
+                "stage_key": mismatch["stage_key"],
+                "status": mismatch["status"],
+                "finding_type": mismatch["finding_type"],
+                "category": category,
+                "first_bad_stage": _diagnosis_first_bad_stage(report, mismatch),
+                "reason": _diagnosis_reason(category, mismatch),
+                "root_cause_bucket": mismatch["root_cause_bucket"],
+                "owner": legacy_owner,
+                "owner_detail": owner_detail,
+                "next_action": next_action,
+            }
+        )
+    return root_causes
+
+
+def build_owner_assignments(
+    root_causes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    assignments: list[dict[str, Any]] = []
+    for root_cause in root_causes:
+        primary, secondary = _owner_assignment_for_category(root_cause["category"])
+        assignments.append(
+            {
+                "id": _derived_id(root_cause["mismatch_id"], "OWNER"),
+                "mismatch_id": root_cause["mismatch_id"],
+                "root_cause_id": root_cause["id"],
+                "primary": primary,
+                "secondary": secondary,
+                "rationale": _owner_assignment_rationale(root_cause, primary, secondary),
+            }
+        )
+    return assignments
+
+
+def build_fix_plans(
+    root_causes: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    plans: list[dict[str, Any]] = []
+    for root_cause in root_causes:
+        plans.append(
+            {
+                "id": _derived_id(root_cause["mismatch_id"], "FIX"),
+                "mismatch_id": root_cause["mismatch_id"],
+                "root_cause_id": root_cause["id"],
+                **_fix_plan_for_root_cause(root_cause),
+            }
+        )
+    return plans
+
+
+def build_stage_standard_diagnosis_report(
+    report: TemplateGenerationJudgeReport,
+    spec: RunArtifactSpec,
+) -> dict[str, Any]:
+    artifact = report.run_bundle.artifacts.get(spec.artifact_key)
+    check = _stage_check_for_spec(report, spec)
+    standard = (
+        report.standard_set.stages.get(spec.stage_key)
+        if spec.stage_key is not None
+        else None
+    )
+    stage_key = spec.stage_key or _implicit_stage_key(spec)
+    stage_id = spec.stage_id or "T0"
+    status = check.status if check is not None else (
+        artifact.status if artifact is not None else Status.UNKNOWN
+    )
+    report_id = _stage_diff_report_id(spec)
+    mismatches = build_mismatches(report, stage_key=spec.stage_key) if spec.stage_key else []
+    root_causes = build_diagnosis_root_causes(report, mismatches)
+    owner_assignments = build_owner_assignments(root_causes)
+    fix_plan = build_fix_plans(root_causes)
+    _attach_diagnosis_layers(mismatches, root_causes, owner_assignments, fix_plan)
+    stage_diffs = [
+        diff
+        for diff in build_stage_standard_diffs(report)
+        if diff["stage_key"] == stage_key
+    ]
+    return {
+        "artifact_type": "template_generation_stage_standard_diff_report",
+        "artifact_version": "1.0",
+        "report_kind": "standard_diff_report",
+        "report_id": report_id,
+        "status": status.value,
+        "source_run_id": report.run_bundle.source_run_id,
+        "source_run_dir": str(report.run_bundle.source_run_dir),
+        "stage_id": stage_id,
+        "stage_key": stage_key,
+        "artifact_key": spec.artifact_key,
+        "artifact_name": spec.top_level_name,
+        "artifact_under_test": (
+            standard.artifact_under_test if standard is not None else spec.artifact_key
+        ),
+        "artifact_path": str(artifact.path) if artifact and artifact.path else None,
+        "artifact_sha256": artifact.sha256 if artifact is not None else None,
+        "standard_path": str(standard.path) if standard is not None else None,
+        "standard_sha256": standard.sha256 if standard is not None else None,
+        "verifier_state": (
+            check.verifier_state
+            if check is not None
+            else (standard.verifier_state if standard is not None else "not_applicable")
+        ),
+        "gate_enabled": (
+            check.gate_enabled
+            if check is not None
+            else (standard.gate_enabled if standard is not None else None)
+        ),
+        "audit_status": check.audit_status if check is not None else None,
+        "mismatches": mismatches,
+        "root_causes": root_causes,
+        "owner_assignments": owner_assignments,
+        "fix_plan": fix_plan,
+        "stage_standard_diffs": stage_diffs,
+    }
+
+
+def build_template_generation_root_cause_report(
+    report: TemplateGenerationJudgeReport,
+    report_dict: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    report_dict = report_dict or report.to_dict()
+    return {
+        "artifact_type": "template_generation_root_cause_report",
+        "artifact_version": "1.0",
+        "report_kind": "root_cause_report",
+        "status": report_dict["status"],
+        "standard_acceptance_status": report_dict["standard_acceptance_status"],
+        "signoff_status": report_dict["signoff_status"],
+        "first_bad_stage": report_dict["first_bad_stage"],
+        "source_run_id": report_dict["source_run_id"],
+        "mismatches": report_dict["mismatches"],
+        "root_causes": report_dict["root_causes"],
+        "owner_assignments": report_dict["owner_assignments"],
+        "fix_plan": report_dict["fix_plan"],
+        "owner_summary": report_dict["owner_summary"],
+        "top_blockers": report_dict["top_blockers"],
+    }
+
+
+def build_standard_acceptance_summary(
+    report: TemplateGenerationJudgeReport,
+    *,
+    stage_standard_diffs: list[dict[str, Any]] | None = None,
+    root_causes: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    stage_standard_diffs = (
+        stage_standard_diffs
+        if stage_standard_diffs is not None
+        else build_stage_standard_diffs(report)
+    )
+    root_causes = (
+        root_causes
+        if root_causes is not None
+        else build_root_causes(stage_standard_diffs)
+    )
+    owner_summary = _owner_summary(root_causes)
+    has_fail = any(diff["status"] == Status.FAIL.value for diff in stage_standard_diffs)
+    has_unknown = (
+        report.standard_quality.status != Status.PASS
+        or report.run_bundle.status != Status.PASS
+        or any(diff["status"] == Status.UNKNOWN.value for diff in stage_standard_diffs)
+        or any(check.status == Status.UNKNOWN for check in report.stage_checks)
+    )
+    if has_fail:
+        standard_acceptance_status = Status.FAIL.value
+    elif has_unknown:
+        standard_acceptance_status = Status.UNKNOWN.value
+    else:
+        standard_acceptance_status = Status.PASS.value
+
+    signoff_blockers = _signoff_blockers(
+        report,
+        standard_acceptance_status=standard_acceptance_status,
+        stage_standard_diffs=stage_standard_diffs,
+    )
+    signoff_status = "SIGNABLE" if not signoff_blockers else "NOT_SIGNABLE"
+    top_blockers = _top_blockers(root_causes)
+    return {
+        "standard_acceptance_status": standard_acceptance_status,
+        "signoff_status": signoff_status,
+        "signoff_blockers": signoff_blockers,
+        "owner_summary": owner_summary,
+        "top_blockers": top_blockers,
+    }
+
+
+def build_stage_standard_quality_report(
+    report: TemplateGenerationJudgeReport,
+    spec: RunArtifactSpec,
+) -> dict[str, Any]:
+    artifact = report.run_bundle.artifacts.get(spec.artifact_key)
+    check = _stage_check_for_spec(report, spec)
+    standard = (
+        report.standard_set.stages.get(spec.stage_key)
+        if spec.stage_key is not None
+        else None
+    )
+    findings = check.findings if check is not None else _run_bundle_findings_for_spec(report, spec)
+    status = check.status if check is not None else (
+        artifact.status if artifact is not None else Status.UNKNOWN
+    )
+    stage_key = spec.stage_key or _implicit_stage_key(spec)
+    stage_id = spec.stage_id or "T0"
+    report_id = _stage_quality_report_id(spec)
+    stage_diffs = [
+        diff
+        for diff in build_stage_standard_diffs(report)
+        if diff["stage_key"] == stage_key
+    ]
+    mismatches = build_mismatches(report, stage_key=spec.stage_key) if spec.stage_key else []
+    root_causes = build_diagnosis_root_causes(report, mismatches)
+    owner_assignments = build_owner_assignments(root_causes)
+    fix_plan = build_fix_plans(root_causes)
+    _attach_diagnosis_layers(mismatches, root_causes, owner_assignments, fix_plan)
+    acceptance = _artifact_acceptance_summary(
+        status=status,
+        check=check,
+        stage_diffs=stage_diffs,
+        artifact_status=artifact.status if artifact is not None else Status.UNKNOWN,
+    )
+    return {
+        "artifact_type": "template_generation_artifact_standard_quality_report",
+        "artifact_version": "1.0",
+        "report_kind": "standard_quality_report",
+        "report_id": report_id,
+        "status": status.value,
+        "standard_acceptance_status": acceptance["standard_acceptance_status"],
+        "signoff_status": acceptance["signoff_status"],
+        "signoff_blockers": acceptance["signoff_blockers"],
+        "source_run_id": report.run_bundle.source_run_id,
+        "source_run_dir": str(report.run_bundle.source_run_dir),
+        "stage_id": stage_id,
+        "stage_key": stage_key,
+        "artifact_key": spec.artifact_key,
+        "artifact_name": spec.top_level_name,
+        "artifact_under_test": (
+            standard.artifact_under_test if standard is not None else spec.artifact_key
+        ),
+        "artifact_path": str(artifact.path) if artifact and artifact.path else None,
+        "artifact_sha256": artifact.sha256 if artifact is not None else None,
+        "artifact_status": artifact.status.value if artifact is not None else Status.UNKNOWN.value,
+        "artifact_source_kind": artifact.source_kind if artifact is not None else "missing",
+        "artifact_hash_match": artifact.hash_match if artifact is not None else None,
+        "standard_path": str(standard.path) if standard is not None else None,
+        "standard_sha256": standard.sha256 if standard is not None else None,
+        "standard_quality_status": (
+            report.standard_quality.stage_statuses.get(spec.stage_key, Status.UNKNOWN.value)
+            if spec.stage_key is not None
+            else "not_applicable"
+        ),
+        "verifier_state": (
+            check.verifier_state
+            if check is not None
+            else (standard.verifier_state if standard is not None else "not_applicable")
+        ),
+        "gate_enabled": (
+            check.gate_enabled
+            if check is not None
+            else (standard.gate_enabled if standard is not None else None)
+        ),
+        "audit_status": check.audit_status if check is not None else None,
+        "audit": check.audit if check is not None else {},
+        "comparison_scope": (
+            "stage_standard"
+            if spec.stage_key is not None
+            else "run_bundle_artifact_binding"
+        ),
+        "mismatches": mismatches,
+        "stage_standard_diffs": stage_diffs,
+        "root_causes": root_causes,
+        "owner_assignments": owner_assignments,
+        "fix_plan": fix_plan,
+        "owner_summary": _owner_summary(root_causes),
+        "top_blockers": _top_blockers(root_causes),
+        "findings": [finding.to_dict() for finding in findings],
+    }
+
+
+def build_stage_standard_quality_markdown(report: dict[str, Any]) -> str:
+    lines = [
+        f"# {report['report_id']}",
+        "",
+        f"- Status: {report['status']}",
+        f"- Standard acceptance: {report['standard_acceptance_status']}",
+        f"- Sign-off: {report['signoff_status']}",
+        f"- Stage: {report['stage_id']} / {report['stage_key']}",
+        f"- Artifact: {report['artifact_name']}",
+        f"- Artifact path: {report.get('artifact_path') or 'missing'}",
+        f"- Artifact sha256: {report.get('artifact_sha256') or 'missing'}",
+        f"- Artifact status: {report['artifact_status']}",
+        f"- Standard path: {report.get('standard_path') or 'not_applicable'}",
+        f"- Standard quality: {report['standard_quality_status']}",
+        f"- Verifier state: {report['verifier_state']}",
+        f"- Gate enabled: {report.get('gate_enabled')}",
+        f"- Audit status: {report.get('audit_status') or 'not_applicable'}",
+        "",
+    ]
+    if report.get("signoff_blockers"):
+        lines.append("## Sign-off Blockers")
+        for blocker in report["signoff_blockers"]:
+            lines.append(f"- {blocker}")
+        lines.append("")
+    if report.get("top_blockers"):
+        lines.append("## Top Blockers")
+        for blocker in report["top_blockers"]:
+            lines.append(
+                "- "
+                f"{blocker.get('stage_id')} {blocker.get('finding_type')}: "
+                f"owner={blocker.get('owner')}, category={blocker.get('category')}, "
+                f"next={blocker.get('next_action')}"
+            )
+        lines.append("")
+    lines.append("## Diagnosis")
+    if report.get("mismatches"):
+        for mismatch in report["mismatches"]:
+            lines.append(
+                "- "
+                f"{mismatch.get('id')} {mismatch.get('field')}: "
+                f"{mismatch.get('problem')}"
+            )
+    else:
+        lines.append("- mismatches: none")
+    lines.append("")
+    findings = report.get("findings") or []
+    if findings:
+        lines.append("## Findings")
+        for finding in findings:
+            lines.append(
+                "- "
+                f"[{finding.get('status')}] "
+                f"{finding.get('stage')}/{finding.get('type')}: "
+                f"{finding.get('message')}"
+            )
+    else:
+        lines.append("No findings.")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def build_stage_standard_diagnosis_markdown(report: dict[str, Any]) -> str:
+    lines = [
+        f"# {report['report_id']}",
+        "",
+        f"- Status: {report['status']}",
+        f"- Stage: {report['stage_id']} / {report['stage_key']}",
+        f"- Artifact: {report['artifact_name']}",
+        f"- Artifact path: {report.get('artifact_path') or 'missing'}",
+        f"- Standard path: {report.get('standard_path') or 'not_applicable'}",
+        f"- Verifier state: {report['verifier_state']}",
+        f"- Gate enabled: {report.get('gate_enabled')}",
+        "",
+        "## Mismatches",
+    ]
+    if report["mismatches"]:
+        for mismatch in report["mismatches"]:
+            lines.append(
+                "- "
+                f"{mismatch['id']} {mismatch['field']}: {mismatch['problem']}"
+            )
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Root Causes"])
+    if report["root_causes"]:
+        for root_cause in report["root_causes"]:
+            lines.append(
+                "- "
+                f"{root_cause['mismatch_id']}: {root_cause['category']} "
+                f"(first_bad_stage={root_cause['first_bad_stage']})"
+            )
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Owner Assignments"])
+    if report["owner_assignments"]:
+        for assignment in report["owner_assignments"]:
+            lines.append(
+                "- "
+                f"{assignment['mismatch_id']}: primary={assignment['primary']}, "
+                f"secondary={assignment.get('secondary') or 'none'}"
+            )
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Fix Plan"])
+    if report["fix_plan"]:
+        for plan in report["fix_plan"]:
+            lines.append(f"- {plan['mismatch_id']}: {plan['action']}")
+    else:
+        lines.append("- none")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def build_template_generation_root_cause_markdown(report: dict[str, Any]) -> str:
+    lines = [
+        "# Template Generation Root Cause Report",
+        "",
+        f"- Status: {report['status']}",
+        f"- Standard acceptance: {report['standard_acceptance_status']}",
+        f"- Sign-off: {report['signoff_status']}",
+        f"- First bad stage: {report.get('first_bad_stage') or 'none'}",
+        f"- Source run id: {report['source_run_id']}",
+        "",
+        "## Root Causes",
+    ]
+    if report["root_causes"]:
+        for root_cause in report["root_causes"]:
+            lines.append(
+                "- "
+                f"{root_cause['mismatch_id']}: {root_cause['category']} "
+                f"owner={root_cause['owner']} reason={root_cause['reason']}"
+            )
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Fix Plan"])
+    if report["fix_plan"]:
+        for plan in report["fix_plan"]:
+            lines.append(f"- {plan['mismatch_id']}: {plan['action']}")
+    else:
+        lines.append("- none")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _stage_standard_quality_report_refs(
+    report: TemplateGenerationJudgeReport,
+) -> list[dict[str, Any]]:
+    refs = []
+    checks = {check.stage_key: check for check in report.stage_checks}
+    for spec in RUN_ARTIFACT_SPECS:
+        artifact = report.run_bundle.artifacts.get(spec.artifact_key)
+        check = checks.get(spec.stage_key) if spec.stage_key else None
+        status = check.status if check is not None else (
+            artifact.status if artifact is not None else Status.UNKNOWN
+        )
+        report_id = _stage_quality_report_id(spec)
+        refs.append(
+            {
+                "report_id": report_id,
+                "json_report": f"{report_id}.json",
+                "markdown_report": f"{report_id}.md",
+                "stage_id": spec.stage_id or "T0",
+                "stage_key": spec.stage_key or _implicit_stage_key(spec),
+                "artifact_key": spec.artifact_key,
+                "artifact_name": spec.top_level_name,
+                "status": status.value,
+            }
+        )
+    return refs
+
+
+def _stage_standard_diff_report_refs(
+    report: TemplateGenerationJudgeReport,
+) -> list[dict[str, Any]]:
+    refs = []
+    checks = {check.stage_key: check for check in report.stage_checks}
+    for spec in RUN_ARTIFACT_SPECS:
+        artifact = report.run_bundle.artifacts.get(spec.artifact_key)
+        check = checks.get(spec.stage_key) if spec.stage_key else None
+        status = check.status if check is not None else (
+            artifact.status if artifact is not None else Status.UNKNOWN
+        )
+        report_id = _stage_diff_report_id(spec)
+        refs.append(
+            {
+                "report_id": report_id,
+                "json_report": f"{report_id}.json",
+                "markdown_report": f"{report_id}.md",
+                "stage_id": spec.stage_id or "T0",
+                "stage_key": spec.stage_key or _implicit_stage_key(spec),
+                "artifact_key": spec.artifact_key,
+                "artifact_name": spec.top_level_name,
+                "status": status.value,
+            }
+        )
+    return refs
+
+
+def _artifact_acceptance_summary(
+    *,
+    status: Status,
+    check: StageCheck | None,
+    stage_diffs: list[dict[str, Any]],
+    artifact_status: Status,
+) -> dict[str, Any]:
+    has_fail = (
+        status == Status.FAIL
+        or artifact_status == Status.FAIL
+        or any(diff["status"] == Status.FAIL.value for diff in stage_diffs)
+    )
+    has_unknown = (
+        status == Status.UNKNOWN
+        or artifact_status == Status.UNKNOWN
+        or any(diff["status"] == Status.UNKNOWN.value for diff in stage_diffs)
+        or (
+            check is not None
+            and (check.verifier_state != "configured" or not check.gate_enabled)
+        )
+    )
+    if has_fail:
+        standard_acceptance_status = Status.FAIL.value
+    elif has_unknown:
+        standard_acceptance_status = Status.UNKNOWN.value
+    else:
+        standard_acceptance_status = Status.PASS.value
+    signoff_blockers: list[str] = []
+    if standard_acceptance_status != Status.PASS.value:
+        signoff_blockers.append(
+            f"standard_acceptance_status={standard_acceptance_status}"
+        )
+    if check is not None and check.verifier_state != "configured":
+        signoff_blockers.append(f"verifier_state={check.verifier_state}")
+    if check is not None and not check.gate_enabled:
+        signoff_blockers.append("gate_enabled=false")
+    signoff_status = "SIGNABLE" if not signoff_blockers else "NOT_SIGNABLE"
+    return {
+        "standard_acceptance_status": standard_acceptance_status,
+        "signoff_status": signoff_status,
+        "signoff_blockers": signoff_blockers,
+    }
+
+
+def _signoff_blockers(
+    report: TemplateGenerationJudgeReport,
+    *,
+    standard_acceptance_status: str,
+    stage_standard_diffs: list[dict[str, Any]],
+) -> list[str]:
+    blockers: list[str] = []
+    if standard_acceptance_status != Status.PASS.value:
+        blockers.append(f"standard_acceptance_status={standard_acceptance_status}")
+    if report.standard_quality.status != Status.PASS:
+        blockers.append(f"standard_quality={report.standard_quality.status.value}")
+    if report.run_bundle.status != Status.PASS:
+        blockers.append(f"run_bundle={report.run_bundle.status.value}")
+    for check in report.stage_checks:
+        if check.verifier_state != "configured":
+            blockers.append(f"{check.stage_key}.verifier_state={check.verifier_state}")
+        if not check.gate_enabled:
+            blockers.append(f"{check.stage_key}.gate_enabled=false")
+    if any(diff["status"] == Status.FAIL.value for diff in stage_standard_diffs):
+        blockers.append("stage_standard_diffs contain FAIL")
+    return sorted(set(blockers))
+
+
+def _owner_summary(root_causes: list[dict[str, Any]]) -> dict[str, int]:
+    summary = {
+        "code": 0,
+        "verifier": 0,
+        "standard": 0,
+        "ai_prompt": 0,
+        "unknown": 0,
+    }
+    for root_cause in root_causes:
+        owner = str(root_cause.get("owner") or "unknown")
+        summary[owner if owner in summary else "unknown"] += 1
+    return summary
+
+
+def _top_blockers(root_causes: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    priority = {
+        Status.FAIL.value: 0,
+        Status.UNKNOWN.value: 1,
+        Status.PASS.value: 2,
+    }
+    ordered = sorted(
+        root_causes,
+        key=lambda item: (
+            priority.get(str(item.get("status")), 9),
+            str(item.get("stage_id")),
+            str(item.get("finding_type")),
+        ),
+    )
+    return ordered[:20]
+
+
+def _attach_diagnosis_layers(
+    mismatches: list[dict[str, Any]],
+    root_causes: list[dict[str, Any]],
+    owner_assignments: list[dict[str, Any]],
+    fix_plan: list[dict[str, Any]],
+) -> None:
+    root_by_mismatch = {item["mismatch_id"]: item for item in root_causes}
+    owner_by_mismatch = {item["mismatch_id"]: item for item in owner_assignments}
+    fix_by_mismatch = {item["mismatch_id"]: item for item in fix_plan}
+    for mismatch in mismatches:
+        root_cause = root_by_mismatch.get(mismatch["id"])
+        owner = owner_by_mismatch.get(mismatch["id"])
+        plan = fix_by_mismatch.get(mismatch["id"])
+        if root_cause is not None:
+            mismatch["root_cause"] = {
+                "category": root_cause["category"],
+                "first_bad_stage": root_cause["first_bad_stage"],
+                "reason": root_cause["reason"],
+            }
+        if owner is not None:
+            mismatch["owner"] = {
+                "primary": owner["primary"],
+                "secondary": owner["secondary"],
+                "rationale": owner["rationale"],
+            }
+        if plan is not None:
+            mismatch["fix_plan"] = {
+                "action": plan["action"],
+                "likely_files": plan["likely_files"],
+                "tests": plan["tests"],
+                "acceptance": plan["acceptance"],
+            }
+
+
+def _normalized_mismatch_type(finding_type: str) -> str:
+    mapping = {
+        "t2_standard_unit_order_mismatch": "t2_unit_order_mismatch",
+        "t2_standard_units_missing": "t2_expected_unit_missing",
+        "t2_standard_units_unexpected": "t2_unexpected_unit_present",
+        "t2_standard_custom_units_present": "t2_unexpected_unit_present",
+        "t2_standard_anchor_owner_mismatch": "t2_anchor_owner_mismatch",
+        "t5_required_input_hashes_missing": "t5_input_hash_missing",
+        "t5_unit_section_profile_refs_missing": "t5_section_profile_refs_missing",
+    }
+    return mapping.get(finding_type, finding_type)
+
+
+def _mismatch_field(finding_type: str, finding: Finding) -> str:
+    field_by_type = {
+        "t1_artifact_type_mismatch": "artifact_type",
+        "t1_required_top_level_fields_missing": "required_top_level_fields",
+        "t1_required_data_groups_missing": "data",
+        "t1_visible_body_flow_locator_missing": "body_flow[].source_seq/source_ref",
+        "t1_forbidden_semantic_fields_present": "forbidden_semantic_fields",
+        "t2_unit_order_mismatch": "expected.unit_order",
+        "t2_expected_unit_missing": "expected.units[].unit_id",
+        "t2_unexpected_unit_present": "units[].unit_id",
+        "t2_anchor_owner_mismatch": "expected.units[].anchors",
+        "t2_source_range_mismatch": "units[].source_seq_refs",
+        "t2_page_policy_mismatch": "units[].page_policy",
+        "t2_standard_schema_invalid": "standard.expected",
+        "t2_artifact_type_mismatch": "artifact_type",
+        "t3_artifact_type_mismatch": "artifact_type",
+        "t3_unit_order_mismatch": "expected.unit_order",
+        "t3_policy_group_conflict": "expected.policy_groups",
+        "t3_required_policy_fields_missing": (
+            "expected.element_policy_contract.required_fields_by_policy"
+        ),
+        "t4_artifact_type_mismatch": "artifact_type",
+        "t4_global_layout_contract_missing": "expected.global_layout_contract",
+        "t4_global_spec_evidence_fields_missing": "global_spec",
+        "t4_section_profiles_missing": "section_profiles",
+        "t4_page_numbering_missing": "page_numbering",
+        "t5_artifact_type_mismatch": "artifact_type",
+        "t5_unit_order_mismatch": "expected.unit_order",
+        "t5_input_hash_missing": "input_hashes",
+        "t5_review_flags_dropped": "review_flags",
+        "t5_section_profile_refs_missing": "units[].section_profile_refs",
+        "template_generation_stage_standard_missing": "stage_standard",
+        "template_generation_stage_artifact_missing": "artifact",
+        "template_generation_stage_standard_quality_not_pass": "standard_quality",
+        "template_generation_run_bundle_not_pass": "run_bundle",
+        "template_generation_stage_verifier_not_configured": "verifier_state",
+        "template_generation_stage_gate_disabled": "gate_enabled",
+    }
+    return field_by_type.get(finding_type, finding.type)
+
+
+def _mismatch_problem(finding_type: str, finding: Finding) -> str:
+    problem_by_type = {
+        "t2_unit_order_mismatch": (
+            "T2 unit order differs from expected.unit_order in the signed standard."
+        ),
+        "t2_expected_unit_missing": "T2 is missing one or more units required by the standard.",
+        "t2_unexpected_unit_present": "T2 emitted units that are not allowed by the standard.",
+        "t2_anchor_owner_mismatch": (
+            "T2 assigned a standard anchor to the wrong unit owner."
+        ),
+        "t2_source_range_mismatch": "T2 source ranges differ from the signed standard.",
+        "t2_page_policy_mismatch": "T2 page policy differs from the signed standard.",
+        "t2_standard_schema_invalid": "The signed T2 standard schema is invalid.",
+        "t3_unit_order_mismatch": (
+            "T3 element unit order differs from expected.unit_order in the signed standard."
+        ),
+        "t3_required_policy_fields_missing": (
+            "T3 elements are missing fields required by their assigned policy."
+        ),
+        "t5_unit_order_mismatch": (
+            "T5 template_spec unit order differs from expected.unit_order."
+        ),
+    }
+    if finding_type == "t3_policy_group_conflict":
+        return _t3_policy_conflict_problem(finding)
+    if finding_type == "t5_review_flags_dropped":
+        return "T5 dropped review_flags that upstream stages emitted."
+    if finding_type == "t5_section_profile_refs_missing":
+        return "T5 units are missing section_profile_refs required for layout traceability."
+    if finding_type == "t5_input_hash_missing":
+        return "T5 template_spec does not bind all required upstream input hashes."
+    if finding_type in problem_by_type:
+        return problem_by_type[finding_type]
+    return finding.message
+
+
+def _t3_policy_conflict_problem(finding: Finding) -> str:
+    conflicts = _parse_finding_value(finding.actual)
+    if not isinstance(conflicts, list) or not conflicts:
+        return finding.message
+    groups = sorted(
+        {
+            f"{item.get('expected')}->{item.get('actual')}"
+            for item in conflicts
+            if isinstance(item, dict)
+            and item.get("expected") is not None
+            and item.get("actual") is not None
+        }
+    )
+    if not groups:
+        return finding.message
+    return f"Element policy group conflict: {', '.join(groups)}."
+
+
+def _parse_finding_value(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    try:
+        return ast.literal_eval(value)
+    except (SyntaxError, ValueError):
+        return value
+
+
+def _source_seq_refs_from_finding(finding: Finding) -> list[int]:
+    refs: list[int] = []
+    for value in [_parse_finding_value(finding.actual), _parse_finding_value(finding.expected)]:
+        refs.extend(_collect_source_seq_refs(value))
+    return sorted(set(refs))
+
+
+def _collect_source_seq_refs(value: Any) -> list[int]:
+    refs: list[int] = []
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key in {"source_seq", "source_seq_ref"}:
+                parsed = _int_or_none(child)
+                if parsed is not None:
+                    refs.append(parsed)
+            elif key == "source_seq_refs" and isinstance(child, list):
+                refs.extend(
+                    item
+                    for item in (_int_or_none(item) for item in child)
+                    if item is not None
+                )
+            else:
+                refs.extend(_collect_source_seq_refs(child))
+    elif isinstance(value, list):
+        for child in value:
+            refs.extend(_collect_source_seq_refs(child))
+    return refs
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _root_cause_category(
+    report: TemplateGenerationJudgeReport,
+    mismatch: dict[str, Any],
+) -> str:
+    text = (
+        f"{mismatch['stage_key']} {mismatch['finding_type']} "
+        f"{mismatch['root_cause_bucket']} {mismatch['problem']}"
+    ).lower()
+    if "agent" in text or "ai" in text:
+        return "ai_overlay"
+    if "not_configured" in text or "gate_disabled" in text or "verifier" in text:
+        return "comparator_issue"
+    if _standard_document_problem(text):
+        return "standard_issue"
+    if "artifact_missing" in text or "run_bundle_missing" in text or "hash" in text:
+        return "evidence_missing"
+    if "input" in text and "hash" not in text:
+        return "input_issue"
+    if mismatch["stage_id"] == "T5" and report.first_bad_stage not in {None, "T5"}:
+        return "downstream_symptom"
+    if mismatch["status"] == Status.FAIL.value:
+        return "generation_code"
+    if "artifact_trace" in text or "missing" in text:
+        return "evidence_missing"
+    return "generation_code"
+
+
+def _diagnosis_first_bad_stage(
+    report: TemplateGenerationJudgeReport,
+    mismatch: dict[str, Any],
+) -> str:
+    if mismatch["stage_id"] == "T5" and report.first_bad_stage not in {None, "T5"}:
+        return str(report.first_bad_stage)
+    return str(mismatch["stage_id"])
+
+
+def _diagnosis_reason(category: str, mismatch: dict[str, Any]) -> str:
+    if category == "generation_code":
+        return (
+            f"{mismatch['stage_id']} artifact field {mismatch['field']} differs from "
+            "the signed stage standard."
+        )
+    if category == "ai_overlay":
+        return (
+            f"{mismatch['stage_id']} mismatch is tied to AI overlay or attribution "
+            "evidence and needs deterministic reconciliation."
+        )
+    if category == "standard_issue":
+        return (
+            f"{mismatch['stage_id']} standard evidence is missing, invalid, or "
+            "internally inconsistent."
+        )
+    if category == "comparator_issue":
+        return (
+            f"{mismatch['stage_id']} deterministic comparator/gate configuration "
+            "cannot produce a signable judgement."
+        )
+    if category == "input_issue":
+        return f"{mismatch['stage_id']} input data does not satisfy the stage contract."
+    if category == "evidence_missing":
+        return (
+            f"{mismatch['stage_id']} lacks artifact, hash, or trace evidence needed "
+            "to compare against the standard."
+        )
+    if category == "downstream_symptom":
+        return (
+            f"{mismatch['stage_id']} symptom likely propagates from an earlier stage; "
+            "fix the first bad upstream stage before changing this output."
+        )
+    return f"{mismatch['stage_id']} mismatch needs human review."
+
+
+def _legacy_owner_for_mismatch(mismatch: dict[str, Any]) -> tuple[str, str, str]:
+    finding = Finding(
+        finding_id=mismatch["id"],
+        stage=mismatch["stage_key"],
+        severity="blocking",
+        status=Status(mismatch["status"]),
+        type=mismatch["finding_type"],
+        message=mismatch["message"],
+        expected=repr(mismatch["expected"]),
+        actual=repr(mismatch["observed"]),
+        evidence_refs=mismatch["evidence"].get("evidence_refs") or [],
+        affected_ids=mismatch["affected_ids"],
+        root_cause_bucket=mismatch["root_cause_bucket"],
+    )
+    return _owner_for_finding(finding)
+
+
+def _owner_assignment_for_category(category: str) -> tuple[str, str | None]:
+    mapping = {
+        "generation_code": ("template_generation_code_owner", "standard_judge_owner"),
+        "ai_overlay": ("ai_integration_owner", "template_generation_code_owner"),
+        "standard_issue": ("standard_owner", "standard_judge_owner"),
+        "comparator_issue": ("standard_judge_owner", None),
+        "input_issue": ("input_data_owner", "template_generation_code_owner"),
+        "evidence_missing": ("input_data_owner", "standard_judge_owner"),
+        "downstream_symptom": ("template_generation_code_owner", "standard_judge_owner"),
+    }
+    return mapping.get(category, ("human_review_owner", "standard_judge_owner"))
+
+
+def _owner_assignment_rationale(
+    root_cause: dict[str, Any],
+    primary: str,
+    secondary: str | None,
+) -> str:
+    secondary_text = f", with {secondary} confirming the diagnosis" if secondary else ""
+    return (
+        f"{root_cause['stage_id']} {root_cause['finding_type']} is classified as "
+        f"{root_cause['category']}; {primary} should resolve it{secondary_text}."
+    )
+
+
+def _fix_plan_for_root_cause(root_cause: dict[str, Any]) -> dict[str, Any]:
+    stage_id = root_cause["stage_id"]
+    finding_type = root_cause["finding_type"]
+    if root_cause["category"] == "standard_issue":
+        return {
+            "action": "Fix or complete the signed stage standard through standard review.",
+            "likely_files": ["standards/targets/*/v1/template_generation/*.standard.yaml"],
+            "tests": ["tests/contract/test_template_generation_standard_judge.py"],
+            "acceptance": [
+                "standard_quality_status becomes PASS",
+                "standard_diff_report retains evidence for any remaining mismatch",
+            ],
+        }
+    if root_cause["category"] == "comparator_issue":
+        return {
+            "action": "Implement or configure the deterministic stage comparator/gate.",
+            "likely_files": [
+                "src/docfit/harness/template_generation_stage_verifiers.py",
+                "standards/targets/*/v1/template_generation/*.standard.yaml",
+            ],
+            "tests": ["tests/unit/test_template_generation_stage_verifiers.py"],
+            "acceptance": [
+                "verifier_state is configured where the comparator exists",
+                "gate status no longer hides mismatches/root_causes/owner/fix_plan",
+            ],
+        }
+    if stage_id == "T2":
+        return {
+            "action": _t2_fix_action(finding_type),
+            "likely_files": [
+                "src/docfit/template_generation/structure_candidates.py",
+                "src/docfit/template_generation/t2_standard.py",
+            ],
+            "tests": [
+                "tests/unit/test_t2_standard.py",
+                "tests/unit/test_template_generation_standard_diff_diagnosis.py",
+            ],
+            "acceptance": [
+                "02_unit_map_standard_diff_report.json no longer contains this mismatch",
+                "T2 audit_status changes from FAIL/UNKNOWN to PASS",
+                "No new T3/T5 mismatch is introduced",
+            ],
+        }
+    if stage_id == "T3":
+        return {
+            "action": _t3_fix_action(finding_type),
+            "likely_files": [
+                "src/docfit/template_generation/structure_candidates.py",
+                "src/docfit/template_generation/artifacts.py",
+                "src/docfit/harness/template_generation_stage_verifiers.py",
+            ],
+            "tests": [
+                "tests/unit/test_template_generation_stage_verifiers.py",
+                "tests/unit/test_template_generation_standard_diff_diagnosis.py",
+            ],
+            "acceptance": [
+                "03_element_spec_standard_diff_report.json explains no policy conflict",
+                "T3 audit_status changes from FAIL/UNKNOWN to PASS",
+                "Fixed units only allow fill when the standard explicitly permits it",
+            ],
+        }
+    if stage_id == "T5":
+        return {
+            "action": _t5_fix_action(finding_type, root_cause["category"]),
+            "likely_files": [
+                "src/docfit/template_generation/outputs.py",
+                "src/docfit/template_generation/runner.py",
+                "src/docfit/harness/template_generation_stage_verifiers.py",
+            ],
+            "tests": [
+                "tests/contract/test_template_generate.py",
+                "tests/unit/test_template_generation_standard_diff_diagnosis.py",
+            ],
+            "acceptance": [
+                "05_template_spec_standard_diff_report.json no longer contains this mismatch",
+                "T5 preserves upstream hashes, review_flags, and section_profile_refs",
+                "If upstream caused the symptom, first_bad_stage points upstream",
+            ],
+        }
+    return {
+        "action": "Inspect the stage artifact and signed standard, then fix the owning stage.",
+        "likely_files": ["src/docfit/template_generation/"],
+        "tests": ["tests/contract/test_template_generation_standard_judge.py"],
+        "acceptance": ["The mismatch disappears from the stage standard diff report"],
+    }
+
+
+def _t2_fix_action(finding_type: str) -> str:
+    actions = {
+        "t2_standard_unit_order_mismatch": "Fix T2 unit discovery ordering rules.",
+        "t2_standard_units_missing": "Fix T2 unit discovery so all expected units are emitted.",
+        "t2_standard_units_unexpected": "Remove unexpected non-standard units from T2 output.",
+        "t2_standard_custom_units_present": "Map custom T2 units to signed standard units.",
+        "t2_standard_anchor_owner_mismatch": "Fix T2 anchor ownership and source range assignment.",
+    }
+    return actions.get(finding_type, "Fix T2 unit pagination output against the signed standard.")
+
+
+def _t3_fix_action(finding_type: str) -> str:
+    actions = {
+        "t3_unit_order_mismatch": "Fix T3 element ordering to follow expected.unit_order.",
+        "t3_policy_group_conflict": (
+            "Fix T3 policy assignment so fixed/manual/generated/fill groups do not conflict."
+        ),
+        "t3_required_policy_fields_missing": (
+            "Emit all required fields for each T3 element policy."
+        ),
+    }
+    return actions.get(finding_type, "Fix T3 element policy output against the signed standard.")
+
+
+def _t5_fix_action(finding_type: str, category: str) -> str:
+    if category == "downstream_symptom":
+        return "Fix the upstream first_bad_stage, then rerun T5 to clear the propagated symptom."
+    actions = {
+        "t5_required_input_hashes_missing": "Bind all required upstream input hashes in T5.",
+        "t5_review_flags_dropped": "Preserve upstream review_flags in template_spec.",
+        "t5_unit_order_mismatch": "Fix T5 unit ordering to follow expected.unit_order.",
+        "t5_unit_section_profile_refs_missing": (
+            "Carry section_profile_refs from global layout into each T5 unit."
+        ),
+    }
+    return actions.get(finding_type, "Fix T5 template_spec output against the signed standard.")
+
+
+def _derived_id(mismatch_id: str, suffix: str) -> str:
+    return mismatch_id.replace("MISMATCH", suffix)
+
+
+def _diff_kind(finding: Finding) -> str:
+    if finding.type in {
+        "template_generation_stage_verifier_not_configured",
+        "template_generation_stage_gate_disabled",
+    }:
+        return "gate_blocker"
+    if finding.status == Status.FAIL:
+        return "standard_mismatch"
+    if "missing" in finding.type or "hash" in finding.type:
+        return "evidence_gap"
+    return "audit_observation"
+
+
+def _owner_for_finding(finding: Finding) -> tuple[str, str, str]:
+    finding_type = finding.type
+    bucket = finding.root_cause_bucket
+    text = f"{finding.stage} {finding_type} {bucket}".lower()
+    if "agent" in text or "ai" in text:
+        return (
+            "ai_prompt",
+            "AI proposal or attribution touched this path",
+            "Review accepted AI proposal and deterministic reconciler behavior.",
+        )
+    if "verifier" in text or "gate_disabled" in text or "not_configured" in text:
+        return (
+            "verifier",
+            "Stage standard verifier is not configured as a blocking gate",
+            "Implement or configure the deterministic verifier before sign-off.",
+        )
+    if finding.status == Status.FAIL and not _standard_document_problem(text):
+        return (
+            "code",
+            "Run artifact disagrees with signed standard under deterministic audit",
+            "Fix template-generation deterministic logic for the first bad stage.",
+        )
+    if "standard" in text or "baseline" in text:
+        return (
+            "standard",
+            "Signed standard or standard registry is missing or inconsistent",
+            "Fix the signed standard through the review process, not from this run.",
+        )
+    if "run_bundle" in text or "hash" in text or "artifact" in text:
+        return (
+            "code",
+            "Run evidence package is incomplete or internally inconsistent",
+            "Fix artifact production or run bundle binding before sign-off.",
+        )
+    return (
+        "unknown",
+        "Current evidence is insufficient to assign ownership",
+        "Add deterministic evidence or human review before changing code or standards.",
+    )
+
+
+def _standard_document_problem(text: str) -> bool:
+    return any(
+        marker in text
+        for marker in [
+            "standard_missing",
+            "standard_invalid",
+            "standard_quality_not_pass",
+            "standard_registry",
+            "baseline_missing",
+            "baseline_invalid",
+        ]
+    )
+
+
+def _root_cause_reason(diff: dict[str, Any]) -> str:
+    owner = diff["owner"]
+    if owner == "verifier":
+        return "The stage cannot be signed because the standard verifier is not an enabled gate."
+    if owner == "standard":
+        return "The signed standard or its registry is incomplete or inconsistent."
+    if owner == "code":
+        return "The generated stage artifact does not match the signed standard evidence."
+    if owner == "ai_prompt":
+        return "The mismatch is tied to AI proposal or attribution evidence."
+    return "The report does not yet contain enough evidence to assign a precise owner."
+
+
+def _stage_quality_report_id_for_stage(stage_key: str) -> str | None:
+    for spec in RUN_ARTIFACT_SPECS:
+        if spec.stage_key == stage_key:
+            return _stage_quality_report_id(spec)
+    return None
+
+
+def _stage_check_for_spec(
+    report: TemplateGenerationJudgeReport,
+    spec: RunArtifactSpec,
+) -> StageCheck | None:
+    if spec.stage_key is None:
+        return None
+    for check in report.stage_checks:
+        if check.stage_key == spec.stage_key:
+            return check
+    return None
+
+
+def _run_bundle_findings_for_spec(
+    report: TemplateGenerationJudgeReport,
+    spec: RunArtifactSpec,
+) -> list[Finding]:
+    findings = []
+    for finding in report.run_bundle.findings:
+        if spec.artifact_key in finding.affected_ids:
+            findings.append(finding)
+        elif spec.artifact_key == "template_generation_request" and "source_hash" in finding.type:
+            findings.append(finding)
+        elif spec.artifact_key == "fillable_template_docx" and "fillable" in finding.type:
+            findings.append(finding)
+    return findings
+
+
+def _stage_quality_report_id(spec: RunArtifactSpec) -> str:
+    return f"{Path(spec.top_level_name).stem}_standard_quality_report"
+
+
+def _stage_diff_report_id(spec: RunArtifactSpec) -> str:
+    return f"{Path(spec.top_level_name).stem}_standard_diff_report"
+
+
+def _implicit_stage_key(spec: RunArtifactSpec) -> str:
+    if spec.artifact_key == "template_generation_request":
+        return "template_generation_request"
+    if spec.artifact_key == "fillable_template_docx":
+        return "t6_fillable_template"
+    if spec.artifact_key == "build_manifest":
+        return "t6_build_manifest"
+    if spec.artifact_key == "verification_report":
+        return "t7_verification_report"
+    return spec.artifact_key
 
 
 def build_standard_quality_markdown(
@@ -223,18 +1596,43 @@ def build_standard_quality_markdown(
 
 
 def build_judge_markdown(report: TemplateGenerationJudgeReport) -> str:
+    report_dict = report.to_dict()
     lines = [
         "# Template Generation Judge Report",
         "",
         f"- Status: {report.status.value}",
+        f"- Standard acceptance: {report_dict['standard_acceptance_status']}",
+        f"- Sign-off: {report_dict['signoff_status']}",
         f"- First bad stage: {report.first_bad_stage or 'none'}",
         f"- Source run id: {report.run_bundle.source_run_id}",
         f"- Source run dir: {report.run_bundle.source_run_dir}",
         f"- Standard quality: {report.standard_quality.status.value}",
         f"- Run bundle: {report.run_bundle.status.value}",
         "",
-        "## Stage Checks",
     ]
+    if report_dict["signoff_blockers"]:
+        lines.append("## Sign-off Blockers")
+        for blocker in report_dict["signoff_blockers"]:
+            lines.append(f"- {blocker}")
+        lines.append("")
+    lines.append("## Owner Summary")
+    for owner, count in report_dict["owner_summary"].items():
+        lines.append(f"- {owner}: {count}")
+    lines.extend(["", "## Top Blockers"])
+    if report_dict["top_blockers"]:
+        for blocker in report_dict["top_blockers"]:
+            lines.append(
+                "- "
+                f"{blocker.get('stage_id')} {blocker.get('finding_type')}: "
+                f"status={blocker.get('status')}, owner={blocker.get('owner')}, "
+                f"next={blocker.get('next_action')}"
+            )
+    else:
+        lines.append("- none")
+    lines.extend([
+        "",
+        "## Stage Checks",
+    ])
     for check in report.stage_checks:
         lines.append(
             "- "
@@ -245,7 +1643,10 @@ def build_judge_markdown(report: TemplateGenerationJudgeReport) -> str:
     if report.findings:
         lines.extend(["", "## Findings"])
         for finding in report.findings[:100]:
-            lines.append(f"- [{finding.status.value}] {finding.stage}/{finding.type}: {finding.message}")
+            lines.append(
+                f"- [{finding.status.value}] "
+                f"{finding.stage}/{finding.type}: {finding.message}"
+            )
         if len(report.findings) > 100:
             lines.append(f"- ... {len(report.findings) - 100} more findings")
     else:

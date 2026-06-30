@@ -72,7 +72,96 @@ def _body_entries(source_tree: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         if item.get("text"):
             entries.append(item)
-    return entries
+    return _with_synthetic_content_control_toc_entries(entries, source_tree)
+
+
+def _with_synthetic_content_control_toc_entries(
+    entries: list[dict[str, Any]],
+    source_tree: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if _has_visible_catalog_title(entries, "toc"):
+        return entries
+    toc_control = _main_toc_content_control(source_tree)
+    if toc_control is None:
+        return entries
+    toc_field = _main_toc_field(source_tree)
+    insert_index = _first_catalog_or_body_index(entries)
+    if insert_index is None:
+        return entries
+    source_ref = toc_field.get("source_ref") if toc_field else toc_control.get("source_ref")
+    synthetic = {
+        "structure_layer": "body_flow",
+        "source_ref": source_ref,
+        "text": "目录",
+        "order": _synthetic_order_before(entries[insert_index], insert_index),
+        "style": "content_control_toc",
+        "style_details": {
+            "paragraph": {"alignment": "center", "style_name": "content_control_toc"},
+            "dominant_run": {"font_size_pt": 16.0, "bold": True},
+        },
+        "synthetic": True,
+        "synthetic_kind": "content_control_toc",
+        "source_evidence": {
+            "kind": "content_control",
+            "source_ref": toc_control.get("source_ref"),
+            "field_source_ref": toc_field.get("source_ref") if toc_field else None,
+        },
+    }
+    return [*entries[:insert_index], synthetic, *entries[insert_index:]]
+
+
+def _has_visible_catalog_title(entries: list[dict[str, Any]], unit_id: str) -> bool:
+    return any(
+        _toc_title_like(entry) and _list_title_unit_id(entry) == unit_id
+        for entry in entries
+    )
+
+
+def _main_toc_content_control(source_tree: dict[str, Any]) -> dict[str, Any] | None:
+    for item in source_tree.get("data", {}).get("content_controls", []) or []:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or "")
+        normalized = _normalize_for_match(text)
+        if not normalized.startswith("目录"):
+            continue
+        markers = ("摘要", "abstract", "图目录", "表目录", "参考文献")
+        if sum(1 for marker in markers if marker in normalized) >= 3:
+            return item
+    return None
+
+
+def _main_toc_field(source_tree: dict[str, Any]) -> dict[str, Any] | None:
+    for item in source_tree.get("data", {}).get("fields", []) or []:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("field_type") or "").upper() != "TOC":
+            continue
+        instruction = str(item.get("instruction") or "")
+        if r"\c" in instruction:
+            continue
+        return item
+    return None
+
+
+def _first_catalog_or_body_index(entries: list[dict[str, Any]]) -> int | None:
+    for index, entry in enumerate(entries):
+        if _toc_title_like(entry) and _list_title_unit_id(entry) in {
+            "figure_list",
+            "table_list",
+        }:
+            return index
+    body_index = _first_body_like_index(entries)
+    if body_index is not None:
+        return body_index
+    return len(entries) if entries else None
+
+
+def _synthetic_order_before(entry: dict[str, Any], index: int) -> float:
+    try:
+        return float(entry.get("order")) - 0.5
+    except (TypeError, ValueError):
+        return float(index) - 0.5
 
 
 def _source_context_from_source_tree(source_tree: dict[str, Any]) -> dict[str, Any]:
@@ -427,6 +516,7 @@ def _boundary_anchors(
         boundaries.insert(0, _document_start_boundary(entries[0]))
 
     boundaries.extend(_keyword_only_fallback_boundaries(entries, boundaries, locked))
+    boundaries.extend(_body_title_block_fallback_boundaries(entries, boundaries, locked))
 
     if "body_main" not in {
         str(anchor.get("unit_id_hint") or "")
@@ -687,6 +777,113 @@ def _keyword_only_fallback_boundaries(
     return fallbacks
 
 
+def _body_title_block_fallback_boundaries(
+    entries: list[dict[str, Any]],
+    existing: list[dict[str, Any]],
+    locked: set[int] | None = None,
+) -> list[dict[str, Any]]:
+    locked = locked or set()
+    if any(str(boundary.get("unit_id_hint") or "") == "body_title_block" for boundary in existing):
+        return []
+
+    toc_end = _last_anchor_index(existing, "toc")
+    abstract_start = _first_anchor_index(existing, "abstract_cn")
+    if toc_end is None or abstract_start is None or toc_end >= abstract_start:
+        return []
+
+    window = [
+        (index, entries[index])
+        for index in range(toc_end + 1, abstract_start)
+        if index not in locked
+    ]
+    if not window:
+        return []
+
+    start: int | None = None
+    has_title = False
+    has_student = False
+    has_tutor = False
+    for index, entry in window:
+        normalized = _normalize_for_match(str(entry.get("text") or ""))
+        if not normalized:
+            continue
+        if start is None and (
+            "正文基本格式" in normalized
+            or "毕业论文设计中文题目" in normalized
+            or "毕业论文中文题目" in normalized
+        ):
+            start = index
+        if "毕业论文设计中文题目" in normalized or "毕业论文中文题目" in normalized:
+            has_title = True
+        if normalized.startswith("学生") or "学生" in normalized[:8]:
+            has_student = True
+        if normalized.startswith("指导老师") or normalized.startswith("指导教师"):
+            has_tutor = True
+
+    if start is None or not (has_title and has_student and has_tutor):
+        return []
+
+    entry = entries[start]
+    return [
+        {
+            "entry_index": start,
+            "source_ref": entry.get("source_ref"),
+            "source_seq": entry.get("source_seq"),
+            "text": entry.get("text", ""),
+            "normalized_text": _boundary_text(str(entry.get("text") or "")),
+            "score": 1,
+            "signals": [
+                {
+                    "kind": "body_title_block_fallback",
+                    "weight": 1,
+                    "evidence": {
+                        "has_title": has_title,
+                        "has_student": has_student,
+                        "has_tutor": has_tutor,
+                    },
+                }
+            ],
+            "vetoes": [],
+            "unit_id_hint": "body_title_block",
+            "name_hint": UNIT_DEFINITION_NAMES["body_title_block"],
+            "is_boundary": True,
+            "confidence": "medium",
+            "fallback_reason": "body_title_block_between_toc_and_abstract",
+            "flags": [
+                {
+                    "flag_id": "body_title_block.fallback_boundary",
+                    "type": "unit_boundary_fallback",
+                    "status": "UNKNOWN",
+                    "source_ref": entry.get("source_ref"),
+                    "affected_ids": ["body_title_block"],
+                    "reason": (
+                        "正文题名信息缺少显式标题，按目录后、摘要前的题名/学生/指导老师"
+                        "证据切分"
+                    ),
+                }
+            ],
+        }
+    ]
+
+
+def _last_anchor_index(boundaries: list[dict[str, Any]], unit_id: str) -> int | None:
+    matches = [
+        int(boundary["entry_index"])
+        for boundary in boundaries
+        if str(boundary.get("unit_id_hint") or "") == unit_id
+    ]
+    return max(matches) if matches else None
+
+
+def _first_anchor_index(boundaries: list[dict[str, Any]], unit_id: str) -> int | None:
+    matches = [
+        int(boundary["entry_index"])
+        for boundary in boundaries
+        if str(boundary.get("unit_id_hint") or "") == unit_id
+    ]
+    return min(matches) if matches else None
+
+
 def _is_exact_unit_heading_text(text: str, unit_id: str) -> bool:
     normalized = _normalize_for_match(text)
     if not normalized or len(normalized) > 24:
@@ -697,7 +894,7 @@ def _is_exact_unit_heading_text(text: str, unit_id: str) -> bool:
         "table_list": {"表目录", "listoftables"},
         "body_title_block": {"正文题名信息"},
         "abstract_cn": {"摘要", "摘要关键词", "摘要关键字"},
-        "abstract_en": {"abstract", "keywords", "keywordsabstract", "abstractkeywords"},
+        "abstract_en": {"abstract", "title", "keywords", "keywordsabstract", "abstractkeywords"},
         "body_main": {"正文", "绪论", "前言", "第一章"},
         "references": {"参考文献", "references"},
         "academic_achievements": {"相关的学术成果目录", "学术成果目录", "博士期间工作成果"},
@@ -712,7 +909,7 @@ def _is_exact_unit_heading_text(text: str, unit_id: str) -> bool:
         "proposal": {"开题报告"},
         "proposal_record": {"开题论证记录表"},
         "defense_record": {"答辩记录表"},
-        "topic_change_approval": {"课题变更审批表", "选题变更审批表"},
+        "topic_change_approval": {"题目变更审批表", "课题变更审批表", "选题变更审批表"},
         "grade_form": {"成绩评定表"},
         "post_forms": {"评审表"},
     }
@@ -762,6 +959,7 @@ _CORE_ALIAS_EXACT = {
     "摘要及关键词": "abstract_cn",
     "abstract": "abstract_en",
     "englishabstract": "abstract_en",
+    "title": "abstract_en",
     "keywords": "abstract_en",
     "keyword": "abstract_en",
     "参考文献": "references",
@@ -792,6 +990,8 @@ _CORE_ALIAS_EXACT = {
     "开题报告": "proposal",
     "开题论证记录表": "proposal_record",
     "答辩记录表": "defense_record",
+    "题目变更审批表": "topic_change_approval",
+    "题目变更": "topic_change_approval",
     "课题变更审批表": "topic_change_approval",
     "选题变更审批表": "topic_change_approval",
     "成绩评定表": "grade_form",
@@ -814,6 +1014,8 @@ def _alias_unit_id(normalized: str) -> str | None:
         return None
     if normalized in _CORE_ALIAS_EXACT:
         return _CORE_ALIAS_EXACT[normalized]
+    if normalized.startswith(("englishtitle", "titleofyourthesis")):
+        return "abstract_en"
     if "博士期间工作成果" in normalized or "学术成果" in normalized:
         return "academic_achievements"
     if normalized.startswith(("附录", "appendix")):
@@ -993,10 +1195,55 @@ def _reconcile_document_zones(anchors: list[dict[str, Any]]) -> dict[str, Any]:
         canonical_unit_id = _canonical_unit_for_anchor(anchor) or unit_id
 
         if state == "front_matter":
-            if unit_id in {"abstract_en", "toc", "figure_list", "table_list"}:
+            if canonical_unit_id == "abstract_en" and not _has_future_canonical_anchor(
+                anchors,
+                index,
+                "abstract_en",
+            ):
                 body_ready = True
+            elif (
+                canonical_unit_id in {"toc", "figure_list", "table_list"}
+                and not _has_future_canonical_anchor(anchors, index, "abstract_cn")
+                and not _has_future_canonical_anchor(anchors, index, "abstract_en")
+            ):
+                body_ready = True
+            if (
+                final
+                and canonical_unit_id in FRONT_MATTER_UNIT_IDS
+                and _canonical_unit_for_anchor(final[-1]) == canonical_unit_id
+            ):
+                trace.append(
+                    _zone_trace(
+                        anchor,
+                        "front_matter",
+                        "front_matter",
+                        final[-1],
+                        "absorb_front_matter_continuation",
+                    )
+                )
+                continue
+            if (
+                final
+                and not body_ready
+                and _custom_front_matter_continues_previous(
+                    anchor,
+                    final[-1],
+                    canonical_unit_id,
+                )
+            ):
+                trace.append(
+                    _zone_trace(
+                        anchor,
+                        "front_matter",
+                        "front_matter",
+                        final[-1],
+                        "absorb_front_matter_custom_continuation",
+                    )
+                )
+                continue
             if unit_id == "body_main" or (
-                body_ready and _is_custom_unit_id(unit_id) and canonical_unit_id == unit_id
+                body_ready
+                and _custom_anchor_can_start_body_main(anchor, canonical_unit_id)
             ):
                 body_anchor = (
                     anchor
@@ -1069,6 +1316,27 @@ def _reconcile_document_zones(anchors: list[dict[str, Any]]) -> dict[str, Any]:
                 )
                 continue
             if (
+                final
+                and _canonical_unit_for_anchor(final[-1])
+                == "originality_authorization_statement"
+                and canonical_unit_id
+                in {
+                    "originality_authorization_statement",
+                    "originality_statement",
+                    "authorization_statement",
+                }
+            ):
+                trace.append(
+                    _zone_trace(
+                        anchor,
+                        "back_matter",
+                        "back_matter",
+                        final[-1],
+                        "absorb_declaration_continuation",
+                    )
+                )
+                continue
+            if (
                 unit_id == "originality_statement"
                 and any(str(prev.get("unit_id")) == "acknowledgement" for prev in final[-2:])
             ):
@@ -1091,6 +1359,86 @@ def _reconcile_document_zones(anchors: list[dict[str, Any]]) -> dict[str, Any]:
             final.append(anchor)
 
     return {"anchors": final, "trace": trace}
+
+
+def _has_future_canonical_anchor(
+    anchors: list[dict[str, Any]],
+    index: int,
+    unit_id: str,
+) -> bool:
+    for future in anchors[index + 1 :]:
+        future_unit_id = _canonical_unit_for_anchor(future) or str(
+            future.get("unit_id") or ""
+        )
+        if future_unit_id == unit_id:
+            return True
+    return False
+
+
+def _custom_anchor_can_start_body_main(
+    anchor: dict[str, Any],
+    canonical_unit_id: str,
+) -> bool:
+    unit_id = str(anchor.get("unit_id") or "")
+    if not _is_custom_unit_id(unit_id) or canonical_unit_id != unit_id:
+        return False
+    text = str(anchor.get("raw_title") or anchor.get("text") or "")
+    normalized = _normalize_for_match(_strip_format_annotations(text))
+    if not normalized:
+        return False
+    if _looks_like_front_matter_continuation_title(normalized):
+        return False
+    return True
+
+
+def _custom_front_matter_continues_previous(
+    anchor: dict[str, Any],
+    previous: dict[str, Any],
+    canonical_unit_id: str,
+) -> bool:
+    unit_id = str(anchor.get("unit_id") or "")
+    if not _is_custom_unit_id(unit_id) or canonical_unit_id != unit_id:
+        return False
+    previous_unit_id = _canonical_unit_for_anchor(previous) or str(
+        previous.get("unit_id") or ""
+    )
+    text = str(anchor.get("raw_title") or anchor.get("text") or "")
+    normalized = _normalize_for_match(_strip_format_annotations(text))
+    if previous_unit_id == "cover" and _looks_like_cover_continuation(normalized):
+        return True
+    return previous_unit_id in {"abstract_cn", "abstract_en"} and (
+        _looks_like_front_matter_continuation_title(normalized)
+        or normalized.startswith(("yourname", "directedby"))
+    )
+
+
+def _looks_like_cover_continuation(normalized_title: str) -> bool:
+    if not normalized_title:
+        return False
+    if normalized_title in {"二〇年月", "年月", "年月日"}:
+        return True
+    return bool(re.fullmatch(r"[二〇零一二三四五六七八九十0-9]{2,8}年月日?", normalized_title))
+
+
+def _looks_like_front_matter_continuation_title(normalized_title: str) -> bool:
+    return bool(
+        re.search(
+            r"(?:abstract|keywords?|key\s*words?|title|论文英文题目|英文题目|"
+            r"论文题目|中文题目)$",
+            normalized_title,
+        )
+        or any(
+            marker in normalized_title
+            for marker in (
+                "abstract",
+                "keywords",
+                "keyword",
+                "key words",
+                "论文英文题目",
+                "英文题目",
+            )
+        )
+    )
 
 
 def _canonical_unit_for_anchor(anchor: dict[str, Any]) -> str | None:
@@ -2088,16 +2436,21 @@ def _unit_policy(unit_id: str) -> str:
 
 def _element_policy(unit_id: str, text: str, entry: dict[str, Any]) -> str:
     lowered = text.lower()
+    unit_policy = _unit_policy(unit_id)
     if _looks_like_instruction(text):
         return "remove_instruction"
     if unit_id in {"toc", "figure_list", "table_list"} or any(marker.lower() in lowered for marker in GENERATED_MARKERS):
         return "generated"
+    if unit_policy == "manual_only":
+        return "manual_only"
     if any(marker in text for marker in MANUAL_ONLY_MARKERS):
         return "manual_only"
     if any(marker in text for marker in FILLABLE_MARKERS) and any(
         label in text for label in FILLABLE_LABELS
     ):
         return "fill"
+    if unit_policy == "fixed":
+        return "fixed"
     if unit_id in FILLABLE_CONTENT_UNIT_IDS and not _looks_like_unit_heading(
         entry,
         unit_id,
@@ -2123,6 +2476,8 @@ def _instruction_class(text: str) -> str:
     canonical = canonical_title(text)
     if _has_format_annotation(text) and canonical and _alias_unit_id(canonical):
         return "title_with_format_annotation"
+    if canonical and _alias_unit_id(canonical):
+        return "unit_title"
     unit_id, _name = _unit_for_text(_strip_format_annotations(text), 999)
     if _has_format_annotation(text) and unit_id:
         return "title_with_format_annotation"
@@ -2446,6 +2801,19 @@ def _segment_toc_blocks(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
     total = len(entries)
     while index < total:
         entry = entries[index]
+        if entry.get("synthetic_kind") == "content_control_toc":
+            blocks.append(
+                {
+                    "start": index,
+                    "end": index,
+                    "unit_id": "toc",
+                    "title_led": True,
+                    "weak": False,
+                    "entries_count": 1,
+                }
+            )
+            index += 1
+            continue
         start: int | None = None
         title_led = False
         if _toc_title_like(entry) and _has_toc_entry_within(entries, index + 1, 4):

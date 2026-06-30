@@ -748,6 +748,9 @@ def _t3_policy_group_conflicts(
     manual_only_units = set(_string_list(policy_groups.get("manual_only_units")))
     generated_units = set(_string_list(policy_groups.get("generated_units")))
     fixed_units = set(_string_list(policy_groups.get("fixed_units")))
+    fixed_units_allow_fill = set(
+        _string_list(policy_groups.get("fixed_units_allow_fill_elements"))
+    )
     conflicts: list[dict[str, Any]] = []
     for element in elements:
         unit_id = str(element.get("unit_id") or "")
@@ -756,7 +759,7 @@ def _t3_policy_group_conflicts(
             conflicts.append({**_element_ref(element), "expected": "manual_only", "actual": policy})
         elif unit_id in generated_units and policy not in {"generated", "fixed", "instruction_remove"}:
             conflicts.append({**_element_ref(element), "expected": "generated", "actual": policy})
-        elif unit_id in fixed_units and policy == "fill":
+        elif unit_id in fixed_units and unit_id not in fixed_units_allow_fill and policy == "fill":
             conflicts.append({**_element_ref(element), "expected": "fixed", "actual": policy})
     return conflicts
 

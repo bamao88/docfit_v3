@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any
 
 from docfit.core.io import now_iso, sha256_json
@@ -67,6 +68,7 @@ def build_unit_map(
             "section_profile": _section_profile_for_unit(
                 section_profiles,
                 source_seq_refs,
+                source_refs=unit.get("source_refs", []),
             ),
             "confidence": confidence,
             "flags": flags,
@@ -377,8 +379,12 @@ def _page_start_for_unit(unit: dict[str, Any]) -> str:
 def _section_profile_for_unit(
     section_profiles: list[dict[str, Any]],
     source_seq_refs: list[int],
+    *,
+    source_refs: list[str] | None = None,
 ) -> str:
     refs = _section_profile_refs_for_source_seq_refs(source_seq_refs, section_profiles)
+    if not refs:
+        refs = _section_profile_refs_for_source_refs(source_refs or [], section_profiles)
     return _primary_section_profile_from_refs(refs, fallback="section_unknown")
 
 
@@ -397,6 +403,11 @@ def bind_units_to_section_profiles(
             source_seq_refs,
             section_profiles,
         )
+        if not refs:
+            refs = _section_profile_refs_for_source_refs(
+                list(unit.get("source_refs", []) or []),
+                section_profiles,
+            )
         bindings_by_unit_index.append(refs)
         bindings_by_unit_id.setdefault(unit_id, refs)
         if not refs:
@@ -925,6 +936,51 @@ def _section_profile_refs_for_source_seq_refs(
             }
         )
     return refs
+
+
+def _section_profile_refs_for_source_refs(
+    source_refs: list[str],
+    section_profiles: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    paragraph_indices = [
+        parsed
+        for source_ref in source_refs
+        if (parsed := _paragraph_index_from_source_ref(str(source_ref))) is not None
+    ]
+    if not paragraph_indices:
+        return []
+    unit_range = {"start": min(paragraph_indices), "end": max(paragraph_indices)}
+    refs = []
+    for profile in section_profiles:
+        boundary = profile.get("boundary") or {}
+        start = _int_or_none(boundary.get("start_paragraph_index"))
+        end = _int_or_none(boundary.get("end_paragraph_index"))
+        if start is None or end is None:
+            continue
+        overlap = _overlap_range(unit_range, {"start": start, "end": end})
+        if overlap is None:
+            continue
+        profile_id = str(profile.get("section_profile_id") or "section_unknown")
+        refs.append(
+            {
+                "section_profile_id": profile_id,
+                "overlap_paragraph_range": overlap,
+                "page_numbering": {
+                    "inherited_from": profile_id,
+                    "declared": profile.get("page_numbering", {}).get("declared", {}),
+                    "display": profile.get("page_numbering", {}).get("display", {}),
+                },
+                "header_footer": {"inherited_from": profile_id},
+            }
+        )
+    return refs
+
+
+def _paragraph_index_from_source_ref(source_ref: str) -> int | None:
+    match = re.search(r":p\[(\d+)\]", source_ref)
+    if not match:
+        return None
+    return _int_or_none(match.group(1))
 
 
 def _profile_source_seq_range(profile: dict[str, Any]) -> dict[str, int] | None:

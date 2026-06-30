@@ -579,6 +579,7 @@ def _system_prompt() -> str:
             "Your job is to propose precise, evidence-bound improvements to a school thesis template parse.",
             "You never write final artifacts and never decide PASS/FAIL; deterministic DocFit code will accept or reject every proposal.",
             "Use the provided tools to inspect packet evidence, then call exactly one submit_t2, submit_t3, submit_t4, or abstain tool.",
+            "For T2, text_outline and query_text source_seq evidence are valid packet evidence even when page images are truncated.",
             "Do not read or infer signed school standards; use only the packet, pass context, tool results, and optional canonical unit id reference.",
             "Prefer abstain over speculative proposals when evidence is weak, ambiguous, or outside the active pass/window.",
         ]
@@ -592,7 +593,8 @@ def _user_prompt(payload: dict[str, Any]) -> str:
                 "Run the requested pass with the quality contract below.",
                 "Workflow:",
                 "1. Inspect relevant evidence with query_text and, for layout/page reasoning, view_pages.",
-                "2. Propose only changes that are directly supported by visible packet evidence.",
+                "2. Propose only changes that are directly supported by packet evidence.",
+                "   For T2 unit boundaries, packet evidence includes text_outline and query_text source_seq text; page images are optional unless the proposal claims layout/page appearance.",
                 "3. Submit only proposals from pass.allowed_layers.",
                 "4. Bind every proposal to source_seq_refs, page_no/page_nos, or render_target_refs from packet evidence.",
                 "5. Include a short rationale and evidence list on every proposal so humans can audit the decision.",
@@ -624,7 +626,9 @@ def _prompt_packet_view(
         "tool_access": {
             "query_text": (
                 "Use query_text for exact visible text by source_seq_refs, "
-                "page_nos, or text_query. The tool sees the full packet."
+                "page_nos, or text_query. The tool sees the full packet. "
+                "For T2 source_seq/text-boundary proposals, query_text evidence "
+                "is sufficient even if rendered page images are not included."
             ),
             "view_pages": (
                 "Use view_pages for clean or annotated render references. "
@@ -701,8 +705,8 @@ def _prompt_text_outline(
 ) -> dict[str, Any]:
     pass_kind = str(pass_spec.get("pass_kind") or "")
     wanted_refs = _prompt_source_ref_filter(pass_spec)
-    max_items = 180 if wanted_refs else 520
-    max_text_chars = 140 if pass_kind == "t2_unit_scan" else 180
+    max_items = 180 if wanted_refs else 120
+    max_text_chars = 110 if pass_kind == "t2_unit_scan" else 180
     items: list[dict[str, Any]] = []
     total_matching = 0
     for item in packet.get("page_text_index", []) or []:
@@ -812,6 +816,7 @@ def _pass_specific_rules(pass_kind: str) -> list[str]:
         return [
             "Use submit_t2 only.",
             "Prefer canonical unit_id values from optional_reference when the visible text supports them.",
+            "Do not abstain solely because page images are truncated; inspect text_outline/query_text for full-document source_seq boundary evidence.",
             "Use add_unit for source_seq ranges that are unowned or wrongly absorbed by another unit.",
             "Use adjust_unit_range only when the new range is minimal and does not cross multiple unrelated units.",
             "Do not duplicate an existing unit_id; relabel only when evidence names the unit more precisely.",
