@@ -71,6 +71,7 @@ class LiveResponder:
         temperature: float = 0.4,
         max_tokens: int = 8000,
         max_tokens_cap: int = 32000,
+        thinking: bool = True,
         record: list[dict[str, Any]] | None = None,
         progress: bool = True,
         max_attempts: int = 3,
@@ -80,7 +81,11 @@ class LiveResponder:
     ) -> None:
         self._client = client
         self._model = model
-        self._temperature = temperature
+        self._thinking = thinking
+        # Kimi 端点的耦合约束：thinking 关 → 只允许 temperature=0.6；thinking 开（默认，
+        # 不传 thinking 参数）→ temperature 自由。关 thinking 时强制 0.6。
+        self._temperature = temperature if thinking else 0.6
+        self._extra_body: dict[str, Any] = {} if thinking else {"thinking": {"type": "disabled"}}
         self._max_tokens = max_tokens
         self._max_tokens_cap = max(max_tokens, max_tokens_cap)
         self._record = record
@@ -131,6 +136,7 @@ class LiveResponder:
                 "user": user,
                 "model": self._model,
                 "temperature": self._temperature,
+                "thinking": self._thinking,
                 "sample_index": sample_index,
             }
         )
@@ -165,6 +171,7 @@ class LiveResponder:
                     temperature=self._temperature,
                     max_tokens=attempt_tokens,
                     response_format={"type": "json_object"},
+                    extra_body=self._extra_body,
                 )
                 choice = completion.choices[0]
                 finish_reason = choice.finish_reason

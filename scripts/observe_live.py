@@ -53,7 +53,18 @@ def main() -> None:
         help="disk cache for model responses (keyed by prompt+model+temp+sample)",
     )
     parser.add_argument("--refresh", action="store_true", help="ignore cache and re-call the model")
+    parser.add_argument(
+        "--no-thinking",
+        dest="thinking",
+        action="store_false",
+        help="disable Kimi thinking mode (faster; forces temperature=0.6)",
+    )
+    parser.set_defaults(thinking=True)
     args = parser.parse_args()
+
+    # thinking 关时另写一份输出，便于和 thinking 开的产物并排对比。
+    if not args.thinking and args.out == DEFAULT_OUT:
+        args.out = DEFAULT_OUT.parent / "observation_live_nothink"
 
     facts = read_json(args.facts)
     packet = build_template_agent_render_packet(
@@ -69,6 +80,7 @@ def main() -> None:
         model=model,
         temperature=args.temperature,
         max_tokens=args.max_tokens,
+        thinking=args.thinking,
         record=record,
         cache_dir=args.cache_dir,
         refresh=args.refresh,
@@ -76,7 +88,7 @@ def main() -> None:
 
     print(f"facts      : {args.facts}")
     print(f"source_seq : {total}")
-    print(f"model      : {model}")
+    print(f"model      : {model}  thinking={args.thinking}")
     print(f"samples    : {args.samples}  t3_concurrency={args.t3_concurrency}  cache={args.cache_dir} refresh={args.refresh}")
     wall_start = time.monotonic()
 
