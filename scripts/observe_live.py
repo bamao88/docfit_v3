@@ -22,6 +22,7 @@ from pathlib import Path
 
 from docfit.core.io import read_json
 from docfit.template_generation.agent.observation_config import ObservationConfig
+from docfit.template_generation.agent.observation_eval import evaluate_bundle
 from docfit.template_generation.agent.observation_live import (
     LiveResponder,
     build_kimi_client,
@@ -66,6 +67,11 @@ def main() -> None:
         help="disable Kimi thinking mode (default; faster, forces temperature=0.6)",
     )
     parser.set_defaults(thinking=False)
+    parser.add_argument(
+        "--eval-school",
+        default=None,
+        help="school id under standards/targets/ to score each stage against gold (e.g. hunannongye)",
+    )
     args = parser.parse_args()
 
     # thinking 开时另写一份输出，便于和默认（关）的产物并排对比。
@@ -111,8 +117,17 @@ def main() -> None:
         "ai_element_observation.json": bundle["ai_element_observation"],
         "ai_layout_observation.json": bundle["ai_layout_observation"],
         "quality_report.json": bundle["quality_report"],
+        "bundle.json": bundle,  # 完整记录，含 timing，供评测复用
         "_raw_model_responses.json": record,  # 审计/复跑用，非产品口径
     }
+
+    # 补齐流程：每阶段产物 vs 标准文件 → 准确率 + 耗时。
+    if args.eval_school:
+        evaluation = evaluate_bundle(bundle, school=args.eval_school)
+        outputs["eval.json"] = evaluation
+    else:
+        evaluation = None
+
     for name, payload in outputs.items():
         (args.out / name).write_text(
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
@@ -134,6 +149,26 @@ def main() -> None:
         )
     cache_hits = sum(1 for r in record if r.get("from_cache"))
     print(f"  calls: {len(record)} (cache hits: {cache_hits})  wall: {time.monotonic() - wall_start:.1f}s")
+
+    timing = bundle.get("timing", {})
+    print(
+        f"  timing(s): t2={timing.get('t2_seconds')} t3={timing.get('t3_seconds')} "
+        f"t4={timing.get('t4_seconds')} total={timing.get('total_seconds')}"
+    )
+
+    if evaluation is not None:
+        print(f"\n=== 准确率 vs gold (school={args.eval_school}) ===")
+        t2, t3, t4 = (evaluation["stages"][k] for k in ("t2", "t3", "t4"))
+        print(
+            f"  T2 单元: P={t2['precision']} R={t2['recall']} F1={t2['f1']} "
+            f"order_exact={t2['order_exact_match']} missing={t2['missing_units']} extra={t2['extra_units']}"
+        )
+        print(
+            f"  T3 策略: 单元主策略准确率={t3['unit_dominant_policy_accuracy']} "
+            f"(评{t3['units_evaluated']}单元) 必填合规={t3['required_field_compliance']} "
+            f"mismatch={[m['unit_id'] for m in t3['policy_mismatches']]}"
+        )
+        print(f"  T4 版式: abstained={t4['abstained']}（无页图，暂不可评）")
 
 
 if __name__ == "__main__":

@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Protocol
 
@@ -92,15 +93,20 @@ def run_observation_pipeline(
         responder = ReplayResponder(transcript or {})
 
     valid_seq = packet_source_seq_set(packet)
+    timing: dict[str, float] = {}
+    pipeline_start = time.monotonic()
 
     # --- Pass-T2：全文压缩 → 自一致性投票 → 物化 ---
+    t2_start = time.monotonic()
     t2_evidence = build_t2_evidence(packet)  # firewall asserted inside
     samples = responder.fetch_units(evidence=t2_evidence, n_samples=config.self_consistency_samples)
     unit_observation, t2_consistency = _run_t2(
         samples=samples, packet=packet, valid_seq=valid_seq, model=config.model
     )
+    timing["t2_seconds"] = round(time.monotonic() - t2_start, 2)
 
     # --- Pass-T3：按 AI 自己的 T2 单元切窗口 → 物化 ---
+    t3_start = time.monotonic()
     unit_windows = build_observation_windows(ai_unit_observation=unit_observation, packet=packet)
     element_observation = _run_t3(
         responder=responder,
@@ -110,8 +116,10 @@ def run_observation_pipeline(
         model=config.model,
         concurrency=t3_concurrency,
     )
+    timing["t3_seconds"] = round(time.monotonic() - t3_start, 2)
 
     # --- Pass-T4：真实页图（否则 abstain） → 物化 ---
+    t4_start = time.monotonic()
     t4_evidence = build_t4_evidence(packet)
     layout_payload = responder.fetch_layout(evidence=t4_evidence)
     layout_observation = materialize_layout_observation(
@@ -120,6 +128,8 @@ def run_observation_pipeline(
         render_available=bool(t4_evidence.get("render_available")),
         model=config.model,
     )
+    timing["t4_seconds"] = round(time.monotonic() - t4_start, 2)
+    timing["total_seconds"] = round(time.monotonic() - pipeline_start, 2)
 
     return {
         "artifact_type": "ai_observation_bundle",
@@ -133,6 +143,7 @@ def run_observation_pipeline(
         "ai_element_observation": element_observation,
         "ai_layout_observation": layout_observation,
         "unit_windows": unit_windows,
+        "timing": timing,
         "evidence_scopes": {
             "t2": _scope_summary(t2_evidence),
             "t4": {"render_available": t4_evidence.get("render_available")},
