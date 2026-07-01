@@ -77,6 +77,8 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
         assert (out_dir / f"{report_name}.md").exists()
     assert (out_dir / "template_generation_root_cause_report.json").exists()
     assert (out_dir / "template_generation_root_cause_report.md").exists()
+    assert (out_dir / "template_agent_bridge_standard_acceptance.json").exists()
+    assert (out_dir / "template_agent_bridge_standard_acceptance.md").exists()
 
     summary = read_json(out_dir / "summary.json")
     run_bundle = read_json(out_dir / "template_generation_run_bundle.json")
@@ -85,6 +87,7 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     unit_quality = read_json(out_dir / "02_unit_map_standard_quality_report.json")
     unit_diff = read_json(out_dir / "02_unit_map_standard_diff_report.json")
     root_cause_report = read_json(out_dir / "template_generation_root_cause_report.json")
+    bridge_acceptance = read_json(out_dir / "template_agent_bridge_standard_acceptance.json")
     fillable_quality = read_json(
         out_dir / "06.1_fillable_template_standard_quality_report.json"
     )
@@ -132,6 +135,9 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     assert unit_diff["fix_plan"][0]["action"].startswith("Implement or configure")
     assert root_cause_report["report_kind"] == "root_cause_report"
     assert len(root_cause_report["mismatches"]) == len(judge_report["mismatches"])
+    assert bridge_acceptance["report_kind"] == "agent_bridge_standard_acceptance"
+    assert bridge_acceptance["bridge_present"] is False
+    assert "bridged_output_accuracy" in bridge_acceptance
     assert fillable_quality["stage_id"] == "T6"
     assert fillable_quality["stage_key"] == "t6_fillable_template"
     assert fillable_quality["comparison_scope"] == "run_bundle_artifact_binding"

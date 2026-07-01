@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from docfit.core.io import now_iso, sha256_json
+from docfit.core.io import now_iso, read_json, sha256_json
 
 from .attribution import (
     build_agent_attribution,
@@ -24,6 +24,10 @@ from .comparison import (
 )
 from .config import AgentConfig, AgentConfigError, LIVE_TRANSPORTS, require_valid_agent_config
 from .manual_review import build_agent_manual_review_items
+from .observation_bridge import (
+    build_observation_bridge,
+    observation_bridge_transcript,
+)
 from .packet import build_template_agent_render_packet, load_render_packet
 from .reconciler import process_proposal
 from .regenerate import regenerate_from_structure_candidates
@@ -42,12 +46,14 @@ class AgentRunResult:
     unit_map: dict[str, Any]
     generation_model: dict[str, Any]
     element_spec: dict[str, Any]
+    ai_element_observation: dict[str, Any] | None = None
     render_packet: dict[str, Any] | None = None
     pass_plan: dict[str, Any] | None = None
     post_t2_checkpoint: dict[str, Any] | None = None
     post_t2_input: dict[str, Any] | None = None
     unit_windows: dict[str, Any] | None = None
     transcript: dict[str, Any] | None = None
+    observation_bridge: dict[str, Any] | None = None
     submission_comparison: dict[str, Any] | None = None
     decisions: dict[str, Any] | None = None
     manual_review_items: dict[str, Any] | None = None
@@ -99,12 +105,25 @@ def run_template_agent(
             "live agent transport requires a real_render packet; "
             f"got render_status={packet.get('render_status') or 'missing'}"
         )
-    transcript, steps = _load_submissions(
-        agent_config,
-        packet=packet,
-        request=request,
-        structure_candidates=structure_candidates,
-    )
+    observation_bridge: dict[str, Any] | None = None
+    if agent_config.observation_bundle_path is not None:
+        observation_bundle = read_json(agent_config.observation_bundle_path)
+        observation_bridge = build_observation_bridge(
+            observation_bundle=observation_bundle,
+            packet=packet,
+            structure_candidates=structure_candidates,
+        )
+        ai_element_observation = observation_bundle.get("ai_element_observation")
+        transcript = observation_bridge_transcript(observation_bridge)
+        steps = transcript_steps(transcript, max_rounds=agent_config.max_rounds)
+    else:
+        ai_element_observation = None
+        transcript, steps = _load_submissions(
+            agent_config,
+            packet=packet,
+            request=request,
+            structure_candidates=structure_candidates,
+        )
     pass_plan = build_agent_pass_plan(
         pass_plan_from_steps(
             steps,
@@ -267,6 +286,7 @@ def run_template_agent(
         transcript=transcript,
         comparison=submission_comparison,
         decisions=decisions_artifact,
+        observation_bridge=observation_bridge,
     )
     t2_overlay = build_agent_t2_overlay(t2_operations)
     t3_overlay = build_agent_t3_overlay(t3_operations)
@@ -283,6 +303,7 @@ def run_template_agent(
         t4_hints=t4_hints_artifact,
         submission_comparison=submission_comparison,
         manual_review_items=manual_review_items,
+        observation_bridge=observation_bridge,
     )
     return AgentRunResult(
         enabled=True,
@@ -291,12 +312,16 @@ def run_template_agent(
         unit_map=regenerated["unit_map"],
         generation_model=regenerated["generation_model"],
         element_spec=regenerated["element_spec"],
+        ai_element_observation=(
+            ai_element_observation if isinstance(ai_element_observation, dict) else None
+        ),
         render_packet=packet,
         pass_plan=pass_plan,
         post_t2_checkpoint=post_t2_checkpoint,
         post_t2_input=post_t2_input,
         unit_windows=unit_windows,
         transcript=transcript,
+        observation_bridge=observation_bridge,
         submission_comparison=submission_comparison,
         decisions=decisions_artifact,
         manual_review_items=manual_review_items,

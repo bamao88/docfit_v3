@@ -12,6 +12,7 @@ from .refs import _cell_for_ref, _paragraph_for_ref, _paragraph_map_by_ooxml_ind
 from .text_utils import _dedupe_by_key
 from .word_ops import (
     _append_sdt,
+    _clear_runs_by_raw_run_ids,
     _clear_cell,
     _find_sdt_tag_ref,
     _insert_page_break_before,
@@ -69,6 +70,22 @@ def execute_template_generation_plan(
         elif action_type == "remove_instruction_text":
             target = _paragraph_for_ref(paragraph_map, action.get("source_ref"))
             target_cell = _cell_for_ref(doc, action.get("source_ref"))
+            raw_run_ids = [
+                str(raw_run_id)
+                for raw_run_id in action.get("affected_raw_run_ids", [])
+                if raw_run_id
+            ]
+            if raw_run_ids and target is not None and _single_source_seq_action(action):
+                output_ref = _clear_runs_by_raw_run_ids(
+                    target,
+                    action.get("source_ref"),
+                    raw_run_ids,
+                )
+                if output_ref is None:
+                    review.append(_needs_review(action, "source runs not found for run-level removal"))
+                    continue
+                executed.append(_executed(action, output_ref=output_ref))
+                continue
             if target is None and target_cell is None:
                 review.append(_needs_review(action, "source node not found"))
                 continue
@@ -220,6 +237,10 @@ def execute_template_generation_plan(
 
 def _sdt_tag(action: dict[str, Any]) -> str:
     return f"{action.get('unit_id')}.{action.get('element_id')}"
+
+
+def _single_source_seq_action(action: dict[str, Any]) -> bool:
+    return len(action.get("affected_source_seq_refs", []) or []) == 1
 
 
 def _generated_tag(action: dict[str, Any]) -> str:

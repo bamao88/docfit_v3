@@ -75,6 +75,7 @@ def eval_template_generate(
     out: Path = typer.Option(..., "--out"),
     agent_replay: Path | None = typer.Option(None, "--agent-replay", exists=True),
     agent_render_packet: Path | None = typer.Option(None, "--agent-render-packet", exists=True),
+    agent_observation_bundle: Path | None = typer.Option(None, "--agent-observation-bundle", exists=True),
     agent_max_rounds: int = typer.Option(4, "--agent-max-rounds"),
     agent_max_tokens: int = typer.Option(4000, "--agent-max-tokens"),
     agent_temperature: float = typer.Option(1.0, "--agent-temperature"),
@@ -83,7 +84,12 @@ def eval_template_generate(
 ) -> None:
     env_config = agent_config_from_env()
     agent_config = env_config
-    if agent_replay is not None or agent_render_packet is not None or agent_live:
+    if (
+        agent_replay is not None
+        or agent_render_packet is not None
+        or agent_observation_bundle is not None
+        or agent_live
+    ):
         agent_config = AgentConfig(
             enabled=True,
             transport="kimi" if agent_live and agent_provider == "replay" else agent_provider,  # type: ignore[arg-type]
@@ -92,6 +98,7 @@ def eval_template_generate(
             temperature=agent_temperature,
             transcript_path=agent_replay,
             render_packet_path=agent_render_packet,
+            observation_bundle_path=agent_observation_bundle,
             allow_live_without_render_packet=agent_live and agent_render_packet is None,
         )
     result = run_template_generate_eval(

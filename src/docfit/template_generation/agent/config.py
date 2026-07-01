@@ -25,6 +25,7 @@ class AgentConfig:
     parse_errors: tuple[str, ...] = ()
     transcript_path: Path | None = None
     render_packet_path: Path | None = None
+    observation_bundle_path: Path | None = None
     allow_live_without_render_packet: bool = False
     allow_live_without_real_render: bool = False
     model: str | None = None
@@ -44,7 +45,7 @@ def validate_agent_config(config: AgentConfig) -> list[str]:
         errors.append("agent max_tokens must be greater than 0")
     if config.temperature < 0 or config.temperature > 2:
         errors.append("agent temperature must be between 0 and 2")
-    if config.transport == "replay":
+    if config.transport == "replay" and config.observation_bundle_path is None:
         if config.transcript_path is None:
             errors.append("replay agent requires transcript_path")
         elif not config.transcript_path.exists():
@@ -60,6 +61,8 @@ def validate_agent_config(config: AgentConfig) -> list[str]:
             )
     if config.render_packet_path is not None and not config.render_packet_path.exists():
         errors.append(f"agent render_packet_path does not exist: {config.render_packet_path}")
+    if config.observation_bundle_path is not None and not config.observation_bundle_path.exists():
+        errors.append(f"agent observation_bundle_path does not exist: {config.observation_bundle_path}")
     return errors
 
 
@@ -75,6 +78,7 @@ def agent_config_from_env(env: Mapping[str, str] | None = None) -> AgentConfig |
     provider = values.get("DOCFIT_TEMPLATE_AGENT_PROVIDER")
     transcript = values.get("DOCFIT_TEMPLATE_AGENT_TRANSCRIPT")
     render_packet = values.get("DOCFIT_TEMPLATE_AGENT_RENDER_PACKET")
+    observation_bundle = values.get("DOCFIT_TEMPLATE_AGENT_OBSERVATION_BUNDLE")
     max_rounds = values.get("DOCFIT_TEMPLATE_AGENT_MAX_ROUNDS")
     max_tokens = values.get("DOCFIT_TEMPLATE_AGENT_MAX_TOKENS")
     temperature = values.get("DOCFIT_TEMPLATE_AGENT_TEMPERATURE")
@@ -87,6 +91,7 @@ def agent_config_from_env(env: Mapping[str, str] | None = None) -> AgentConfig |
             provider,
             transcript,
             render_packet,
+            observation_bundle,
             max_rounds,
             max_tokens,
             temperature,
@@ -127,6 +132,7 @@ def agent_config_from_env(env: Mapping[str, str] | None = None) -> AgentConfig |
         parse_errors=tuple(parse_errors),
         transcript_path=Path(transcript) if transcript else None,
         render_packet_path=Path(render_packet) if render_packet else None,
+        observation_bundle_path=Path(observation_bundle) if observation_bundle else None,
         allow_live_without_real_render=str(allow_projection or "").strip().lower()
         in {"1", "true", "yes", "on"},
         model=model,

@@ -33,6 +33,7 @@ scope:
   - generated_field_semantics
   - instruction_cleanup
   - element_source_trace
+  - run_level_element_trace
 expected:
   unit_order:
     - cover
@@ -108,6 +109,23 @@ expected:
       - 湖南农大后置设计任务书、开题、答辩、变更和成绩表按人工填写表单处理。
       - 封面是固定模板块，但题名、学生信息等明确填空位允许生成 fill 元素。
       - 致谢和附录是模板默认可选单元；没有学生内容时不得强制生成正文 slot。
+  run_level_elements:
+    - unit_id: cover
+      source_seq: 6
+      description: 中文题目占位与段内格式说明必须拆成 run 级 element
+      expected_elements:
+        - policy: fixed
+          content_contains: 毕业论文（设计）中文题目
+          raw_run_ids:
+            - p_0007.r_002
+            - p_0007.r_003
+          logical_run_ids:
+            - p_0007.lr_002
+        - policy: instruction_remove
+          raw_run_ids:
+            - p_0007.r_004
+          logical_run_ids:
+            - p_0007.lr_003
 dimensions:
   - dimension_id: template_generation.t3.artifact_under_test
     required: true

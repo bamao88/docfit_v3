@@ -156,6 +156,8 @@ def _page_text_index(
                 "part_name": entry.get("part_name"),
                 "order": entry.get("order", index),
                 "text": entry.get("text", ""),
+                "raw_run_ids": entry.get("raw_run_ids", []),
+                "logical_run_ids": entry.get("logical_run_ids", []),
                 "page_no": page_no,
                 "bbox": binding.get("bbox") or entry.get("bbox"),
                 "render_binding_status": binding.get(

@@ -101,6 +101,8 @@ def build_template_generation_plan(
                     "element_id": decision.get("element_id"),
                     "source_ref": decision.get("source_ref"),
                     "affected_source_seq_refs": decision.get("source_seq_refs", []),
+                    "affected_raw_run_ids": decision.get("raw_run_ids", []),
+                    "affected_logical_run_ids": decision.get("logical_run_ids", []),
                     "target_ref": _target_ref_for_decision(decision),
                     "status": "planned",
                     "reason": decision.get("reason"),
@@ -124,6 +126,8 @@ def build_template_generation_plan(
                 "element_id": None,
                 "source_ref": source_ref,
                 "affected_source_seq_refs": instruction.get("source_seq_refs", []),
+                "affected_raw_run_ids": instruction.get("raw_run_ids", []),
+                "affected_logical_run_ids": instruction.get("logical_run_ids", []),
                 "target_ref": source_ref,
                 "status": "planned",
                 "reason": instruction.get(

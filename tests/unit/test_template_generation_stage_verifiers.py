@@ -276,6 +276,138 @@ def test_t3_fixed_units_can_explicitly_allow_fill_elements(tmp_path: Path) -> No
     assert check.audit["policy_group_conflicts"] == []
 
 
+def test_t3_run_level_element_expectations_can_pass(tmp_path: Path) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t3_element_policy",
+        "T3",
+        "element_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "unit_order": ["cover"],
+            "run_level_elements": [
+                {
+                    "unit_id": "cover",
+                    "source_seq": 6,
+                    "expected_elements": [
+                        {
+                            "policy": "fixed",
+                            "content_contains": "毕业论文（设计）中文题目",
+                            "raw_run_ids": ["p_0007.r_002", "p_0007.r_003"],
+                            "logical_run_ids": ["p_0007.lr_002"],
+                        },
+                        {
+                            "policy": "instruction_remove",
+                            "raw_run_ids": ["p_0007.r_004"],
+                            "logical_run_ids": ["p_0007.lr_003"],
+                        },
+                    ],
+                }
+            ],
+        },
+    )
+    artifact = _element_spec_artifact(
+        tmp_path,
+        [
+            {
+                "stable_id": "cover.e_011",
+                "element_id": "e_011",
+                "unit_id": "cover",
+                "policy": "fixed",
+                "content": "毕业论文（设计）中文题目",
+                "source_refs": ["word/document.xml:p[7]"],
+                "source_seq_refs": [6],
+                "raw_run_ids": ["p_0007.r_002", "p_0007.r_003"],
+                "logical_run_ids": ["p_0007.lr_002"],
+            },
+            {
+                "stable_id": "cover.e_012",
+                "element_id": "e_012",
+                "unit_id": "cover",
+                "policy": "instruction_remove",
+                "source_refs": ["word/document.xml:p[7]"],
+                "source_seq_refs": [6],
+                "raw_run_ids": ["p_0007.r_004"],
+                "logical_run_ids": ["p_0007.lr_003"],
+            },
+        ],
+    )
+
+    check = judge_template_generation_stage(
+        "t3_element_policy",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t3_element_policy"),
+        run_bundle=_bundle(Status.PASS, {"element_spec": artifact}),
+    )
+
+    assert check.audit_status == "PASS"
+    assert check.status == Status.PASS
+    assert check.audit["run_level_element_gaps"] == []
+
+
+def test_t3_run_level_element_expectations_fail_when_instruction_run_is_missing(
+    tmp_path: Path,
+) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t3_element_policy",
+        "T3",
+        "element_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "unit_order": ["cover"],
+            "run_level_elements": [
+                {
+                    "unit_id": "cover",
+                    "source_seq": 6,
+                    "expected_elements": [
+                        {
+                            "policy": "instruction_remove",
+                            "raw_run_ids": ["p_0007.r_004"],
+                            "logical_run_ids": ["p_0007.lr_003"],
+                        },
+                    ],
+                }
+            ],
+        },
+    )
+    artifact = _element_spec_artifact(
+        tmp_path,
+        [
+            {
+                "stable_id": "cover.e_011",
+                "element_id": "e_011",
+                "unit_id": "cover",
+                "policy": "fixed",
+                "content": "毕业论文（设计）中文题目（小二黑体加粗）",
+                "source_refs": ["word/document.xml:p[7]"],
+                "source_seq_refs": [6],
+                "raw_run_ids": ["p_0007.r_002", "p_0007.r_003", "p_0007.r_004"],
+                "logical_run_ids": ["p_0007.lr_002", "p_0007.lr_003"],
+            },
+        ],
+    )
+
+    check = judge_template_generation_stage(
+        "t3_element_policy",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t3_element_policy"),
+        run_bundle=_bundle(Status.PASS, {"element_spec": artifact}),
+    )
+
+    assert check.audit_status == "FAIL"
+    assert check.status == Status.FAIL
+    assert check.audit["run_level_element_gaps"]
+    assert any(
+        finding.type == "t3_run_level_element_mismatch"
+        for finding in check.findings
+    )
+
+
 def _stage_standard(
     tmp_path: Path,
     stage_key: str,

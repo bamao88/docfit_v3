@@ -87,6 +87,7 @@ def build_agent_attribution(
     t4_hints: dict[str, Any],
     submission_comparison: dict[str, Any] | None = None,
     manual_review_items: dict[str, Any] | None = None,
+    observation_bridge: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "artifact_type": "agent_attribution",
@@ -122,6 +123,13 @@ def build_agent_attribution(
             "blocking_item_ids": (manual_review_items or {}).get("blocking_item_ids", []),
             "non_blocking_item_ids": (manual_review_items or {}).get(
                 "non_blocking_item_ids", []
+            ),
+        },
+        "observation_bridge": {
+            "present": observation_bridge is not None,
+            "summary": (observation_bridge or {}).get("summary", {}),
+            "observation_bundle_hash": (observation_bridge or {}).get(
+                "observation_bundle_hash"
             ),
         },
     }

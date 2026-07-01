@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 
 from docfit.core.models import StageResult, make_finding
@@ -100,6 +101,11 @@ def generate_template(
         structure_candidates=structure_candidates,
     )
     element_spec = build_element_spec(generation_model)
+    code_raw_element_spec = _route_t3_element_spec(
+        element_spec,
+        route_id="code_raw",
+        origin="deterministic_code_before_agent_bridge",
+    )
     effective_agent_config = agent_config or AgentConfig(enabled=False)
     try:
         agent_run = run_template_agent(
@@ -141,6 +147,15 @@ def generate_template(
     unit_map = agent_run.unit_map
     generation_model = agent_run.generation_model
     element_spec = agent_run.element_spec
+    t3_ai_element_observation = _route_t3_ai_observation(
+        agent_run.ai_element_observation,
+        document_facts=document_facts,
+    )
+    t3_merged_element_spec = _route_t3_element_spec(
+        element_spec,
+        route_id="merged",
+        origin="agent_bridge_reconciled_final_t3",
+    )
     template_spec = build_template_spec(
         document_facts,
         unit_map,
@@ -207,12 +222,16 @@ def generate_template(
             build_manifest=build_manifest,
             verification_report=verification_report,
             t2_input=t2_input if isinstance(t2_input, dict) else None,
+            t3_code_element_spec=code_raw_element_spec,
+            t3_ai_element_observation=t3_ai_element_observation,
+            t3_merged_element_spec=t3_merged_element_spec,
             agent_render_packet=agent_run.render_packet,
             agent_pass_plan=agent_run.pass_plan,
             agent_post_t2_checkpoint=agent_run.post_t2_checkpoint,
             agent_post_t2_input=agent_run.post_t2_input,
             agent_unit_windows=agent_run.unit_windows,
             agent_transcript=agent_run.transcript,
+            agent_observation_bridge=agent_run.observation_bridge,
             agent_submission_comparison=agent_run.submission_comparison,
             agent_decisions=agent_run.decisions,
             agent_manual_review_items=agent_run.manual_review_items,
@@ -243,6 +262,9 @@ def generate_template(
         "template_structure_candidates": structure_candidates,
         "template_generation_model": generation_model,
         "template_generation_plan": plan,
+        "t3_code_element_spec": code_raw_element_spec,
+        "t3_ai_element_observation": t3_ai_element_observation,
+        "t3_merged_element_spec": t3_merged_element_spec,
     }
     if isinstance(t2_input, dict):
         artifacts["t2_input"] = t2_input
@@ -258,6 +280,8 @@ def generate_template(
         artifacts["template_agent_unit_windows"] = agent_run.unit_windows
     if agent_run.transcript is not None:
         artifacts["template_agent_transcript"] = agent_run.transcript
+    if agent_run.observation_bridge is not None:
+        artifacts["template_agent_observation_bridge"] = agent_run.observation_bridge
     if agent_run.submission_comparison is not None:
         artifacts["template_agent_submission_comparison"] = (
             agent_run.submission_comparison
@@ -332,3 +356,63 @@ def _coverage(
     }
     coverage.update(extra)
     return coverage
+
+
+def _route_t3_element_spec(
+    element_spec: dict[str, object],
+    *,
+    route_id: str,
+    origin: str,
+) -> dict[str, object]:
+    routed = deepcopy(element_spec)
+    routed["route"] = {
+        "route_id": route_id,
+        "stage_id": "T3",
+        "stage_key": "t3_element_policy",
+        "availability": "AVAILABLE",
+        "origin": origin,
+    }
+    return routed
+
+
+def _route_t3_ai_observation(
+    ai_element_observation: dict[str, object] | None,
+    *,
+    document_facts: dict[str, object],
+) -> dict[str, object]:
+    if isinstance(ai_element_observation, dict):
+        routed = deepcopy(ai_element_observation)
+        routed["route"] = {
+            "route_id": "ai_raw",
+            "stage_id": "T3",
+            "stage_key": "t3_element_policy",
+            "availability": "AVAILABLE",
+            "origin": "module1_ai_element_observation",
+        }
+        return routed
+    source_seq_refs = [
+        int(item["source_seq"])
+        for item in document_facts.get("body_flow", [])
+        if isinstance(item, dict) and item.get("source_seq") is not None
+    ]
+    return {
+        "artifact_type": "ai_element_observation",
+        "stage": "t3",
+        "route": {
+            "route_id": "ai_raw",
+            "stage_id": "T3",
+            "stage_key": "t3_element_policy",
+            "availability": "NOT_AVAILABLE",
+            "origin": "module1_ai_element_observation",
+            "reason": "no AI observation bundle was supplied for this run",
+        },
+        "items": [],
+        "unknown_items": [],
+        "open_questions": [],
+        "coverage": {
+            "owned_source_seq": [],
+            "unknown_source_seq": source_seq_refs,
+            "total": len(source_seq_refs),
+        },
+        "abstain": True,
+    }

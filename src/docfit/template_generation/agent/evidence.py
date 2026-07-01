@@ -29,6 +29,7 @@ EVIDENCE_FIELD_WHITELIST = {
         "style",
         "style_details",
         "raw_run_ids",
+        "logical_run_ids",
     ),
     "t4": (
         "page_no",

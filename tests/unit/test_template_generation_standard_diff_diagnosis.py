@@ -4,8 +4,10 @@ from pathlib import Path
 from typing import Any
 
 from docfit.core.models import make_finding
+from docfit.core.io import write_json
 from docfit.core.status import Status
 from docfit.harness.template_generation_judge_reports import (
+    build_template_agent_bridge_standard_acceptance,
     build_stage_standard_diagnosis_report,
 )
 from docfit.harness.template_generation_run_bundle import (
@@ -270,6 +272,66 @@ def test_gate_disabled_is_comparator_issue_not_signoff_proof(tmp_path: Path) -> 
     )
 
 
+def test_agent_bridge_acceptance_reports_accuracy_and_diagnosis(tmp_path: Path) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t2_unit_pagination",
+        "T2",
+        "unit_map",
+    )
+    artifact = _artifact(
+        tmp_path,
+        "unit_map",
+        "t2_unit_pagination",
+        "T2",
+        "02_unit_map.yaml",
+    )
+    check = _stage_check(
+        standard,
+        artifact,
+        Status.FAIL,
+        "FAIL",
+        [
+            make_finding(
+                1,
+                "t2_unit_pagination",
+                Status.FAIL,
+                "t2_standard_units_missing",
+                "Unit map is missing standard units",
+                repr(["toc"]),
+                repr(["cover", "body_main"]),
+                affected_ids=["toc"],
+                root_cause_bucket="template_generation_t2_standard",
+            )
+        ],
+        audit={
+            "expected_unit_ids": ["cover", "toc", "body_main"],
+            "actual_unit_ids": ["cover", "body_main"],
+            "missing_unit_ids": ["toc"],
+            "unexpected_unit_ids": [],
+            "unit_order_matches": False,
+        },
+    )
+    run_dir = tmp_path / "eval_runs/template_generate"
+    write_json(
+        run_dir / "09.25_agent_observation_bridge.json",
+        {
+            "artifact_type": "template_agent_observation_bridge",
+            "summary": {"total_proposals": 1, "manual_review_required": 0},
+        },
+    )
+
+    report = _judge_report(tmp_path, standard, artifact, check, first_bad_stage="T2")
+    acceptance = build_template_agent_bridge_standard_acceptance(report)
+
+    assert acceptance["bridge_present"] is True
+    assert acceptance["bridge_summary"]["total_proposals"] == 1
+    assert acceptance["bridged_output_accuracy"]["aggregate_accuracy"] == 0.8
+    assert acceptance["bridged_output_accuracy"]["stages"]["t2_unit_pagination"]["recall"] == round(2 / 3, 4)
+    assert acceptance["mismatches"][0]["id"] == "T2-MISMATCH-001"
+    assert acceptance["root_causes"][0]["category"] == "generation_code"
+
+
 def _spec(artifact_key: str) -> RunArtifactSpec:
     return next(spec for spec in RUN_ARTIFACT_SPECS if spec.artifact_key == artifact_key)
 
@@ -328,6 +390,7 @@ def _stage_check(
     status: Status,
     audit_status: str,
     findings: list,
+    audit: dict[str, Any] | None = None,
 ) -> StageCheck:
     return StageCheck(
         stage_key=standard.stage_key,
@@ -341,7 +404,7 @@ def _stage_check(
         status=status,
         audit_status=audit_status,
         findings=findings,
-        audit={},
+        audit=audit or {},
     )
 
 

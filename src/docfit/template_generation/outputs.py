@@ -41,12 +41,16 @@ def write_template_generation_debug_snapshot(
     build_manifest: dict[str, Any],
     verification_report: dict[str, Any] | None = None,
     t2_input: dict[str, Any] | None = None,
+    t3_code_element_spec: dict[str, Any] | None = None,
+    t3_ai_element_observation: dict[str, Any] | None = None,
+    t3_merged_element_spec: dict[str, Any] | None = None,
     agent_render_packet: dict[str, Any] | None = None,
     agent_pass_plan: dict[str, Any] | None = None,
     agent_post_t2_checkpoint: dict[str, Any] | None = None,
     agent_post_t2_input: dict[str, Any] | None = None,
     agent_unit_windows: dict[str, Any] | None = None,
     agent_transcript: dict[str, Any] | None = None,
+    agent_observation_bridge: dict[str, Any] | None = None,
     agent_submission_comparison: dict[str, Any] | None = None,
     agent_decisions: dict[str, Any] | None = None,
     agent_manual_review_items: dict[str, Any] | None = None,
@@ -114,9 +118,25 @@ def write_template_generation_debug_snapshot(
             "T2：边界/标签低置信问题的确定性投影，供人工或 AI 兜底使用。",
         )
     write_step_yaml(
+        "03.0_t3_code_element_spec.yaml",
+        t3_code_element_spec or element_spec,
+        "T3/code_raw：agent 合并前由确定性代码直接生成的元素策略。",
+    )
+    if t3_ai_element_observation is not None:
+        write_step_yaml(
+            "03.1_t3_ai_element_observation.yaml",
+            t3_ai_element_observation,
+            "T3/ai_raw：Module 1 AI 独立生成的元素观察；未提供 AI 时标记 NOT_AVAILABLE。",
+        )
+    write_step_yaml(
+        "03.2_t3_merged_element_spec.yaml",
+        t3_merged_element_spec or element_spec,
+        "T3/merged：AI/code bridge 与 reconciler 后进入 T5/T6 的最终元素策略。",
+    )
+    write_step_yaml(
         "03_element_spec.yaml",
         element_spec,
-        "T3：单元内部元素、策略和填充来源。",
+        "T3 兼容别名：当前主链路消费的最终 merged element_spec。",
     )
     write_step_yaml(
         "04_global_spec.yaml",
@@ -205,6 +225,12 @@ def write_template_generation_debug_snapshot(
             agent_transcript,
             "Agent replay/live transcript。",
         )
+    if agent_observation_bridge is not None:
+        write_step_json(
+            "09.25_agent_observation_bridge.json",
+            agent_observation_bridge,
+            "Agent 观察桥接：AI observation bundle 到 executable proposal/manual review 的映射。",
+        )
     if agent_submission_comparison is not None:
         write_step_json(
             "09.5_agent_submission_comparison.json",
@@ -278,6 +304,7 @@ def write_template_generation_outputs(out_dir: Path, result: StageResult) -> Non
         "template_agent_post_t2_input",
         "template_agent_unit_windows",
         "template_agent_transcript",
+        "template_agent_observation_bridge",
         "template_agent_submission_comparison",
         "template_agent_decisions",
         "template_agent_manual_review_items",
@@ -286,7 +313,15 @@ def write_template_generation_outputs(out_dir: Path, result: StageResult) -> Non
         "agent_t4_hints",
         "agent_attribution",
     ]
-    yaml_keys = ["unit_map", "element_spec", "global_spec", "template_spec"]
+    yaml_keys = [
+        "unit_map",
+        "element_spec",
+        "global_spec",
+        "template_spec",
+        "t3_code_element_spec",
+        "t3_ai_element_observation",
+        "t3_merged_element_spec",
+    ]
     for key in json_keys:
         artifact = result.artifacts.get(key)
         if artifact is None:
@@ -383,9 +418,24 @@ def write_template_generation_ordered_files(out_dir: Path, result: StageResult) 
         "T2：边界/标签低置信问题的确定性投影，供人工或 AI 兜底使用。",
     )
     write_step_yaml(
+        "03.0_t3_code_element_spec.yaml",
+        "t3_code_element_spec",
+        "T3/code_raw：agent 合并前由确定性代码直接生成的元素策略。",
+    )
+    write_step_yaml(
+        "03.1_t3_ai_element_observation.yaml",
+        "t3_ai_element_observation",
+        "T3/ai_raw：Module 1 AI 独立生成的元素观察；未提供 AI 时标记 NOT_AVAILABLE。",
+    )
+    write_step_yaml(
+        "03.2_t3_merged_element_spec.yaml",
+        "t3_merged_element_spec",
+        "T3/merged：AI/code bridge 与 reconciler 后进入 T5/T6 的最终元素策略。",
+    )
+    write_step_yaml(
         "03_element_spec.yaml",
         "element_spec",
-        "T3：单元内部元素、策略和填充来源。",
+        "T3 兼容别名：当前主链路消费的最终 merged element_spec。",
     )
     write_step_yaml(
         "04_global_spec.yaml",
@@ -461,6 +511,11 @@ def write_template_generation_ordered_files(out_dir: Path, result: StageResult) 
         "09_agent_transcript.json",
         "template_agent_transcript",
         "Agent replay/live transcript。",
+    )
+    write_step_json(
+        "09.25_agent_observation_bridge.json",
+        "template_agent_observation_bridge",
+        "Agent 观察桥接：AI observation bundle 到 executable proposal/manual review 的映射。",
     )
     write_step_json(
         "09.5_agent_submission_comparison.json",

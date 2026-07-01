@@ -28,6 +28,28 @@ def write_source_docx(path: Path, paragraphs: list[str]) -> None:
     doc.save(path)
 
 
+def write_source_docx_with_runs(
+    path: Path,
+    paragraphs: list[str | list[tuple[str, dict[str, object]]]],
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = Document()
+    for paragraph_spec in paragraphs:
+        if isinstance(paragraph_spec, str):
+            doc.add_paragraph(paragraph_spec)
+            continue
+        paragraph = doc.add_paragraph()
+        for text, attrs in paragraph_spec:
+            run = paragraph.add_run(text)
+            if "bold" in attrs:
+                run.bold = bool(attrs["bold"])
+            if "italic" in attrs:
+                run.italic = bool(attrs["italic"])
+            if "underline" in attrs:
+                run.underline = bool(attrs["underline"])
+    doc.save(path)
+
+
 def docx_texts(path: Path) -> list[str]:
     return [paragraph.text for paragraph in Document(path).paragraphs]
 
@@ -95,6 +117,9 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     document_facts = read_json(artifacts / "document_facts.json")
     unit_map = read_yaml(artifacts / "unit_map.yaml")
     element_spec = read_yaml(artifacts / "element_spec.yaml")
+    t3_code = read_yaml(artifacts / "t3_code_element_spec.yaml")
+    t3_ai = read_yaml(artifacts / "t3_ai_element_observation.yaml")
+    t3_merged = read_yaml(artifacts / "t3_merged_element_spec.yaml")
     global_spec = read_yaml(artifacts / "global_spec.yaml")
     template_spec = read_yaml(artifacts / "template_spec.yaml")
     verification_report = read_json(artifacts / "verification_report.json")
@@ -116,6 +141,14 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert document_facts["artifact_type"] == "document_facts"
     assert unit_map["artifact_type"] == "unit_map"
     assert element_spec["artifact_type"] == "element_spec"
+    assert t3_code["route"]["route_id"] == "code_raw"
+    assert t3_code["route"]["availability"] == "AVAILABLE"
+    assert t3_ai["artifact_type"] == "ai_element_observation"
+    assert t3_ai["route"]["route_id"] == "ai_raw"
+    assert t3_ai["route"]["availability"] == "NOT_AVAILABLE"
+    assert t3_merged["artifact_type"] == "element_spec"
+    assert t3_merged["route"]["route_id"] == "merged"
+    assert t3_merged["route"]["availability"] == "AVAILABLE"
     assert global_spec["artifact_type"] == "global_spec"
     assert template_spec["artifact_type"] == "template_spec"
     assert manifest["artifact_type"] == "build_manifest"
@@ -174,6 +207,9 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert (out_dir / "01_document_facts.json").exists()
     assert (out_dir / "02_unit_map.yaml").exists()
     assert (out_dir / "02.1_t2_input.json").exists()
+    assert (out_dir / "03.0_t3_code_element_spec.yaml").exists()
+    assert (out_dir / "03.1_t3_ai_element_observation.yaml").exists()
+    assert (out_dir / "03.2_t3_merged_element_spec.yaml").exists()
     assert (out_dir / "03_element_spec.yaml").exists()
     assert (out_dir / "04_global_spec.yaml").exists()
     assert (out_dir / "05_template_spec.yaml").exists()
@@ -187,6 +223,9 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert (debug_dir / "01_document_facts.json").exists()
     assert (debug_dir / "02_unit_map.yaml").exists()
     assert (debug_dir / "02.1_t2_input.json").exists()
+    assert (debug_dir / "03.0_t3_code_element_spec.yaml").exists()
+    assert (debug_dir / "03.1_t3_ai_element_observation.yaml").exists()
+    assert (debug_dir / "03.2_t3_merged_element_spec.yaml").exists()
     assert (debug_dir / "03_element_spec.yaml").exists()
     assert (debug_dir / "04_global_spec.yaml").exists()
     assert (debug_dir / "05_template_spec.yaml").exists()
@@ -264,6 +303,44 @@ def test_template_generate_cleans_instruction_text_inside_table_cells(tmp_path) 
     assert not manifest["actions_requiring_review"]
     assert not any("格式说明" in text for text in table_texts(fillable))
     assert any(tag != "slot_body_start" for tag in docx_sdt_tags(fillable))
+
+
+def test_template_generate_removes_form_usage_notes_but_keeps_manual_fields(tmp_path) -> None:
+    source = tmp_path / "inputs/targets/demo-school/raw/school-template-form-notes.docx"
+    out_dir = tmp_path / "template_generate"
+    notes = [
+        "一、毕业设计任务书是学校根据已经确定的毕业设计题目下达给学生的一种教学文件，是学生在指导教师指导下独立从事毕业设计工作的依据。此表由指导教师填写。",
+        "四、任务书一经下达，不得随意更改。",
+        "请在合适的对应选项前的“□”内打“√”，科研课题请注明课题项目和名称，项目指“国家青年基金”等。",
+        "六、本表可从毕业论文管理系统填写打印或教务处网站下载中心下载填写打印，但签名栏必须相应责任人亲笔签名，且应用黑色签字笔填写。",
+        "注：此表如不够填写，可另加附页。",
+        "注：此表可从毕业论文管理系统或教务处网站下载中心下载。记录、签名栏必须用黑色笔手工填写。",
+    ]
+    write_source_docx(
+        source,
+        [
+            "毕业设计任务书",
+            *notes,
+            "指导教师签名：",
+            "评阅教师意见：",
+            "正文",
+        ],
+    )
+
+    result = run_template_generate_eval(tmp_path, source, out_dir)
+    fillable = out_dir / "fillable_template.docx"
+    plan = read_json(out_dir / "artifacts/template_generation_plan.json")
+    output_text = "\n".join(docx_texts(fillable))
+
+    assert result.status == Status.UNKNOWN
+    for note in notes:
+        assert note not in output_text
+    assert "指导教师签名：" in output_text
+    assert "评阅教师意见：" in output_text
+    assert sum(
+        action["action_type"] == "remove_instruction_text"
+        for action in plan["actions"]
+    ) >= len(notes)
 
 
 def test_template_generate_merges_table_label_value_candidates(tmp_path) -> None:
@@ -552,6 +629,114 @@ def test_template_generate_cover_uses_patch_analysis_when_copy_only_disabled(
     )
     assert "格式说明：小四宋体" not in docx_texts(fillable)
     assert any(tag.startswith("cover.") for tag in docx_sdt_tags(fillable))
+
+
+def test_template_generate_splits_within_paragraph_format_instruction_runs(
+    tmp_path,
+) -> None:
+    source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
+    out_dir = tmp_path / "template_generate"
+    write_source_docx_with_runs(
+        source,
+        [
+            "封面",
+            [
+                ("毕业论文（设计）中文题目  ", {"bold": False}),
+                ("（小二黑体加粗）", {"bold": True}),
+            ],
+            "目录",
+            "正文",
+            [
+                ("这是", {"bold": False}),
+                ("普通", {"bold": True}),
+                ("正文段落", {"bold": False}),
+            ],
+        ],
+    )
+
+    result = run_template_generate_eval(tmp_path, source, out_dir)
+    fillable = out_dir / "fillable_template.docx"
+    structure_candidates = read_json(out_dir / "artifacts/template_structure_candidates.json")
+    generation_model = read_json(out_dir / "artifacts/template_generation_model.json")
+    element_spec = read_yaml(out_dir / "artifacts/element_spec.yaml")
+    plan = read_json(out_dir / "artifacts/template_generation_plan.json")
+    manifest = read_json(out_dir / "artifacts/build_manifest.json")
+
+    cover_candidate = next(
+        unit for unit in structure_candidates["units"] if unit["unit_id"] == "cover"
+    )
+    cover_model = next(
+        unit for unit in generation_model["units"] if unit["unit_id"] == "cover"
+    )
+    cover_elements = [
+        element
+        for element in cover_candidate["elements"]
+        if element.get("source_refs") == ["word/document.xml:p[2]"]
+    ]
+    model_cover_elements = [
+        element
+        for element in cover_model["elements"]
+        if element.get("source_refs") == ["word/document.xml:p[2]"]
+    ]
+    instruction_candidate = next(
+        element
+        for element in cover_elements
+        if element.get("candidate_policy") == "remove_instruction"
+    )
+    content_candidate = next(
+        element
+        for element in cover_elements
+        if element.get("candidate_policy") in {"fixed", "fill"}
+    )
+    instruction_spec = next(
+        element
+        for element in element_spec["elements"]
+        if element["unit_id"] == "cover"
+        and element["element_id"] == instruction_candidate["element_id"]
+    )
+    instruction_action = next(
+        action
+        for action in plan["actions"]
+        if action["action_type"] == "remove_instruction_text"
+        and action.get("unit_id") == "cover"
+        and action.get("element_id") == instruction_candidate["element_id"]
+    )
+    executed_instruction = next(
+        action
+        for action in manifest["actions_executed"]
+        if action["action_type"] == "remove_instruction_text"
+        and action.get("unit_id") == "cover"
+        and action.get("element_id") == instruction_candidate["element_id"]
+    )
+    body_main = next(
+        unit for unit in structure_candidates["units"] if unit["unit_id"] == "body_main"
+    )
+    body_paragraph_elements = [
+        element
+        for element in body_main["elements"]
+        if element.get("source_refs") == ["word/document.xml:p[5]"]
+    ]
+
+    assert result.status == Status.UNKNOWN
+    assert len(cover_elements) >= 2
+    assert len(model_cover_elements) >= 2
+    assert content_candidate["source_seq_refs"] == [2]
+    assert instruction_candidate["source_seq_refs"] == [2]
+    assert content_candidate["raw_run_ids"]
+    assert instruction_candidate["raw_run_ids"]
+    assert set(content_candidate["raw_run_ids"]).isdisjoint(
+        set(instruction_candidate["raw_run_ids"])
+    )
+    assert instruction_candidate["logical_run_ids"]
+    assert instruction_spec["policy"] == "instruction_remove"
+    assert instruction_spec["raw_run_ids"] == instruction_candidate["raw_run_ids"]
+    assert instruction_action["affected_source_seq_refs"] == [2]
+    assert instruction_action["affected_raw_run_ids"] == instruction_candidate["raw_run_ids"]
+    assert instruction_action["affected_logical_run_ids"] == instruction_candidate["logical_run_ids"]
+    assert executed_instruction["affected_raw_run_ids"] == instruction_candidate["raw_run_ids"]
+    assert any("毕业论文（设计）中文题目" in text for text in docx_texts(fillable))
+    assert not any("小二黑体加粗" in text for text in docx_texts(fillable))
+    assert len(body_paragraph_elements) == 1
 
 
 def test_template_generate_references_unit_is_fillable_not_copy_only(tmp_path) -> None:

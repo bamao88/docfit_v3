@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from docfit.core.io import write_json, write_text
+from docfit.core.io import read_json, write_json, write_text
 from docfit.core.models import Finding, StageResult
 from docfit.core.status import Status, merge_statuses
 from docfit.harness.reports import write_report_bundle
@@ -192,6 +192,8 @@ def write_template_generation_judge_outputs(
     stage_diff_paths = write_stage_standard_diff_reports(out_dir, report)
     root_cause_path = out_dir / "template_generation_root_cause_report.json"
     root_cause_md_path = out_dir / "template_generation_root_cause_report.md"
+    bridge_acceptance_path = out_dir / "template_agent_bridge_standard_acceptance.json"
+    bridge_acceptance_md_path = out_dir / "template_agent_bridge_standard_acceptance.md"
 
     write_json(run_bundle_path, report.run_bundle.to_dict())
     write_json(stage_checks_path, [check.to_dict() for check in report.stage_checks])
@@ -199,8 +201,14 @@ def write_template_generation_judge_outputs(
     write_text(quality_md_path, build_standard_quality_markdown(report.standard_quality))
     report_dict = report.to_dict()
     root_cause_report = build_template_generation_root_cause_report(report, report_dict)
+    bridge_acceptance = build_template_agent_bridge_standard_acceptance(report, report_dict)
     write_json(root_cause_path, root_cause_report)
     write_text(root_cause_md_path, build_template_generation_root_cause_markdown(root_cause_report))
+    write_json(bridge_acceptance_path, bridge_acceptance)
+    write_text(
+        bridge_acceptance_md_path,
+        build_template_agent_bridge_standard_acceptance_markdown(bridge_acceptance),
+    )
     write_json(judge_path, report_dict)
     write_text(judge_md_path, build_judge_markdown(report))
 
@@ -241,6 +249,8 @@ def write_template_generation_judge_outputs(
             "template_generation_judge_report_md": judge_md_path.name,
             "template_generation_root_cause_report": root_cause_path.name,
             "template_generation_root_cause_report_md": root_cause_md_path.name,
+            "template_agent_bridge_standard_acceptance": bridge_acceptance_path.name,
+            "template_agent_bridge_standard_acceptance_md": bridge_acceptance_md_path.name,
             **stage_quality_artifacts,
             **stage_diff_artifacts,
         },
@@ -254,6 +264,10 @@ def write_template_generation_judge_outputs(
             "mismatch_count": len(report_dict["mismatches"]),
             "root_cause_count": len(report_dict["root_causes"]),
             "owner_summary": report_dict["owner_summary"],
+            "bridge_present": bridge_acceptance["bridge_present"],
+            "bridged_output_accuracy": bridge_acceptance["bridged_output_accuracy"][
+                "aggregate_accuracy"
+            ],
         },
         stage_statuses=stage_statuses,
         blocked_at=report.first_bad_stage,
@@ -271,6 +285,8 @@ def write_template_generation_judge_outputs(
             "template_generation_judge_report_md": judge_md_path,
             "template_generation_root_cause_report": root_cause_path,
             "template_generation_root_cause_report_md": root_cause_md_path,
+            "template_agent_bridge_standard_acceptance": bridge_acceptance_path,
+            "template_agent_bridge_standard_acceptance_md": bridge_acceptance_md_path,
         }
     )
     for report_id, paths in stage_quality_paths.items():
@@ -280,6 +296,7 @@ def write_template_generation_judge_outputs(
         result.artifact_paths[report_id] = paths["json"]
         result.artifact_paths[f"{report_id}_md"] = paths["md"]
     result.artifacts["summary"] = summary
+    result.artifacts["template_agent_bridge_standard_acceptance"] = bridge_acceptance
     return result
 
 
@@ -568,6 +585,296 @@ def build_template_generation_root_cause_report(
         "owner_summary": report_dict["owner_summary"],
         "top_blockers": report_dict["top_blockers"],
     }
+
+
+def build_template_agent_bridge_standard_acceptance(
+    report: TemplateGenerationJudgeReport,
+    report_dict: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    report_dict = report_dict or report.to_dict()
+    bridge = _load_run_json(
+        report.run_bundle.source_run_dir,
+        "09.25_agent_observation_bridge.json",
+        "artifacts/template_agent_observation_bridge.json",
+    )
+    attribution = _load_run_json(
+        report.run_bundle.source_run_dir,
+        "14_agent_attribution.json",
+        "artifacts/agent_attribution.json",
+    )
+    stage_metrics = {
+        check.stage_key: _stage_accuracy_metric(report, check)
+        for check in report.stage_checks
+    }
+    numeric_scores = [
+        metric["primary_accuracy"]
+        for metric in stage_metrics.values()
+        if isinstance(metric.get("primary_accuracy"), (int, float))
+    ]
+    aggregate_accuracy = (
+        round(sum(numeric_scores) / len(numeric_scores), 4)
+        if numeric_scores
+        else None
+    )
+    return {
+        "artifact_type": "template_agent_bridge_standard_acceptance",
+        "artifact_version": "1.0",
+        "report_kind": "agent_bridge_standard_acceptance",
+        "status": report_dict["status"],
+        "standard_acceptance_status": report_dict["standard_acceptance_status"],
+        "signoff_status": report_dict["signoff_status"],
+        "source_run_id": report.run_bundle.source_run_id,
+        "source_run_dir": str(report.run_bundle.source_run_dir),
+        "bridge_present": bridge is not None,
+        "attribution_present": attribution is not None,
+        "bridge_summary": (bridge or {}).get("summary", {}),
+        "attribution_summary": {
+            "applied_proposal_ids": (attribution or {}).get("applied_proposal_ids", []),
+            "rejected_proposal_ids": (attribution or {}).get("rejected_proposal_ids", []),
+            "comparison_summary": (attribution or {}).get("comparison_summary", {}),
+            "manual_review": (attribution or {}).get("manual_review", {}),
+            "observation_bridge": (attribution or {}).get("observation_bridge", {}),
+        },
+        "bridged_output_accuracy": {
+            "aggregate_accuracy": aggregate_accuracy,
+            "metric_note": (
+                "Accuracy is derived from stage standard verifier audits after AI-to-code "
+                "bridge execution. Stages without signed fine-grained gold expose null "
+                "metrics instead of inferred precision."
+            ),
+            "stages": stage_metrics,
+        },
+        "mismatches": report_dict["mismatches"],
+        "root_causes": report_dict["root_causes"],
+        "owner_assignments": report_dict["owner_assignments"],
+        "fix_plan": report_dict["fix_plan"],
+    }
+
+
+def build_template_agent_bridge_standard_acceptance_markdown(report: dict[str, Any]) -> str:
+    accuracy = report.get("bridged_output_accuracy", {})
+    lines = [
+        "# Template Agent Bridge Standard Acceptance",
+        "",
+        f"- Status: {report['status']}",
+        f"- Standard acceptance: {report['standard_acceptance_status']}",
+        f"- Sign-off: {report['signoff_status']}",
+        f"- Bridge present: {report['bridge_present']}",
+        f"- Aggregate accuracy: {accuracy.get('aggregate_accuracy')}",
+        "",
+        "## Stage Accuracy",
+    ]
+    for stage_key, metric in (accuracy.get("stages") or {}).items():
+        lines.append(
+            "- "
+            f"{stage_key}: primary={metric.get('primary_accuracy')}, "
+            f"status={metric.get('status')}, audit={metric.get('audit_status')}"
+        )
+    lines.extend(["", "## Diagnosis"])
+    if report.get("mismatches"):
+        for mismatch in report["mismatches"]:
+            lines.append(
+                "- "
+                f"{mismatch.get('id')} {mismatch.get('field')}: "
+                f"{mismatch.get('problem')}"
+            )
+    else:
+        lines.append("- mismatches: none")
+    return "\n".join(lines) + "\n"
+
+
+def _stage_accuracy_metric(
+    report: TemplateGenerationJudgeReport,
+    check: StageCheck,
+) -> dict[str, Any]:
+    dispatch = {
+        "t2_unit_pagination": _t2_accuracy_metric,
+        "t3_element_policy": _t3_accuracy_metric,
+        "t4_global_layout": _t4_accuracy_metric,
+        "t5_template_spec": _t5_accuracy_metric,
+    }
+    builder = dispatch.get(check.stage_key)
+    if builder is None:
+        return _base_accuracy_metric(check, primary_accuracy=None)
+    return builder(report, check)
+
+
+def _base_accuracy_metric(
+    check: StageCheck,
+    *,
+    primary_accuracy: float | None,
+    **extra: Any,
+) -> dict[str, Any]:
+    return {
+        "stage_id": check.stage_id,
+        "stage_key": check.stage_key,
+        "status": check.status.value,
+        "audit_status": check.audit_status,
+        "primary_accuracy": primary_accuracy,
+        **extra,
+    }
+
+
+def _t2_accuracy_metric(
+    report: TemplateGenerationJudgeReport,
+    check: StageCheck,
+) -> dict[str, Any]:
+    del report
+    audit = check.audit
+    expected = [str(item) for item in audit.get("expected_unit_ids", []) or []]
+    actual = [str(item) for item in audit.get("actual_unit_ids", []) or []]
+    precision, recall, f1 = _set_prf(actual, expected)
+    return _base_accuracy_metric(
+        check,
+        primary_accuracy=f1,
+        precision=precision,
+        recall=recall,
+        f1=f1,
+        order_exact_match=bool(audit.get("unit_order_matches")),
+        missing_units=audit.get("missing_unit_ids", []),
+        unexpected_units=audit.get("unexpected_unit_ids", []),
+    )
+
+
+def _t3_accuracy_metric(
+    report: TemplateGenerationJudgeReport,
+    check: StageCheck,
+) -> dict[str, Any]:
+    standard = report.standard_set.stages.get(check.stage_key)
+    expected_policy_units = _expected_policy_units(standard.expected if standard else {})
+    conflicts = [
+        item
+        for item in check.audit.get("policy_group_conflicts", []) or []
+        if isinstance(item, dict)
+    ]
+    conflict_units = {
+        str(item.get("unit_id") or "")
+        for item in conflicts
+        if item.get("unit_id") not in (None, "")
+    }
+    policy_conformance = (
+        round((len(expected_policy_units) - len(conflict_units)) / len(expected_policy_units), 4)
+        if expected_policy_units
+        else None
+    )
+    artifact = report.run_bundle.artifact_for_stage(check.stage_key)
+    elements = (
+        artifact.payload.get("elements", [])
+        if artifact is not None and isinstance(artifact.payload, dict)
+        else []
+    )
+    element_count = len(elements) if isinstance(elements, list) else 0
+    required_gaps = check.audit.get("required_policy_field_gaps", []) or []
+    required_field_compliance = (
+        round(max(element_count - len(required_gaps), 0) / element_count, 4)
+        if element_count
+        else (1.0 if not required_gaps else 0.0)
+    )
+    primary = _avg_numbers([policy_conformance, required_field_compliance])
+    return _base_accuracy_metric(
+        check,
+        primary_accuracy=primary,
+        policy_group_conformance=policy_conformance,
+        required_field_compliance=required_field_compliance,
+        policy_conflict_count=len(conflicts),
+        policy_conflict_units=sorted(conflict_units),
+        required_policy_field_gap_count=len(required_gaps),
+    )
+
+
+def _t4_accuracy_metric(
+    report: TemplateGenerationJudgeReport,
+    check: StageCheck,
+) -> dict[str, Any]:
+    del report
+    audit = check.audit
+    missing_fields = audit.get("missing_evidence_fields", []) or []
+    components = [
+        1.0 if audit.get("has_global_layout_contract") else 0.0,
+        1.0 if not missing_fields else 0.0,
+        1.0 if int(audit.get("section_profile_count") or 0) > 0 else 0.0,
+        1.0 if audit.get("page_numbering_status") not in (None, "", "missing") else 0.0,
+    ]
+    return _base_accuracy_metric(
+        check,
+        primary_accuracy=round(sum(components) / len(components), 4),
+        layout_contract_completeness=round(sum(components) / len(components), 4),
+        missing_evidence_fields=missing_fields,
+        section_profile_count=audit.get("section_profile_count"),
+        page_numbering_status=audit.get("page_numbering_status"),
+        metric_note="T4 standard currently exposes contract completeness, not visual layout precision.",
+    )
+
+
+def _t5_accuracy_metric(
+    report: TemplateGenerationJudgeReport,
+    check: StageCheck,
+) -> dict[str, Any]:
+    del report
+    audit = check.audit
+    expected = [str(item) for item in audit.get("expected_unit_order", []) or []]
+    actual = [str(item) for item in audit.get("actual_unit_order", []) or []]
+    precision, recall, f1 = _set_prf(actual, expected)
+    missing_section_refs = audit.get("missing_section_profile_refs", []) or []
+    section_ref_compliance = (
+        round(max(len(actual) - len(missing_section_refs), 0) / len(actual), 4)
+        if actual
+        else None
+    )
+    primary = _avg_numbers([f1, section_ref_compliance])
+    return _base_accuracy_metric(
+        check,
+        primary_accuracy=primary,
+        precision=precision,
+        recall=recall,
+        f1=f1,
+        section_ref_compliance=section_ref_compliance,
+        missing_section_profile_refs=missing_section_refs,
+        missing_input_hashes=audit.get("missing_input_hashes", []),
+        missing_review_flags=audit.get("missing_review_flags", []),
+    )
+
+
+def _set_prf(actual: list[str], expected: list[str]) -> tuple[float, float, float]:
+    actual_set = set(actual)
+    expected_set = set(expected)
+    hit = actual_set & expected_set
+    precision = len(hit) / len(actual_set) if actual_set else 0.0
+    recall = len(hit) / len(expected_set) if expected_set else 0.0
+    f1 = (2 * precision * recall / (precision + recall)) if precision + recall else 0.0
+    return round(precision, 4), round(recall, 4), round(f1, 4)
+
+
+def _expected_policy_units(expected: dict[str, Any]) -> set[str]:
+    groups = expected.get("policy_groups", {}) if isinstance(expected, dict) else {}
+    if not isinstance(groups, dict):
+        return set()
+    result: set[str] = set()
+    for values in groups.values():
+        if isinstance(values, list):
+            result.update(str(value) for value in values if value not in (None, ""))
+    return result
+
+
+def _avg_numbers(values: list[float | None]) -> float | None:
+    numeric = [value for value in values if isinstance(value, (int, float))]
+    if not numeric:
+        return None
+    return round(sum(numeric) / len(numeric), 4)
+
+
+def _load_run_json(run_dir: Path, *relative_paths: str) -> dict[str, Any] | None:
+    for relative_path in relative_paths:
+        path = run_dir / relative_path
+        if not path.exists():
+            continue
+        try:
+            value = read_json(path)
+        except Exception:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
 
 
 def build_standard_acceptance_summary(

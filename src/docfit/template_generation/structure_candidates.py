@@ -22,6 +22,15 @@ from .text_utils import _normalize_for_match, _normalize_text, _strip_format_ann
 
 BOUNDARY_SCORE_THRESHOLD = 2
 CORE_REQUIRED_UNIT_IDS = {"body_main"}
+FORM_INSTRUCTION_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"(?:此表|本表)由[^。；;]*填写"),
+    re.compile(r"(?:此表|本表)(?:为|可|如)[^。；;]*(?:下载|填写|打印|另加|签字笔|黑色|亲笔|手工)"),
+    re.compile(r"(?:记录、)?签名栏必须[^。；;]*(?:填写|签名)"),
+    re.compile(r"意见栏必须[^。；;]*亲笔填写"),
+    re.compile(r"请在[^。；;]*(?:□|选项|对应选项)[^。；;]*打[^。；;]*(?:√|勾)"),
+    re.compile(r"任务书[^。；;]*(?:下达|依据)[^。；;]*此表[^。；;]*填写"),
+    re.compile(r"不得随意更改"),
+)
 
 
 def build_template_structure_candidates(source_tree: dict[str, Any]) -> dict[str, Any]:
@@ -185,6 +194,8 @@ def _source_context_from_source_tree(source_tree: dict[str, Any]) -> dict[str, A
         "unknown_objects": layers.get("unknown_objects", []),
         "warnings": source_tree.get("warnings", []),
         "paragraphs": data.get("paragraphs", []),
+        "runs_by_raw_run_id": indexes.get("runs_by_raw_run_id", {}),
+        "runs_by_source_ref": indexes.get("runs_by_source_ref", {}),
     }
 
 
@@ -222,6 +233,7 @@ def _infer_units(
 
     source_tree = source_tree or {}
     context = _boundary_context(source_tree)
+    run_index_by_raw = source_tree.get("indexes", {}).get("runs_by_raw_run_id", {})
     boundary_result = _boundary_anchors(entries, context)
     label_result = _label_boundaries(boundary_result["anchors"])
     zone_result = _reconcile_document_zones(label_result["anchors"])
@@ -302,9 +314,17 @@ def _infer_units(
                 "boundary_signals": anchor.get("signals", []),
                 "container": _unit_container(region_entries),
                 "page": page,
-                "elements": _copy_only_unit_elements(anchor, region_entries)
+                "elements": _copy_only_unit_elements(
+                    anchor,
+                    region_entries,
+                    run_index_by_raw=run_index_by_raw,
+                )
                 if _unit_is_copy_only_by_default(unit_id)
-                else _infer_elements(anchor, region_entries),
+                else _infer_elements(
+                    anchor,
+                    region_entries,
+                    run_index_by_raw=run_index_by_raw,
+                ),
             }
         )
 
@@ -1907,6 +1927,8 @@ def _unit_is_copy_only_by_default(unit_id: str) -> bool:
 def _copy_only_unit_elements(
     anchor: dict[str, Any],
     entries: list[dict[str, Any]],
+    *,
+    run_index_by_raw: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     source_refs = [
         str(entry.get("source_ref")) for entry in entries if entry.get("source_ref")
@@ -1945,36 +1967,51 @@ def _copy_only_unit_elements(
         }
     ]
     for group in _logical_entry_groups(entries):
-        text = _merged_text(group)
-        policy_hint = _element_policy(anchor["unit_id"], text, group[0])
-        elements.append(
-            _element_from_entries(
-                anchor,
-                group,
-                element_id=f"e_{len(elements) + 1:03d}",
-                policy=policy_hint,
-                role_hint=_role_hint_for_policy(policy_hint),
-                relationship="copy_only_internal_candidate",
-                policy_hint=policy_hint,
+        for element_group in _element_entry_groups(
+            anchor,
+            group,
+            run_index_by_raw=run_index_by_raw or {},
+        ):
+            text = _merged_text(element_group)
+            policy_hint = _element_policy(anchor["unit_id"], text, element_group[0])
+            elements.append(
+                _element_from_entries(
+                    anchor,
+                    element_group,
+                    element_id=f"e_{len(elements) + 1:03d}",
+                    policy=policy_hint,
+                    role_hint=_role_hint_for_policy(policy_hint),
+                    relationship="copy_only_internal_candidate",
+                    policy_hint=policy_hint,
+                )
             )
-        )
     return elements
 
 
-def _infer_elements(anchor: dict[str, Any], entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _infer_elements(
+    anchor: dict[str, Any],
+    entries: list[dict[str, Any]],
+    *,
+    run_index_by_raw: dict[str, dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
     elements: list[dict[str, Any]] = []
     for group in _logical_entry_groups(entries):
-        text = _merged_text(group)
-        policy = _element_policy(anchor["unit_id"], text, group[0])
-        elements.append(
-            _element_from_entries(
-                anchor,
-                group,
-                element_id=f"e_{len(elements) + 1:03d}",
-                policy=policy,
-                role_hint=_role_hint_for_policy(policy),
+        for element_group in _element_entry_groups(
+            anchor,
+            group,
+            run_index_by_raw=run_index_by_raw or {},
+        ):
+            text = _merged_text(element_group)
+            policy = _element_policy(anchor["unit_id"], text, element_group[0])
+            elements.append(
+                _element_from_entries(
+                    anchor,
+                    element_group,
+                    element_id=f"e_{len(elements) + 1:03d}",
+                    policy=policy,
+                    role_hint=_role_hint_for_policy(policy),
+                )
             )
-        )
     if not elements:
         fallback_policy = "fill" if anchor["unit_id"] == "body_main" else "fixed"
         elements.append(
@@ -1999,6 +2036,152 @@ def _infer_elements(anchor: dict[str, Any], entries: list[dict[str, Any]]) -> li
             }
         )
     return elements
+
+
+def _element_entry_groups(
+    anchor: dict[str, Any],
+    group: list[dict[str, Any]],
+    *,
+    run_index_by_raw: dict[str, dict[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    if len(group) != 1:
+        return [group]
+    slices = _within_paragraph_run_slices(anchor, group[0], run_index_by_raw)
+    if not slices:
+        return [group]
+    return [[slice_entry] for slice_entry in slices]
+
+
+def _within_paragraph_run_slices(
+    anchor: dict[str, Any],
+    entry: dict[str, Any],
+    run_index_by_raw: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    if entry.get("kind") != "paragraph":
+        return []
+    raw_run_ids = [
+        str(raw_run_id)
+        for raw_run_id in entry.get("raw_run_ids", [])
+        if raw_run_id
+    ]
+    if len(raw_run_ids) <= 1:
+        return []
+    logical_slices = _logical_run_slices(raw_run_ids, run_index_by_raw)
+    if len(logical_slices) <= 1:
+        return []
+
+    classified: list[dict[str, Any]] = []
+    for run_slice in logical_slices:
+        text = str(run_slice.get("text") or "")
+        if not text.strip():
+            continue
+        slice_entry = _slice_entry_from_run_slice(entry, run_slice)
+        policy = _element_policy(anchor["unit_id"], text, slice_entry)
+        classified.append({**slice_entry, "_slice_policy": policy})
+    if len(classified) <= 1:
+        return []
+    has_instruction = any(
+        item.get("_slice_policy") == "remove_instruction" for item in classified
+    )
+    has_content = any(
+        item.get("_slice_policy") != "remove_instruction" for item in classified
+    )
+    if not (has_instruction and has_content):
+        return []
+
+    merged: list[dict[str, Any]] = []
+    for item in classified:
+        policy = str(item.get("_slice_policy") or "")
+        if (
+            merged
+            and policy != "remove_instruction"
+            and merged[-1].get("_slice_policy") == policy
+        ):
+            merged[-1] = _merge_slice_entries(merged[-1], item)
+            continue
+        merged.append(item)
+    for item in merged:
+        item.pop("_slice_policy", None)
+    return merged
+
+
+def _logical_run_slices(
+    raw_run_ids: list[str],
+    run_index_by_raw: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    slices: list[dict[str, Any]] = []
+    by_logical_id: dict[str, dict[str, Any]] = {}
+    for raw_run_id in raw_run_ids:
+        run = run_index_by_raw.get(raw_run_id)
+        if not run:
+            return []
+        logical_run_id = str(run.get("logical_run_id") or raw_run_id)
+        current = by_logical_id.get(logical_run_id)
+        if current is None:
+            current = {
+                "text": str(run.get("text") or ""),
+                "raw_run_ids": [],
+                "logical_run_ids": [logical_run_id],
+                "source_refs": [],
+                "style_details": {
+                    "dominant_run": run.get("effective_style") or {},
+                    "paragraph": {},
+                },
+            }
+            by_logical_id[logical_run_id] = current
+            slices.append(current)
+        current["raw_run_ids"].append(raw_run_id)
+        source_ref = run.get("source_ref")
+        if source_ref:
+            current["source_refs"].append(str(source_ref))
+    return slices
+
+
+def _slice_entry_from_run_slice(
+    entry: dict[str, Any],
+    run_slice: dict[str, Any],
+) -> dict[str, Any]:
+    logical_run_ids = list(run_slice.get("logical_run_ids", []))
+    return {
+        **entry,
+        "kind": "run_slice",
+        "flow_item_type": "run_slice",
+        "text": run_slice.get("text", ""),
+        "raw_run_ids": list(run_slice.get("raw_run_ids", [])),
+        "logical_run_ids": logical_run_ids,
+        "run_source_refs": list(run_slice.get("source_refs", [])),
+        "style_details": run_slice.get("style_details")
+        or entry.get("style_details", {}),
+        "node_id": f"{entry.get('node_id')}:run_slice:{'-'.join(logical_run_ids)}",
+        "slice_origin_kind": entry.get("kind"),
+    }
+
+
+def _merge_slice_entries(
+    previous: dict[str, Any],
+    current: dict[str, Any],
+) -> dict[str, Any]:
+    previous_logical = list(previous.get("logical_run_ids", []))
+    return {
+        **previous,
+        "text": f"{previous.get('text', '')}{current.get('text', '')}",
+        "raw_run_ids": [
+            *list(previous.get("raw_run_ids", [])),
+            *list(current.get("raw_run_ids", [])),
+        ],
+        "logical_run_ids": [
+            *previous_logical,
+            *[
+                logical_run_id
+                for logical_run_id in current.get("logical_run_ids", [])
+                if logical_run_id not in previous_logical
+            ],
+        ],
+        "run_source_refs": [
+            *list(previous.get("run_source_refs", [])),
+            *list(current.get("run_source_refs", [])),
+        ],
+    }
 
 
 def _logical_entry_groups(entries: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
@@ -2171,6 +2354,9 @@ def _element_from_entries(
         str(entry.get("source_ref")) for entry in entries if entry.get("source_ref")
     ]
     source_seq_refs = _source_seq_refs_for_entries(entries)
+    raw_run_ids = _entry_list_values(entries, "raw_run_ids")
+    logical_run_ids = _entry_list_values(entries, "logical_run_ids")
+    run_source_refs = _entry_list_values(entries, "run_source_refs")
     source_ref = source_refs[0] if source_refs else ""
     candidate_policy = policy_hint or policy
     merge = _merge_details_for_entries(entries, source_seq_refs)
@@ -2196,6 +2382,9 @@ def _element_from_entries(
         ),
         "source_refs": source_refs,
         "source_seq_refs": source_seq_refs,
+        "raw_run_ids": raw_run_ids,
+        "logical_run_ids": logical_run_ids,
+        "run_source_refs": run_source_refs,
         "entry_refs": [
             str(entry.get("node_id")) for entry in entries if entry.get("node_id")
         ],
@@ -2204,16 +2393,35 @@ def _element_from_entries(
             "kind": first_entry.get("kind"),
             "container_ref": first_entry.get("container_ref"),
             "source_refs": source_refs,
+            "run_source_refs": run_source_refs,
         },
         "confidence": "medium",
         "review_notes": [],
     }
 
 
+def _entry_list_values(entries: list[dict[str, Any]], key: str) -> list[str]:
+    values: list[str] = []
+    for entry in entries:
+        for value in entry.get(key, []) or []:
+            if value is None:
+                continue
+            text = str(value)
+            if text and text not in values:
+                values.append(text)
+    return values
+
+
 def _merge_details_for_entries(
     entries: list[dict[str, Any]],
     source_seq_refs: list[int],
 ) -> dict[str, Any]:
+    if len(entries) == 1 and entries[0].get("kind") == "run_slice":
+        return {
+            "type": "within_paragraph_run_split",
+            "merged_source_seq_refs": source_seq_refs,
+            "reason": "同一段落内按 run 边界拆出候选元素",
+        }
     if len(entries) == 1:
         return {
             "type": "single_source_entry",
@@ -2465,11 +2673,20 @@ def _looks_like_instruction(text: str) -> bool:
         text,
     ):
         return False
+    if _looks_like_form_instruction(text):
+        return True
     if template_units.contains_instruction_marker(text):
         return True
     if any(marker in text for marker in INSTRUCTION_MARKERS):
         return True
     return bool(re.search(r"[（(].*(宋体|黑体|楷体|居中|行距|字号|号字|pt).*[）)]", text))
+
+
+def _looks_like_form_instruction(text: str) -> bool:
+    stripped = re.sub(r"\s+", "", text.strip())
+    if not stripped:
+        return False
+    return any(pattern.search(stripped) for pattern in FORM_INSTRUCTION_PATTERNS)
 
 
 def _instruction_class(text: str) -> str:

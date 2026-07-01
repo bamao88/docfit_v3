@@ -189,6 +189,8 @@ def _build_unit_strategies(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
                             "content": element.get("content") or element.get("name") or "",
                             "source_ref": source_ref,
                             "source_seq_refs": _source_seq_refs(element),
+                            "raw_run_ids": element.get("raw_run_ids", []),
+                            "logical_run_ids": element.get("logical_run_ids", []),
                             "reason": _decision_reason("remove_instruction_text"),
                         }
                     )
@@ -203,6 +205,8 @@ def _build_unit_strategies(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
                             "content": element.get("content") or element.get("name") or "",
                             "source_ref": source_ref,
                             "source_seq_refs": _source_seq_refs(element),
+                            "raw_run_ids": element.get("raw_run_ids", []),
+                            "logical_run_ids": element.get("logical_run_ids", []),
                             "reason": _decision_reason("create_manual_placeholder"),
                         }
                     )
@@ -237,6 +241,8 @@ def _build_unit_strategies(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
                         "content": element.get("content") or element.get("name") or "",
                         "source_ref": source_ref,
                         "source_seq_refs": _source_seq_refs(element),
+                        "raw_run_ids": element.get("raw_run_ids", []),
+                        "logical_run_ids": element.get("logical_run_ids", []),
                         "reason": _decision_reason(decision_type),
                     }
                 )

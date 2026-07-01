@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 from typing import Any
 
 from docx import Document
@@ -17,6 +18,47 @@ def _clear_cell(cell: _Cell) -> None:
         _remove_paragraph(paragraph)
     if not cell.paragraphs:
         cell.add_paragraph("")
+
+
+def _clear_runs_by_raw_run_ids(
+    paragraph: Paragraph,
+    source_ref: str | None,
+    raw_run_ids: list[str],
+) -> str | None:
+    source_paragraph_index = _source_ref_paragraph_index(source_ref)
+    run_indices: list[int] = []
+    for raw_run_id in raw_run_ids:
+        parsed = _parse_raw_run_id(raw_run_id)
+        if parsed is None:
+            return None
+        paragraph_index, run_index = parsed
+        if (
+            source_paragraph_index is not None
+            and paragraph_index != source_paragraph_index
+        ):
+            return None
+        run_indices.append(run_index)
+    runs = list(paragraph.runs)
+    if not run_indices or any(index < 1 or index > len(runs) for index in run_indices):
+        return None
+    for run_index in sorted(set(run_indices)):
+        runs[run_index - 1].text = ""
+    joined = ",".join(raw_run_ids)
+    return f"{source_ref}/runs[{joined}]:cleared"
+
+
+def _source_ref_paragraph_index(source_ref: str | None) -> int | None:
+    if not source_ref:
+        return None
+    match = re.search(r"word/document\.xml:p\[(\d+)\]", source_ref)
+    return int(match.group(1)) if match else None
+
+
+def _parse_raw_run_id(raw_run_id: str) -> tuple[int, int] | None:
+    match = re.search(r"(?:^|\.)p_(\d{4})\.r_(\d{3})$", raw_run_id)
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
 
 
 def _insert_marker(

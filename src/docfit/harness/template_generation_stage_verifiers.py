@@ -489,12 +489,34 @@ def _audit_t3_element_policy(
                 bucket="artifact_schema",
             )
         )
+    run_level_gaps = _t3_run_level_element_gaps(
+        elements,
+        _dict_items(expected.get("run_level_elements")),
+    )
+    if run_level_gaps:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.FAIL,
+                "t3_run_level_element_mismatch",
+                "Run-level element expectations must match element_spec",
+                expected.get("run_level_elements", []),
+                run_level_gaps[:30],
+                affected_ids=[
+                    str(item.get("unit_id") or item.get("source_seq"))
+                    for item in run_level_gaps[:30]
+                ],
+                bucket="stage_standard_mismatch",
+            )
+        )
     return {
         "artifact_type": payload.get("artifact_type"),
         "expected_unit_order": expected_order,
         "actual_unit_order": actual_order,
         "policy_group_conflicts": conflicts,
         "required_policy_field_gaps": missing_required,
+        "run_level_element_gaps": run_level_gaps,
     }, findings
 
 
@@ -776,6 +798,75 @@ def _required_policy_field_gaps(
         if missing:
             gaps.append({**_element_ref(element), "policy": policy, "missing": missing})
     return gaps
+
+
+def _t3_run_level_element_gaps(
+    elements: list[dict[str, Any]],
+    expectations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    gaps: list[dict[str, Any]] = []
+    for expectation in expectations:
+        unit_id = str(expectation.get("unit_id") or "")
+        source_seq = str(expectation.get("source_seq") or "")
+        expected_elements = _dict_items(expectation.get("expected_elements"))
+        candidates = [
+            element
+            for element in elements
+            if str(element.get("unit_id") or "") == unit_id
+            and (
+                not source_seq
+                or source_seq
+                in {str(ref) for ref in element.get("source_seq_refs", []) or []}
+            )
+        ]
+        for expected_element in expected_elements:
+            if not _t3_has_expected_run_level_element(candidates, expected_element):
+                gaps.append(
+                    {
+                        "unit_id": unit_id,
+                        "source_seq": expectation.get("source_seq"),
+                        "expected": expected_element,
+                        "actual_candidates": [
+                            {
+                                **_element_ref(candidate),
+                                "policy": candidate.get("policy"),
+                                "content": candidate.get("content"),
+                                "raw_run_ids": candidate.get("raw_run_ids", []),
+                                "logical_run_ids": candidate.get("logical_run_ids", []),
+                                "source_seq_refs": candidate.get("source_seq_refs", []),
+                            }
+                            for candidate in candidates
+                        ],
+                    }
+                )
+    return gaps
+
+
+def _t3_has_expected_run_level_element(
+    candidates: list[dict[str, Any]],
+    expected_element: dict[str, Any],
+) -> bool:
+    for candidate in candidates:
+        policy = expected_element.get("policy")
+        if policy is not None and str(candidate.get("policy") or "") != str(policy):
+            continue
+        expected_raw_run_ids = _string_list(expected_element.get("raw_run_ids"))
+        if (
+            expected_raw_run_ids
+            and _string_list(candidate.get("raw_run_ids")) != expected_raw_run_ids
+        ):
+            continue
+        expected_logical_run_ids = _string_list(expected_element.get("logical_run_ids"))
+        if (
+            expected_logical_run_ids
+            and _string_list(candidate.get("logical_run_ids")) != expected_logical_run_ids
+        ):
+            continue
+        content_contains = str(expected_element.get("content_contains") or "")
+        if content_contains and content_contains not in str(candidate.get("content") or ""):
+            continue
+        return True
+    return False
 
 
 def _review_flag_gaps(

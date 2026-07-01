@@ -10,9 +10,11 @@ def build_agent_manual_review_items(
     transcript: dict[str, Any],
     comparison: dict[str, Any],
     decisions: dict[str, Any],
+    observation_bridge: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     items: list[dict[str, Any]] = []
     items.extend(_open_question_items(transcript))
+    items.extend(_bridge_items(observation_bridge or {}))
     represented_by_comparison: set[str] = set()
     for item in comparison.get("items", []) or []:
         if not isinstance(item, dict) or not item.get("manual_review_required"):
@@ -114,6 +116,32 @@ def _open_question_items(transcript: dict[str, Any]) -> list[dict[str, Any]]:
                         "question_id": question.get("question_id") or question.get("id"),
                     }
                 )
+    return items
+
+
+def _bridge_items(bridge: dict[str, Any]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for item in bridge.get("manual_review_items", []) or []:
+        if not isinstance(item, dict):
+            continue
+        items.append(
+            {
+                "source": item.get("source") or "observation_bridge",
+                "round_id": None,
+                "layer": item.get("layer"),
+                "blocking_level": item.get("blocking_level") or "blocking",
+                "reason_code": item.get("reason_code") or "OBSERVATION-BRIDGE",
+                "summary": item.get("summary") or "AI observation bridge requires manual review",
+                "affected_refs": item.get("affected_refs", {}),
+                "agent_submission_summary": item.get("agent_submission_summary"),
+                "deterministic_summary": item.get("deterministic_summary"),
+                "suggested_candidate_policies": item.get("suggested_candidate_policies", []),
+                "required_human_action": item.get(
+                    "required_human_action",
+                    "Review the AI observation before allowing it into code generation.",
+                ),
+            }
+        )
     return items
 
 
