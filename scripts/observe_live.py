@@ -185,7 +185,14 @@ def main() -> None:
             f"(评{t3['units_evaluated']}单元) 必填合规={t3['required_field_compliance']} "
             f"mismatch={[m['unit_id'] for m in t3['policy_mismatches']]}"
         )
-        print(f"  T4 版式: abstained={t4['abstained']}（无页图，暂不可评）")
+        if t4.get("page_policy_evaluable"):
+            print(
+                f"  T4 版式: 页隔离准确率={t4['page_isolation_accuracy']} "
+                f"(评{t4['units_evaluated']}单元, {t4['page_count']}页) "
+                f"mismatch={[m['unit_id'] for m in t4['page_policy_mismatches']]}"
+            )
+        else:
+            print(f"  T4 版式: 全局版式已产出={t4['global_profile_present']}；页策略不可评（未渲染，加 --docx）")
 
 
 if __name__ == "__main__":

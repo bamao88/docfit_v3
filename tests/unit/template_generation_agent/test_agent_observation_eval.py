@@ -83,6 +83,53 @@ def test_element_stage_required_field_compliance() -> None:
     assert result["required_field_compliance"] == 0.75
 
 
-def test_layout_stage_reports_abstain() -> None:
-    assert evaluate_layout_stage({"abstain": True}, {})["evaluable"] is False
-    assert evaluate_layout_stage({"abstain": False, "items": [{}]}, {})["evaluable"] is True
+def test_layout_page_policy_not_evaluable_without_render() -> None:
+    r = evaluate_layout_stage(
+        {"items": [{"source": "deterministic_facts"}]}, {"items": []}, {}
+    )
+    assert r["global_profile_present"] is True
+    assert r["page_policy_evaluable"] is False
+
+
+def test_layout_page_isolation_accuracy_vs_gold() -> None:
+    # cover 独占 page1；abstract_cn + abstract_en 共享 page2（flowing）。
+    layout = {
+        "items": [{"source": "deterministic_facts"}],
+        "page_map": {"1": 1, "2": 1, "3": 2, "4": 2},
+        "page_count": 2,
+    }
+    units = {
+        "items": [
+            {"unit_id": "cover", "source_seq_refs": [1, 2]},
+            {"unit_id": "abstract_cn", "source_seq_refs": [3]},
+            {"unit_id": "abstract_en", "source_seq_refs": [4]},
+        ]
+    }
+    std = {
+        "expected": {
+            "layout_policy": {
+                "standalone_units": ["cover"],
+                "flowing_units": ["abstract_cn", "abstract_en"],
+            }
+        }
+    }
+    r = evaluate_layout_stage(layout, units, std)
+    assert r["page_policy_evaluable"] is True
+    assert r["units_evaluated"] == 3
+    assert r["page_isolation_accuracy"] == 1.0
+    assert r["page_policy_mismatches"] == []
+
+
+def test_layout_page_policy_mismatch_becomes_open_question() -> None:
+    # cover 与 toc 挤在 page1 → cover 实测 flowing，但 gold 要 standalone → mismatch + open_question。
+    layout = {"items": [{"source": "deterministic_facts"}], "page_map": {"1": 1, "2": 1}}
+    units = {
+        "items": [
+            {"unit_id": "cover", "source_seq_refs": [1]},
+            {"unit_id": "toc", "source_seq_refs": [2]},
+        ]
+    }
+    std = {"expected": {"layout_policy": {"standalone_units": ["cover", "toc"], "flowing_units": []}}}
+    r = evaluate_layout_stage(layout, units, std)
+    assert r["page_isolation_accuracy"] == 0.0
+    assert {q["check_id"] for q in r["open_questions"]} == {"C-LAYOUT-PAGE-POLICY"}

@@ -143,16 +143,92 @@ def evaluate_element_stage(
 
 def evaluate_layout_stage(
     ai_layout_observation: dict[str, Any],
+    ai_unit_observation: dict[str, Any],
     t4_standard: dict[str, Any],
 ) -> dict[str, Any]:
-    """T4：无真实页图时 AI abstain，版式准确率不可评。"""
+    """T4：用确定性 page_map + AI 单元算每单元页隔离，对照 gold layout_policy。
 
-    del t4_standard
+    gold.layout_policy 把单元分 standalone(独立页) / flowing(可连续流动)。渲染后
+    page_map(seq→page) 是确定性事实，据此判每单元是否独占页，与 gold 比即页策略准确率。
+    无渲染时只有全局版式，页策略不可评。
+    """
+
+    global_profile_present = any(
+        it.get("source") == "deterministic_facts" for it in ai_layout_observation.get("items", [])
+    )
+    page_map_raw = ai_layout_observation.get("page_map") or {}
+    if not page_map_raw:
+        return {
+            "stage": "t4_layout",
+            "global_profile_present": global_profile_present,
+            "page_policy_evaluable": False,
+            "note": "无渲染页图 → 只产出全局版式，每单元页隔离策略不可评（需 --docx 渲染）。",
+        }
+
+    page_map = {int(k): int(v) for k, v in page_map_raw.items()}
+    policy = t4_standard.get("expected", {}).get("layout_policy", {}) or {}
+    gold_standalone = set(policy.get("standalone_units", []) or [])
+    gold_flowing = set(policy.get("flowing_units", []) or [])
+
+    # 每单元 → 覆盖的页；每页 → 覆盖的单元。
+    unit_pages: dict[str, set[int]] = {}
+    for item in ai_unit_observation.get("items", []):
+        unit_id = str(item.get("unit_id") or "")
+        if not unit_id or unit_id == "unknown_unit":
+            continue
+        pages = {page_map[s] for s in item.get("source_seq_refs", []) if s in page_map}
+        if pages:
+            unit_pages.setdefault(unit_id, set()).update(pages)
+    page_units: dict[int, set[str]] = {}
+    for unit_id, pages in unit_pages.items():
+        for page in pages:
+            page_units.setdefault(page, set()).add(unit_id)
+
+    # standalone = 该单元**独占至少一整页**（存在只有它的页）；否则 flowing。
+    # 用“独占某页”而非“任何页不共享”，避免相邻单元在边界页共享导致的误判。
+    predicted = {
+        u: ("standalone" if any(page_units[p] == {u} for p in ps) else "flowing")
+        for u, ps in unit_pages.items()
+    }
+
+    def gold_policy(unit_id: str) -> str | None:
+        if unit_id in gold_standalone:
+            return "standalone"
+        if unit_id in gold_flowing:
+            return "flowing"
+        return None
+
+    evaluated = [u for u in predicted if gold_policy(u) is not None]
+    matches = [u for u in evaluated if predicted[u] == gold_policy(u)]
+    mismatches = [
+        {
+            "unit_id": u,
+            "expected": gold_policy(u),
+            "predicted": predicted[u],
+            "pages": sorted(unit_pages[u]),
+        }
+        for u in evaluated
+        if predicted[u] != gold_policy(u)
+    ]
+    open_questions = [
+        {
+            "question_id": f"q_page_policy_{m['unit_id']}",
+            "blocking_level": "non_blocking",
+            "check_id": "C-LAYOUT-PAGE-POLICY",
+            "affected_unit": m["unit_id"],
+            "reason": f"页隔离策略与 gold 不符：gold={m['expected']} 实测={m['predicted']} 页={m['pages']}",
+        }
+        for m in mismatches
+    ]
     return {
         "stage": "t4_layout",
-        "abstained": bool(ai_layout_observation.get("abstain")),
-        "evaluable": not ai_layout_observation.get("abstain"),
-        "note": "无真实页图 → abstain（设计如此）；需接页图渲染后才可评版式准确率。",
+        "global_profile_present": global_profile_present,
+        "page_policy_evaluable": True,
+        "page_count": ai_layout_observation.get("page_count"),
+        "units_evaluated": len(evaluated),
+        "page_isolation_accuracy": round(len(matches) / len(evaluated), 4) if evaluated else 0.0,
+        "page_policy_mismatches": mismatches,
+        "open_questions": open_questions,
     }
 
 
@@ -164,7 +240,9 @@ def evaluate_bundle(bundle: dict[str, Any], *, school: str, root: Path = STANDAR
         bundle["ai_element_observation"], load_stage_standard(school, "t3", root=root)
     )
     t4 = evaluate_layout_stage(
-        bundle["ai_layout_observation"], load_stage_standard(school, "t4", root=root)
+        bundle["ai_layout_observation"],
+        bundle["ai_unit_observation"],
+        load_stage_standard(school, "t4", root=root),
     )
     return {
         "artifact_type": "ai_observation_eval",
