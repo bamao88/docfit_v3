@@ -1,5 +1,5 @@
 ---
-status: in_execution
+status: done
 owner: template-generation
 stage: T4
 topic: module1-t4-observation-fix
@@ -92,3 +92,12 @@ related_code:
 ## 执行纪律
 
 严格按 Phase 1→2→3 顺序；每 Phase 跑门禁 + 提交后再进下一步；渲染等外部依赖失败**如实标 blocked，不绕过、不伪造**。
+
+## 执行结果（2026-07-02）
+
+- **Phase 1** `64d3f46`：T4 产出确定性全局 section_profile（页边距/纸张/页码），不再整体 abstain。
+- **Phase 2** `1c9be8e`：渲染在本环境**成功**（hunannongye→22 页 PNG）。**偏差（已记录，更稳）**：计划本想让模型判视觉，但 LiveResponder 是文本通道（无多模态），且渲染已给出确定性 per-seq page_no（pdftotext 版面）——改用确定性页结构，可验证、不幻觉；模型视觉留后续。
+- **Phase 3** `f01aaba`：T4 页隔离对 gold 打分 + 冲突→open_questions。
+- **真实结果（hunannongye, 渲染后）**：T2 单元 1.0；T3 必填合规 1.0；**T4 页隔离 0.6875(11/16)**，21 页；5 个 mismatch 出成 open_questions，其中如 proposal_record 页码=[1,2,11,15] 暴露 T2-seq/渲染绑定的真实问题，供人工复核（安全阀生效）。
+- 108 个 agent 测试通过；改动文件 0 pyright 错误；default-off 不变；防火墙不破。
+- 遗留待查（新 issue）：部分后置表单 source_seq→page 映射异常（跨页 1,2,11…），疑似 render binding 或 T2 边界，另开诊断。
