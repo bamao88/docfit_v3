@@ -150,6 +150,9 @@ def build_t4_evidence(packet: dict[str, Any]) -> dict[str, Any]:
         "source_render_hash": packet.get("source_render_hash"),
         "render_status": packet.get("render_status"),
         "render_available": real_render,
+        # Track A：确定性全局版式事实（无需页图）。
+        "global_layout_facts": packet.get("global_layout_facts", {}),
+        # Track B：真实页图（视觉分页）。
         "page_images": clean_images,
         "page_layout_index": [_project(item, "t4") for item in packet.get("page_layout_index", [])],
     }

@@ -110,7 +110,8 @@ def test_element_accepts_valid_fill_with_source() -> None:
     assert obs["items"][0]["policy"] == "fill"
 
 
-def test_layout_abstains_without_real_render() -> None:
+def test_layout_visual_abstains_without_facts_or_images() -> None:
+    # 无分节事实(helpers sections=[]) 且无页图 → 无确定性 profile → 仍整体弃权。
     packet = clean_packet()
     obs = materialize_layout_observation(
         {"section_profiles": [{"section_profile_id": "s1"}]},
@@ -118,4 +119,31 @@ def test_layout_abstains_without_real_render() -> None:
         render_available=False,
     )
     assert obs["abstain"] is True
-    assert "C-LAYOUT-ABSTAIN" in demotion_checks(obs)
+    assert obs["visual_abstained"] is True
+    assert "C-LAYOUT-VISUAL-ABSTAIN" in demotion_checks(obs)
+
+
+def test_layout_track_a_deterministic_profile_from_facts() -> None:
+    # 有分节事实 + 无页图 → Track A 确定性全局 profile；不整体 abstain，仅视觉子项弃权。
+    packet = clean_packet()
+    packet["global_layout_facts"] = {
+        "sections": [
+            {
+                "index": 1,
+                "page_margins": {"top_pt": 56.7, "left_pt": 73.7},
+                "page_size": {"width_pt": 595.3, "height_pt": 841.9, "orientation": "portrait"},
+                "page_numbering": {"format": "decimal", "start": None},
+                "references": [{"kind": "header", "type": "default", "part_name": "word/header1.xml"}],
+            }
+        ],
+        "header_footer": [{"kind": "header", "part_name": "word/header1.xml", "has_content": False}],
+        "numbering_definition_count": 0,
+    }
+    obs = materialize_layout_observation({"section_profiles": []}, packet=packet, render_available=False)
+    assert obs["abstain"] is False  # 有确定性 profile
+    assert obs["visual_abstained"] is True  # 视觉子项仍弃权
+    assert len(obs["items"]) == 1
+    profile = obs["items"][0]
+    assert profile["source"] == "deterministic_facts"
+    assert profile["page_setup"]["page_size"]["orientation"] == "portrait"
+    assert profile["page_numbering"]["format"] == "decimal"

@@ -118,14 +118,18 @@ def run_observation_pipeline(
     )
     timing["t3_seconds"] = round(time.monotonic() - t3_start, 2)
 
-    # --- Pass-T4：真实页图（否则 abstain） → 物化 ---
+    # --- Pass-T4：Track A 确定性全局版式(无需模型) + Track B 视觉分页(仅有页图时问模型) ---
     t4_start = time.monotonic()
     t4_evidence = build_t4_evidence(packet)
-    layout_payload = responder.fetch_layout(evidence=t4_evidence)
+    render_available = bool(t4_evidence.get("render_available"))
+    # 无真实页图 → Track A 是确定性事实投影，不调用模型（D8a）。
+    layout_payload = (
+        responder.fetch_layout(evidence=t4_evidence) if render_available else {"section_profiles": []}
+    )
     layout_observation = materialize_layout_observation(
         layout_payload,
         packet=packet,
-        render_available=bool(t4_evidence.get("render_available")),
+        render_available=render_available,
         model=config.model,
     )
     timing["t4_seconds"] = round(time.monotonic() - t4_start, 2)

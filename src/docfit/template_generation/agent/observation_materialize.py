@@ -187,22 +187,34 @@ def materialize_layout_observation(
     survivors: list[dict[str, Any]] = []
     unknown_items: list[dict[str, Any]] = []
 
-    # T4 无真实页图 → 一等公民 abstain，不幻觉版式。
+    # Track A：从确定性全局版式事实构造 section_profile（无需图/模型，不会幻觉）。
+    global_facts = packet.get("global_layout_facts", {}) or {}
+    survivors.extend(_deterministic_global_profiles(global_facts, valid_seq))
+
+    # Track B：视觉分页只在有真实页图时用模型输出；无图则该子项弃权，但不整体 abstain。
+    visual_abstained = not render_available
     if not render_available:
-        observation = _envelope(
-            "ai_layout_observation",
+        if raw_payload.get("section_profiles"):
+            unknown_items.extend(list(raw_payload.get("section_profiles", []) or []))
+        demotions.append(
+            _demotion(
+                "layout_visual",
+                "C-LAYOUT-VISUAL-ABSTAIN",
+                "no real_render page images; visual per-unit sub-scope abstained (Track B)",
+            )
+        )
+        items = _resolve_overlap(survivors, unknown_items, demotions, id_key="section_profile_id")
+        observation = _finalize_layout(
             packet=packet,
             model=model,
-            items=[],
-            unknown_items=list(raw_payload.get("section_profiles", []) or []),
-            coverage=compute_coverage([], all_source_seq=valid_seq),
-            demotions=[_demotion("layout", "C-LAYOUT-ABSTAIN", "no real_render page images; abstaining")],
-            self_consistency=None,
+            items=items,
+            unknown_items=unknown_items,
+            coverage=compute_coverage(items, all_source_seq=valid_seq),
+            demotions=demotions,
+            global_facts=global_facts,
+            raw_payload=raw_payload,
+            visual_abstained=visual_abstained,
         )
-        observation["abstain"] = True
-        observation["default_font"] = None
-        observation["page_numbering"] = None
-        observation["header_footer"] = []
         return observation
 
     for index, raw in enumerate(raw_payload.get("section_profiles", []) or []):
@@ -237,7 +249,69 @@ def materialize_layout_observation(
         )
 
     items = _resolve_overlap(survivors, unknown_items, demotions, id_key="section_profile_id")
-    coverage = compute_coverage(items, all_source_seq=valid_seq)
+    return _finalize_layout(
+        packet=packet,
+        model=model,
+        items=items,
+        unknown_items=unknown_items,
+        coverage=compute_coverage(items, all_source_seq=valid_seq),
+        demotions=demotions,
+        global_facts=global_facts,
+        raw_payload=raw_payload,
+        visual_abstained=False,
+    )
+
+
+def _deterministic_global_profiles(
+    global_facts: dict[str, Any],
+    valid_seq: set[int],
+) -> list[dict[str, Any]]:
+    """Track A：把 T1 分节事实确定性地转成 section_profile（不问模型，不幻觉）。
+
+    源事实里分节没有 source_seq 边界（paragraph_index 为空）；单分节则覆盖全文，
+    多分节则各建 profile 但不硬绑 seq（边界要靠 Track B 页图，见修复计划）。
+    """
+
+    sections = global_facts.get("sections") or []
+    if not sections:
+        return []
+    single = len(sections) == 1
+    profiles: list[dict[str, Any]] = []
+    for index, section in enumerate(sections):
+        if not isinstance(section, dict):
+            continue
+        profiles.append(
+            {
+                "section_profile_id": f"section_{section.get('index', index)}",
+                "source": "deterministic_facts",
+                "confidence": "high",
+                "page_setup": {
+                    "page_margins": section.get("page_margins"),
+                    "page_size": section.get("page_size"),
+                },
+                "page_numbering": section.get("page_numbering"),
+                "header_footer": section.get("references", []),
+                "source_seq_refs": sorted(valid_seq) if single else [],
+                "boundary_source": (
+                    "single_section_covers_document" if single else "unknown_from_facts_needs_render"
+                ),
+            }
+        )
+    return profiles
+
+
+def _finalize_layout(
+    *,
+    packet: dict[str, Any],
+    model: str,
+    items: list[dict[str, Any]],
+    unknown_items: list[dict[str, Any]],
+    coverage: dict[str, Any],
+    demotions: list[dict[str, Any]],
+    global_facts: dict[str, Any],
+    raw_payload: dict[str, Any],
+    visual_abstained: bool,
+) -> dict[str, Any]:
     observation = _envelope(
         "ai_layout_observation",
         packet=packet,
@@ -248,10 +322,13 @@ def materialize_layout_observation(
         demotions=demotions,
         self_consistency=None,
     )
+    # 有确定性全局 profile 就不整体 abstain；只标视觉子项是否弃权。
+    observation["abstain"] = not items
+    observation["visual_abstained"] = visual_abstained
     observation["default_font"] = raw_payload.get("default_font")
-    observation["page_numbering"] = raw_payload.get("page_numbering")
-    observation["header_footer"] = raw_payload.get("header_footer", [])
+    observation["header_footer"] = global_facts.get("header_footer", [])
     observation["numbering_rules"] = raw_payload.get("numbering_rules", [])
+    observation["numbering_definition_count"] = global_facts.get("numbering_definition_count", 0)
     return observation
 
 
