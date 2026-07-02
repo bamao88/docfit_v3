@@ -329,6 +329,29 @@ def _finalize_layout(
     observation["header_footer"] = global_facts.get("header_footer", [])
     observation["numbering_rules"] = raw_payload.get("numbering_rules", [])
     observation["numbering_definition_count"] = global_facts.get("numbering_definition_count", 0)
+
+    # Track B(确定性)：有真实页图渲染时，page_layout_index 带 per-seq 真实 page_no
+    # （pdftotext 版面），据此给出确定性页结构——无需模型视觉，不幻觉。
+    if not visual_abstained:
+        page_map = {
+            seq: page
+            for seq, page in (
+                (_int_or_none(i.get("source_seq")), _int_or_none(i.get("page_no")))
+                for i in packet.get("page_layout_index", [])
+                if isinstance(i, dict)
+            )
+            if seq is not None and page is not None
+        }
+        pages = sorted(set(page_map.values()))
+        observation["page_structure_source"] = "deterministic_pdf_layout"
+        observation["page_count"] = len(pages)
+        observation["page_map"] = {str(k): v for k, v in sorted(page_map.items())}
+        for profile in observation["items"]:
+            spanned = sorted({page_map[s] for s in profile.get("source_seq_refs", []) if s in page_map})
+            profile["pages"] = spanned
+    else:
+        observation["page_structure_source"] = "unavailable_no_render"
+        observation["page_count"] = None
     return observation
 
 

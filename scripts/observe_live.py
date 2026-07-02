@@ -43,6 +43,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Module 1 live observation (real model)")
     parser.add_argument("--facts", type=Path, default=DEFAULT_FACTS, help="document_facts.json path")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="output dir")
+    parser.add_argument(
+        "--docx",
+        type=Path,
+        default=None,
+        help="source template .docx to render for T4 page facts (docx->pdf->png). "
+        "If omitted and --eval-school is set, infers inputs/targets/<school>/raw/source_template.docx",
+    )
     parser.add_argument("--samples", type=int, default=1, help="T2 self-consistency samples")
     parser.add_argument("--t3-concurrency", type=int, default=8, help="parallel per-unit T3 calls")
     parser.add_argument("--temperature", type=float, default=0.4)
@@ -78,10 +85,19 @@ def main() -> None:
     if args.thinking and args.out == DEFAULT_OUT:
         args.out = DEFAULT_OUT.parent / "observation_live_think"
 
+    # T4 页事实：渲染源 docx。未显式给 --docx 时，按 --eval-school 推断标准里的源 docx。
+    docx = args.docx
+    if docx is None and args.eval_school:
+        inferred = Path("inputs/targets") / args.eval_school / "raw" / "source_template.docx"
+        if inferred.exists():
+            docx = inferred
+
     facts = read_json(args.facts)
     packet = build_template_agent_render_packet(
         document_facts=facts,
         structure_candidates={},  # 防火墙：不喂任何代码结构结论
+        source_template_docx=docx,  # 有则渲染→页图+per-seq page_no（确定性）
+        render_artifacts_dir=(args.out / "render") if docx else None,
     )
     total = len(packet_source_seq_set(packet))
 
@@ -100,6 +116,7 @@ def main() -> None:
 
     print(f"facts      : {args.facts}")
     print(f"source_seq : {total}")
+    print(f"render     : {packet.get('render_status')}  docx={docx}")
     print(f"model      : {model}  thinking={args.thinking}")
     print(f"samples    : {args.samples}  t3_concurrency={args.t3_concurrency}  cache={args.cache_dir} refresh={args.refresh}")
     wall_start = time.monotonic()

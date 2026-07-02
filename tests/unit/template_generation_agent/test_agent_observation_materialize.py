@@ -142,8 +142,32 @@ def test_layout_track_a_deterministic_profile_from_facts() -> None:
     obs = materialize_layout_observation({"section_profiles": []}, packet=packet, render_available=False)
     assert obs["abstain"] is False  # 有确定性 profile
     assert obs["visual_abstained"] is True  # 视觉子项仍弃权
+    assert obs["page_structure_source"] == "unavailable_no_render"
     assert len(obs["items"]) == 1
     profile = obs["items"][0]
     assert profile["source"] == "deterministic_facts"
     assert profile["page_setup"]["page_size"]["orientation"] == "portrait"
     assert profile["page_numbering"]["format"] == "decimal"
+
+
+def test_layout_track_b_deterministic_page_facts_when_rendered() -> None:
+    # 有真实页图渲染 → page_layout_index 带 per-seq page_no → 确定性页结构，无模型。
+    packet = clean_packet()
+    packet["global_layout_facts"] = {
+        "sections": [{"index": 1, "page_margins": {"top_pt": 56.7}, "page_size": {"orientation": "portrait"}}],
+        "header_footer": [],
+        "numbering_definition_count": 0,
+    }
+    # 模拟渲染产出的 per-seq 真实页码（helpers packet 有 source_seq 1..4）
+    packet["page_layout_index"] = [
+        {"source_seq": 1, "page_no": 1},
+        {"source_seq": 2, "page_no": 1},
+        {"source_seq": 3, "page_no": 2},
+        {"source_seq": 4, "page_no": 3},
+    ]
+    obs = materialize_layout_observation({"section_profiles": []}, packet=packet, render_available=True)
+    assert obs["visual_abstained"] is False
+    assert obs["page_structure_source"] == "deterministic_pdf_layout"
+    assert obs["page_count"] == 3
+    assert obs["page_map"] == {"1": 1, "2": 1, "3": 2, "4": 3}
+    assert obs["items"][0]["pages"] == [1, 2, 3]

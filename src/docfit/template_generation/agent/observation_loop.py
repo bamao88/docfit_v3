@@ -118,16 +118,15 @@ def run_observation_pipeline(
     )
     timing["t3_seconds"] = round(time.monotonic() - t3_start, 2)
 
-    # --- Pass-T4：Track A 确定性全局版式(无需模型) + Track B 视觉分页(仅有页图时问模型) ---
+    # --- Pass-T4：确定性版式(D8a) ---
+    # Track A：T1 分节事实(页边距/纸张/页码)。Track B：有页图时用渲染得到的
+    # 确定性 per-seq page_no（pdftotext 版面），不是模型视觉——LiveResponder 是文本通道，
+    # 未接多模态；页结构用确定性事实更可靠、不幻觉。模型视觉留作后续。
     t4_start = time.monotonic()
     t4_evidence = build_t4_evidence(packet)
     render_available = bool(t4_evidence.get("render_available"))
-    # 无真实页图 → Track A 是确定性事实投影，不调用模型（D8a）。
-    layout_payload = (
-        responder.fetch_layout(evidence=t4_evidence) if render_available else {"section_profiles": []}
-    )
     layout_observation = materialize_layout_observation(
-        layout_payload,
+        {"section_profiles": []},
         packet=packet,
         render_available=render_available,
         model=config.model,
