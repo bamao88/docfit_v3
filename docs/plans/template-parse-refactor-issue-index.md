@@ -2,7 +2,7 @@
 status: active
 owner: template-generation
 created: 2026-06-25
-last_updated: 2026-07-01
+last_updated: 2026-07-03
 ---
 
 # 模板解析重构 issue 迭代索引
@@ -74,6 +74,13 @@ next_plan: ...
 | 02 | optimization plan | TBD | pending | 对应 issue-02；从 issue-02 正文拆出实施计划后登记 |
 | 03 | issue | `docs/plans/2026-07-01-template-parse-refactor-standard-judge-route-eval-issue-03-full-chain-three-route-gap.md` | draft | 当前缺口：模板生成全链路尚未统一比较 code_raw、ai_raw、merged，T3 元素级 draft gold、T5/T6 隔离重放和 template-gap 证据未纳入同一诊断闭环 |
 | 03 | optimization plan | `docs/plans/2026-07-01-template-parse-refactor-standard-judge-route-eval-plan-03-full-chain-three-route-evaluator.md` | draft | 三路线 route evaluator 计划；已先落 T3 三份 route artifact，完整 T1-T6 route eval 待后续实现 |
+
+## Stage standards completeness
+
+| 顺序 | 类型 | 文档 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| 01 | issue | `docs/plans/2026-07-03-template-parse-refactor-stage-standards-issue-01-incomplete-stage-standards.md` | draft | T1-T5 标准文件存在且 judge 可 PASS，但 T3 未覆盖人审元素/run-span 级标准，T6/T7 仍无阶段标准，最终 template-gap FAIL 无法回链 |
+| 01 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-stage-standards-plan-01-stage-standard-completeness-audit.md` | draft | 先新增标准完整性审计：final_template 已有元素清单但 T3 标准缺元素覆盖时降级为 UNKNOWN/NOT_SIGNABLE，并输出四层诊断 |
 
 ## Run bundle contract
 

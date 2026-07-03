@@ -332,6 +332,63 @@ def test_agent_bridge_acceptance_reports_accuracy_and_diagnosis(tmp_path: Path) 
     assert acceptance["root_causes"][0]["category"] == "generation_code"
 
 
+def test_t3_standard_completeness_gap_gets_standard_owner(tmp_path: Path) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t3_element_policy",
+        "T3",
+        "element_spec",
+    )
+    artifact = _artifact(
+        tmp_path,
+        "element_spec",
+        "t3_element_policy",
+        "T3",
+        "03_element_spec.yaml",
+    )
+    check = _stage_check(
+        standard,
+        artifact,
+        Status.UNKNOWN,
+        "PASS",
+        [],
+    )
+    report = _judge_report(tmp_path, standard, artifact, check, first_bad_stage="standard_quality")
+    report.standard_quality = TemplateGenerationStandardQualityReport(
+        scope="demo-school",
+        status=Status.UNKNOWN,
+        target_reports=[],
+        findings=[
+            make_finding(
+                1,
+                "t3_element_policy",
+                Status.UNKNOWN,
+                "t3_standard_element_expectations_missing",
+                (
+                    "T3 standard does not cover the human-reviewed final_template "
+                    "element list with element/run-span expectations"
+                ),
+                "at least 3 element expectations",
+                "0 declared element/run-span expectations",
+                affected_ids=["cover.e_001"],
+                root_cause_bucket="standard_incomplete",
+            )
+        ],
+        stage_statuses={"t3_element_policy": Status.UNKNOWN.value},
+    )
+
+    diff_report = build_stage_standard_diagnosis_report(report, _spec("element_spec"))
+    mismatch = diff_report["mismatches"][0]
+
+    assert mismatch["type"] == "t3_standard_element_expectations_missing"
+    assert mismatch["field"] == "expected.element_expectations"
+    assert diff_report["root_causes"][0]["category"] == "standard_issue"
+    assert diff_report["owner_assignments"][0]["primary"] == "standard_owner"
+    assert diff_report["fix_plan"][0]["likely_files"] == [
+        "standards/targets/*/v1/template_generation/*.standard.yaml"
+    ]
+
+
 def _spec(artifact_key: str) -> RunArtifactSpec:
     return next(spec for spec in RUN_ARTIFACT_SPECS if spec.artifact_key == artifact_key)
 

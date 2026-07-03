@@ -336,6 +336,32 @@ def build_stage_standard_diffs(
     report: TemplateGenerationJudgeReport,
 ) -> list[dict[str, Any]]:
     diffs: list[dict[str, Any]] = []
+    for finding in report.standard_quality.findings:
+        stage_id, stage_key, report_id = _standard_quality_finding_stage_context(
+            report,
+            finding,
+        )
+        owner, owner_detail, next_action = _owner_for_finding(finding)
+        diffs.append(
+            {
+                "diff_id": f"diff_{len(diffs) + 1:03d}",
+                "stage_id": stage_id,
+                "stage_key": stage_key,
+                "report_ref": f"{report_id}.json" if report_id else None,
+                "status": finding.status.value,
+                "diff_kind": _diff_kind(finding),
+                "finding_type": finding.type,
+                "message": finding.message,
+                "expected": finding.expected,
+                "observed": finding.actual,
+                "affected_ids": finding.affected_ids,
+                "evidence_refs": finding.evidence_refs,
+                "root_cause_bucket": finding.root_cause_bucket,
+                "owner": owner,
+                "owner_detail": owner_detail,
+                "next_action": next_action,
+            }
+        )
     for check in report.stage_checks:
         report_id = _stage_quality_report_id_for_stage(check.stage_key)
         for finding in check.findings:
@@ -393,6 +419,41 @@ def build_mismatches(
 ) -> list[dict[str, Any]]:
     mismatches: list[dict[str, Any]] = []
     counters: dict[str, int] = {}
+    for finding in report.standard_quality.findings:
+        stage_id, quality_stage_key, _report_id = _standard_quality_finding_stage_context(
+            report,
+            finding,
+        )
+        if stage_key is not None and quality_stage_key != stage_key:
+            continue
+        standard = report.standard_set.stages.get(quality_stage_key)
+        counters[stage_id] = counters.get(stage_id, 0) + 1
+        mismatch_id = f"{stage_id}-MISMATCH-{counters[stage_id]:03d}"
+        finding_type = _normalized_mismatch_type(finding.type)
+        mismatches.append(
+            {
+                "id": mismatch_id,
+                "mismatch_id": mismatch_id,
+                "stage_id": stage_id,
+                "stage_key": quality_stage_key,
+                "status": finding.status.value,
+                "finding_type": finding.type,
+                "type": finding_type,
+                "field": _mismatch_field(finding_type, finding),
+                "expected": _parse_finding_value(finding.expected),
+                "observed": _parse_finding_value(finding.actual),
+                "problem": _mismatch_problem(finding_type, finding),
+                "affected_ids": finding.affected_ids,
+                "evidence": {
+                    "artifact_path": None,
+                    "standard_path": str(standard.path) if standard is not None else None,
+                    "source_seq_refs": _source_seq_refs_from_finding(finding),
+                    "evidence_refs": finding.evidence_refs,
+                },
+                "root_cause_bucket": finding.root_cause_bucket,
+                "message": finding.message,
+            }
+        )
     for check in report.stage_checks:
         if stage_key is not None and check.stage_key != stage_key:
             continue
@@ -1380,6 +1441,9 @@ def _mismatch_field(finding_type: str, finding: Finding) -> str:
         "t3_required_policy_fields_missing": (
             "expected.element_policy_contract.required_fields_by_policy"
         ),
+        "t3_standard_element_expectations_missing": (
+            "expected.element_expectations"
+        ),
         "t4_artifact_type_mismatch": "artifact_type",
         "t4_global_layout_contract_missing": "expected.global_layout_contract",
         "t4_global_spec_evidence_fields_missing": "global_spec",
@@ -1418,6 +1482,10 @@ def _mismatch_problem(finding_type: str, finding: Finding) -> str:
         ),
         "t3_required_policy_fields_missing": (
             "T3 elements are missing fields required by their assigned policy."
+        ),
+        "t3_standard_element_expectations_missing": (
+            "T3 standard lacks element/run-span expectations for the "
+            "human-reviewed final_template element list."
         ),
         "t5_unit_order_mismatch": (
             "T5 template_spec unit order differs from expected.unit_order."
@@ -1803,6 +1871,7 @@ def _standard_document_problem(text: str) -> bool:
             "standard_missing",
             "standard_invalid",
             "standard_quality_not_pass",
+            "standard_incomplete",
             "standard_registry",
             "baseline_missing",
             "baseline_invalid",
@@ -1828,6 +1897,17 @@ def _stage_quality_report_id_for_stage(stage_key: str) -> str | None:
         if spec.stage_key == stage_key:
             return _stage_quality_report_id(spec)
     return None
+
+
+def _standard_quality_finding_stage_context(
+    report: TemplateGenerationJudgeReport,
+    finding: Finding,
+) -> tuple[str, str, str | None]:
+    stage_key = finding.stage
+    stage = report.standard_set.stages.get(stage_key)
+    if stage is not None:
+        return stage.stage_id, stage_key, _stage_quality_report_id_for_stage(stage_key)
+    return "STANDARD_QUALITY", stage_key, None
 
 
 def _stage_check_for_spec(
