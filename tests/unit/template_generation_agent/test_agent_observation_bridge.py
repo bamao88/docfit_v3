@@ -38,6 +38,36 @@ def test_observation_bridge_converts_high_confidence_t2_unit(tmp_path) -> None:
     assert proposals[0]["source_seq_refs"] == [2]
 
 
+def test_observation_bridge_routes_t2_boundary_adjustment_to_boundary_collection(tmp_path) -> None:
+    artifacts = round0_artifacts(tmp_path)
+    bundle = _bundle(
+        artifacts["packet"]["source_render_hash"],
+        units=[
+            {
+                "unit_id": "body_main",
+                "name": "正文",
+                "source_seq_refs": [2, 3],
+                "confidence": "high",
+                "ai_rationale": "AI boundary excludes trailing instruction paragraph",
+            }
+        ],
+    )
+
+    bridge = build_observation_bridge(
+        observation_bundle=bundle,
+        packet=artifacts["packet"],
+        structure_candidates=artifacts["structure_candidates"],
+    )
+
+    t2_submission = bridge["transcript"]["rounds"][0]["submission"]
+    assert t2_submission["layers"]["t2"]["unit_candidates"] == []
+    proposals = t2_submission["layers"]["t2"]["boundary_adjustments"]
+    assert bridge["summary"]["t2_proposals"] == 1
+    assert proposals[0]["kind"] == "boundary_adjustment"
+    assert proposals[0]["operation"] == "adjust_unit_range"
+    assert proposals[0]["target_unit_id"] == "body_main"
+
+
 def test_observation_bridge_maps_instruction_remove_policy(tmp_path) -> None:
     artifacts = round0_artifacts(tmp_path)
     bundle = _bundle(
@@ -63,6 +93,61 @@ def test_observation_bridge_maps_instruction_remove_policy(tmp_path) -> None:
     proposals = t3_submission["layers"]["t3"]["element_policy_candidates"]
     assert proposals[0]["policy"] == "remove_instruction"
     assert proposals[0]["target_candidate_id"] == "body_main.e_001"
+
+
+def test_observation_bridge_maps_template_default_policy_to_fixed(tmp_path) -> None:
+    artifacts = round0_artifacts(tmp_path)
+    bundle = _bundle(
+        artifacts["packet"]["source_render_hash"],
+        elements=[
+            {
+                "element_id": "cover.e_001",
+                "unit_id": "cover",
+                "policy": "template_default",
+                "source_seq_refs": [1],
+                "confidence": "high",
+            }
+        ],
+    )
+
+    bridge = build_observation_bridge(
+        observation_bundle=bundle,
+        packet=artifacts["packet"],
+        structure_candidates=artifacts["structure_candidates"],
+    )
+
+    t3_submission = bridge["transcript"]["rounds"][1]["submission"]
+    proposals = t3_submission["layers"]["t3"]["element_policy_candidates"]
+    assert proposals[0]["policy"] == "fixed"
+
+
+def test_observation_bridge_keeps_low_confidence_t3_as_bound_proposal(tmp_path) -> None:
+    artifacts = round0_artifacts(tmp_path)
+    bundle = _bundle(
+        artifacts["packet"]["source_render_hash"],
+        elements=[
+            {
+                "element_id": "cover.e_001",
+                "unit_id": "cover",
+                "policy": "fixed",
+                "source_seq_refs": [1],
+                "confidence": "low",
+            }
+        ],
+    )
+
+    bridge = build_observation_bridge(
+        observation_bundle=bundle,
+        packet=artifacts["packet"],
+        structure_candidates=artifacts["structure_candidates"],
+    )
+
+    t3_submission = bridge["transcript"]["rounds"][1]["submission"]
+    proposals = t3_submission["layers"]["t3"]["element_policy_candidates"]
+    assert bridge["summary"]["t3_proposals"] == 1
+    assert bridge["summary"]["manual_review_required"] == 0
+    assert proposals[0]["policy"] == "fixed"
+    assert proposals[0]["observation_confidence"] == "low"
 
 
 def test_observation_bridge_low_confidence_goes_to_manual_review(tmp_path) -> None:
@@ -128,6 +213,55 @@ def test_run_template_agent_consumes_observation_bundle(tmp_path) -> None:
     assert result.t2_overlay["operations"][0]["proposal_id"].startswith("obs_t2_")
     assert "integrity_statement" in [unit["unit_id"] for unit in result.unit_map["units"]]
     assert result.manual_review_items["summary"]["total"] == 0
+
+
+def test_run_template_agent_batches_t2_boundary_adjustments(tmp_path) -> None:
+    artifacts = round0_artifacts(tmp_path)
+    packet_path = tmp_path / "packet.json"
+    bundle_path = tmp_path / "observation_bundle.json"
+    write_json(packet_path, artifacts["packet"])
+    write_json(
+        bundle_path,
+        _bundle(
+            artifacts["packet"]["source_render_hash"],
+            units=[
+                {
+                    "unit_id": "body_main",
+                    "name": "正文",
+                    "source_seq_refs": [3, 4],
+                    "confidence": "high",
+                },
+                {
+                    "unit_id": "cover",
+                    "name": "封面",
+                    "source_seq_refs": [1, 2],
+                    "confidence": "high",
+                },
+            ],
+        ),
+    )
+
+    result = run_template_agent(
+        source_template_docx=tmp_path / "template.docx",
+        request=artifacts["request"],
+        document_facts=artifacts["document_facts"],
+        structure_candidates=artifacts["structure_candidates"],
+        unit_map=artifacts["unit_map"],
+        generation_model=artifacts["generation_model"],
+        element_spec=artifacts["element_spec"],
+        agent_config=AgentConfig(
+            enabled=True,
+            render_packet_path=packet_path,
+            observation_bundle_path=bundle_path,
+        ),
+    )
+
+    units = {unit["unit_id"]: unit for unit in result.unit_map["units"]}
+    assert result.changed is True
+    assert len(result.t2_overlay["operations"]) == 2
+    assert len(result.decisions["accepted_proposal_ids"]) == 2
+    assert units["cover"]["source_seq_refs"] == [1, 2]
+    assert units["body_main"]["source_seq_refs"] == [3, 4]
 
 
 def _bundle(

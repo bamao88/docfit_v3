@@ -9,12 +9,29 @@ from .schema import empty_layered_submission
 
 
 EXECUTABLE_CONFIDENCE = {"medium", "high"}
+T3_EXECUTABLE_CONFIDENCE = {"low", "medium", "high"}
 POLICY_TO_EXECUTABLE = {
     "fixed": "fixed",
+    "template_default": "fixed",
     "fill": "fill",
     "manual_only": "manual_only",
     "generated": "generated",
     "instruction_remove": "remove_instruction",
+}
+COLLECTION_BY_KIND = {
+    "t2": {
+        "unit_candidate": "unit_candidates",
+        "block_candidate": "block_candidates",
+        "boundary_adjustment": "boundary_adjustments",
+    },
+    "t3": {
+        "element_policy_candidate": "element_policy_candidates",
+    },
+    "t4": {
+        "page_policy_hint": "page_policy_hints",
+        "section_profile_hint": "section_profile_hints",
+        "page_numbering_hint": "page_numbering_hints",
+    },
 }
 
 
@@ -26,10 +43,11 @@ def build_observation_bridge(
 ) -> dict[str, Any]:
     """Convert Module 1 observation artifacts into existing agent proposals.
 
-    The bridge is intentionally conservative: it only emits executable proposals
-    for medium/high-confidence, evidence-bound observations. Everything else is
-    surfaced as manual review input, so the existing comparison/reconciler gates
-    remain the only executable path.
+    T2/T4 stay conservative on confidence because they can move large document
+    regions or layout hints. T3 emits evidence-bound policy proposals even when
+    the AI confidence is low; deterministic target binding, comparison, and the
+    reconciler remain the executable gates before anything reaches merged
+    outputs.
     """
 
     packet_hash = packet.get("source_render_hash")
@@ -195,13 +213,14 @@ def _bridge_t3(
                 summary=f"AI element policy is not executable by current overlay: {raw_policy}",
             )
             continue
-        if _confidence(item) not in EXECUTABLE_CONFIDENCE:
+        confidence = _confidence(item)
+        if confidence not in T3_EXECUTABLE_CONFIDENCE:
             _reject_observation_item(
                 item,
                 manual_items,
                 layer="t3",
-                reason_code="OBSERVATION-LOW-CONFIDENCE",
-                summary="AI element observation confidence is too low for automatic bridge",
+                reason_code="OBSERVATION-CONFIDENCE-INVALID",
+                summary="AI element observation confidence is not recognized",
             )
             continue
         if not refs:
@@ -226,6 +245,7 @@ def _bridge_t3(
             "evidence": item.get("evidence_refs", []),
             "origin": "ai_observation",
             "observation_item_id": item_id,
+            "observation_confidence": confidence,
             "fill_source": item.get("fill_source"),
             "generated": item.get("generated"),
             "manual_semantics": item.get("manual_semantics"),
@@ -296,12 +316,12 @@ def _submissions_from_proposals(
     model: str,
 ) -> list[dict[str, Any]]:
     specs = [
-        ("round_obs_t2", "t2_unit_scan", "observation:t2", "t2", "unit_candidates"),
-        ("round_obs_t3", "t3_unit_elements", "observation:t3", "t3", "element_policy_candidates"),
-        ("round_obs_t4", "t4_global_layout", "observation:t4", "t4", "section_profile_hints"),
+        ("round_obs_t2", "t2_unit_scan", "observation:t2", "t2"),
+        ("round_obs_t3", "t3_unit_elements", "observation:t3", "t3"),
+        ("round_obs_t4", "t4_global_layout", "observation:t4", "t4"),
     ]
     submissions: list[dict[str, Any]] = []
-    for round_id, pass_kind, window_id, layer, collection in specs:
+    for round_id, pass_kind, window_id, layer in specs:
         submission = empty_layered_submission(
             source_render_hash=source_render_hash,
             round_id=round_id,
@@ -311,7 +331,13 @@ def _submissions_from_proposals(
         submission["pass_id"] = window_id
         submission["window_id"] = window_id
         submission["allowed_layers"] = [layer]
-        submission["layers"][layer][collection] = deepcopy(proposals[layer])
+        for proposal in proposals[layer]:
+            collection = COLLECTION_BY_KIND.get(layer, {}).get(
+                str(proposal.get("kind") or "")
+            )
+            if collection is None:
+                continue
+            submission["layers"][layer][collection].append(deepcopy(proposal))
         submissions.append(submission)
     return submissions
 

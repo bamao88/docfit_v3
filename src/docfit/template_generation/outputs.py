@@ -41,15 +41,22 @@ def write_template_generation_debug_snapshot(
     build_manifest: dict[str, Any],
     verification_report: dict[str, Any] | None = None,
     t2_input: dict[str, Any] | None = None,
+    t2_code_unit_map: dict[str, Any] | None = None,
+    t2_ai_unit_observation: dict[str, Any] | None = None,
+    t2_merged_unit_map: dict[str, Any] | None = None,
     t3_code_element_spec: dict[str, Any] | None = None,
     t3_ai_element_observation: dict[str, Any] | None = None,
     t3_merged_element_spec: dict[str, Any] | None = None,
+    t4_code_global_spec: dict[str, Any] | None = None,
+    t4_ai_layout_observation: dict[str, Any] | None = None,
+    t4_merged_global_spec: dict[str, Any] | None = None,
     agent_render_packet: dict[str, Any] | None = None,
     agent_pass_plan: dict[str, Any] | None = None,
     agent_post_t2_checkpoint: dict[str, Any] | None = None,
     agent_post_t2_input: dict[str, Any] | None = None,
     agent_unit_windows: dict[str, Any] | None = None,
     agent_transcript: dict[str, Any] | None = None,
+    agent_observation_bundle: dict[str, Any] | None = None,
     agent_observation_bridge: dict[str, Any] | None = None,
     agent_submission_comparison: dict[str, Any] | None = None,
     agent_decisions: dict[str, Any] | None = None,
@@ -107,9 +114,9 @@ def write_template_generation_debug_snapshot(
         "T1：从学校原始 Word 解析出的 run 级事实库。",
     )
     write_step_yaml(
-        "02_unit_map.yaml",
-        unit_map,
-        "T2：从事实库确定性切分出的模板单元边界。",
+        "02.0_t2_code_unit_map.yaml",
+        t2_code_unit_map or unit_map,
+        "T2/code_raw：agent 合并前由确定性代码直接生成的单元边界。",
     )
     if t2_input is not None:
         write_step_json(
@@ -117,6 +124,22 @@ def write_template_generation_debug_snapshot(
             t2_input,
             "T2：边界/标签低置信问题的确定性投影，供人工或 AI 兜底使用。",
         )
+    if t2_ai_unit_observation is not None:
+        write_step_yaml(
+            "02.2_t2_ai_unit_observation.yaml",
+            t2_ai_unit_observation,
+            "T2/ai_raw：Module 1 AI 独立生成的单元观察；未提供 AI 时标记 NOT_AVAILABLE。",
+        )
+    write_step_yaml(
+        "02.3_t2_merged_unit_map.yaml",
+        t2_merged_unit_map or unit_map,
+        "T2/merged：AI/code bridge 与 reconciler 后进入 T3/T5/T6 的最终单元边界。",
+    )
+    write_step_yaml(
+        "02_unit_map.yaml",
+        unit_map,
+        "T2 兼容别名：当前主链路消费的最终 merged unit_map。",
+    )
     write_step_yaml(
         "03.0_t3_code_element_spec.yaml",
         t3_code_element_spec or element_spec,
@@ -139,9 +162,25 @@ def write_template_generation_debug_snapshot(
         "T3 兼容别名：当前主链路消费的最终 merged element_spec。",
     )
     write_step_yaml(
+        "04.0_t4_code_global_spec.yaml",
+        t4_code_global_spec or global_spec,
+        "T4/code_raw：agent 合并前由确定性代码直接生成的全局布局规则。",
+    )
+    if t4_ai_layout_observation is not None:
+        write_step_yaml(
+            "04.1_t4_ai_layout_observation.yaml",
+            t4_ai_layout_observation,
+            "T4/ai_raw：Module 1 AI 独立生成的布局观察；未提供 AI 时标记 NOT_AVAILABLE。",
+        )
+    write_step_yaml(
+        "04.2_t4_merged_global_spec.yaml",
+        t4_merged_global_spec or global_spec,
+        "T4/merged：当前进入 T5/T6 的最终全局布局规则。",
+    )
+    write_step_yaml(
         "04_global_spec.yaml",
         global_spec,
-        "T4：页面、分节、页眉页脚、编号和默认样式规则。",
+        "T4 兼容别名：当前主链路消费的最终 merged global_spec。",
     )
     write_step_yaml(
         "05_template_spec.yaml",
@@ -225,6 +264,12 @@ def write_template_generation_debug_snapshot(
             agent_transcript,
             "Agent replay/live transcript。",
         )
+    if agent_observation_bundle is not None:
+        write_step_json(
+            "09.1_ai_observation_bundle.json",
+            agent_observation_bundle,
+            "Agent 观察输入：同 run Module 1 AI observation bundle。",
+        )
     if agent_observation_bridge is not None:
         write_step_json(
             "09.25_agent_observation_bridge.json",
@@ -304,6 +349,7 @@ def write_template_generation_outputs(out_dir: Path, result: StageResult) -> Non
         "template_agent_post_t2_input",
         "template_agent_unit_windows",
         "template_agent_transcript",
+        "ai_observation_bundle",
         "template_agent_observation_bridge",
         "template_agent_submission_comparison",
         "template_agent_decisions",
@@ -318,9 +364,15 @@ def write_template_generation_outputs(out_dir: Path, result: StageResult) -> Non
         "element_spec",
         "global_spec",
         "template_spec",
+        "t2_code_unit_map",
+        "t2_ai_unit_observation",
+        "t2_merged_unit_map",
         "t3_code_element_spec",
         "t3_ai_element_observation",
         "t3_merged_element_spec",
+        "t4_code_global_spec",
+        "t4_ai_layout_observation",
+        "t4_merged_global_spec",
     ]
     for key in json_keys:
         artifact = result.artifacts.get(key)
@@ -408,14 +460,29 @@ def write_template_generation_ordered_files(out_dir: Path, result: StageResult) 
         "T1：从学校原始 Word 解析出的 run 级事实库。",
     )
     write_step_yaml(
-        "02_unit_map.yaml",
-        "unit_map",
-        "T2：从事实库确定性切分出的模板单元边界。",
+        "02.0_t2_code_unit_map.yaml",
+        "t2_code_unit_map",
+        "T2/code_raw：agent 合并前由确定性代码直接生成的单元边界。",
     )
     write_step_json(
         "02.1_t2_input.json",
         "t2_input",
         "T2：边界/标签低置信问题的确定性投影，供人工或 AI 兜底使用。",
+    )
+    write_step_yaml(
+        "02.2_t2_ai_unit_observation.yaml",
+        "t2_ai_unit_observation",
+        "T2/ai_raw：Module 1 AI 独立生成的单元观察；未提供 AI 时标记 NOT_AVAILABLE。",
+    )
+    write_step_yaml(
+        "02.3_t2_merged_unit_map.yaml",
+        "t2_merged_unit_map",
+        "T2/merged：AI/code bridge 与 reconciler 后进入 T3/T5/T6 的最终单元边界。",
+    )
+    write_step_yaml(
+        "02_unit_map.yaml",
+        "unit_map",
+        "T2 兼容别名：当前主链路消费的最终 merged unit_map。",
     )
     write_step_yaml(
         "03.0_t3_code_element_spec.yaml",
@@ -438,9 +505,24 @@ def write_template_generation_ordered_files(out_dir: Path, result: StageResult) 
         "T3 兼容别名：当前主链路消费的最终 merged element_spec。",
     )
     write_step_yaml(
+        "04.0_t4_code_global_spec.yaml",
+        "t4_code_global_spec",
+        "T4/code_raw：agent 合并前由确定性代码直接生成的全局布局规则。",
+    )
+    write_step_yaml(
+        "04.1_t4_ai_layout_observation.yaml",
+        "t4_ai_layout_observation",
+        "T4/ai_raw：Module 1 AI 独立生成的布局观察；未提供 AI 时标记 NOT_AVAILABLE。",
+    )
+    write_step_yaml(
+        "04.2_t4_merged_global_spec.yaml",
+        "t4_merged_global_spec",
+        "T4/merged：当前进入 T5/T6 的最终全局布局规则。",
+    )
+    write_step_yaml(
         "04_global_spec.yaml",
         "global_spec",
-        "T4：页面、分节、页眉页脚、编号和默认样式规则。",
+        "T4 兼容别名：当前主链路消费的最终 merged global_spec。",
     )
     write_step_yaml(
         "05_template_spec.yaml",
@@ -511,6 +593,11 @@ def write_template_generation_ordered_files(out_dir: Path, result: StageResult) 
         "09_agent_transcript.json",
         "template_agent_transcript",
         "Agent replay/live transcript。",
+    )
+    write_step_json(
+        "09.1_ai_observation_bundle.json",
+        "ai_observation_bundle",
+        "Agent 观察输入：同 run Module 1 AI observation bundle。",
     )
     write_step_json(
         "09.25_agent_observation_bridge.json",

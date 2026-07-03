@@ -32,6 +32,21 @@ def test_replay_transport_requires_transcript(tmp_path) -> None:
     assert any("transcript_path does not exist" in error for error in errors)
 
 
+def test_observation_replay_satisfies_replay_transport(tmp_path) -> None:
+    observation_transcript = tmp_path / "observation_replay.json"
+    observation_transcript.write_text("{}", encoding="utf-8")
+
+    errors = validate_agent_config(
+        AgentConfig(
+            enabled=True,
+            observation_mode="replay",
+            observation_transcript_path=observation_transcript,
+        )
+    )
+
+    assert errors == []
+
+
 def test_max_rounds_is_limited(tmp_path) -> None:
     transcript = tmp_path / "transcript.json"
     transcript.write_text("{}", encoding="utf-8")

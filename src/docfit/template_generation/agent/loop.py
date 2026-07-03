@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from docfit.core.io import now_iso, read_json, sha256_json
+from docfit.core.io import now_iso, sha256_json
 
 from .attribution import (
     build_agent_attribution,
@@ -28,6 +28,8 @@ from .observation_bridge import (
     build_observation_bridge,
     observation_bridge_transcript,
 )
+from .observation_orchestrate import run_module1_observation_for_template_generate
+from .overlay import apply_t2_boundary_adjustment_batch
 from .packet import build_template_agent_render_packet, load_render_packet
 from .reconciler import process_proposal
 from .regenerate import regenerate_from_structure_candidates
@@ -46,7 +48,10 @@ class AgentRunResult:
     unit_map: dict[str, Any]
     generation_model: dict[str, Any]
     element_spec: dict[str, Any]
+    ai_unit_observation: dict[str, Any] | None = None
     ai_element_observation: dict[str, Any] | None = None
+    ai_layout_observation: dict[str, Any] | None = None
+    ai_observation_bundle: dict[str, Any] | None = None
     render_packet: dict[str, Any] | None = None
     pass_plan: dict[str, Any] | None = None
     post_t2_checkpoint: dict[str, Any] | None = None
@@ -97,7 +102,10 @@ def run_template_agent(
         )
     )
     if (
-        agent_config.transport in LIVE_TRANSPORTS
+        (
+            agent_config.transport in LIVE_TRANSPORTS
+            or agent_config.observation_mode == "live"
+        )
         and packet.get("render_status") != "real_render"
         and not agent_config.allow_live_without_real_render
     ):
@@ -106,18 +114,25 @@ def run_template_agent(
             f"got render_status={packet.get('render_status') or 'missing'}"
         )
     observation_bridge: dict[str, Any] | None = None
-    if agent_config.observation_bundle_path is not None:
-        observation_bundle = read_json(agent_config.observation_bundle_path)
+    observation_bundle = run_module1_observation_for_template_generate(
+        packet=packet,
+        agent_config=agent_config,
+    )
+    if observation_bundle is not None:
         observation_bridge = build_observation_bridge(
             observation_bundle=observation_bundle,
             packet=packet,
             structure_candidates=structure_candidates,
         )
+        ai_unit_observation = observation_bundle.get("ai_unit_observation")
         ai_element_observation = observation_bundle.get("ai_element_observation")
+        ai_layout_observation = observation_bundle.get("ai_layout_observation")
         transcript = observation_bridge_transcript(observation_bridge)
         steps = transcript_steps(transcript, max_rounds=agent_config.max_rounds)
     else:
+        ai_unit_observation = None
         ai_element_observation = None
+        ai_layout_observation = None
         transcript, steps = _load_submissions(
             agent_config,
             packet=packet,
@@ -175,9 +190,25 @@ def run_template_agent(
             continue
         normalized = validation["submission"]
         blocking_questions = blocking_open_questions_by_layer(normalized)
+        batch_processed_proposal_ids, batch_structure = _process_t2_boundary_adjustment_batch(
+            normalized=normalized,
+            pass_context=pass_context,
+            allowed_layers=allowed_layers,
+            blocking_questions=blocking_questions,
+            post_t2_checkpoint=post_t2_checkpoint,
+            current_structure=current_structure,
+            packet=packet,
+            comparison_items=comparison_items,
+            decisions=decisions,
+            t2_operations=t2_operations,
+        )
+        if batch_structure is not None:
+            current_structure = batch_structure
         for layer, collection, proposal in iter_layer_proposals(normalized):
             proposal["round_id"] = proposal.get("round_id") or normalized.get("round_id")
             proposal.update(pass_context)
+            if str(proposal.get("proposal_id") or "") in batch_processed_proposal_ids:
+                continue
             if layer not in allowed_layers:
                 decisions.append(
                     _pass_scope_decision(
@@ -312,8 +343,17 @@ def run_template_agent(
         unit_map=regenerated["unit_map"],
         generation_model=regenerated["generation_model"],
         element_spec=regenerated["element_spec"],
+        ai_unit_observation=(
+            ai_unit_observation if isinstance(ai_unit_observation, dict) else None
+        ),
         ai_element_observation=(
             ai_element_observation if isinstance(ai_element_observation, dict) else None
+        ),
+        ai_layout_observation=(
+            ai_layout_observation if isinstance(ai_layout_observation, dict) else None
+        ),
+        ai_observation_bundle=(
+            observation_bundle if isinstance(observation_bundle, dict) else None
         ),
         render_packet=packet,
         pass_plan=pass_plan,
@@ -330,6 +370,208 @@ def run_template_agent(
         t4_hints=t4_hints_artifact,
         attribution=attribution,
     )
+
+
+def _process_t2_boundary_adjustment_batch(
+    *,
+    normalized: dict[str, Any],
+    pass_context: dict[str, Any],
+    allowed_layers: set[str],
+    blocking_questions: dict[str, list[dict[str, Any]]],
+    post_t2_checkpoint: dict[str, Any] | None,
+    current_structure: dict[str, Any],
+    packet: dict[str, Any],
+    comparison_items: list[dict[str, Any]],
+    decisions: list[dict[str, Any]],
+    t2_operations: list[dict[str, Any]],
+) -> tuple[set[str], dict[str, Any] | None]:
+    proposals = [
+        proposal
+        for proposal in (
+            normalized.get("layers", {})
+            .get("t2", {})
+            .get("boundary_adjustments", [])
+            or []
+        )
+        if isinstance(proposal, dict)
+    ]
+    if len(proposals) < 2:
+        return set(), None
+    proposal_ids = {str(proposal.get("proposal_id") or "") for proposal in proposals}
+    proposal_ids.discard("")
+    for proposal in proposals:
+        proposal["round_id"] = proposal.get("round_id") or normalized.get("round_id")
+        proposal.update(pass_context)
+
+    if "t2" not in allowed_layers:
+        for proposal in proposals:
+            decisions.append(
+                _pass_scope_decision(
+                    proposal,
+                    layer="t2",
+                    collection="boundary_adjustments",
+                    allowed_layers=sorted(allowed_layers),
+                )
+            )
+        return proposal_ids, None
+    if "t2" in blocking_questions:
+        for proposal in proposals:
+            comparison_item = compare_blocked_by_open_questions(
+                proposal=proposal,
+                layer="t2",
+                collection="boundary_adjustments",
+                open_questions=blocking_questions["t2"],
+            )
+            comparison_items.append(comparison_item)
+            decisions.append(comparison_rejection_decision(comparison_item))
+        return proposal_ids, None
+    if post_t2_checkpoint is not None:
+        for proposal in proposals:
+            decisions.append(_pass_order_decision(proposal))
+        return proposal_ids, None
+
+    batch_comparisons: list[dict[str, Any]] = []
+    hard_failures: list[dict[str, Any]] = []
+    for proposal in proposals:
+        comparison_item = compare_proposal(
+            structure_candidates=current_structure,
+            packet=packet,
+            proposal=proposal,
+            layer="t2",
+            collection="boundary_adjustments",
+        )
+        batch_comparisons.append(comparison_item)
+        if (
+            not comparison_item.get("can_auto_execute")
+            and comparison_item.get("check_id") != "C-COMPARISON-CONFLICT"
+        ):
+            hard_failures.append(comparison_item)
+    if hard_failures:
+        comparison_items.extend(batch_comparisons)
+        for comparison_item in batch_comparisons:
+            decisions.append(comparison_rejection_decision(comparison_item))
+        return proposal_ids, None
+
+    patched, operations, reason = apply_t2_boundary_adjustment_batch(
+        current_structure,
+        proposals,
+    )
+    if patched is None:
+        comparison_items.extend(batch_comparisons)
+        before_hash = sha256_json(current_structure)
+        for proposal in proposals:
+            decisions.append(
+                _t2_boundary_batch_decision(
+                    proposal,
+                    decision="rejected",
+                    reason=reason,
+                    before_hash=before_hash,
+                    after_hash=before_hash,
+                )
+            )
+        return proposal_ids, None
+
+    for operation in operations:
+        proposal = next(
+            (
+                item
+                for item in proposals
+                if item.get("proposal_id") == operation.get("proposal_id")
+            ),
+            {},
+        )
+        operation.update(pass_context)
+        comparison_items.append(
+            _t2_boundary_batch_comparison(proposal, operation=operation)
+        )
+        t2_operations.append(operation)
+        decisions.append(
+            _t2_boundary_batch_decision(
+                proposal,
+                decision="accepted",
+                reason="boundary adjustment batch accepted and materialized",
+                before_hash=operation.get("before_hash"),
+                after_hash=operation.get("after_hash"),
+                operation=operation,
+            )
+        )
+    return proposal_ids, patched
+
+
+def _t2_boundary_batch_comparison(
+    proposal: dict[str, Any],
+    *,
+    operation: dict[str, Any],
+) -> dict[str, Any]:
+    proposal_id = proposal.get("proposal_id")
+    source_seq_refs = list(operation.get("source_seq_refs") or [])
+    return {
+        "comparison_id": f"cmp_{str(proposal_id).replace('.', '_')}",
+        "proposal_id": proposal_id,
+        "round_id": proposal.get("round_id"),
+        "layer": "t2",
+        "collection": "boundary_adjustments",
+        "status": "compatible",
+        "check_id": "C-COMPARISON-COMPATIBLE",
+        "reason": "boundary proposal is compatible within coordinated T2 batch",
+        "risk_level": "low",
+        "manual_review_required": False,
+        "can_auto_execute": True,
+        "affected_refs": {
+            "source_seq_refs": source_seq_refs,
+            "page_nos": [],
+            "render_target_refs": [],
+        },
+        "ai": {
+            "kind": proposal.get("kind"),
+            "operation": proposal.get("operation"),
+            "unit_id": proposal.get("unit_id"),
+            "target_unit_id": proposal.get("target_unit_id"),
+            "target_candidate_id": proposal.get("target_candidate_id"),
+            "policy": proposal.get("policy") or proposal.get("candidate_policy"),
+            "rationale": proposal.get("rationale"),
+        },
+        "deterministic": {
+            "operation": operation.get("operation"),
+            "target_unit_id": operation.get("target_unit_id"),
+            "batch_id": operation.get("batch_id"),
+            "batch_size": operation.get("batch_size"),
+            "source_seq_refs": source_seq_refs,
+        },
+        **_pass_context(proposal),
+    }
+
+
+def _t2_boundary_batch_decision(
+    proposal: dict[str, Any],
+    *,
+    decision: str,
+    reason: str,
+    before_hash: str | None,
+    after_hash: str | None,
+    operation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "proposal_id": proposal.get("proposal_id"),
+        "round_id": proposal.get("round_id"),
+        "decision": decision,
+        "checks": [
+            {
+                "check_id": "C-OVERLAY-EXEC",
+                "status": "PASS" if decision == "accepted" else "FAIL",
+                "reason": reason,
+            }
+        ],
+        "target_path": (
+            f"structure_candidates.units[{operation['target_unit_id']}]"
+            if operation and operation.get("target_unit_id")
+            else None
+        ),
+        "before_hash": before_hash,
+        "after_hash": after_hash,
+        "reason": reason,
+        **_pass_context(proposal),
+    }
 
 
 def _load_submissions(

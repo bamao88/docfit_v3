@@ -76,6 +76,8 @@ def eval_template_generate(
     agent_replay: Path | None = typer.Option(None, "--agent-replay", exists=True),
     agent_render_packet: Path | None = typer.Option(None, "--agent-render-packet", exists=True),
     agent_observation_bundle: Path | None = typer.Option(None, "--agent-observation-bundle", exists=True),
+    agent_observation_replay: Path | None = typer.Option(None, "--agent-observation-replay", exists=True),
+    agent_observe_live: bool = typer.Option(False, "--agent-observe-live"),
     agent_max_rounds: int = typer.Option(4, "--agent-max-rounds"),
     agent_max_tokens: int = typer.Option(4000, "--agent-max-tokens"),
     agent_temperature: float = typer.Option(1.0, "--agent-temperature"),
@@ -88,8 +90,17 @@ def eval_template_generate(
         agent_replay is not None
         or agent_render_packet is not None
         or agent_observation_bundle is not None
+        or agent_observation_replay is not None
+        or agent_observe_live
         or agent_live
     ):
+        observation_mode = "off"
+        if agent_observation_bundle is not None:
+            observation_mode = "bundle"
+        elif agent_observation_replay is not None:
+            observation_mode = "replay"
+        elif agent_observe_live:
+            observation_mode = "live"
         agent_config = AgentConfig(
             enabled=True,
             transport="kimi" if agent_live and agent_provider == "replay" else agent_provider,  # type: ignore[arg-type]
@@ -99,7 +110,11 @@ def eval_template_generate(
             transcript_path=agent_replay,
             render_packet_path=agent_render_packet,
             observation_bundle_path=agent_observation_bundle,
-            allow_live_without_render_packet=agent_live and agent_render_packet is None,
+            observation_mode=observation_mode,  # type: ignore[arg-type]
+            observation_transcript_path=agent_observation_replay,
+            allow_live_without_render_packet=(
+                (agent_live or agent_observe_live) and agent_render_packet is None
+            ),
         )
     result = run_template_generate_eval(
         _root(),

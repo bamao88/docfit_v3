@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 from pathlib import Path
+from typing import Any
 
+from docfit.core.io import now_iso
 from docfit.core.models import StageResult, make_finding
 from docfit.core.status import Status
 from docfit.ooxml.package import is_valid_docx
@@ -95,7 +97,17 @@ def generate_template(
     structure_candidates = build_template_structure_candidates(source_tree)
     t2_input = structure_candidates.get("t2_input")
     unit_map = build_unit_map(document_facts, structure_candidates)
+    code_raw_unit_map = _route_t2_unit_map(
+        unit_map,
+        route_id="code_raw",
+        origin="deterministic_code_before_agent_bridge",
+    )
     global_spec = build_global_spec(document_facts)
+    code_raw_global_spec = _route_t4_global_spec(
+        global_spec,
+        route_id="code_raw",
+        origin="deterministic_code_before_agent_bridge",
+    )
     generation_model = build_template_generation_model(
         request,
         structure_candidates=structure_candidates,
@@ -140,11 +152,21 @@ def generate_template(
                 input_valid_docx=True,
                 document_facts=bool(document_facts.get("body_flow")),
             ),
-            blocked_at="template_generate",
+                blocked_at="template_generate",
         )
+    global_spec = _merge_t4_agent_hints(global_spec, agent_run.t4_hints)
     structure_candidates = agent_run.structure_candidates
     t2_input = structure_candidates.get("t2_input")
     unit_map = agent_run.unit_map
+    t2_ai_unit_observation = _route_t2_ai_observation(
+        agent_run.ai_unit_observation,
+        document_facts=document_facts,
+    )
+    t2_merged_unit_map = _route_t2_unit_map(
+        unit_map,
+        route_id="merged",
+        origin="agent_bridge_reconciled_final_t2",
+    )
     generation_model = agent_run.generation_model
     element_spec = agent_run.element_spec
     t3_ai_element_observation = _route_t3_ai_observation(
@@ -155,6 +177,15 @@ def generate_template(
         element_spec,
         route_id="merged",
         origin="agent_bridge_reconciled_final_t3",
+    )
+    t4_ai_layout_observation = _route_t4_ai_observation(
+        agent_run.ai_layout_observation,
+        document_facts=document_facts,
+    )
+    t4_merged_global_spec = _route_t4_global_spec(
+        global_spec,
+        route_id="merged",
+        origin="agent_bridge_reconciled_final_t4",
     )
     template_spec = build_template_spec(
         document_facts,
@@ -222,15 +253,22 @@ def generate_template(
             build_manifest=build_manifest,
             verification_report=verification_report,
             t2_input=t2_input if isinstance(t2_input, dict) else None,
+            t2_code_unit_map=code_raw_unit_map,
+            t2_ai_unit_observation=t2_ai_unit_observation,
+            t2_merged_unit_map=t2_merged_unit_map,
             t3_code_element_spec=code_raw_element_spec,
             t3_ai_element_observation=t3_ai_element_observation,
             t3_merged_element_spec=t3_merged_element_spec,
+            t4_code_global_spec=code_raw_global_spec,
+            t4_ai_layout_observation=t4_ai_layout_observation,
+            t4_merged_global_spec=t4_merged_global_spec,
             agent_render_packet=agent_run.render_packet,
             agent_pass_plan=agent_run.pass_plan,
             agent_post_t2_checkpoint=agent_run.post_t2_checkpoint,
             agent_post_t2_input=agent_run.post_t2_input,
             agent_unit_windows=agent_run.unit_windows,
             agent_transcript=agent_run.transcript,
+            agent_observation_bundle=agent_run.ai_observation_bundle,
             agent_observation_bridge=agent_run.observation_bridge,
             agent_submission_comparison=agent_run.submission_comparison,
             agent_decisions=agent_run.decisions,
@@ -262,9 +300,15 @@ def generate_template(
         "template_structure_candidates": structure_candidates,
         "template_generation_model": generation_model,
         "template_generation_plan": plan,
+        "t2_code_unit_map": code_raw_unit_map,
+        "t2_ai_unit_observation": t2_ai_unit_observation,
+        "t2_merged_unit_map": t2_merged_unit_map,
         "t3_code_element_spec": code_raw_element_spec,
         "t3_ai_element_observation": t3_ai_element_observation,
         "t3_merged_element_spec": t3_merged_element_spec,
+        "t4_code_global_spec": code_raw_global_spec,
+        "t4_ai_layout_observation": t4_ai_layout_observation,
+        "t4_merged_global_spec": t4_merged_global_spec,
     }
     if isinstance(t2_input, dict):
         artifacts["t2_input"] = t2_input
@@ -280,6 +324,8 @@ def generate_template(
         artifacts["template_agent_unit_windows"] = agent_run.unit_windows
     if agent_run.transcript is not None:
         artifacts["template_agent_transcript"] = agent_run.transcript
+    if agent_run.ai_observation_bundle is not None:
+        artifacts["ai_observation_bundle"] = agent_run.ai_observation_bundle
     if agent_run.observation_bridge is not None:
         artifacts["template_agent_observation_bridge"] = agent_run.observation_bridge
     if agent_run.submission_comparison is not None:
@@ -358,21 +404,133 @@ def _coverage(
     return coverage
 
 
+def _route_t2_unit_map(
+    unit_map: dict[str, object],
+    *,
+    route_id: str,
+    origin: str,
+) -> dict[str, object]:
+    return _route_stage_artifact(
+        unit_map,
+        route_id=route_id,
+        stage_id="T2",
+        stage_key="t2_unit_recognition",
+        origin=origin,
+    )
+
+
 def _route_t3_element_spec(
     element_spec: dict[str, object],
     *,
     route_id: str,
     origin: str,
 ) -> dict[str, object]:
-    routed = deepcopy(element_spec)
+    return _route_stage_artifact(
+        element_spec,
+        route_id=route_id,
+        stage_id="T3",
+        stage_key="t3_element_policy",
+        origin=origin,
+    )
+
+
+def _route_t4_global_spec(
+    global_spec: dict[str, object],
+    *,
+    route_id: str,
+    origin: str,
+) -> dict[str, object]:
+    return _route_stage_artifact(
+        global_spec,
+        route_id=route_id,
+        stage_id="T4",
+        stage_key="t4_global_layout",
+        origin=origin,
+    )
+
+
+def _merge_t4_agent_hints(
+    global_spec: dict[str, object],
+    t4_hints: dict[str, Any] | None,
+) -> dict[str, object]:
+    if not isinstance(t4_hints, dict):
+        return global_spec
+    collections = (
+        "page_policy_hints",
+        "section_profile_hints",
+        "page_numbering_hints",
+    )
+    hints_by_collection = {
+        collection: deepcopy(t4_hints.get(collection) or [])
+        for collection in collections
+        if t4_hints.get(collection)
+    }
+    accepted_count = sum(len(hints) for hints in hints_by_collection.values())
+    if accepted_count == 0:
+        return global_spec
+
+    merged = deepcopy(global_spec)
+    merged["agent_observation_hints"] = {
+        "artifact_type": "t4_agent_observation_hints",
+        "source_artifact": "agent_t4_hints",
+        "accepted_count": accepted_count,
+        **hints_by_collection,
+    }
+    merge_trace = merged.setdefault("merge_trace", [])
+    if isinstance(merge_trace, list):
+        merge_trace.append(
+            {
+                "stage_id": "T4",
+                "source_artifact": "agent_t4_hints",
+                "operation": "merge_accepted_layout_hints",
+                "accepted_count": accepted_count,
+            }
+        )
+    return merged
+
+
+def _route_stage_artifact(
+    payload: dict[str, object],
+    *,
+    route_id: str,
+    stage_id: str,
+    stage_key: str,
+    origin: str,
+) -> dict[str, object]:
+    routed = deepcopy(payload)
     routed["route"] = {
         "route_id": route_id,
-        "stage_id": "T3",
-        "stage_key": "t3_element_policy",
+        "stage_id": stage_id,
+        "stage_key": stage_key,
         "availability": "AVAILABLE",
         "origin": origin,
     }
     return routed
+
+
+def _route_t2_ai_observation(
+    ai_unit_observation: dict[str, object] | None,
+    *,
+    document_facts: dict[str, object],
+) -> dict[str, object]:
+    if isinstance(ai_unit_observation, dict):
+        routed = deepcopy(ai_unit_observation)
+        routed["route"] = {
+            "route_id": "ai_raw",
+            "stage_id": "T2",
+            "stage_key": "t2_unit_recognition",
+            "availability": "AVAILABLE",
+            "origin": "module1_ai_unit_observation",
+        }
+        return routed
+    return _unavailable_ai_observation(
+        artifact_type="ai_unit_observation",
+        stage="t2",
+        stage_id="T2",
+        stage_key="t2_unit_recognition",
+        origin="module1_ai_unit_observation",
+        document_facts=document_facts,
+    )
 
 
 def _route_t3_ai_observation(
@@ -390,20 +548,68 @@ def _route_t3_ai_observation(
             "origin": "module1_ai_element_observation",
         }
         return routed
-    source_seq_refs = [
-        int(item["source_seq"])
-        for item in document_facts.get("body_flow", [])
-        if isinstance(item, dict) and item.get("source_seq") is not None
-    ]
+    return _unavailable_ai_observation(
+        artifact_type="ai_element_observation",
+        stage="t3",
+        stage_id="T3",
+        stage_key="t3_element_policy",
+        origin="module1_ai_element_observation",
+        document_facts=document_facts,
+    )
+
+
+def _route_t4_ai_observation(
+    ai_layout_observation: dict[str, object] | None,
+    *,
+    document_facts: dict[str, object],
+) -> dict[str, object]:
+    if isinstance(ai_layout_observation, dict):
+        routed = deepcopy(ai_layout_observation)
+        routed["route"] = {
+            "route_id": "ai_raw",
+            "stage_id": "T4",
+            "stage_key": "t4_global_layout",
+            "availability": "AVAILABLE",
+            "origin": "module1_ai_layout_observation",
+        }
+        return routed
+    routed = _unavailable_ai_observation(
+        artifact_type="ai_layout_observation",
+        stage="t4",
+        stage_id="T4",
+        stage_key="t4_global_layout",
+        origin="module1_ai_layout_observation",
+        document_facts=document_facts,
+    )
+    routed["default_font"] = None
+    routed["page_numbering"] = None
+    routed["header_footer"] = []
+    routed["numbering_rules"] = []
+    return routed
+
+
+def _unavailable_ai_observation(
+    *,
+    artifact_type: str,
+    stage: str,
+    stage_id: str,
+    stage_key: str,
+    origin: str,
+    document_facts: dict[str, object],
+) -> dict[str, object]:
+    source_seq_refs = _document_source_seq_refs(document_facts)
     return {
-        "artifact_type": "ai_element_observation",
-        "stage": "t3",
+        "artifact_type": artifact_type,
+        "stage": stage,
+        "created_at": now_iso(),
+        "schema_version": None,
+        "model": None,
         "route": {
             "route_id": "ai_raw",
-            "stage_id": "T3",
-            "stage_key": "t3_element_policy",
+            "stage_id": stage_id,
+            "stage_key": stage_key,
             "availability": "NOT_AVAILABLE",
-            "origin": "module1_ai_element_observation",
+            "origin": origin,
             "reason": "no AI observation bundle was supplied for this run",
         },
         "items": [],
@@ -411,8 +617,15 @@ def _route_t3_ai_observation(
         "open_questions": [],
         "coverage": {
             "owned_source_seq": [],
-            "unknown_source_seq": source_seq_refs,
+            "unknown_source_seq": [],
             "total": len(source_seq_refs),
         },
-        "abstain": True,
     }
+
+
+def _document_source_seq_refs(document_facts: dict[str, object]) -> list[int]:
+    return [
+        int(item["source_seq"])
+        for item in document_facts.get("body_flow", [])
+        if isinstance(item, dict) and item.get("source_seq") is not None
+    ]

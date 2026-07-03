@@ -150,6 +150,91 @@ def apply_t2_proposal(
     return patched, operation_payload, ""
 
 
+def apply_t2_boundary_adjustment_batch(
+    structure_candidates: dict[str, Any],
+    proposals: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]], str]:
+    if not proposals:
+        return structure_candidates, [], ""
+    before_hash = sha256_json(structure_candidates)
+    patched = deepcopy(structure_candidates)
+    units = list(patched.get("units", []))
+    original_assigned = _assigned_source_seq_refs(units)
+    entries_by_seq = _source_entries_by_seq(patched)
+    target_payloads: list[tuple[dict[str, Any], dict[str, Any], list[int], str]] = []
+    seen_targets: set[str] = set()
+    claimed_by_seq: dict[int, str] = {}
+
+    for proposal in proposals:
+        operation = _t2_operation(proposal, "boundary_adjustments")
+        if operation != "adjust_unit_range":
+            return None, [], f"batch only supports adjust_unit_range, got: {operation}"
+        target = _resolve_target_unit(units, proposal)
+        if target is None:
+            return None, [], "adjust_unit_range target is ambiguous or missing"
+        target_unit_id = str(target.get("unit_id") or "")
+        if target_unit_id in seen_targets:
+            return None, [], f"duplicate boundary adjustment target: {target_unit_id}"
+        source_seq_refs = _proposal_source_seq_refs(proposal)
+        if not source_seq_refs:
+            return None, [], "adjust_unit_range requires source_seq_refs or start/end source_seq"
+        source_error = _proposal_source_context_error(source_seq_refs, entries_by_seq)
+        if source_error is not None:
+            return None, [], source_error
+        for source_seq in source_seq_refs:
+            existing_target = claimed_by_seq.get(source_seq)
+            if existing_target is not None and existing_target != target_unit_id:
+                return (
+                    None,
+                    [],
+                    f"source_seq {source_seq} claimed by multiple boundary targets",
+                )
+            claimed_by_seq[source_seq] = target_unit_id
+        seen_targets.add(target_unit_id)
+        target_payloads.append((proposal, target, source_seq_refs, target_unit_id))
+
+    target_ids = {target_unit_id for _, _, _, target_unit_id in target_payloads}
+    claimed_refs = set(claimed_by_seq)
+    for unit in units:
+        if str(unit.get("unit_id") or "") not in target_ids:
+            _remove_source_seq_refs_from_units([unit], claimed_refs, entries_by_seq)
+    for proposal, target, source_seq_refs, _target_unit_id in target_payloads:
+        _replace_unit_sources(target, source_seq_refs, entries_by_seq)
+        target.setdefault("agent_traces", []).append(_trace(proposal))
+    patched["units"] = _sorted_units(units)
+
+    executable_error = _overlay_executable_error(
+        original_assigned,
+        patched.get("units", []),
+        all_source_seq_refs=set(entries_by_seq),
+    )
+    if executable_error is not None:
+        return None, [], executable_error
+
+    after_hash = sha256_json(patched)
+    operations = [
+        {
+            "proposal_id": proposal.get("proposal_id"),
+            "operation": "adjust_unit_range",
+            "collection": "boundary_adjustments",
+            "target_unit_id": target_unit_id,
+            "source_seq_refs": source_seq_refs,
+            "round0_unassigned_source_seq_refs": [
+                seq for seq in source_seq_refs if seq not in original_assigned
+            ],
+            "round0_reassigned_source_seq_refs": [
+                seq for seq in source_seq_refs if seq in original_assigned
+            ],
+            "batch_id": "t2_boundary_adjustments",
+            "batch_size": len(target_payloads),
+            "before_hash": before_hash,
+            "after_hash": after_hash,
+        }
+        for proposal, _target, source_seq_refs, target_unit_id in target_payloads
+    ]
+    return patched, operations, ""
+
+
 def apply_t3_proposal(
     structure_candidates: dict[str, Any],
     proposal: dict[str, Any],

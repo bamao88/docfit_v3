@@ -7,8 +7,10 @@ from typing import Literal, Mapping
 
 
 AgentTransportName = Literal["replay", "kimi", "minimax"]
+ObservationMode = Literal["off", "bundle", "replay", "live"]
 LIVE_TRANSPORTS = {"kimi", "minimax"}
 SUPPORTED_TRANSPORTS = {"replay", *LIVE_TRANSPORTS}
+SUPPORTED_OBSERVATION_MODES = {"off", "bundle", "replay", "live"}
 
 
 class AgentConfigError(ValueError):
@@ -26,6 +28,10 @@ class AgentConfig:
     transcript_path: Path | None = None
     render_packet_path: Path | None = None
     observation_bundle_path: Path | None = None
+    observation_mode: ObservationMode = "off"
+    observation_transcript_path: Path | None = None
+    observation_cache_dir: Path | None = None
+    observation_t3_concurrency: int = 1
     allow_live_without_render_packet: bool = False
     allow_live_without_real_render: bool = False
     model: str | None = None
@@ -39,17 +45,34 @@ def validate_agent_config(config: AgentConfig) -> list[str]:
     errors.extend(config.parse_errors)
     if config.transport not in SUPPORTED_TRANSPORTS:
         errors.append(f"unsupported agent transport: {config.transport}")
+    if config.observation_mode not in SUPPORTED_OBSERVATION_MODES:
+        errors.append(f"unsupported observation_mode: {config.observation_mode}")
     if config.max_rounds < 1 or config.max_rounds > 4:
         errors.append("agent max_rounds must be between 1 and 4")
     if config.max_tokens < 1:
         errors.append("agent max_tokens must be greater than 0")
     if config.temperature < 0 or config.temperature > 2:
         errors.append("agent temperature must be between 0 and 2")
-    if config.transport == "replay" and config.observation_bundle_path is None:
+    if config.observation_t3_concurrency < 1:
+        errors.append("agent observation_t3_concurrency must be greater than 0")
+    observation_mode_satisfies_replay = config.observation_mode in {"replay", "live"} or (
+        config.observation_bundle_path is not None
+    )
+    if config.transport == "replay" and not observation_mode_satisfies_replay:
         if config.transcript_path is None:
             errors.append("replay agent requires transcript_path")
         elif not config.transcript_path.exists():
             errors.append(f"agent transcript_path does not exist: {config.transcript_path}")
+    if config.observation_mode == "bundle" and config.observation_bundle_path is None:
+        errors.append("bundle observation mode requires observation_bundle_path")
+    if config.observation_mode == "replay":
+        if config.observation_transcript_path is None:
+            errors.append("replay observation mode requires observation_transcript_path")
+        elif not config.observation_transcript_path.exists():
+            errors.append(
+                "agent observation_transcript_path does not exist: "
+                f"{config.observation_transcript_path}"
+            )
     if config.transport in LIVE_TRANSPORTS:
         if (
             config.render_packet_path is None
@@ -79,6 +102,9 @@ def agent_config_from_env(env: Mapping[str, str] | None = None) -> AgentConfig |
     transcript = values.get("DOCFIT_TEMPLATE_AGENT_TRANSCRIPT")
     render_packet = values.get("DOCFIT_TEMPLATE_AGENT_RENDER_PACKET")
     observation_bundle = values.get("DOCFIT_TEMPLATE_AGENT_OBSERVATION_BUNDLE")
+    observation_mode_value = values.get("DOCFIT_TEMPLATE_AGENT_OBSERVATION_MODE")
+    observation_replay = values.get("DOCFIT_TEMPLATE_AGENT_OBSERVATION_REPLAY")
+    observation_cache_dir = values.get("DOCFIT_TEMPLATE_AGENT_OBSERVATION_CACHE_DIR")
     max_rounds = values.get("DOCFIT_TEMPLATE_AGENT_MAX_ROUNDS")
     max_tokens = values.get("DOCFIT_TEMPLATE_AGENT_MAX_TOKENS")
     temperature = values.get("DOCFIT_TEMPLATE_AGENT_TEMPERATURE")
@@ -92,6 +118,9 @@ def agent_config_from_env(env: Mapping[str, str] | None = None) -> AgentConfig |
             transcript,
             render_packet,
             observation_bundle,
+            observation_mode_value,
+            observation_replay,
+            observation_cache_dir,
             max_rounds,
             max_tokens,
             temperature,
@@ -122,6 +151,11 @@ def agent_config_from_env(env: Mapping[str, str] | None = None) -> AgentConfig |
         errors=parse_errors,
     )
     transport = str(provider or "replay").strip().lower()
+    observation_mode = _infer_observation_mode(
+        observation_mode_value=observation_mode_value,
+        observation_replay=observation_replay,
+        observation_bundle=observation_bundle,
+    )
 
     return AgentConfig(
         enabled=enabled,
@@ -133,6 +167,9 @@ def agent_config_from_env(env: Mapping[str, str] | None = None) -> AgentConfig |
         transcript_path=Path(transcript) if transcript else None,
         render_packet_path=Path(render_packet) if render_packet else None,
         observation_bundle_path=Path(observation_bundle) if observation_bundle else None,
+        observation_mode=observation_mode,  # type: ignore[arg-type]
+        observation_transcript_path=Path(observation_replay) if observation_replay else None,
+        observation_cache_dir=Path(observation_cache_dir) if observation_cache_dir else None,
         allow_live_without_real_render=str(allow_projection or "").strip().lower()
         in {"1", "true", "yes", "on"},
         model=model,
@@ -169,3 +206,19 @@ def _parse_float_setting(
     except ValueError:
         errors.append(f"{name} must be a number")
         return default
+
+
+def _infer_observation_mode(
+    *,
+    observation_mode_value: str | None,
+    observation_replay: str | None,
+    observation_bundle: str | None,
+) -> str:
+    explicit = str(observation_mode_value or "").strip().lower()
+    if explicit:
+        return explicit
+    if observation_replay:
+        return "replay"
+    if observation_bundle:
+        return "bundle"
+    return "off"

@@ -116,11 +116,17 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     plan = read_json(plan_path)
     document_facts = read_json(artifacts / "document_facts.json")
     unit_map = read_yaml(artifacts / "unit_map.yaml")
+    t2_code = read_yaml(artifacts / "t2_code_unit_map.yaml")
+    t2_ai = read_yaml(artifacts / "t2_ai_unit_observation.yaml")
+    t2_merged = read_yaml(artifacts / "t2_merged_unit_map.yaml")
     element_spec = read_yaml(artifacts / "element_spec.yaml")
     t3_code = read_yaml(artifacts / "t3_code_element_spec.yaml")
     t3_ai = read_yaml(artifacts / "t3_ai_element_observation.yaml")
     t3_merged = read_yaml(artifacts / "t3_merged_element_spec.yaml")
     global_spec = read_yaml(artifacts / "global_spec.yaml")
+    t4_code = read_yaml(artifacts / "t4_code_global_spec.yaml")
+    t4_ai = read_yaml(artifacts / "t4_ai_layout_observation.yaml")
+    t4_merged = read_yaml(artifacts / "t4_merged_global_spec.yaml")
     template_spec = read_yaml(artifacts / "template_spec.yaml")
     verification_report = read_json(artifacts / "verification_report.json")
     source_tree = read_json(artifacts / "source_template_tree.json")
@@ -140,16 +146,41 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert (artifacts / "template_generation_request.json").exists()
     assert document_facts["artifact_type"] == "document_facts"
     assert unit_map["artifact_type"] == "unit_map"
+    assert t2_code["route"]["route_id"] == "code_raw"
+    assert t2_code["route"]["availability"] == "AVAILABLE"
+    assert t2_ai["artifact_type"] == "ai_unit_observation"
+    assert t2_ai["route"]["route_id"] == "ai_raw"
+    assert t2_ai["route"]["availability"] == "NOT_AVAILABLE"
+    assert "abstain" not in t2_ai
+    assert t2_ai["coverage"]["unknown_source_seq"] == []
+    assert t2_ai["coverage"]["total"] == len(document_facts["body_flow"])
+    assert t2_merged["artifact_type"] == "unit_map"
+    assert t2_merged["route"]["route_id"] == "merged"
+    assert t2_merged["route"]["availability"] == "AVAILABLE"
     assert element_spec["artifact_type"] == "element_spec"
     assert t3_code["route"]["route_id"] == "code_raw"
     assert t3_code["route"]["availability"] == "AVAILABLE"
     assert t3_ai["artifact_type"] == "ai_element_observation"
     assert t3_ai["route"]["route_id"] == "ai_raw"
     assert t3_ai["route"]["availability"] == "NOT_AVAILABLE"
+    assert "abstain" not in t3_ai
+    assert t3_ai["coverage"]["unknown_source_seq"] == []
+    assert t3_ai["coverage"]["total"] == len(document_facts["body_flow"])
     assert t3_merged["artifact_type"] == "element_spec"
     assert t3_merged["route"]["route_id"] == "merged"
     assert t3_merged["route"]["availability"] == "AVAILABLE"
     assert global_spec["artifact_type"] == "global_spec"
+    assert t4_code["route"]["route_id"] == "code_raw"
+    assert t4_code["route"]["availability"] == "AVAILABLE"
+    assert t4_ai["artifact_type"] == "ai_layout_observation"
+    assert t4_ai["route"]["route_id"] == "ai_raw"
+    assert t4_ai["route"]["availability"] == "NOT_AVAILABLE"
+    assert "abstain" not in t4_ai
+    assert t4_ai["coverage"]["unknown_source_seq"] == []
+    assert t4_ai["coverage"]["total"] == len(document_facts["body_flow"])
+    assert t4_merged["artifact_type"] == "global_spec"
+    assert t4_merged["route"]["route_id"] == "merged"
+    assert t4_merged["route"]["availability"] == "AVAILABLE"
     assert template_spec["artifact_type"] == "template_spec"
     assert manifest["artifact_type"] == "build_manifest"
     assert verification_report["status"] == Status.UNKNOWN.value
@@ -205,12 +236,18 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert (out_dir / "00_input_source_template.docx").exists()
     assert (out_dir / "00_template_generation_request.json").exists()
     assert (out_dir / "01_document_facts.json").exists()
+    assert (out_dir / "02.0_t2_code_unit_map.yaml").exists()
     assert (out_dir / "02_unit_map.yaml").exists()
     assert (out_dir / "02.1_t2_input.json").exists()
+    assert (out_dir / "02.2_t2_ai_unit_observation.yaml").exists()
+    assert (out_dir / "02.3_t2_merged_unit_map.yaml").exists()
     assert (out_dir / "03.0_t3_code_element_spec.yaml").exists()
     assert (out_dir / "03.1_t3_ai_element_observation.yaml").exists()
     assert (out_dir / "03.2_t3_merged_element_spec.yaml").exists()
     assert (out_dir / "03_element_spec.yaml").exists()
+    assert (out_dir / "04.0_t4_code_global_spec.yaml").exists()
+    assert (out_dir / "04.1_t4_ai_layout_observation.yaml").exists()
+    assert (out_dir / "04.2_t4_merged_global_spec.yaml").exists()
     assert (out_dir / "04_global_spec.yaml").exists()
     assert (out_dir / "05_template_spec.yaml").exists()
     assert (out_dir / "06.0_copy_source_docx.docx").exists()
@@ -221,12 +258,18 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert (debug_dir / "00_input_source_template.docx").exists()
     assert (debug_dir / "00_template_generation_request.json").exists()
     assert (debug_dir / "01_document_facts.json").exists()
+    assert (debug_dir / "02.0_t2_code_unit_map.yaml").exists()
     assert (debug_dir / "02_unit_map.yaml").exists()
     assert (debug_dir / "02.1_t2_input.json").exists()
+    assert (debug_dir / "02.2_t2_ai_unit_observation.yaml").exists()
+    assert (debug_dir / "02.3_t2_merged_unit_map.yaml").exists()
     assert (debug_dir / "03.0_t3_code_element_spec.yaml").exists()
     assert (debug_dir / "03.1_t3_ai_element_observation.yaml").exists()
     assert (debug_dir / "03.2_t3_merged_element_spec.yaml").exists()
     assert (debug_dir / "03_element_spec.yaml").exists()
+    assert (debug_dir / "04.0_t4_code_global_spec.yaml").exists()
+    assert (debug_dir / "04.1_t4_ai_layout_observation.yaml").exists()
+    assert (debug_dir / "04.2_t4_merged_global_spec.yaml").exists()
     assert (debug_dir / "04_global_spec.yaml").exists()
     assert (debug_dir / "05_template_spec.yaml").exists()
     assert (debug_dir / "06.0_copy_source_docx.docx").exists()

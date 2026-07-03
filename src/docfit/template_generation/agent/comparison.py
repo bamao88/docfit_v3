@@ -270,14 +270,17 @@ def _compare_t2(
 
     if operation == "adjust_unit_range":
         pages = _pages_for_source_seq_refs(packet, source_seq_refs)
-        if len(pages) > 1:
+        if len(pages) > 1 and not _is_contiguous(source_seq_refs):
             return _item(
                 proposal,
                 layer="t2",
                 collection=collection,
                 status="unknown",
                 check_id="C-HIGH-RISK",
-                reason="adjust_unit_range crosses multiple pages and requires manual review",
+                reason=(
+                    "adjust_unit_range crosses multiple pages with non-contiguous "
+                    "source_seq_refs and requires manual review"
+                ),
                 affected_refs=affected_refs,
                 deterministic={**deterministic, "page_nos": pages},
                 risk_level="high",
@@ -553,6 +556,13 @@ def _proposal_source_seq_refs(proposal: dict[str, Any]) -> list[int]:
         if start is not None and end is not None and start <= end:
             values = list(range(start, end + 1))
     return sorted(dict.fromkeys(values))
+
+
+def _is_contiguous(values: list[int]) -> bool:
+    if not values:
+        return False
+    ordered = sorted(dict.fromkeys(values))
+    return ordered == list(range(ordered[0], ordered[-1] + 1))
 
 
 def _proposal_page_nos(proposal: dict[str, Any]) -> list[int]:
