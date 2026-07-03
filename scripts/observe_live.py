@@ -3,9 +3,10 @@
 证据 = 真实 Word 事实（真实 document_facts → 防火墙干净渲染包 structure_candidates={}）；
 模型 = 真实 Kimi（response_format=json_object，无 tools）。全程无手写观察数据。
 
-凭证从环境读取（KIMI_API_KEY），脚本不碰、不打印 key。
+凭证：启动时自动加载项目根 `.env`（见 `.env.example`）里的 KIMI_API_KEY 等；
+已在 shell export 的同名变量优先。脚本不打印 key。`.env` 已被 .gitignore 忽略。
 
-运行（在你的会话里，key 已在 profile/.env）：
+运行（把 key 填进 docfit_v3/.env 后）：
 
     uv run python scripts/observe_live.py --samples 1
 
@@ -17,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 
@@ -33,13 +35,31 @@ from docfit.template_generation.agent.packet import (
     packet_source_seq_set,
 )
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_FACTS = Path(
     "runs/template_generation/hunannongye/20260628T110047081862+0800/01_document_facts.json"
 )
 DEFAULT_OUT = Path("test_outputs/observation_live")
 
 
+def load_project_env(path: Path = PROJECT_ROOT / ".env") -> None:
+    """零依赖加载项目根 .env → os.environ；已在 shell export 的同名变量优先，不覆盖。"""
+
+    if not path.exists():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
 def main() -> None:
+    load_project_env()  # 项目根 .env 里的 KIMI_API_KEY 等自动加载（shell 已 export 者优先）
     parser = argparse.ArgumentParser(description="Module 1 live observation (real model)")
     parser.add_argument("--facts", type=Path, default=DEFAULT_FACTS, help="document_facts.json path")
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="output dir")

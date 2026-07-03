@@ -33,3 +33,8 @@ runs/convert/*
 !runs/convert/.gitkeep
 runs/workbench/*
 !runs/workbench/.gitkeep
+
+# Local secrets / API keys (never commit). .env.example is the tracked template.
+.env
+.env.*
+!.env.example
