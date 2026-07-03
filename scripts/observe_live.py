@@ -31,6 +31,7 @@ from docfit.template_generation.agent.observation_live import (
 )
 from docfit.template_generation.agent.observation_loop import run_observation_pipeline
 from docfit.template_generation.agent.observation_vision import (
+    MinimaxTextResponder,
     MinimaxVisionResponder,
     build_minimax_vision_config,
 )
@@ -106,6 +107,12 @@ def main() -> None:
     parser.add_argument("--vision", dest="vision", action="store_true", help="T4: read page images with MiniMax M3 (default on when rendered + MINIMAX_API_KEY)")
     parser.add_argument("--no-vision", dest="vision", action="store_false", help="disable T4 vision")
     parser.set_defaults(vision=True)
+    parser.add_argument(
+        "--provider",
+        choices=["minimax", "kimi"],
+        default="minimax",
+        help="T2/T3 文本 provider（默认 minimax；kimi 当前超额度）",
+    )
     args = parser.parse_args()
 
     # thinking 开时另写一份输出，便于和默认（关）的产物并排对比。
@@ -128,18 +135,31 @@ def main() -> None:
     )
     total = len(packet_source_seq_set(packet))
 
-    client, model = build_kimi_client()
     record: list[dict] = []
-    responder = LiveResponder(
-        client=client,
-        model=model,
-        temperature=args.temperature,
-        max_tokens=args.max_tokens,
-        thinking=args.thinking,
-        record=record,
-        cache_dir=args.cache_dir,
-        refresh=args.refresh,
-    )
+    if args.provider == "minimax":
+        mkey, mbase, mmodel = build_minimax_vision_config()
+        model = mmodel
+        responder = MinimaxTextResponder(
+            api_key=mkey,
+            base_url=mbase,
+            model=mmodel,
+            max_tokens=args.max_tokens,
+            record=record,
+            cache_dir=args.cache_dir,
+            refresh=args.refresh,
+        )
+    else:
+        client, model = build_kimi_client()
+        responder = LiveResponder(
+            client=client,
+            model=model,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+            thinking=args.thinking,
+            record=record,
+            cache_dir=args.cache_dir,
+            refresh=args.refresh,
+        )
 
     # T4 视觉：有页图渲染 + 未 --no-vision + 有 MINIMAX_API_KEY 时，用 MiniMax M3 逐页读图。
     vision_responder = None
@@ -158,7 +178,7 @@ def main() -> None:
     print(f"facts      : {args.facts}")
     print(f"source_seq : {total}")
     print(f"render     : {packet.get('render_status')}  docx={docx}")
-    print(f"model      : {model}  thinking={args.thinking}")
+    print(f"provider   : {args.provider}  model={model}")
     print(f"vision     : {'MiniMax-M3' if vision_responder else 'off'}")
     print(f"samples    : {args.samples}  t3_concurrency={args.t3_concurrency}  cache={args.cache_dir} refresh={args.refresh}")
     wall_start = time.monotonic()

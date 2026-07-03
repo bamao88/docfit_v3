@@ -53,6 +53,48 @@ class MinimaxVisionError(RuntimeError):
     pass
 
 
+def post_anthropic_messages(
+    *,
+    base_url: str,
+    api_key: str,
+    model: str,
+    content: Any,
+    system: str | None = None,
+    max_tokens: int,
+    timeout: int = 90,
+    temperature: float | None = None,
+) -> str:
+    """MiniMax(Anthropic Messages)统一调用 → 返回文本块拼接。content 可为字符串或多模态列表。"""
+
+    body: dict[str, Any] = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "messages": [{"role": "user", "content": content}],
+    }
+    if system:
+        body["system"] = system
+    if temperature is not None:
+        body["temperature"] = temperature
+    response = httpx.post(
+        f"{base_url}/v1/messages",
+        headers={
+            "x-api-key": api_key,
+            "anthropic-version": ANTHROPIC_VERSION,
+            "content-type": "application/json",
+        },
+        json=body,
+        timeout=timeout,
+    )
+    if response.status_code != 200:
+        raise MinimaxVisionError(f"minimax {response.status_code}: {response.text[:200]}")
+    data = response.json()
+    return "".join(
+        block.get("text", "")
+        for block in data.get("content", [])
+        if isinstance(block, dict) and block.get("type") == "text"
+    )
+
+
 def build_minimax_vision_config() -> tuple[str, str, str]:
     api_key = os.environ.get("MINIMAX_API_KEY")
     if not api_key:
@@ -156,40 +198,145 @@ class MinimaxVisionResponder:
         return observation
 
     def _call(self, prompt: str, img_b64: str) -> str:
-        body = {
-            "model": self._model,
-            "max_tokens": self._max_tokens,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
-                    ],
-                }
+        return post_anthropic_messages(
+            base_url=self._base_url,
+            api_key=self._api_key,
+            model=self._model,
+            content=[
+                {"type": "text", "text": prompt},
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
             ],
-        }
-        response = httpx.post(
-            f"{self._base_url}/v1/messages",
-            headers={
-                "x-api-key": self._api_key,
-                "anthropic-version": ANTHROPIC_VERSION,
-                "content-type": "application/json",
-            },
-            json=body,
+            max_tokens=self._max_tokens,
             timeout=self._timeout,
-        )
-        if response.status_code != 200:
-            raise MinimaxVisionError(f"minimax vision {response.status_code}: {response.text[:200]}")
-        data = response.json()
-        return "".join(
-            block.get("text", "")
-            for block in data.get("content", [])
-            if isinstance(block, dict) and block.get("type") == "text"
         )
 
     def _cache_path(self, cache_key: str) -> Path | None:
         return None if self._cache_dir is None else self._cache_dir / f"vision_{cache_key}.json"
+
+    def _cache_load(self, cache_key: str) -> dict[str, Any] | None:
+        if self._refresh:
+            return None
+        path = self._cache_path(cache_key)
+        if path is None or not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+
+    def _cache_store(self, cache_key: str, payload: dict[str, Any]) -> None:
+        path = self._cache_path(cache_key)
+        if path is not None:
+            path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+class MinimaxTextResponder:
+    """T2/T3 文本观察 responder（MiniMax M3, Anthropic 格式），与 Kimi 用相同 prompt。
+
+    实现 ObservationResponder 协议（fetch_units/fetch_elements/fetch_layout）。T4 不走这里
+    （T4 用视觉/确定性），fetch_layout 返回空。单次失败重试后降级为该阶段弃权。
+    """
+
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: str,
+        model: str,
+        max_tokens: int = 8000,
+        temperature: float = 0.6,
+        timeout: int = 120,
+        max_attempts: int = 3,
+        retry_backoff: float = 4.0,
+        cache_dir: Path | None = None,
+        refresh: bool = False,
+        record: list[dict[str, Any]] | None = None,
+        progress: bool = True,
+    ) -> None:
+        self._api_key = api_key
+        self._base_url = base_url
+        self._model = model
+        self._max_tokens = max_tokens
+        self._temperature = temperature
+        self._timeout = timeout
+        self._max_attempts = max(1, max_attempts)
+        self._retry_backoff = retry_backoff
+        self._cache_dir = cache_dir
+        self._refresh = refresh
+        self._record = record
+        self._progress = progress
+        if cache_dir is not None:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+
+    def fetch_units(self, *, evidence: dict[str, Any], n_samples: int) -> list[dict[str, Any]]:
+        return [self._complete("t2", evidence, sample_index=i) for i in range(max(1, n_samples))]
+
+    def fetch_elements(self, *, evidence: dict[str, Any], window: dict[str, Any]) -> dict[str, Any]:
+        return self._complete("t3", evidence, label=str(window.get("window_id") or "t3"))
+
+    def fetch_layout(self, *, evidence: dict[str, Any]) -> dict[str, Any]:
+        del evidence
+        return {"section_profiles": []}
+
+    def _complete(
+        self,
+        stage: str,
+        evidence: dict[str, Any],
+        *,
+        sample_index: int = 0,
+        label: str | None = None,
+    ) -> dict[str, Any]:
+        # 延迟导入避免循环依赖（observation_prompts → evidence → ...）。
+        from .observation_prompts import assemble_observation_messages
+
+        system, user = assemble_observation_messages(stage, evidence)  # firewall asserted inside
+        tag = f"{stage}:{label or sample_index}"
+        started = time.monotonic()
+        cache_key = sha256_json(
+            {"system": system, "user": user, "model": self._model, "sample_index": sample_index}
+        )
+        cached = self._cache_load(cache_key)
+        if cached is not None:
+            if self._progress:
+                print(f"  [ cache] {tag}", file=sys.stderr, flush=True)
+            return cached
+
+        empty: dict[str, Any] = {"items": []}
+        error: str | None = None
+        payload = empty
+        for attempt in range(1, self._max_attempts + 1):
+            try:
+                content = post_anthropic_messages(
+                    base_url=self._base_url,
+                    api_key=self._api_key,
+                    model=self._model,
+                    content=user,
+                    system=system,
+                    max_tokens=self._max_tokens,
+                    timeout=self._timeout,
+                    temperature=self._temperature,
+                )
+                payload = _parse_json_object(content)
+                error = None
+                break
+            except Exception as exc:
+                error = f"{type(exc).__name__}: {exc}"
+                payload = empty
+                if attempt < self._max_attempts:
+                    time.sleep(self._retry_backoff * attempt)
+
+        if error is None:
+            self._cache_store(cache_key, payload)
+        if self._progress:
+            n = len(payload.get("items", []) or [])
+            flag = f" ERROR={error}" if error else ""
+            print(f"  [{time.monotonic() - started:5.1f}s] {tag:26s} raw={n}{flag}", file=sys.stderr, flush=True)
+        if self._record is not None:
+            self._record.append({"stage": stage, "label": label, "sample_index": sample_index, "payload": payload, "error": error})
+        return payload
+
+    def _cache_path(self, cache_key: str) -> Path | None:
+        return None if self._cache_dir is None else self._cache_dir / f"text_{cache_key}.json"
 
     def _cache_load(self, cache_key: str) -> dict[str, Any] | None:
         if self._refresh:

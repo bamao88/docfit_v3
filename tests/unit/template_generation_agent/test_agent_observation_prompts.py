@@ -7,6 +7,7 @@ import pytest
 from docfit.template_generation.agent.evidence import EvidenceFirewallError
 from docfit.template_generation.agent.observation_prompts import (
     OUTPUT_CONTRACT,
+    assemble_observation_messages,
     build_observation_prompt,
 )
 from docfit.template_generation.agent.observation_schema import open_questions_from
@@ -61,6 +62,20 @@ def test_t3_glossary_defines_policies() -> None:
     glossary = build_observation_prompt(stage="t3", evidence_view=clean_evidence("t3"))["glossary"]
     assert "manual_only" in glossary
     assert "fill_source" in glossary
+
+
+def test_assemble_messages_shared_by_providers() -> None:
+    # Kimi/MiniMax 共用同一份 (system, user)；system 含 rubric+词典+契约，user 是 evidence。
+    system, user = assemble_observation_messages("t3", clean_evidence("t3"))
+    assert "决策树" not in system  # 只检查结构：任务/词典/契约都在
+    assert "任务：" in system and "词典" in system and "输出契约：" in system
+    assert "fill_source" in system  # T3 契约的必填规则
+    assert user.startswith("{") and "t3" in user
+
+
+def test_assemble_messages_firewalls_evidence() -> None:
+    with pytest.raises(EvidenceFirewallError):
+        assemble_observation_messages("t2", {"rows": [{"unit_map": {"unit_id": "cover"}}]})
 
 
 def test_open_questions_surface_contested_unknown_and_low_consistency() -> None:

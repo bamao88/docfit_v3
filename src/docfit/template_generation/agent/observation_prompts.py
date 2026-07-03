@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from ..constants import (
@@ -151,3 +152,26 @@ def build_observation_prompt(
         "abstain_is_valid": True,
         "evidence": evidence_view,
     }
+
+
+def assemble_observation_messages(
+    stage: str,
+    evidence_view: dict[str, Any],
+) -> tuple[str, str]:
+    """把单阶段 prompt 装配成 (system, user) 文本——Kimi/MiniMax 等 provider 共用，
+    保证不同模型拿到**完全相同**的 prompt。evidence 子树已在 build_observation_prompt 过防火墙。"""
+
+    prompt = build_observation_prompt(stage=stage, evidence_view=evidence_view)
+    glossary = prompt.get("glossary") or ""
+    glossary_block = f"词典（领域先验，非答案）：\n{glossary}\n" if glossary else ""
+    system = (
+        "你是 DocFit 模板结构观察器。只依据给定的 Word 事实独立判断，"
+        "看不到也不要假设任何代码已有结论。\n"
+        f"任务：{prompt['rubric']}\n"
+        f"{glossary_block}"
+        f"允许标签集：{json.dumps(ALLOWED_LABELS, ensure_ascii=False)}\n"
+        f"输出契约：{OUTPUT_CONTRACT[stage]}\n"
+        "弃权是合法输出：没有证据支撑就少认领、留 unknown。"
+    )
+    user = json.dumps(prompt["evidence"], ensure_ascii=False)
+    return system, user
