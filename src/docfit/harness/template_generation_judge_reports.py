@@ -1444,6 +1444,7 @@ def _mismatch_field(finding_type: str, finding: Finding) -> str:
         "t3_standard_element_expectations_missing": (
             "expected.element_expectations"
         ),
+        "t3_standard_run_span_ledger_missing": "expected.run_span_ledger",
         "t4_artifact_type_mismatch": "artifact_type",
         "t4_global_layout_contract_missing": "expected.global_layout_contract",
         "t4_global_spec_evidence_fields_missing": "global_spec",
@@ -1486,6 +1487,9 @@ def _mismatch_problem(finding_type: str, finding: Finding) -> str:
         "t3_standard_element_expectations_missing": (
             "T3 standard lacks element/run-span expectations for the "
             "human-reviewed final_template element list."
+        ),
+        "t3_standard_run_span_ledger_missing": (
+            "T3 standard lacks a run/span handling ledger for source runs."
         ),
         "t5_unit_order_mismatch": (
             "T5 template_spec unit order differs from expected.unit_order."

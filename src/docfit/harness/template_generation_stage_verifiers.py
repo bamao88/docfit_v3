@@ -489,6 +489,27 @@ def _audit_t3_element_policy(
                 bucket="artifact_schema",
             )
         )
+    element_expectation_gaps = _t3_element_expectation_gaps(
+        elements,
+        _dict_items(expected.get("element_expectations")),
+    )
+    if element_expectation_gaps:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.FAIL,
+                "t3_element_expectation_mismatch",
+                "Human-reviewed element expectations must match element_spec",
+                expected.get("element_expectations", []),
+                element_expectation_gaps[:30],
+                affected_ids=[
+                    str(item.get("stable_id") or item.get("element_ref"))
+                    for item in element_expectation_gaps[:30]
+                ],
+                bucket="stage_standard_mismatch",
+            )
+        )
     run_level_gaps = _t3_run_level_element_gaps(
         elements,
         _dict_items(expected.get("run_level_elements")),
@@ -510,13 +531,36 @@ def _audit_t3_element_policy(
                 bucket="stage_standard_mismatch",
             )
         )
+    run_span_gaps = _t3_run_span_ledger_gaps(
+        elements,
+        _dict_items(expected.get("run_span_ledger")),
+    )
+    if run_span_gaps:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.FAIL,
+                "t3_run_span_ledger_mismatch",
+                "Run/span ledger expectations must match element_spec coverage",
+                expected.get("run_span_ledger", []),
+                run_span_gaps[:30],
+                affected_ids=[
+                    str(item.get("raw_run_id") or item.get("logical_run_id"))
+                    for item in run_span_gaps[:30]
+                ],
+                bucket="stage_standard_mismatch",
+            )
+        )
     return {
         "artifact_type": payload.get("artifact_type"),
         "expected_unit_order": expected_order,
         "actual_unit_order": actual_order,
         "policy_group_conflicts": conflicts,
         "required_policy_field_gaps": missing_required,
+        "element_expectation_gaps": element_expectation_gaps,
         "run_level_element_gaps": run_level_gaps,
+        "run_span_ledger_gaps": run_span_gaps,
     }, findings
 
 
@@ -800,6 +844,104 @@ def _required_policy_field_gaps(
     return gaps
 
 
+def _t3_element_expectation_gaps(
+    elements: list[dict[str, Any]],
+    expectations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    gaps: list[dict[str, Any]] = []
+    for expectation in expectations:
+        unit_id = str(expectation.get("unit_id") or "")
+        element_id = str(expectation.get("element_id") or "")
+        stable_id = str(expectation.get("stable_id") or "")
+        if not stable_id and unit_id and element_id:
+            stable_id = f"{unit_id}.{element_id}"
+        candidates = _t3_element_expectation_candidates(elements, expectation, stable_id)
+        if not _t3_has_expected_element(candidates, expectation, stable_id):
+            gaps.append(
+                {
+                    "unit_id": unit_id,
+                    "element_id": element_id,
+                    "stable_id": stable_id,
+                    "element_ref": stable_id or element_id,
+                    "expected": expectation,
+                    "actual_candidates": [
+                        _t3_candidate_summary(candidate) for candidate in candidates[:10]
+                    ],
+                }
+            )
+    return gaps
+
+
+def _t3_element_expectation_candidates(
+    elements: list[dict[str, Any]],
+    expectation: dict[str, Any],
+    stable_id: str,
+) -> list[dict[str, Any]]:
+    unit_id = str(expectation.get("unit_id") or "")
+    unit_candidates = [
+        element
+        for element in elements
+        if not unit_id or str(element.get("unit_id") or "") == unit_id
+    ]
+    anchors = _content_anchors(expectation)
+    if anchors:
+        anchor_candidates = [
+            element
+            for element in unit_candidates
+            if all(anchor in str(element.get("content") or "") for anchor in anchors)
+        ]
+        if anchor_candidates:
+            return anchor_candidates
+    if stable_id:
+        stable_candidates = [
+            element
+            for element in unit_candidates
+            if str(element.get("stable_id") or "") == stable_id
+        ]
+        if stable_candidates:
+            return stable_candidates
+    source_seq_refs = {str(ref) for ref in expectation.get("source_seq_refs", []) or []}
+    if source_seq_refs:
+        source_candidates = [
+            element
+            for element in unit_candidates
+            if source_seq_refs
+            <= {str(ref) for ref in element.get("source_seq_refs", []) or []}
+        ]
+        if source_candidates:
+            return source_candidates
+    return unit_candidates
+
+
+def _t3_has_expected_element(
+    candidates: list[dict[str, Any]],
+    expectation: dict[str, Any],
+    stable_id: str,
+) -> bool:
+    for candidate in candidates:
+        if stable_id and str(candidate.get("stable_id") or "") != stable_id:
+            continue
+        policy = expectation.get("policy")
+        if policy is not None and str(candidate.get("policy") or "") != str(policy):
+            continue
+        expected_raw_run_ids = _string_list(expectation.get("raw_run_ids"))
+        if expected_raw_run_ids and not _contains_all(
+            _string_list(candidate.get("raw_run_ids")),
+            expected_raw_run_ids,
+        ):
+            continue
+        expected_logical_run_ids = _string_list(expectation.get("logical_run_ids"))
+        if expected_logical_run_ids and not _contains_all(
+            _string_list(candidate.get("logical_run_ids")),
+            expected_logical_run_ids,
+        ):
+            continue
+        if not _content_matches(candidate, expectation):
+            continue
+        return True
+    return False
+
+
 def _t3_run_level_element_gaps(
     elements: list[dict[str, Any]],
     expectations: list[dict[str, Any]],
@@ -867,6 +1009,90 @@ def _t3_has_expected_run_level_element(
             continue
         return True
     return False
+
+
+def _t3_run_span_ledger_gaps(
+    elements: list[dict[str, Any]],
+    ledger: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    gaps: list[dict[str, Any]] = []
+    for expectation in ledger:
+        raw_run_id = str(expectation.get("raw_run_id") or "")
+        logical_run_id = str(expectation.get("logical_run_id") or "")
+        candidates = [
+            element
+            for element in elements
+            if (raw_run_id and raw_run_id in _string_list(element.get("raw_run_ids")))
+            or (
+                logical_run_id
+                and logical_run_id in _string_list(element.get("logical_run_ids"))
+            )
+        ]
+        if not _t3_has_expected_run_span(candidates, expectation):
+            gaps.append(
+                {
+                    "raw_run_id": raw_run_id,
+                    "logical_run_id": logical_run_id,
+                    "source_seq": expectation.get("source_seq"),
+                    "expected": expectation,
+                    "actual_candidates": [
+                        _t3_candidate_summary(candidate) for candidate in candidates[:10]
+                    ],
+                }
+            )
+    return gaps
+
+
+def _t3_has_expected_run_span(
+    candidates: list[dict[str, Any]],
+    expectation: dict[str, Any],
+) -> bool:
+    for candidate in candidates:
+        unit_id = expectation.get("unit_id")
+        if unit_id is not None and str(candidate.get("unit_id") or "") != str(unit_id):
+            continue
+        policy = expectation.get("expected_policy", expectation.get("policy"))
+        if policy is not None and str(candidate.get("policy") or "") != str(policy):
+            continue
+        element_ref = str(
+            expectation.get("expected_element_ref")
+            or expectation.get("stable_id")
+            or ""
+        )
+        if element_ref and str(candidate.get("stable_id") or "") != element_ref:
+            continue
+        if not _content_matches(candidate, expectation):
+            continue
+        return True
+    return False
+
+
+def _content_matches(candidate: dict[str, Any], expectation: dict[str, Any]) -> bool:
+    content = str(candidate.get("content") or "")
+    return all(anchor in content for anchor in _content_anchors(expectation))
+
+
+def _content_anchors(expectation: dict[str, Any]) -> list[str]:
+    anchors: list[str] = []
+    for key in ["content_contains", "content_anchor", "text_anchor"]:
+        anchors.extend(_string_list(expectation.get(key)))
+    return [anchor for anchor in anchors if anchor]
+
+
+def _contains_all(actual: list[str], expected: list[str]) -> bool:
+    actual_set = set(actual)
+    return all(item in actual_set for item in expected)
+
+
+def _t3_candidate_summary(candidate: dict[str, Any]) -> dict[str, Any]:
+    return {
+        **_element_ref(candidate),
+        "policy": candidate.get("policy"),
+        "content": candidate.get("content"),
+        "raw_run_ids": candidate.get("raw_run_ids", []),
+        "logical_run_ids": candidate.get("logical_run_ids", []),
+        "source_seq_refs": candidate.get("source_seq_refs", []),
+    }
 
 
 def _review_flag_gaps(

@@ -408,6 +408,140 @@ def test_t3_run_level_element_expectations_fail_when_instruction_run_is_missing(
     )
 
 
+def test_t3_element_expectations_and_run_span_ledger_can_pass(tmp_path: Path) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t3_element_policy",
+        "T3",
+        "element_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "unit_order": ["abstract_cn"],
+            "element_expectations": [
+                {
+                    "unit_id": "abstract_cn",
+                    "element_id": "e_001",
+                    "policy": "fixed",
+                    "content_contains": "摘要",
+                    "raw_run_ids": ["p_0036.r_001"],
+                    "logical_run_ids": ["p_0036.lr_001"],
+                }
+            ],
+            "run_span_ledger": [
+                {
+                    "unit_id": "abstract_cn",
+                    "raw_run_id": "p_0036.r_001",
+                    "logical_run_id": "p_0036.lr_001",
+                    "expected_policy": "fixed",
+                    "expected_element_ref": "abstract_cn.e_001",
+                    "text_anchor": "摘要",
+                }
+            ],
+        },
+    )
+    artifact = _element_spec_artifact(
+        tmp_path,
+        [
+            {
+                "stable_id": "abstract_cn.e_001",
+                "element_id": "e_001",
+                "unit_id": "abstract_cn",
+                "policy": "fixed",
+                "content": "摘要",
+                "source_refs": ["word/document.xml:p[36]"],
+                "source_seq_refs": [20],
+                "raw_run_ids": ["p_0036.r_001"],
+                "logical_run_ids": ["p_0036.lr_001"],
+            }
+        ],
+    )
+
+    check = judge_template_generation_stage(
+        "t3_element_policy",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t3_element_policy"),
+        run_bundle=_bundle(Status.PASS, {"element_spec": artifact}),
+    )
+
+    assert check.audit_status == "PASS"
+    assert check.status == Status.PASS
+    assert check.audit["element_expectation_gaps"] == []
+    assert check.audit["run_span_ledger_gaps"] == []
+
+
+def test_t3_element_expectations_and_run_span_ledger_fail_on_policy_gap(
+    tmp_path: Path,
+) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t3_element_policy",
+        "T3",
+        "element_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "unit_order": ["abstract_cn"],
+            "element_expectations": [
+                {
+                    "unit_id": "abstract_cn",
+                    "element_id": "e_001",
+                    "policy": "fixed",
+                    "content_contains": "摘要",
+                    "raw_run_ids": ["p_0036.r_001"],
+                    "logical_run_ids": ["p_0036.lr_001"],
+                }
+            ],
+            "run_span_ledger": [
+                {
+                    "unit_id": "abstract_cn",
+                    "raw_run_id": "p_0036.r_001",
+                    "logical_run_id": "p_0036.lr_001",
+                    "expected_policy": "fixed",
+                    "expected_element_ref": "abstract_cn.e_001",
+                    "text_anchor": "摘要",
+                }
+            ],
+        },
+    )
+    artifact = _element_spec_artifact(
+        tmp_path,
+        [
+            {
+                "stable_id": "abstract_cn.e_001",
+                "element_id": "e_001",
+                "unit_id": "abstract_cn",
+                "policy": "fill",
+                "content": "摘要",
+                "source_refs": ["word/document.xml:p[36]"],
+                "source_seq_refs": [20],
+                "raw_run_ids": ["p_0036.r_001"],
+                "logical_run_ids": ["p_0036.lr_001"],
+            }
+        ],
+    )
+
+    check = judge_template_generation_stage(
+        "t3_element_policy",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t3_element_policy"),
+        run_bundle=_bundle(Status.PASS, {"element_spec": artifact}),
+    )
+
+    assert check.audit_status == "FAIL"
+    assert check.status == Status.FAIL
+    assert check.audit["element_expectation_gaps"]
+    assert check.audit["run_span_ledger_gaps"]
+    assert {
+        finding.type for finding in check.findings
+    } >= {
+        "t3_element_expectation_mismatch",
+        "t3_run_span_ledger_mismatch",
+    }
+
+
 def _stage_standard(
     tmp_path: Path,
     stage_key: str,

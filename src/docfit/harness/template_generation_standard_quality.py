@@ -579,34 +579,70 @@ def _t3_element_expectation_findings(
     final_elements = _final_template_element_refs(final_template)
     if not final_elements:
         return []
-    declared_count = _declared_t3_element_expectation_count(stage.expected)
-    if declared_count >= len(final_elements):
-        return []
-    sample_missing = [
+    findings: list[Finding] = []
+    declared_refs = _declared_t3_element_expectation_refs(stage.expected)
+    missing_refs = [
         f"{item['unit_id']}.{item['element_id']}"
-        for item in final_elements[:10]
+        for item in final_elements
+        if f"{item['unit_id']}.{item['element_id']}" not in declared_refs
     ]
-    return [
-        _quality_finding(
-            start_index,
-            "t3_standard_element_expectations_missing",
-            (
-                "T3 standard does not cover the human-reviewed final_template "
-                "element list with element/run-span expectations"
-            ),
-            (
-                f"at least {len(final_elements)} element or run-span expectations "
-                "derived from final_template.expected.units[].elements[]"
-            ),
-            (
-                f"{declared_count} declared element/run-span expectations; "
-                f"sample uncovered final_template elements: {sample_missing}"
-            ),
-            stage=stage.stage_key,
-            affected_ids=sample_missing,
-            bucket="standard_incomplete",
+    if missing_refs:
+        declared_count = _declared_t3_element_expectation_count(stage.expected)
+        sample_missing = missing_refs[:10]
+        findings.append(
+            _quality_finding(
+                start_index + len(findings),
+                "t3_standard_element_expectations_missing",
+                (
+                    "T3 standard does not cover the human-reviewed final_template "
+                    "element list with element/run-span expectations"
+                ),
+                (
+                    f"all {len(final_elements)} final_template element refs in "
+                    "expected.element_expectations[]"
+                ),
+                (
+                    f"{declared_count} declared element/run-span expectations; "
+                    f"missing final_template elements: {sample_missing}"
+                ),
+                stage=stage.stage_key,
+                affected_ids=sample_missing,
+                bucket="standard_incomplete",
+            )
         )
-    ]
+    run_span_ledger = stage.expected.get("run_span_ledger")
+    if not isinstance(run_span_ledger, list) or not run_span_ledger:
+        findings.append(
+            _quality_finding(
+                start_index + len(findings),
+                "t3_standard_run_span_ledger_missing",
+                "T3 standard does not declare run/span handling coverage",
+                "expected.run_span_ledger[] with raw_run_id/logical_run_id coverage",
+                "missing or empty expected.run_span_ledger",
+                stage=stage.stage_key,
+                bucket="standard_incomplete",
+            )
+        )
+    return findings
+
+
+def _declared_t3_element_expectation_refs(expected: dict[str, Any]) -> set[str]:
+    refs: set[str] = set()
+    element_expectations = expected.get("element_expectations")
+    if not isinstance(element_expectations, list):
+        return refs
+    for item in element_expectations:
+        if not isinstance(item, dict):
+            continue
+        stable_id = str(item.get("stable_id") or "")
+        if stable_id:
+            refs.add(stable_id)
+            continue
+        unit_id = str(item.get("unit_id") or "")
+        element_id = str(item.get("element_id") or "")
+        if unit_id and element_id:
+            refs.add(f"{unit_id}.{element_id}")
+    return refs
 
 
 def _final_template_element_refs(final_template: dict[str, Any]) -> list[dict[str, str]]:

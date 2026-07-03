@@ -81,6 +81,7 @@ next_plan: ...
 | --- | --- | --- | --- | --- |
 | 01 | issue | `docs/plans/2026-07-03-template-parse-refactor-stage-standards-issue-01-incomplete-stage-standards.md` | draft | T1-T5 标准文件存在且 judge 可 PASS，但 T3 未覆盖人审元素/run-span 级标准，T6/T7 仍无阶段标准，最终 template-gap FAIL 无法回链 |
 | 01 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-stage-standards-plan-01-stage-standard-completeness-audit.md` | draft | 先新增标准完整性审计：final_template 已有元素清单但 T3 标准缺元素覆盖时降级为 UNKNOWN/NOT_SIGNABLE，并输出四层诊断 |
+| 02 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-stage-standards-plan-02-t3-run-span-standard-fill.md` | implemented | 补齐三校 T3 `element_expectations` 与 `run_span_ledger`，以人审 final_template 为标准，以真实 T1/T3 artifact 绑定 run/span 证据 |
 
 ## Run bundle contract
 
