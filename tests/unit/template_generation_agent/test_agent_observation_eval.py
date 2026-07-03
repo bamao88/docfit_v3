@@ -120,6 +120,24 @@ def test_layout_page_isolation_accuracy_vs_gold() -> None:
     assert r["page_policy_mismatches"] == []
 
 
+def test_layout_page_isolation_from_vision_units_no_t2() -> None:
+    # 视觉逐页 unit_hint(中文) → unit_id，独立于 Kimi 的 T2 算页隔离。
+    layout = {
+        "items": [{"source": "deterministic_facts"}],
+        "page_count": 3,
+        "page_observations": [
+            {"page_no": 1, "unit_hint": "封面"},
+            {"page_no": 2, "unit_hint": "目录"},
+            {"page_no": 3, "unit_hint": "目录"},
+        ],
+    }
+    std = {"expected": {"layout_policy": {"standalone_units": ["cover", "toc"], "flowing_units": []}}}
+    r = evaluate_layout_stage(layout, {"items": []}, std)  # 无 T2 单元
+    assert r["unit_pages_source"] == "vision_page_units"
+    assert r["page_policy_evaluable"] is True
+    assert r["page_isolation_accuracy"] == 1.0  # cover 独占 p1，toc 独占 p2-3
+
+
 def test_layout_page_policy_mismatch_becomes_open_question() -> None:
     # cover 与 toc 挤在 page1 → cover 实测 flowing，但 gold 要 standalone → mismatch + open_question。
     layout = {"items": [{"source": "deterministic_facts"}], "page_map": {"1": 1, "2": 1}}

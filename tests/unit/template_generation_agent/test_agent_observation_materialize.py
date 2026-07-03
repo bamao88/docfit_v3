@@ -171,3 +171,22 @@ def test_layout_track_b_deterministic_page_facts_when_rendered() -> None:
     assert obs["page_count"] == 3
     assert obs["page_map"] == {"1": 1, "2": 1, "3": 2, "4": 3}
     assert obs["items"][0]["pages"] == [1, 2, 3]
+
+
+def test_layout_aggregates_vision_page_observations() -> None:
+    packet = clean_packet()
+    packet["global_layout_facts"] = {"sections": [{"index": 1, "page_size": {}}], "header_footer": []}
+    packet["page_layout_index"] = [{"source_seq": 1, "page_no": 1}, {"source_seq": 2, "page_no": 2}]
+    page_obs = [
+        {"page_no": 1, "has_header": False, "has_footer": False, "page_number_visible": False, "page_number_text": ""},
+        {"page_no": 2, "has_header": True, "has_footer": True, "page_number_visible": True, "page_number_text": "1"},
+    ]
+    obs = materialize_layout_observation(
+        {"section_profiles": []}, packet=packet, render_available=True, page_observations=page_obs
+    )
+    assert obs["vision_source"] == "minimax_m3"
+    assert len(obs["page_observations"]) == 2
+    assert obs["header_footer_policy"]["pages_with_header"] == [2]
+    assert obs["header_footer_policy"]["pages_with_footer"] == [2]
+    assert obs["page_numbering_display"]["pages_with_visible_number"] == [2]
+    assert obs["page_numbering_display"]["samples"] == [{"page_no": 2, "text": "1"}]

@@ -19,7 +19,30 @@ from typing import Any
 
 from docfit.core.io import read_yaml
 
+from ..constants import UNIT_DEFINITIONS
+
 STANDARDS_ROOT = Path("standards/targets")
+
+# 视觉 unit_hint 是中文名/别名 → 映射回 unit_id（gold 用 unit_id）。
+_NAME_TO_UNIT: dict[str, str] = {}
+for _uid, _name, _aliases in UNIT_DEFINITIONS:
+    _NAME_TO_UNIT[_name] = _uid
+    for _alias in _aliases:
+        _NAME_TO_UNIT[_alias] = _uid
+
+
+def unit_id_from_hint(hint: Any) -> str | None:
+    """把视觉给的中文单元名（如“任务书/开题报告”）映射回 unit_id。"""
+
+    text = str(hint or "").strip()
+    if not text or text == "unknown":
+        return None
+    if text in _NAME_TO_UNIT:
+        return _NAME_TO_UNIT[text]
+    for name, unit_id in _NAME_TO_UNIT.items():
+        if name and (name in text or text in name):
+            return unit_id
+    return None
 
 # gold policy_groups 的组名 → 该组单元的应然主策略。
 _GROUP_TO_POLICY = {
@@ -156,29 +179,43 @@ def evaluate_layout_stage(
     global_profile_present = any(
         it.get("source") == "deterministic_facts" for it in ai_layout_observation.get("items", [])
     )
+    page_observations = ai_layout_observation.get("page_observations") or []
     page_map_raw = ai_layout_observation.get("page_map") or {}
-    if not page_map_raw:
+
+    # 单元→页 有两个来源：优先**视觉逐页 unit_hint**（T4 自己的证人，不依赖 Kimi 的 T2），
+    # 否则退回 确定性 page_map(seq→page) + AI 的 T2 单元。
+    unit_pages: dict[str, set[int]] = {}
+    source = None
+    if page_observations:
+        source = "vision_page_units"
+        for page in page_observations:
+            unit_id = unit_id_from_hint(page.get("unit_hint"))
+            page_no = page.get("page_no")
+            if unit_id and isinstance(page_no, int):
+                unit_pages.setdefault(unit_id, set()).add(page_no)
+    if not unit_pages and page_map_raw:
+        source = "deterministic_page_map"
+        page_map = {int(k): int(v) for k, v in page_map_raw.items()}
+        for item in ai_unit_observation.get("items", []):
+            unit_id = str(item.get("unit_id") or "")
+            if not unit_id or unit_id == "unknown_unit":
+                continue
+            pages = {page_map[s] for s in item.get("source_seq_refs", []) if s in page_map}
+            if pages:
+                unit_pages.setdefault(unit_id, set()).update(pages)
+
+    if not unit_pages:
         return {
             "stage": "t4_layout",
             "global_profile_present": global_profile_present,
             "page_policy_evaluable": False,
-            "note": "无渲染页图 → 只产出全局版式，每单元页隔离策略不可评（需 --docx 渲染）。",
+            "note": "无视觉逐页单元、也无渲染 page_map+T2 单元 → 每单元页隔离不可评（需 --docx + --vision 或 T2）。",
         }
 
-    page_map = {int(k): int(v) for k, v in page_map_raw.items()}
     policy = t4_standard.get("expected", {}).get("layout_policy", {}) or {}
     gold_standalone = set(policy.get("standalone_units", []) or [])
     gold_flowing = set(policy.get("flowing_units", []) or [])
 
-    # 每单元 → 覆盖的页；每页 → 覆盖的单元。
-    unit_pages: dict[str, set[int]] = {}
-    for item in ai_unit_observation.get("items", []):
-        unit_id = str(item.get("unit_id") or "")
-        if not unit_id or unit_id == "unknown_unit":
-            continue
-        pages = {page_map[s] for s in item.get("source_seq_refs", []) if s in page_map}
-        if pages:
-            unit_pages.setdefault(unit_id, set()).update(pages)
     page_units: dict[int, set[str]] = {}
     for unit_id, pages in unit_pages.items():
         for page in pages:
@@ -224,6 +261,7 @@ def evaluate_layout_stage(
         "stage": "t4_layout",
         "global_profile_present": global_profile_present,
         "page_policy_evaluable": True,
+        "unit_pages_source": source,
         "page_count": ai_layout_observation.get("page_count"),
         "units_evaluated": len(evaluated),
         "page_isolation_accuracy": round(len(matches) / len(evaluated), 4) if evaluated else 0.0,

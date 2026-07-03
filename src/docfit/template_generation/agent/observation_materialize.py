@@ -181,8 +181,10 @@ def materialize_layout_observation(
     packet: dict[str, Any],
     render_available: bool,
     model: str = "replay",
+    page_observations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     valid_seq = packet_source_seq_set(packet)
+    page_observations = page_observations or []
     demotions: list[dict[str, Any]] = []
     survivors: list[dict[str, Any]] = []
     unknown_items: list[dict[str, Any]] = []
@@ -214,6 +216,7 @@ def materialize_layout_observation(
             global_facts=global_facts,
             raw_payload=raw_payload,
             visual_abstained=visual_abstained,
+            page_observations=page_observations,
         )
         return observation
 
@@ -259,6 +262,7 @@ def materialize_layout_observation(
         global_facts=global_facts,
         raw_payload=raw_payload,
         visual_abstained=False,
+        page_observations=page_observations,
     )
 
 
@@ -311,6 +315,7 @@ def _finalize_layout(
     global_facts: dict[str, Any],
     raw_payload: dict[str, Any],
     visual_abstained: bool,
+    page_observations: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     observation = _envelope(
         "ai_layout_observation",
@@ -352,6 +357,24 @@ def _finalize_layout(
     else:
         observation["page_structure_source"] = "unavailable_no_render"
         observation["page_count"] = None
+
+    # Track B 视觉：逐页读图观察 + 从中聚合页眉脚/页码显示策略。
+    pages = page_observations or []
+    observation["page_observations"] = pages
+    if pages:
+        observation["vision_source"] = "minimax_m3"
+        observation["header_footer_policy"] = {
+            "pages_with_header": [p["page_no"] for p in pages if p.get("has_header")],
+            "pages_with_footer": [p["page_no"] for p in pages if p.get("has_footer")],
+        }
+        observation["page_numbering_display"] = {
+            "pages_with_visible_number": [p["page_no"] for p in pages if p.get("page_number_visible")],
+            "samples": [
+                {"page_no": p["page_no"], "text": p.get("page_number_text")}
+                for p in pages
+                if p.get("page_number_visible") and p.get("page_number_text")
+            ][:8],
+        }
     return observation
 
 

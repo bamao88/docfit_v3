@@ -79,6 +79,7 @@ def run_observation_pipeline(
     transcript: dict[str, Any] | None = None,
     config: ObservationConfig | None = None,
     t3_concurrency: int = 1,
+    vision_responder: Any = None,
 ) -> dict[str, Any]:
     """跑一次三阶段流水线，返回 bundle（含三份产物 + quality_report）。
 
@@ -118,18 +119,21 @@ def run_observation_pipeline(
     )
     timing["t3_seconds"] = round(time.monotonic() - t3_start, 2)
 
-    # --- Pass-T4：确定性版式(D8a) ---
-    # Track A：T1 分节事实(页边距/纸张/页码)。Track B：有页图时用渲染得到的
-    # 确定性 per-seq page_no（pdftotext 版面），不是模型视觉——LiveResponder 是文本通道，
-    # 未接多模态；页结构用确定性事实更可靠、不幻觉。模型视觉留作后续。
+    # --- Pass-T4：Track A 确定性版式(T1 分节事实) + 渲染 per-seq page_no
+    # + Track B 视觉逐页读图(MiniMax M3, 有 vision_responder 且有页图时) ---
     t4_start = time.monotonic()
     t4_evidence = build_t4_evidence(packet)
     render_available = bool(t4_evidence.get("render_available"))
+    page_observations: list[dict[str, Any]] = []
+    if vision_responder is not None and render_available:
+        page_images = (packet.get("render_artifacts", {}) or {}).get("clean_page_images", []) or []
+        page_observations = vision_responder.observe_pages(page_images)
     layout_observation = materialize_layout_observation(
         {"section_profiles": []},
         packet=packet,
         render_available=render_available,
         model=config.model,
+        page_observations=page_observations,
     )
     timing["t4_seconds"] = round(time.monotonic() - t4_start, 2)
     timing["total_seconds"] = round(time.monotonic() - pipeline_start, 2)

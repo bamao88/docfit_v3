@@ -30,6 +30,10 @@ from docfit.template_generation.agent.observation_live import (
     build_kimi_client,
 )
 from docfit.template_generation.agent.observation_loop import run_observation_pipeline
+from docfit.template_generation.agent.observation_vision import (
+    MinimaxVisionResponder,
+    build_minimax_vision_config,
+)
 from docfit.template_generation.agent.packet import (
     build_template_agent_render_packet,
     packet_source_seq_set,
@@ -99,6 +103,9 @@ def main() -> None:
         default=None,
         help="school id under standards/targets/ to score each stage against gold (e.g. hunannongye)",
     )
+    parser.add_argument("--vision", dest="vision", action="store_true", help="T4: read page images with MiniMax M3 (default on when rendered + MINIMAX_API_KEY)")
+    parser.add_argument("--no-vision", dest="vision", action="store_false", help="disable T4 vision")
+    parser.set_defaults(vision=True)
     args = parser.parse_args()
 
     # thinking 开时另写一份输出，便于和默认（关）的产物并排对比。
@@ -134,10 +141,25 @@ def main() -> None:
         refresh=args.refresh,
     )
 
+    # T4 视觉：有页图渲染 + 未 --no-vision + 有 MINIMAX_API_KEY 时，用 MiniMax M3 逐页读图。
+    vision_responder = None
+    vision_record: list[dict] = []
+    if args.vision and packet.get("render_status") == "real_render" and os.environ.get("MINIMAX_API_KEY"):
+        vkey, vbase, vmodel = build_minimax_vision_config()
+        vision_responder = MinimaxVisionResponder(
+            api_key=vkey,
+            base_url=vbase,
+            model=vmodel,
+            cache_dir=args.out / ".vision_cache",
+            refresh=args.refresh,
+            record=vision_record,
+        )
+
     print(f"facts      : {args.facts}")
     print(f"source_seq : {total}")
     print(f"render     : {packet.get('render_status')}  docx={docx}")
     print(f"model      : {model}  thinking={args.thinking}")
+    print(f"vision     : {'MiniMax-M3' if vision_responder else 'off'}")
     print(f"samples    : {args.samples}  t3_concurrency={args.t3_concurrency}  cache={args.cache_dir} refresh={args.refresh}")
     wall_start = time.monotonic()
 
@@ -146,6 +168,7 @@ def main() -> None:
         responder=responder,
         config=ObservationConfig(enabled=True, self_consistency_samples=args.samples, model=model),
         t3_concurrency=args.t3_concurrency,
+        vision_responder=vision_responder,
     )
 
     args.out.mkdir(parents=True, exist_ok=True)
@@ -156,6 +179,7 @@ def main() -> None:
         "quality_report.json": bundle["quality_report"],
         "bundle.json": bundle,  # 完整记录，含 timing，供评测复用
         "_raw_model_responses.json": record,  # 审计/复跑用，非产品口径
+        "_vision_responses.json": vision_record,  # T4 逐页视觉原始响应
     }
 
     # 补齐流程：每阶段产物 vs 标准文件 → 准确率 + 耗时。
@@ -186,6 +210,15 @@ def main() -> None:
         )
     cache_hits = sum(1 for r in record if r.get("from_cache"))
     print(f"  calls: {len(record)} (cache hits: {cache_hits})  wall: {time.monotonic() - wall_start:.1f}s")
+    layout = bundle["ai_layout_observation"]
+    if layout.get("page_observations"):
+        po = layout["page_observations"]
+        hf = layout.get("header_footer_policy", {})
+        print(
+            f"  T4 vision: {len(po)} 页读图 | 页眉页={len(hf.get('pages_with_header', []))} "
+            f"页脚页={len(hf.get('pages_with_footer', []))} "
+            f"有页码页={len(layout.get('page_numbering_display', {}).get('pages_with_visible_number', []))}"
+        )
 
     timing = bundle.get("timing", {})
     print(
