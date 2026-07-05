@@ -124,6 +124,7 @@ def build_element_spec(generation_model: dict[str, Any]) -> dict[str, Any]:
                 "logical_run_ids": element.get("logical_run_ids", []),
                 "content": element.get("content", ""),
                 "style": element.get("style") or element.get("style_summary", ""),
+                "spans": list(element.get("spans", []) or []),
                 "confidence": _element_confidence(
                     policy,
                     element.get("content", ""),

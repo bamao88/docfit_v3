@@ -782,6 +782,56 @@ def test_template_generate_splits_within_paragraph_format_instruction_runs(
     assert len(body_paragraph_elements) == 1
 
 
+def test_template_generate_replaces_field_line_placeholder_spans(tmp_path) -> None:
+    source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
+    out_dir = tmp_path / "template_generate"
+    write_source_docx_with_runs(
+        source,
+        [
+            "封面",
+            [
+                ("□□□□□□", {"bold": True}),
+                ("学□□号：", {"bold": True}),
+                ("20××××××××××", {"bold": True}),
+            ],
+            "目录",
+            "正文",
+        ],
+    )
+
+    result = run_template_generate_eval(tmp_path, source, out_dir)
+    fillable = out_dir / "fillable_template.docx"
+    element_spec = read_yaml(out_dir / "artifacts/element_spec.yaml")
+    plan = read_json(out_dir / "artifacts/template_generation_plan.json")
+    manifest = read_json(out_dir / "artifacts/build_manifest.json")
+    cover_field = next(
+        element
+        for element in element_spec["elements"]
+        if element["unit_id"] == "cover"
+        and "学□□号" in element.get("content", "")
+    )
+
+    span_types = {span["span_type"] for span in cover_field["spans"]}
+    assert result.status == Status.UNKNOWN
+    assert {"label", "layout_spacer", "sample_value"}.issubset(span_types)
+    assert any(
+        action["action_type"] == "replace_span_with_slot"
+        and action["unit_id"] == "cover"
+        and action["element_id"] == cover_field["element_id"]
+        for action in plan["actions"]
+    )
+    assert any(
+        action["action_type"] == "replace_span_with_slot"
+        for action in manifest["actions_executed"]
+    )
+    joined_text = "\n".join(docx_texts(fillable))
+    assert "□□□□□□" not in joined_text
+    assert "学□□号" not in joined_text
+    assert "20××" not in joined_text
+    assert "学号：" in joined_text
+    assert any(tag.startswith("cover.") for tag in docx_sdt_tags(fillable))
+
+
 def test_template_generate_references_unit_is_fillable_not_copy_only(tmp_path) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     out_dir = tmp_path / "template_generate"

@@ -448,6 +448,7 @@ def _normalize_proposal_element(
         "source_seq_refs": source_seq_refs,
         "entry_refs": list(element.get("entry_refs") or []),
         "evidence": list(element.get("evidence") or []),
+        "spans": list(element.get("spans") or []),
     }
 
 

@@ -66,3 +66,51 @@ def test_t4_evidence_marks_render_unavailable_for_projection_fallback() -> None:
     view = build_t4_evidence(packet)
     # 测试 fixture 无真实页图 → render_available False → 上层强制 abstain。
     assert view["render_available"] is False
+
+
+def test_t4_evidence_includes_layout_fields_headers_and_breaks() -> None:
+    facts = document_facts()
+    facts["data"]["headers_footers"] = [
+        {
+            "kind": "footer",
+            "part_name": "word/footer1.xml",
+            "text": "第 1 页",
+            "paragraphs": [
+                {
+                    "index": 1,
+                    "text": "第 1 页",
+                    "source_ref": "word/footer1.xml:p[1]",
+                }
+            ],
+            "source_ref": "word/footer1.xml",
+        }
+    ]
+    facts["data"]["fields"] = [
+        {
+            "index": 1,
+            "kind": "fldSimple",
+            "field_type": "PAGE",
+            "instruction": "PAGE",
+            "part_name": "word/footer1.xml",
+            "source_ref": "word/footer1.xml:p[1]/field[1]",
+        }
+    ]
+    facts["data"]["breaks"] = [
+        {
+            "index": 1,
+            "kind": "break",
+            "type": "page",
+            "paragraph_index": 2,
+            "source_ref": "word/document.xml:p[2]/r[1]/br[1]",
+        }
+    ]
+    packet = build_template_agent_render_packet(
+        document_facts=facts,
+        structure_candidates={},
+    )
+
+    view = build_t4_evidence(packet)
+    facts_view = view["global_layout_facts"]
+    assert facts_view["header_footer"][0]["text"] == "第 1 页"
+    assert facts_view["fields"][0]["field_type"] == "PAGE"
+    assert facts_view["breaks"][0]["type"] == "page"

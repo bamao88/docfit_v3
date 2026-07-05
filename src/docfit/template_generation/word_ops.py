@@ -47,6 +47,48 @@ def _clear_runs_by_raw_run_ids(
     return f"{source_ref}/runs[{joined}]:cleared"
 
 
+def _replace_run_text_ranges(
+    paragraph: Paragraph,
+    source_ref: str | None,
+    ranges: list[dict[str, Any]],
+) -> str | None:
+    source_paragraph_index = _source_ref_paragraph_index(source_ref)
+    runs = list(paragraph.runs)
+    grouped: dict[int, list[dict[str, Any]]] = {}
+    for item in ranges:
+        raw_run_id = str(item.get("raw_run_id") or "")
+        parsed = _parse_raw_run_id(raw_run_id)
+        if parsed is None:
+            return None
+        paragraph_index, run_index = parsed
+        if (
+            source_paragraph_index is not None
+            and paragraph_index != source_paragraph_index
+        ):
+            return None
+        if run_index < 1 or run_index > len(runs):
+            return None
+        grouped.setdefault(run_index, []).append(item)
+    if not grouped:
+        return None
+    for run_index, replacements in grouped.items():
+        run = runs[run_index - 1]
+        text = run.text
+        for item in sorted(replacements, key=lambda value: int(value.get("start") or 0), reverse=True):
+            start = int(item.get("start") or 0)
+            end = int(item.get("end") or start)
+            if start < 0 or end < start or end > len(text):
+                return None
+            replacement = str(item.get("replacement") or "")
+            text = f"{text[:start]}{replacement}{text[end:]}"
+        run.text = text
+    joined = ",".join(
+        f"{item.get('raw_run_id')}:{item.get('start')}-{item.get('end')}"
+        for item in ranges
+    )
+    return f"{source_ref}/char_ranges[{joined}]:replaced"
+
+
 def _source_ref_paragraph_index(source_ref: str | None) -> int | None:
     if not source_ref:
         return None

@@ -29,6 +29,8 @@ ANTHROPIC_VERSION = "2023-06-01"
 
 PAGE_PROMPT = (
     "这是一份学位论文模板的第 {page_no} 页渲染图。只依据图里看到的，输出一个 JSON 对象："
+    "已知 Word/OOXML 版式事实摘要如下，供你对照确认或指出视觉不一致，不要把它当作最终答案："
+    "{layout_context}。"
     '{{"is_standalone_page": 该页是否只含一个逻辑单元(布尔),'
     '"unit_hint": "该页主要是什么单元(封面/版权/诚信声明/目录/摘要/正文/参考文献/致谢/附录/'
     '任务书/开题报告/开题论证记录表/答辩记录表/题目变更审批表/成绩评定表 等，不确定填 unknown)",'
@@ -157,7 +159,12 @@ class MinimaxVisionResponder:
         started = time.monotonic()
         if not path.exists():
             return {**_EMPTY_PAGE, "page_no": page_no, "error": f"image missing: {path}"}
-        prompt = PAGE_PROMPT.format(page_no=page_no)
+        layout_context = json.dumps(
+            page.get("layout_context") or {},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        prompt = PAGE_PROMPT.format(page_no=page_no, layout_context=layout_context)
         cache_key = sha256_json(
             {"prompt": prompt, "model": self._model, "image_sha256": page.get("sha256"), "page_no": page_no}
         )

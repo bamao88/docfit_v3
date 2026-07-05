@@ -105,7 +105,18 @@ def build_template_agent_render_packet(
 
 # T4 确定性全局版式事实（白名单投影，仅事实字段，供 Track A）。
 _SECTION_FACT_FIELDS = ("page_margins", "page_size", "page_numbering")
-_HEADER_FOOTER_REF_FIELDS = ("kind", "type", "part_name")
+_HEADER_FOOTER_REF_FIELDS = ("kind", "type", "part_name", "source_ref")
+_FIELD_FACT_FIELDS = (
+    "index",
+    "kind",
+    "field_type",
+    "instruction",
+    "part_name",
+    "paragraph_index",
+    "end_paragraph_index",
+    "source_ref",
+)
+_BREAK_FACT_FIELDS = ("index", "kind", "paragraph_index", "type", "source_ref")
 
 
 def _global_layout_facts(document_facts: dict[str, Any]) -> dict[str, Any]:
@@ -123,19 +134,55 @@ def _global_layout_facts(document_facts: dict[str, Any]) -> dict[str, Any]:
             for ref in section.get("references", []) or []
             if isinstance(ref, dict)
         ]
+        projected["effective_references"] = [
+            {field: ref.get(field) for field in _HEADER_FOOTER_REF_FIELDS if ref.get(field) is not None}
+            for ref in section.get("effective_references", []) or []
+            if isinstance(ref, dict)
+        ]
         sections.append(projected)
     header_footer = [
         {
             "kind": hf.get("kind"),
             "part_name": hf.get("part_name"),
             "has_content": bool((hf.get("text") or "").strip() or hf.get("paragraphs")),
+            "text": hf.get("text") or "",
+            "paragraphs": [
+                {
+                    "index": paragraph.get("index"),
+                    "text": paragraph.get("text") or "",
+                    "source_ref": paragraph.get("source_ref"),
+                }
+                for paragraph in hf.get("paragraphs", []) or []
+                if isinstance(paragraph, dict)
+            ],
+            "source_ref": hf.get("source_ref"),
         }
         for hf in data.get("headers_footers", []) or []
         if isinstance(hf, dict)
     ]
+    fields = [
+        {
+            field: item.get(field)
+            for field in _FIELD_FACT_FIELDS
+            if item.get(field) is not None
+        }
+        for item in data.get("fields", []) or []
+        if isinstance(item, dict)
+    ]
+    breaks = [
+        {
+            field: item.get(field)
+            for field in _BREAK_FACT_FIELDS
+            if item.get(field) is not None
+        }
+        for item in data.get("breaks", []) or []
+        if isinstance(item, dict)
+    ]
     return {
         "sections": sections,
         "header_footer": header_footer,
+        "fields": fields,
+        "breaks": breaks,
         "numbering_definition_count": len(data.get("numbering_definitions", []) or []),
     }
 

@@ -20,6 +20,7 @@ from .word_ops import (
     _insert_sdt,
     _insert_styled_paragraph_before,
     _remove_paragraph,
+    _replace_run_text_ranges,
 )
 
 
@@ -70,6 +71,22 @@ def execute_template_generation_plan(
         elif action_type == "remove_instruction_text":
             target = _paragraph_for_ref(paragraph_map, action.get("source_ref"))
             target_cell = _cell_for_ref(doc, action.get("source_ref"))
+            char_ranges = [
+                item
+                for item in action.get("affected_char_ranges", [])
+                if isinstance(item, dict)
+            ]
+            if char_ranges and target is not None and _single_source_seq_action(action):
+                output_ref = _replace_run_text_ranges(
+                    target,
+                    action.get("source_ref"),
+                    char_ranges,
+                )
+                if output_ref is None:
+                    review.append(_needs_review(action, "source char ranges not found for span removal"))
+                    continue
+                executed.append(_executed(action, output_ref=output_ref))
+                continue
             raw_run_ids = [
                 str(raw_run_id)
                 for raw_run_id in action.get("affected_raw_run_ids", [])
@@ -105,6 +122,45 @@ def execute_template_generation_plan(
             )
             slot = _slot_from_action(action, sdt_tag=tag, output_ref=output_ref)
             slots.append(slot)
+            executed.append(_executed(action, output_ref=output_ref))
+        elif action_type == "replace_span_with_slot":
+            target = _paragraph_for_ref(paragraph_map, action.get("source_ref"))
+            char_ranges = [
+                item
+                for item in action.get("affected_char_ranges", [])
+                if isinstance(item, dict)
+            ]
+            if target is None:
+                review.append(_needs_review(action, "source node not found"))
+                continue
+            if char_ranges:
+                output_ref = _replace_run_text_ranges(
+                    target,
+                    action.get("source_ref"),
+                    char_ranges,
+                )
+            else:
+                output_ref = _clear_runs_by_raw_run_ids(
+                    target,
+                    action.get("source_ref"),
+                    [
+                        str(raw_run_id)
+                        for raw_run_id in action.get("affected_raw_run_ids", [])
+                        if raw_run_id
+                    ],
+                )
+            if output_ref is None:
+                review.append(_needs_review(action, "source span not found for replacement"))
+                continue
+            tag = _span_sdt_tag(action)
+            slot_ref = _insert_sdt(
+                doc,
+                paragraph_map,
+                action.get("source_ref"),
+                tag,
+                alias=_sdt_alias(action),
+            )
+            slots.append(_slot_from_action(action, sdt_tag=tag, output_ref=slot_ref))
             executed.append(_executed(action, output_ref=output_ref))
         elif action_type == "create_generated_field_placeholder":
             tag = _generated_tag(action)
@@ -239,6 +295,10 @@ def _sdt_tag(action: dict[str, Any]) -> str:
     return f"{action.get('unit_id')}.{action.get('element_id')}"
 
 
+def _span_sdt_tag(action: dict[str, Any]) -> str:
+    return f"{action.get('unit_id')}.{action.get('element_id')}.{action.get('span_id')}"
+
+
 def _single_source_seq_action(action: dict[str, Any]) -> bool:
     return len(action.get("affected_source_seq_refs", []) or []) == 1
 
@@ -258,9 +318,14 @@ def _slot_from_action(
     output_ref: str,
 ) -> dict[str, Any]:
     return {
-        "slot_id": f"{action.get('unit_id')}.{action.get('element_id')}",
+        "slot_id": (
+            f"{action.get('unit_id')}.{action.get('element_id')}.{action.get('span_id')}"
+            if action.get("span_id")
+            else f"{action.get('unit_id')}.{action.get('element_id')}"
+        ),
         "unit_id": action.get("unit_id"),
         "element_id": action.get("element_id"),
+        "span_id": action.get("span_id"),
         "kind": "body_content",
         "sdt_tag": sdt_tag,
         "output_ref": output_ref,

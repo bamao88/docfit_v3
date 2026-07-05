@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 from docfit.core.io import now_iso, sha256_json
+from docfit.template_generation.constants import UNIT_DEFINITIONS
 
 from .schema import empty_layered_submission
 
@@ -275,6 +276,13 @@ def _bridge_t4(
                 required_action="Provide real render evidence or keep deterministic T4 output.",
             )
         )
+    _bridge_t4_page_observations(
+        observation,
+        packet=packet,
+        proposals=proposals,
+        manual_items=manual_items,
+        proposal_map=proposal_map,
+    )
     for index, item in enumerate(_dict_items(observation.get("items")), start=1):
         item_id = _item_id(item, fallback=f"t4_{index:03d}", key="section_profile_id")
         if _confidence(item.get("boundary") or item) not in EXECUTABLE_CONFIDENCE:
@@ -307,6 +315,74 @@ def _bridge_t4(
         proposals["t4"].append(proposal)
         proposal_map.append(_map_item(item_id, "t4", proposal_id, "proposal", "converted to T4 advisory hint"))
     _demotions_to_manual(observation, manual_items, layer="t4")
+
+
+def _bridge_t4_page_observations(
+    observation: dict[str, Any],
+    *,
+    packet: dict[str, Any],
+    proposals: dict[str, list[dict[str, Any]]],
+    manual_items: list[dict[str, Any]],
+    proposal_map: list[dict[str, Any]],
+) -> None:
+    by_page = _page_source_seq_refs(packet)
+    for index, page in enumerate(_dict_items(observation.get("page_observations")), start=1):
+        page_no = _int_or_none(page.get("page_no"))
+        item_id = f"t4_page_{page_no or index:03d}"
+        if page_no is None:
+            _reject_observation_item(
+                page,
+                manual_items,
+                layer="t4",
+                reason_code="OBSERVATION-PAGE-MISSING",
+                summary="AI page observation has no page_no",
+            )
+            continue
+        standalone = page.get("is_standalone_page")
+        if standalone is not True:
+            proposal_map.append(
+                _map_item(item_id, "t4", None, "noop", "page is not a standalone unit observation")
+            )
+            continue
+        unit_id = _unit_id_from_hint(page.get("unit_hint"))
+        if unit_id is None:
+            _reject_observation_item(
+                page,
+                manual_items,
+                layer="t4",
+                reason_code="OBSERVATION-UNIT-HINT-UNKNOWN",
+                summary="AI standalone page observation could not be mapped to a known unit",
+            )
+            continue
+        source_seq_refs = by_page.get(page_no, [])
+        proposal_id = f"obs_t4_page_{_slug(unit_id)}_{page_no:03d}"
+        proposal = {
+            "proposal_id": proposal_id,
+            "kind": "page_policy_hint",
+            "unit_id": unit_id,
+            "standalone": True,
+            "page_nos": [page_no],
+            "source_seq_refs": source_seq_refs,
+            "render_target_refs": [
+                f"source_seq:{source_seq}" for source_seq in source_seq_refs
+            ],
+            "hint": "visual_standalone_page",
+            "payload": page,
+            "rationale": page.get("visual_notes"),
+            "evidence": [
+                {
+                    "kind": "vision_page_observation",
+                    "page_no": page_no,
+                    "unit_hint": page.get("unit_hint"),
+                }
+            ],
+            "origin": "ai_observation",
+            "observation_item_id": item_id,
+        }
+        proposals["t4"].append(proposal)
+        proposal_map.append(
+            _map_item(item_id, "t4", proposal_id, "proposal", "converted to T4 page policy hint")
+        )
 
 
 def _submissions_from_proposals(
@@ -484,6 +560,39 @@ def _pages_for_source_seq_refs(packet: dict[str, Any], source_seq_refs: list[int
         if source_seq in wanted and page_no is not None:
             pages.append(page_no)
     return sorted(set(pages))
+
+
+_NAME_TO_UNIT: dict[str, str] = {}
+for _unit_id, _name, _aliases in UNIT_DEFINITIONS:
+    _NAME_TO_UNIT[_name] = _unit_id
+    for _alias in _aliases:
+        _NAME_TO_UNIT[_alias] = _unit_id
+
+
+def _unit_id_from_hint(hint: Any) -> str | None:
+    text = str(hint or "").strip()
+    if not text or text == "unknown":
+        return None
+    if text in _NAME_TO_UNIT:
+        return _NAME_TO_UNIT[text]
+    for name, unit_id in _NAME_TO_UNIT.items():
+        if name and (name in text or text in name):
+            return unit_id
+    return None
+
+
+def _page_source_seq_refs(packet: dict[str, Any]) -> dict[int, list[int]]:
+    by_page: dict[int, list[int]] = {}
+    for item in packet.get("page_layout_index", []) or []:
+        page_no = _int_or_none(item.get("page_no"))
+        source_seq = _int_or_none(item.get("source_seq"))
+        if page_no is None or source_seq is None:
+            continue
+        by_page.setdefault(page_no, []).append(source_seq)
+    return {
+        page_no: sorted(dict.fromkeys(source_seq_refs))
+        for page_no, source_seq_refs in by_page.items()
+    }
 
 
 def _confidence(item: dict[str, Any]) -> str:

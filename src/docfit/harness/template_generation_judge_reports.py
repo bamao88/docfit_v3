@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from docfit.core.io import read_json, write_json, write_text
+from docfit.core.io import read_json, read_yaml, sha256_file, write_json, write_text
 from docfit.core.models import Finding, StageResult
 from docfit.core.status import Status, merge_statuses
 from docfit.harness.reports import write_report_bundle
@@ -194,6 +194,8 @@ def write_template_generation_judge_outputs(
     root_cause_md_path = out_dir / "template_generation_root_cause_report.md"
     bridge_acceptance_path = out_dir / "template_agent_bridge_standard_acceptance.json"
     bridge_acceptance_md_path = out_dir / "template_agent_bridge_standard_acceptance.md"
+    route_eval_path = out_dir / "template_generation_route_eval_report.json"
+    route_eval_md_path = out_dir / "template_generation_route_eval_report.md"
 
     write_json(run_bundle_path, report.run_bundle.to_dict())
     write_json(stage_checks_path, [check.to_dict() for check in report.stage_checks])
@@ -202,6 +204,7 @@ def write_template_generation_judge_outputs(
     report_dict = report.to_dict()
     root_cause_report = build_template_generation_root_cause_report(report, report_dict)
     bridge_acceptance = build_template_agent_bridge_standard_acceptance(report, report_dict)
+    route_eval = build_template_generation_route_eval_report(report, report_dict)
     write_json(root_cause_path, root_cause_report)
     write_text(root_cause_md_path, build_template_generation_root_cause_markdown(root_cause_report))
     write_json(bridge_acceptance_path, bridge_acceptance)
@@ -209,6 +212,8 @@ def write_template_generation_judge_outputs(
         bridge_acceptance_md_path,
         build_template_agent_bridge_standard_acceptance_markdown(bridge_acceptance),
     )
+    write_json(route_eval_path, route_eval)
+    write_text(route_eval_md_path, build_template_generation_route_eval_markdown(route_eval))
     write_json(judge_path, report_dict)
     write_text(judge_md_path, build_judge_markdown(report))
 
@@ -251,6 +256,8 @@ def write_template_generation_judge_outputs(
             "template_generation_root_cause_report_md": root_cause_md_path.name,
             "template_agent_bridge_standard_acceptance": bridge_acceptance_path.name,
             "template_agent_bridge_standard_acceptance_md": bridge_acceptance_md_path.name,
+            "template_generation_route_eval_report": route_eval_path.name,
+            "template_generation_route_eval_report_md": route_eval_md_path.name,
             **stage_quality_artifacts,
             **stage_diff_artifacts,
         },
@@ -268,6 +275,7 @@ def write_template_generation_judge_outputs(
             "bridged_output_accuracy": bridge_acceptance["bridged_output_accuracy"][
                 "aggregate_accuracy"
             ],
+            "route_eval_mismatch_count": len(route_eval["mismatches"]),
         },
         stage_statuses=stage_statuses,
         blocked_at=report.first_bad_stage,
@@ -287,6 +295,8 @@ def write_template_generation_judge_outputs(
             "template_generation_root_cause_report_md": root_cause_md_path,
             "template_agent_bridge_standard_acceptance": bridge_acceptance_path,
             "template_agent_bridge_standard_acceptance_md": bridge_acceptance_md_path,
+            "template_generation_route_eval_report": route_eval_path,
+            "template_generation_route_eval_report_md": route_eval_md_path,
         }
     )
     for report_id, paths in stage_quality_paths.items():
@@ -297,6 +307,7 @@ def write_template_generation_judge_outputs(
         result.artifact_paths[f"{report_id}_md"] = paths["md"]
     result.artifacts["summary"] = summary
     result.artifacts["template_agent_bridge_standard_acceptance"] = bridge_acceptance
+    result.artifacts["template_generation_route_eval_report"] = route_eval
     return result
 
 
@@ -2042,6 +2053,234 @@ def build_judge_markdown(report: TemplateGenerationJudgeReport) -> str:
             lines.append(f"- ... {len(report.findings) - 100} more findings")
     else:
         lines.extend(["", "No findings."])
+    lines.append("")
+    return "\n".join(lines)
+
+
+_ROUTE_STAGE_FILES = {
+    "T2": {
+        "stage_key": "t2_unit_pagination",
+        "code_raw": "02.0_t2_code_unit_map.yaml",
+        "ai_raw": "02.2_t2_ai_unit_observation.yaml",
+        "merged": "02.3_t2_merged_unit_map.yaml",
+    },
+    "T3": {
+        "stage_key": "t3_element_policy",
+        "code_raw": "03.0_t3_code_element_spec.yaml",
+        "ai_raw": "03.1_t3_ai_element_observation.yaml",
+        "merged": "03.2_t3_merged_element_spec.yaml",
+    },
+    "T4": {
+        "stage_key": "t4_global_layout",
+        "code_raw": "04.0_t4_code_global_spec.yaml",
+        "ai_raw": "04.1_t4_ai_layout_observation.yaml",
+        "merged": "04.2_t4_merged_global_spec.yaml",
+    },
+}
+
+
+def build_template_generation_route_eval_report(
+    report: TemplateGenerationJudgeReport,
+    report_dict: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    routes: list[dict[str, Any]] = []
+    stage_metrics: dict[str, dict[str, Any]] = {}
+    mismatches: list[dict[str, Any]] = []
+    run_dir = report.run_bundle.source_run_dir
+    for stage_id, spec in _ROUTE_STAGE_FILES.items():
+        stage_routes = {
+            route_id: _route_candidate(
+                run_dir,
+                stage_id=stage_id,
+                stage_key=str(spec["stage_key"]),
+                route_id=route_id,
+                filename=str(filename),
+            )
+            for route_id, filename in spec.items()
+            if route_id in {"code_raw", "ai_raw", "merged"}
+        }
+        routes.extend(stage_routes.values())
+        code_hash = stage_routes["code_raw"].get("payload_hash")
+        ai_hash = stage_routes["ai_raw"].get("payload_hash")
+        merged_hash = stage_routes["merged"].get("payload_hash")
+        ai_availability = stage_routes["ai_raw"].get("availability")
+        changed_from_code = bool(
+            code_hash and merged_hash and code_hash != merged_hash
+        )
+        stage_metrics[stage_id] = {
+            "stage_key": spec["stage_key"],
+            "ai_availability": ai_availability,
+            "changed_from_code": changed_from_code,
+            "code_raw_hash": code_hash,
+            "ai_raw_hash": ai_hash,
+            "merged_hash": merged_hash,
+        }
+        if ai_availability == "AVAILABLE" and not changed_from_code:
+            mismatches.append(
+                {
+                    "id": f"{stage_id}-ROUTE-MISMATCH-001",
+                    "stage_id": stage_id,
+                    "stage_key": spec["stage_key"],
+                    "type": "ai_available_but_merged_equals_code",
+                    "expected": "merged route changes from code_raw or records explicit noop",
+                    "observed": "ai_raw is AVAILABLE but merged hash equals code_raw",
+                    "route_ids": ["code_raw", "ai_raw", "merged"],
+                }
+            )
+        if ai_availability == "NOT_AVAILABLE":
+            mismatches.append(
+                {
+                    "id": f"{stage_id}-ROUTE-MISMATCH-001",
+                    "stage_id": stage_id,
+                    "stage_key": spec["stage_key"],
+                    "type": "ai_raw_not_available",
+                    "expected": "ai_raw route available for route comparison",
+                    "observed": "ai_raw route is NOT_AVAILABLE",
+                    "route_ids": ["ai_raw"],
+                }
+            )
+    root_causes = [
+        {
+            "id": mismatch["id"].replace("MISMATCH", "ROOT-CAUSE"),
+            "mismatch_id": mismatch["id"],
+            "stage_id": mismatch["stage_id"],
+            "stage_key": mismatch["stage_key"],
+            "category": (
+                "merge_bridge_no_effect"
+                if mismatch["type"] == "ai_available_but_merged_equals_code"
+                else "ai_route_missing"
+            ),
+            "reason": mismatch["observed"],
+        }
+        for mismatch in mismatches
+    ]
+    owner_assignments = [
+        {
+            "id": mismatch["id"].replace("MISMATCH", "OWNER"),
+            "mismatch_id": mismatch["id"],
+            "primary": (
+                "template_generation_agent_bridge_owner"
+                if mismatch["type"] == "ai_available_but_merged_equals_code"
+                else "template_generation_observation_owner"
+            ),
+            "secondary": ["standard_judge_owner"],
+        }
+        for mismatch in mismatches
+    ]
+    fix_plan = [
+        {
+            "id": mismatch["id"].replace("MISMATCH", "FIX"),
+            "mismatch_id": mismatch["id"],
+            "action": (
+                "Patch bridge/reconciler so accepted AI observation changes merged output or records explicit noop."
+                if mismatch["type"] == "ai_available_but_merged_equals_code"
+                else "Run Module 1 observation or provide replay bundle before judging AI-primary readiness."
+            ),
+            "verification": "rerun template_generation_route_eval_report and confirm mismatch is gone",
+        }
+        for mismatch in mismatches
+    ]
+    return {
+        "artifact_type": "template_generation_route_eval_report",
+        "artifact_version": "1.0",
+        "profile_id": report.standard_set.target_standard.get("coverage_requirements", {}).get("profile"),
+        "school_id": report.standard_set.school_id,
+        "run_id": report.run_bundle.source_run_id,
+        "routes": routes,
+        "shared_inputs": {"t1_document_facts": "01_document_facts.json"},
+        "stage_metrics": stage_metrics,
+        "cross_route_summary": {
+            "route_count": len(routes),
+            "mismatch_count": len(mismatches),
+        },
+        "mismatches": mismatches,
+        "root_causes": root_causes,
+        "owner_assignments": owner_assignments,
+        "fix_plan": fix_plan,
+    }
+
+
+def _route_candidate(
+    run_dir: Path,
+    *,
+    stage_id: str,
+    stage_key: str,
+    route_id: str,
+    filename: str,
+) -> dict[str, Any]:
+    path = _route_artifact_path(run_dir, filename)
+    payload: dict[str, Any] = {}
+    payload_hash = None
+    availability = "NOT_AVAILABLE"
+    if path is not None:
+        payload_hash = sha256_file(path)
+        payload = read_yaml(path) or {}
+        availability = str(
+            (payload.get("route") or {}).get("availability")
+            or ("AVAILABLE" if payload else "UNKNOWN")
+        )
+    return {
+        "route_id": route_id,
+        "stage_key": stage_key,
+        "stage_id": stage_id,
+        "artifact_type": payload.get("artifact_type"),
+        "payload_path": str(path) if path is not None else None,
+        "payload_hash": payload_hash,
+        "availability": availability,
+        "origin": (payload.get("route") or {}).get("origin"),
+    }
+
+
+def _route_artifact_path(run_dir: Path, filename: str) -> Path | None:
+    candidates = [
+        run_dir / filename,
+        run_dir / "artifacts" / _compat_route_filename(filename),
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    return None
+
+
+def _compat_route_filename(filename: str) -> str:
+    return {
+        "02.0_t2_code_unit_map.yaml": "t2_code_unit_map.yaml",
+        "02.2_t2_ai_unit_observation.yaml": "t2_ai_unit_observation.yaml",
+        "02.3_t2_merged_unit_map.yaml": "t2_merged_unit_map.yaml",
+        "03.0_t3_code_element_spec.yaml": "t3_code_element_spec.yaml",
+        "03.1_t3_ai_element_observation.yaml": "t3_ai_element_observation.yaml",
+        "03.2_t3_merged_element_spec.yaml": "t3_merged_element_spec.yaml",
+        "04.0_t4_code_global_spec.yaml": "t4_code_global_spec.yaml",
+        "04.1_t4_ai_layout_observation.yaml": "t4_ai_layout_observation.yaml",
+        "04.2_t4_merged_global_spec.yaml": "t4_merged_global_spec.yaml",
+    }.get(filename, filename)
+
+
+def build_template_generation_route_eval_markdown(report: dict[str, Any]) -> str:
+    lines = [
+        "# Template Generation Route Eval Report",
+        "",
+        f"- Run: {report.get('run_id')}",
+        f"- Routes: {report.get('cross_route_summary', {}).get('route_count', 0)}",
+        f"- Mismatches: {report.get('cross_route_summary', {}).get('mismatch_count', 0)}",
+        "",
+        "## Stage Metrics",
+    ]
+    for stage_id, metrics in (report.get("stage_metrics") or {}).items():
+        lines.append(
+            "- "
+            f"{stage_id} {metrics.get('stage_key')}: "
+            f"ai={metrics.get('ai_availability')}, "
+            f"changed_from_code={metrics.get('changed_from_code')}"
+        )
+    lines.extend(["", "## Mismatches"])
+    if report.get("mismatches"):
+        for mismatch in report["mismatches"]:
+            lines.append(
+                f"- {mismatch['id']} {mismatch['type']}: {mismatch['observed']}"
+            )
+    else:
+        lines.append("- none")
     lines.append("")
     return "\n".join(lines)
 

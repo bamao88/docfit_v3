@@ -154,10 +154,16 @@ def generate_template(
             ),
                 blocked_at="template_generate",
         )
-    global_spec = _merge_t4_agent_hints(global_spec, agent_run.t4_hints)
     structure_candidates = agent_run.structure_candidates
     t2_input = structure_candidates.get("t2_input")
     unit_map = agent_run.unit_map
+    generation_model = agent_run.generation_model
+    unit_map, generation_model = _merge_t4_page_policy_hints(
+        unit_map,
+        generation_model,
+        agent_run.t4_hints,
+    )
+    global_spec = _merge_t4_agent_hints(global_spec, agent_run.t4_hints)
     t2_ai_unit_observation = _route_t2_ai_observation(
         agent_run.ai_unit_observation,
         document_facts=document_facts,
@@ -167,7 +173,6 @@ def generate_template(
         route_id="merged",
         origin="agent_bridge_reconciled_final_t2",
     )
-    generation_model = agent_run.generation_model
     element_spec = agent_run.element_spec
     t3_ai_element_observation = _route_t3_ai_observation(
         agent_run.ai_element_observation,
@@ -470,23 +475,120 @@ def _merge_t4_agent_hints(
         return global_spec
 
     merged = deepcopy(global_spec)
-    merged["agent_observation_hints"] = {
-        "artifact_type": "t4_agent_observation_hints",
-        "source_artifact": "agent_t4_hints",
-        "accepted_count": accepted_count,
-        **hints_by_collection,
-    }
+    section_profile_hints = hints_by_collection.get("section_profile_hints", [])
+    if section_profile_hints:
+        profiles = merged.get("section_profiles")
+        if isinstance(profiles, list) and profiles:
+            profile = profiles[0]
+            if isinstance(profile, dict):
+                observations = profile.setdefault("ai_observations", [])
+                if isinstance(observations, list):
+                    observations.extend(section_profile_hints)
+                profile["origin"] = "deterministic_with_ai_observation"
+                profile["changed_from_code"] = False
+                profile["explicit_noop_with_reason"] = (
+                    "accepted T4 section_profile_hint confirms deterministic section profile; "
+                    "field-level AI override is not required"
+                )
+    page_numbering_hints = hints_by_collection.get("page_numbering_hints", [])
+    if page_numbering_hints:
+        page_numbering = merged.setdefault("page_numbering", {})
+        if isinstance(page_numbering, dict):
+            page_numbering["origin"] = "deterministic_with_ai_observation"
+            page_numbering["ai_observations"] = page_numbering_hints
+            page_numbering["changed_from_code"] = False
+            page_numbering["explicit_noop_with_reason"] = (
+                "accepted T4 page_numbering_hint recorded as field evidence"
+            )
     merge_trace = merged.setdefault("merge_trace", [])
     if isinstance(merge_trace, list):
         merge_trace.append(
             {
                 "stage_id": "T4",
                 "source_artifact": "agent_t4_hints",
-                "operation": "merge_accepted_layout_hints",
+                "operation": "merge_accepted_layout_hints_into_fields",
                 "accepted_count": accepted_count,
+                "collections": sorted(hints_by_collection),
             }
         )
     return merged
+
+
+def _merge_t4_page_policy_hints(
+    unit_map: dict[str, object],
+    generation_model: dict[str, object],
+    t4_hints: dict[str, Any] | None,
+) -> tuple[dict[str, object], dict[str, object]]:
+    if not isinstance(t4_hints, dict):
+        return unit_map, generation_model
+    hints = [
+        hint
+        for hint in t4_hints.get("page_policy_hints", []) or []
+        if isinstance(hint, dict)
+    ]
+    if not hints:
+        return unit_map, generation_model
+
+    merged_unit_map = deepcopy(unit_map)
+    merged_generation_model = deepcopy(generation_model)
+    for collection in (
+        merged_unit_map.get("units", []),
+        merged_generation_model.get("units", []),
+        (merged_generation_model.get("data", {}) or {}).get("units", []),
+    ):
+        if isinstance(collection, list):
+            _patch_units_with_page_policy_hints(collection, hints)
+    return merged_unit_map, merged_generation_model
+
+
+def _patch_units_with_page_policy_hints(
+    units: list[dict[str, Any]],
+    hints: list[dict[str, Any]],
+) -> None:
+    units_by_id = {
+        str(unit.get("unit_id") or ""): unit
+        for unit in units
+        if isinstance(unit, dict)
+    }
+    for hint in hints:
+        if hint.get("standalone") is not True:
+            continue
+        unit_id = str(hint.get("unit_id") or "")
+        unit = units_by_id.get(unit_id)
+        if unit is None:
+            continue
+        page = unit.setdefault("page", {})
+        if not isinstance(page, dict):
+            page = {}
+            unit["page"] = page
+        existing_origin = str(page.get("origin") or "")
+        mechanical_requires_page = (
+            _page_rule_requires_break(str(page.get("page_break") or ""))
+            and existing_origin not in {"ai_observation", "both"}
+        )
+        origin = "both" if mechanical_requires_page else "ai_observation"
+        page["page_break"] = "是"
+        page["origin"] = origin
+        page["agent_proposal_id"] = hint.get("proposal_id")
+        page["page_nos"] = list(hint.get("page_nos") or [])
+        page["evidence_refs"] = list(hint.get("evidence") or hint.get("evidence_refs") or [])
+        policy = page.setdefault("page_policy", {})
+        if not isinstance(policy, dict):
+            policy = {}
+            page["page_policy"] = policy
+        generation_policy = policy.setdefault("generation_policy", {})
+        if not isinstance(generation_policy, dict):
+            generation_policy = {}
+            policy["generation_policy"] = generation_policy
+        generation_policy["requires_new_page"] = True
+        generation_policy["enforcement_hint"] = "page_break"
+        generation_policy["origin"] = origin
+        generation_policy["agent_proposal_id"] = hint.get("proposal_id")
+
+
+def _page_rule_requires_break(rule: str) -> bool:
+    normalized = str(rule or "").strip().lower()
+    return normalized in {"是", "true", "yes"} or normalized.startswith("是；")
 
 
 def _route_stage_artifact(

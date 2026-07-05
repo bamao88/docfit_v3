@@ -127,6 +127,10 @@ def run_observation_pipeline(
     page_observations: list[dict[str, Any]] = []
     if vision_responder is not None and render_available:
         page_images = (packet.get("render_artifacts", {}) or {}).get("clean_page_images", []) or []
+        page_images = _attach_layout_context_to_page_images(
+            page_images,
+            global_layout_facts=t4_evidence.get("global_layout_facts", {}),
+        )
         page_observations = vision_responder.observe_pages(page_images)
     layout_observation = materialize_layout_observation(
         {"section_profiles": []},
@@ -159,6 +163,24 @@ def run_observation_pipeline(
             unit_observation, element_observation, layout_observation, t2_consistency
         ),
     }
+
+
+def _attach_layout_context_to_page_images(
+    page_images: list[dict[str, Any]],
+    *,
+    global_layout_facts: dict[str, Any],
+) -> list[dict[str, Any]]:
+    context = {
+        "sections": global_layout_facts.get("sections", []),
+        "header_footer": global_layout_facts.get("header_footer", []),
+        "fields": global_layout_facts.get("fields", []),
+        "breaks": global_layout_facts.get("breaks", []),
+    }
+    return [
+        {**page, "layout_context": context}
+        for page in page_images
+        if isinstance(page, dict)
+    ]
 
 
 def _run_t2(

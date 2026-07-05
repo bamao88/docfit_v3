@@ -36,6 +36,8 @@ def build_template_generation_plan(
         page = unit.get("page") or {}
         page_break_rule = str(page.get("page_break") or "")
         page_policy = _generation_page_policy(page)
+        page_policy_origin = _page_policy_origin(page)
+        agent_proposal_id = _page_policy_agent_proposal_id(page)
         policy_requires_new_page = page_policy.get("requires_new_page") is True
         enforcement_hint = str(page_policy.get("enforcement_hint") or "")
         source_ref = _first_source_ref(unit)
@@ -58,7 +60,12 @@ def build_template_generation_plan(
                     "affected_source_seq_refs": unit.get("source_seq_refs", []),
                     "target_ref": source_ref,
                     "status": "planned",
-                    "reason": "unit page rule requires a deterministic page break before this unit",
+                    "reason": (
+                        "unit page rule requires a page break before this unit "
+                        f"(source={page_policy_origin})"
+                    ),
+                    "page_policy_origin": page_policy_origin,
+                    "agent_proposal_id": agent_proposal_id,
                 }
             )
             page_boundary_refs.add(source_ref)
@@ -81,7 +88,12 @@ def build_template_generation_plan(
                     "affected_source_seq_refs": unit.get("source_seq_refs", []),
                     "target_ref": source_ref,
                     "status": "planned",
-                    "reason": "unit page rule requires a deterministic section boundary before this unit",
+                    "reason": (
+                        "unit page rule requires a section boundary before this unit "
+                        f"(source={page_policy_origin})"
+                    ),
+                    "page_policy_origin": page_policy_origin,
+                    "agent_proposal_id": agent_proposal_id,
                 }
             )
             section_boundary_refs.add(source_ref)
@@ -103,6 +115,9 @@ def build_template_generation_plan(
                     "affected_source_seq_refs": decision.get("source_seq_refs", []),
                     "affected_raw_run_ids": decision.get("raw_run_ids", []),
                     "affected_logical_run_ids": decision.get("logical_run_ids", []),
+                    "affected_char_ranges": decision.get("char_ranges", []),
+                    "span_id": decision.get("span_id"),
+                    "span_type": decision.get("span_type"),
                     "target_ref": _target_ref_for_decision(decision),
                     "status": "planned",
                     "reason": decision.get("reason"),
@@ -243,6 +258,7 @@ def _decision_reason(decision_type: str) -> str:
     return {
         "keep_whole_unit_copy": "unit is preserved by the initial source DOCX copy",
         "remove_instruction_text": "instruction/example text should not enter the fillable template",
+        "replace_span_with_slot": "sample placeholder text should be replaced by a fillable slot",
         "create_fillable_slot": "fillable source element needs a stable content control tag for later placement",
         "create_generated_field_placeholder": "generated element needs a stable content control tag for later field generation",
         "create_manual_placeholder": "manual-only content is preserved but not automatically filled",
@@ -254,6 +270,7 @@ def _action_type_for_decision(decision_type: str) -> str:
     return {
         "keep_whole_unit_copy": "preserve_whole_unit_copy",
         "remove_instruction_text": "remove_instruction_text",
+        "replace_span_with_slot": "replace_span_with_slot",
         "create_fillable_slot": "create_fillable_slot",
         "create_generated_field_placeholder": "create_generated_field_placeholder",
         "create_manual_placeholder": "create_manual_placeholder",
@@ -265,6 +282,8 @@ def _target_ref_for_decision(decision: dict[str, Any]) -> str:
     decision_type = decision.get("decision_type")
     if decision_type == "create_fillable_slot":
         return f"sdt:{decision.get('unit_id')}.{decision.get('element_id')}"
+    if decision_type == "replace_span_with_slot":
+        return f"sdt:{decision.get('unit_id')}.{decision.get('element_id')}.{decision.get('span_id')}"
     if decision_type == "create_generated_field_placeholder":
         return f"sdt:generated.{decision.get('unit_id')}.{decision.get('element_id')}"
     if decision_type == "insert_fixed_text":
@@ -281,3 +300,21 @@ def _generation_page_policy(page: dict[str, Any]) -> dict[str, Any]:
     page_policy = page.get("page_policy") or {}
     generation_policy = page_policy.get("generation_policy") or {}
     return generation_policy if isinstance(generation_policy, dict) else {}
+
+
+def _page_policy_origin(page: dict[str, Any]) -> str:
+    origin = str(page.get("origin") or "")
+    if origin:
+        return origin
+    generation_policy = _generation_page_policy(page)
+    origin = str(generation_policy.get("origin") or "")
+    return origin or "mechanical"
+
+
+def _page_policy_agent_proposal_id(page: dict[str, Any]) -> str | None:
+    proposal_id = page.get("agent_proposal_id")
+    if proposal_id:
+        return str(proposal_id)
+    generation_policy = _generation_page_policy(page)
+    proposal_id = generation_policy.get("agent_proposal_id")
+    return str(proposal_id) if proposal_id else None

@@ -79,6 +79,8 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     assert (out_dir / "template_generation_root_cause_report.md").exists()
     assert (out_dir / "template_agent_bridge_standard_acceptance.json").exists()
     assert (out_dir / "template_agent_bridge_standard_acceptance.md").exists()
+    assert (out_dir / "template_generation_route_eval_report.json").exists()
+    assert (out_dir / "template_generation_route_eval_report.md").exists()
 
     summary = read_json(out_dir / "summary.json")
     run_bundle = read_json(out_dir / "template_generation_run_bundle.json")
@@ -88,6 +90,7 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     unit_diff = read_json(out_dir / "02_unit_map_standard_diff_report.json")
     root_cause_report = read_json(out_dir / "template_generation_root_cause_report.json")
     bridge_acceptance = read_json(out_dir / "template_agent_bridge_standard_acceptance.json")
+    route_eval = read_json(out_dir / "template_generation_route_eval_report.json")
     fillable_quality = read_json(
         out_dir / "06.1_fillable_template_standard_quality_report.json"
     )
@@ -138,6 +141,13 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     assert bridge_acceptance["report_kind"] == "agent_bridge_standard_acceptance"
     assert bridge_acceptance["bridge_present"] is False
     assert "bridged_output_accuracy" in bridge_acceptance
+    assert route_eval["artifact_type"] == "template_generation_route_eval_report"
+    assert len(route_eval["routes"]) == 9
+    assert set(route_eval["stage_metrics"]) == {"T2", "T3", "T4"}
+    assert "mismatches" in route_eval
+    assert "root_causes" in route_eval
+    assert "owner_assignments" in route_eval
+    assert "fix_plan" in route_eval
     assert fillable_quality["stage_id"] == "T6"
     assert fillable_quality["stage_key"] == "t6_fillable_template"
     assert fillable_quality["comparison_scope"] == "run_bundle_artifact_binding"
