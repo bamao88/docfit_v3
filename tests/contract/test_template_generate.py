@@ -764,6 +764,7 @@ def test_template_generate_splits_within_paragraph_format_instruction_runs(
     assert len(cover_elements) >= 2
     assert len(model_cover_elements) >= 2
     assert content_candidate["source_seq_refs"] == [2]
+    assert content_candidate["candidate_policy"] == "fill"
     assert instruction_candidate["source_seq_refs"] == [2]
     assert content_candidate["raw_run_ids"]
     assert instruction_candidate["raw_run_ids"]
@@ -777,7 +778,24 @@ def test_template_generate_splits_within_paragraph_format_instruction_runs(
     assert instruction_action["affected_raw_run_ids"] == instruction_candidate["raw_run_ids"]
     assert instruction_action["affected_logical_run_ids"] == instruction_candidate["logical_run_ids"]
     assert executed_instruction["affected_raw_run_ids"] == instruction_candidate["raw_run_ids"]
-    assert any("毕业论文（设计）中文题目" in text for text in docx_texts(fillable))
+    content_spec = next(
+        element
+        for element in element_spec["elements"]
+        if element["unit_id"] == "cover"
+        and element["element_id"] == content_candidate["element_id"]
+    )
+    assert any(
+        span["span_type"] == "sample_value"
+        and "毕业论文（设计）中文题目" in span["text"]
+        for span in content_spec["spans"]
+    )
+    assert any(
+        action["action_type"] == "replace_span_with_slot"
+        and action.get("unit_id") == "cover"
+        and action.get("element_id") == content_candidate["element_id"]
+        for action in plan["actions"]
+    )
+    assert not any("毕业论文（设计）中文题目" in text for text in docx_texts(fillable))
     assert not any("小二黑体加粗" in text for text in docx_texts(fillable))
     assert len(body_paragraph_elements) == 1
 

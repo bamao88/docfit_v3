@@ -919,21 +919,33 @@ def _t3_has_expected_element(
     stable_id: str,
 ) -> bool:
     for candidate in candidates:
-        if stable_id and str(candidate.get("stable_id") or "") != stable_id:
+        if (
+            stable_id
+            and str(candidate.get("stable_id") or "") != stable_id
+            and _t3_requires_exact_stable_ref(expectation)
+        ):
             continue
         policy = expectation.get("policy")
-        if policy is not None and str(candidate.get("policy") or "") != str(policy):
+        if policy is not None and not _t3_candidate_or_span_policy_matches(
+            candidate,
+            str(policy),
+            expectation,
+        ):
             continue
         expected_raw_run_ids = _string_list(expectation.get("raw_run_ids"))
-        if expected_raw_run_ids and not _contains_all(
-            _string_list(candidate.get("raw_run_ids")),
+        if expected_raw_run_ids and not _t3_candidate_or_span_contains_runs(
+            candidate,
+            "raw_run_ids",
             expected_raw_run_ids,
+            expectation,
         ):
             continue
         expected_logical_run_ids = _string_list(expectation.get("logical_run_ids"))
-        if expected_logical_run_ids and not _contains_all(
-            _string_list(candidate.get("logical_run_ids")),
+        if expected_logical_run_ids and not _t3_candidate_or_span_contains_runs(
+            candidate,
+            "logical_run_ids",
             expected_logical_run_ids,
+            expectation,
         ):
             continue
         if not _content_matches(candidate, expectation):
@@ -990,22 +1002,34 @@ def _t3_has_expected_run_level_element(
 ) -> bool:
     for candidate in candidates:
         policy = expected_element.get("policy")
-        if policy is not None and str(candidate.get("policy") or "") != str(policy):
+        if policy is not None and not _t3_candidate_or_span_policy_matches(
+            candidate,
+            str(policy),
+            expected_element,
+        ):
             continue
         expected_raw_run_ids = _string_list(expected_element.get("raw_run_ids"))
-        if (
-            expected_raw_run_ids
-            and _string_list(candidate.get("raw_run_ids")) != expected_raw_run_ids
+        if expected_raw_run_ids and not _t3_candidate_or_span_runs_equal(
+            candidate,
+            "raw_run_ids",
+            expected_raw_run_ids,
+            expected_element,
         ):
             continue
         expected_logical_run_ids = _string_list(expected_element.get("logical_run_ids"))
-        if (
-            expected_logical_run_ids
-            and _string_list(candidate.get("logical_run_ids")) != expected_logical_run_ids
+        if expected_logical_run_ids and not _t3_candidate_or_span_runs_equal(
+            candidate,
+            "logical_run_ids",
+            expected_logical_run_ids,
+            expected_element,
         ):
             continue
         content_contains = str(expected_element.get("content_contains") or "")
-        if content_contains and content_contains not in str(candidate.get("content") or ""):
+        if content_contains and not _t3_candidate_or_span_contains_text(
+            candidate,
+            content_contains,
+            expected_element,
+        ):
             continue
         return True
     return False
@@ -1052,19 +1076,163 @@ def _t3_has_expected_run_span(
         if unit_id is not None and str(candidate.get("unit_id") or "") != str(unit_id):
             continue
         policy = expectation.get("expected_policy", expectation.get("policy"))
-        if policy is not None and str(candidate.get("policy") or "") != str(policy):
+        if policy is not None and not _t3_candidate_or_span_policy_matches(
+            candidate,
+            str(policy),
+            expectation,
+        ):
             continue
         element_ref = str(
             expectation.get("expected_element_ref")
             or expectation.get("stable_id")
             or ""
         )
-        if element_ref and str(candidate.get("stable_id") or "") != element_ref:
+        if (
+            element_ref
+            and str(candidate.get("stable_id") or "") != element_ref
+            and _t3_requires_exact_stable_ref(expectation)
+        ):
             continue
         if not _content_matches(candidate, expectation):
             continue
         return True
     return False
+
+
+def _t3_candidate_or_span_policy_matches(
+    candidate: dict[str, Any],
+    expected_policy: str,
+    expectation: dict[str, Any],
+) -> bool:
+    if str(candidate.get("policy") or "") == expected_policy:
+        return True
+    return any(
+        _t3_span_matches_expectation(span, expected_policy, expectation)
+        for span in _dict_items(candidate.get("spans"))
+    )
+
+
+def _t3_candidate_or_span_contains_runs(
+    candidate: dict[str, Any],
+    run_key: str,
+    expected_ids: list[str],
+    expectation: dict[str, Any],
+) -> bool:
+    if _contains_all(_string_list(candidate.get(run_key)), expected_ids):
+        return True
+    expected_policy = str(
+        expectation.get("expected_policy") or expectation.get("policy") or ""
+    )
+    return any(
+        _contains_all(_string_list(span.get(run_key)), expected_ids)
+        and (not expected_policy or _t3_span_policy_matches(span, expected_policy))
+        for span in _dict_items(candidate.get("spans"))
+    )
+
+
+def _t3_candidate_or_span_runs_equal(
+    candidate: dict[str, Any],
+    run_key: str,
+    expected_ids: list[str],
+    expectation: dict[str, Any],
+) -> bool:
+    if _string_list(candidate.get(run_key)) == expected_ids:
+        return True
+    expected_policy = str(
+        expectation.get("expected_policy") or expectation.get("policy") or ""
+    )
+    return any(
+        _string_list(span.get(run_key)) == expected_ids
+        and (not expected_policy or _t3_span_policy_matches(span, expected_policy))
+        for span in _dict_items(candidate.get("spans"))
+    )
+
+
+def _t3_candidate_or_span_contains_text(
+    candidate: dict[str, Any],
+    needle: str,
+    expectation: dict[str, Any],
+) -> bool:
+    if needle in str(candidate.get("content") or ""):
+        return True
+    expected_policy = str(
+        expectation.get("expected_policy") or expectation.get("policy") or ""
+    )
+    return any(
+        needle in str(span.get("text") or "")
+        and (not expected_policy or _t3_span_policy_matches(span, expected_policy))
+        for span in _dict_items(candidate.get("spans"))
+    )
+
+
+def _t3_span_matches_expectation(
+    span: dict[str, Any],
+    expected_policy: str,
+    expectation: dict[str, Any],
+) -> bool:
+    if not _t3_span_policy_matches(span, expected_policy):
+        return False
+    expected_raw_run_ids = _t3_expected_run_ids(expectation, "raw_run_ids", "raw_run_id")
+    if expected_raw_run_ids and not _contains_all(
+        _string_list(span.get("raw_run_ids")),
+        expected_raw_run_ids,
+    ):
+        return False
+    expected_logical_run_ids = _t3_expected_run_ids(
+        expectation,
+        "logical_run_ids",
+        "logical_run_id",
+    )
+    if expected_logical_run_ids and not _contains_all(
+        _string_list(span.get("logical_run_ids")),
+        expected_logical_run_ids,
+    ):
+        return False
+    anchors = _content_anchors(expectation)
+    if anchors and not all(anchor in str(span.get("text") or "") for anchor in anchors):
+        return False
+    return True
+
+
+def _t3_span_policy_matches(span: dict[str, Any], expected_policy: str) -> bool:
+    span_policy = str(span.get("policy") or "")
+    span_type = str(span.get("span_type") or "")
+    if span_policy == expected_policy:
+        return True
+    if expected_policy == "instruction_remove":
+        return span_policy == "remove_instruction" or span_type in {
+            "inline_instruction",
+            "layout_spacer",
+        }
+    if expected_policy == "fill":
+        return span_type == "sample_value"
+    if expected_policy == "fixed":
+        return span_type == "label"
+    return False
+
+
+def _t3_expected_run_ids(
+    expectation: dict[str, Any],
+    list_key: str,
+    scalar_key: str,
+) -> list[str]:
+    values = _string_list(expectation.get(list_key))
+    scalar = expectation.get(scalar_key)
+    if scalar is not None:
+        values.append(str(scalar))
+    return _unique_preserving_order(values)
+
+
+def _t3_requires_exact_stable_ref(expectation: dict[str, Any]) -> bool:
+    if _content_anchors(expectation):
+        return False
+    if expectation.get("source_seq_refs") or expectation.get("source_seq") is not None:
+        return False
+    if _t3_expected_run_ids(expectation, "raw_run_ids", "raw_run_id"):
+        return False
+    if _t3_expected_run_ids(expectation, "logical_run_ids", "logical_run_id"):
+        return False
+    return True
 
 
 def _content_matches(candidate: dict[str, Any], expectation: dict[str, Any]) -> bool:
@@ -1282,8 +1450,10 @@ def _dict_items(value: Any) -> list[dict[str, Any]]:
 
 
 def _string_list(value: Any) -> list[str]:
-    if not isinstance(value, list):
+    if value is None:
         return []
+    if not isinstance(value, list):
+        return [str(value)]
     return [str(item) for item in value if item is not None]
 
 

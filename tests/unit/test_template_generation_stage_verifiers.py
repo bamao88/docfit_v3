@@ -408,6 +408,80 @@ def test_t3_run_level_element_expectations_fail_when_instruction_run_is_missing(
     )
 
 
+def test_t3_run_level_element_expectations_can_pass_from_spans(tmp_path: Path) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t3_element_policy",
+        "T3",
+        "element_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "unit_order": ["cover"],
+            "run_level_elements": [
+                {
+                    "unit_id": "cover",
+                    "source_seq": 6,
+                    "expected_elements": [
+                        {
+                            "policy": "instruction_remove",
+                            "raw_run_ids": ["p_0007.r_004"],
+                            "logical_run_ids": ["p_0007.lr_003"],
+                            "content_contains": "小二黑体加粗",
+                        },
+                    ],
+                }
+            ],
+        },
+    )
+    artifact = _element_spec_artifact(
+        tmp_path,
+        [
+            {
+                "stable_id": "cover.e_011",
+                "element_id": "e_011",
+                "unit_id": "cover",
+                "policy": "fixed",
+                "content": "毕业论文（设计）中文题目（小二黑体加粗）",
+                "source_refs": ["word/document.xml:p[7]"],
+                "source_seq_refs": [6],
+                "raw_run_ids": ["p_0007.r_002", "p_0007.r_003", "p_0007.r_004"],
+                "logical_run_ids": ["p_0007.lr_002", "p_0007.lr_003"],
+                "spans": [
+                    {
+                        "span_id": "cover.e_011.s_001",
+                        "span_type": "label",
+                        "policy": "fixed",
+                        "text": "毕业论文（设计）中文题目",
+                        "raw_run_ids": ["p_0007.r_002", "p_0007.r_003"],
+                        "logical_run_ids": ["p_0007.lr_002"],
+                    },
+                    {
+                        "span_id": "cover.e_011.s_002",
+                        "span_type": "inline_instruction",
+                        "policy": "remove_instruction",
+                        "text": "（小二黑体加粗）",
+                        "raw_run_ids": ["p_0007.r_004"],
+                        "logical_run_ids": ["p_0007.lr_003"],
+                    },
+                ],
+            },
+        ],
+    )
+
+    check = judge_template_generation_stage(
+        "t3_element_policy",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t3_element_policy"),
+        run_bundle=_bundle(Status.PASS, {"element_spec": artifact}),
+    )
+
+    assert check.audit_status == "PASS"
+    assert check.status == Status.PASS
+    assert check.audit["run_level_element_gaps"] == []
+
+
 def test_t3_element_expectations_and_run_span_ledger_can_pass(tmp_path: Path) -> None:
     standard = _stage_standard(
         tmp_path,
@@ -468,6 +542,202 @@ def test_t3_element_expectations_and_run_span_ledger_can_pass(tmp_path: Path) ->
     assert check.audit_status == "PASS"
     assert check.status == Status.PASS
     assert check.audit["element_expectation_gaps"] == []
+    assert check.audit["run_span_ledger_gaps"] == []
+
+
+def test_t3_element_expectations_can_pass_with_content_anchor_stable_id_drift(
+    tmp_path: Path,
+) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t3_element_policy",
+        "T3",
+        "element_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "unit_order": ["cover"],
+            "element_expectations": [
+                {
+                    "unit_id": "cover",
+                    "stable_id": "cover.e_003",
+                    "policy": "fill",
+                    "content_contains": "毕业论文（设计）中文题目",
+                    "raw_run_ids": ["p_0007.r_002", "p_0007.r_003"],
+                    "logical_run_ids": ["p_0007.lr_002"],
+                }
+            ],
+        },
+    )
+    artifact = _element_spec_artifact(
+        tmp_path,
+        [
+            {
+                "stable_id": "cover.e_006",
+                "element_id": "e_006",
+                "unit_id": "cover",
+                "policy": "fill",
+                "content": "毕业论文（设计）中文题目（小二黑体加粗）",
+                "source_refs": ["word/document.xml:p[7]"],
+                "source_seq_refs": [6],
+                "raw_run_ids": ["p_0007.r_002", "p_0007.r_003", "p_0007.r_004"],
+                "logical_run_ids": ["p_0007.lr_002", "p_0007.lr_003"],
+            }
+        ],
+    )
+
+    check = judge_template_generation_stage(
+        "t3_element_policy",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t3_element_policy"),
+        run_bundle=_bundle(Status.PASS, {"element_spec": artifact}),
+    )
+
+    assert check.audit_status == "PASS"
+    assert check.audit["element_expectation_gaps"] == []
+
+
+def test_t3_run_span_ledger_can_pass_from_spans(tmp_path: Path) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t3_element_policy",
+        "T3",
+        "element_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "unit_order": ["cover"],
+            "run_span_ledger": [
+                {
+                    "unit_id": "cover",
+                    "raw_run_id": "p_0003.r_003",
+                    "logical_run_id": "p_0003.lr_003",
+                    "expected_policy": "fill",
+                    "expected_element_ref": "cover.e_003",
+                    "text_anchor": "20××××",
+                }
+            ],
+        },
+    )
+    artifact = _element_spec_artifact(
+        tmp_path,
+        [
+            {
+                "stable_id": "cover.e_003",
+                "element_id": "e_003",
+                "unit_id": "cover",
+                "policy": "fill",
+                "content": "□□□□□□学□□号：20××××××××××（四号Times New Roman）",
+                "source_refs": ["word/document.xml:p[3]"],
+                "source_seq_refs": [3],
+                "raw_run_ids": ["p_0003.r_001", "p_0003.r_002", "p_0003.r_003"],
+                "logical_run_ids": [
+                    "p_0003.lr_001",
+                    "p_0003.lr_002",
+                    "p_0003.lr_003",
+                ],
+                "spans": [
+                    {
+                        "span_id": "cover.e_003.s_001",
+                        "span_type": "layout_spacer",
+                        "policy": "remove_instruction",
+                        "text": "□□□□□□",
+                        "raw_run_ids": ["p_0003.r_001"],
+                        "logical_run_ids": ["p_0003.lr_001"],
+                    },
+                    {
+                        "span_id": "cover.e_003.s_002",
+                        "span_type": "label",
+                        "policy": "fixed",
+                        "text": "学□□号：",
+                        "raw_run_ids": ["p_0003.r_002"],
+                        "logical_run_ids": ["p_0003.lr_002"],
+                    },
+                    {
+                        "span_id": "cover.e_003.s_003",
+                        "span_type": "sample_value",
+                        "policy": "fill",
+                        "text": "20××××××××××",
+                        "raw_run_ids": ["p_0003.r_003"],
+                        "logical_run_ids": ["p_0003.lr_003"],
+                    },
+                ],
+            }
+        ],
+    )
+
+    check = judge_template_generation_stage(
+        "t3_element_policy",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t3_element_policy"),
+        run_bundle=_bundle(Status.PASS, {"element_spec": artifact}),
+    )
+
+    assert check.audit_status == "PASS"
+    assert check.status == Status.PASS
+    assert check.audit["run_span_ledger_gaps"] == []
+
+
+def test_t3_run_span_ledger_can_pass_with_stable_id_drift(tmp_path: Path) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t3_element_policy",
+        "T3",
+        "element_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "unit_order": ["cover"],
+            "run_span_ledger": [
+                {
+                    "unit_id": "cover",
+                    "raw_run_id": "p_0007.r_003",
+                    "logical_run_id": "p_0007.lr_002",
+                    "expected_policy": "fill",
+                    "expected_element_ref": "cover.e_003",
+                    "text_anchor": "毕业论文（设计）中文题目",
+                }
+            ],
+        },
+    )
+    artifact = _element_spec_artifact(
+        tmp_path,
+        [
+            {
+                "stable_id": "cover.e_006",
+                "element_id": "e_006",
+                "unit_id": "cover",
+                "policy": "fill",
+                "content": "毕业论文（设计）中文题目（小二黑体加粗）",
+                "source_refs": ["word/document.xml:p[7]"],
+                "source_seq_refs": [6],
+                "raw_run_ids": ["p_0007.r_002", "p_0007.r_003", "p_0007.r_004"],
+                "logical_run_ids": ["p_0007.lr_002", "p_0007.lr_003"],
+                "spans": [
+                    {
+                        "span_id": "cover.e_006.s_001",
+                        "span_type": "sample_value",
+                        "policy": "fill",
+                        "text": "毕业论文（设计）中文题目",
+                        "raw_run_ids": ["p_0007.r_003"],
+                        "logical_run_ids": ["p_0007.lr_002"],
+                    }
+                ],
+            }
+        ],
+    )
+
+    check = judge_template_generation_stage(
+        "t3_element_policy",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t3_element_policy"),
+        run_bundle=_bundle(Status.PASS, {"element_spec": artifact}),
+    )
+
+    assert check.audit_status == "PASS"
     assert check.audit["run_span_ledger_gaps"] == []
 
 

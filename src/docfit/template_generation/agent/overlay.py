@@ -4,7 +4,13 @@ from copy import deepcopy
 from typing import Any
 
 from docfit.core.io import sha256_json
-from docfit.template_generation.constants import UNIT_DEFINITION_NAMES
+from docfit.template_generation.constants import MANUAL_ONLY_UNIT_IDS, UNIT_DEFINITION_NAMES
+from docfit.template_generation.structure_candidates import (
+    _element_name,
+    _element_policy,
+    _element_type,
+    _role_hint_for_policy,
+)
 
 
 T2_OPERATIONS = {
@@ -250,6 +256,14 @@ def apply_t3_proposal(
     if target is None:
         return None, None, "T3 target is ambiguous or missing"
     unit, element = target
+    unit_policy = _unit_policy(unit)
+    if policy == "fill" and unit_policy == "manual_only":
+        unit_id = str(unit.get("unit_id") or "")
+        return (
+            None,
+            None,
+            f"T3 fill policy is not executable for manual_only unit: {unit_id}",
+        )
     element["candidate_policy"] = policy
     element.setdefault("agent_traces", []).append(_trace(proposal))
     operation_payload = {
@@ -290,6 +304,16 @@ def bind_t3_target(
     if len(unique) != 1:
         return None
     return next(iter(unique.values()))
+
+
+def _unit_policy(unit: dict[str, Any]) -> str:
+    policy = str(unit.get("candidate_policy") or unit.get("policy") or "").strip()
+    if policy:
+        return policy
+    unit_id = str(unit.get("unit_id") or "")
+    if unit_id in MANUAL_ONLY_UNIT_IDS:
+        return "manual_only"
+    return ""
 
 
 def _t2_operation(proposal: dict[str, Any], collection: str) -> str:
@@ -402,18 +426,33 @@ def _elements_from_proposal(
         entry = entries_by_seq.get(source_seq, {})
         source_ref = str(entry.get("source_ref") or "")
         text = str(entry.get("text") or "")
+        policy = _element_policy(unit_id, text, entry)
+        raw_run_ids = [str(value) for value in entry.get("raw_run_ids", []) or [] if value]
+        logical_run_ids = [
+            str(value) for value in entry.get("logical_run_ids", []) or [] if value
+        ]
+        run_source_refs = [
+            str(value) for value in entry.get("run_source_refs", []) or [] if value
+        ]
         elements.append(
             {
                 "element_id": f"e_{index:03d}",
-                "name": text[:32] or f"{unit_id} element {index}",
+                "name": _element_name(unit_id, text, policy),
                 "order": index,
-                "candidate_policy": "fixed",
-                "role_hint": "fixed_text_candidate",
+                "candidate_policy": policy,
+                "type": _element_type(policy),
+                "fill": "yes" if policy == "fill" else "no",
+                "role_hint": _role_hint_for_policy(policy),
                 "relationship": "agent_overlay_source",
-                "content": text,
+                "content": text if policy != "remove_instruction" else "",
+                "normalized_content": text,
                 "style": entry.get("style", ""),
+                "style_evidence": entry.get("style_details", {}),
                 "source_refs": [source_ref] if source_ref else [],
                 "source_seq_refs": [source_seq],
+                "raw_run_ids": raw_run_ids,
+                "logical_run_ids": logical_run_ids,
+                "run_source_refs": run_source_refs,
                 "entry_refs": [entry.get("node_id")] if entry.get("node_id") else [],
                 "evidence": [
                     {

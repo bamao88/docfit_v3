@@ -122,6 +122,79 @@ def test_t3_policy_overlay_preserves_source_backed_spans(tmp_path) -> None:
     assert target["policy"] == "fill"
 
 
+def test_t3_policy_overlay_rejects_fill_for_manual_only_unit(tmp_path) -> None:
+    artifacts = round0_artifacts(tmp_path)
+    candidates = artifacts["structure_candidates"]
+    manual_entry = candidates["source_context"]["body_flow"][1]
+    manual_unit = candidates["units"][1]
+    manual_unit["unit_id"] = "proposal"
+    manual_unit["name"] = "开题报告"
+    manual_unit["candidate_policy"] = "manual_only"
+    manual_unit["source_refs"] = [manual_entry["source_ref"]]
+    manual_unit["source_seq_refs"] = [manual_entry["source_seq"]]
+    manual_unit["source_range"]["source_refs"] = [manual_entry["source_ref"]]
+    manual_unit["source_seq_range"]["source_seq_refs"] = [manual_entry["source_seq"]]
+    manual_unit["elements"] = [
+        {
+            "element_id": "e_001",
+            "name": "开题报告",
+            "order": 1,
+            "candidate_policy": "manual_only",
+            "role_hint": "manual_field_candidate",
+            "relationship": "source_paragraph",
+            "content": manual_entry["text"],
+            "style": "Normal",
+            "source_refs": [manual_entry["source_ref"]],
+            "source_seq_refs": [manual_entry["source_seq"]],
+            "entry_refs": [manual_entry["node_id"]],
+            "evidence": [],
+        }
+    ]
+    unit_map = build_unit_map(artifacts["document_facts"], candidates)
+    generation_model = build_template_generation_model(artifacts["request"], candidates)
+    element_spec = build_element_spec(generation_model)
+    submission = layered_submission(
+        artifacts["packet"]["source_render_hash"],
+        layers={
+            "t3": {
+                "element_policy_candidates": [
+                    {
+                        "proposal_id": "t3_fill_manual_001",
+                        "kind": "element_policy_candidate",
+                        "policy": "fill",
+                        "target_candidate_id": "proposal.e_001",
+                        "source_seq_refs": [manual_entry["source_seq"]],
+                    }
+                ]
+            }
+        },
+    )
+    transcript_path = tmp_path / "transcript.json"
+    packet_path = tmp_path / "packet.json"
+    write_json(packet_path, artifacts["packet"])
+    write_json(transcript_path, {"rounds": [{"submission": submission}]})
+
+    result = run_template_agent(
+        source_template_docx=tmp_path / "template.docx",
+        request=artifacts["request"],
+        document_facts=artifacts["document_facts"],
+        structure_candidates=candidates,
+        unit_map=unit_map,
+        generation_model=generation_model,
+        element_spec=element_spec,
+        agent_config=AgentConfig(
+            enabled=True,
+            transcript_path=transcript_path,
+            render_packet_path=packet_path,
+        ),
+    )
+
+    assert result.changed is False
+    assert result.decisions is not None
+    assert result.decisions["rejected_proposal_ids"] == ["t3_fill_manual_001"]
+    assert result.decisions["decisions"][0]["checks"][0]["check_id"] == "C-POLICY-DOWNGRADE"
+
+
 def test_t3_unknown_policy_is_rejected_before_canonical_fallback(tmp_path) -> None:
     artifacts = round0_artifacts(tmp_path)
     submission = layered_submission(

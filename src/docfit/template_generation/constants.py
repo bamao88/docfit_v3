@@ -11,6 +11,19 @@ FILLABLE_CONTENT_UNIT_IDS = {
     "appendix",
     "acknowledgement",
 }
+MANUAL_ONLY_UNIT_IDS = {
+    "integrity_statement",
+    "copyright_notice",
+    "originality_statement",
+    "authorization_statement",
+    "originality_authorization_statement",
+    "design_task",
+    "proposal",
+    "proposal_record",
+    "defense_record",
+    "topic_change_approval",
+    "grade_form",
+}
 
 UNIT_DEFINITIONS = (
     ("cover", "封面", ("封面", "题名", "论文题目", "学校", "学号", "指导教师")),

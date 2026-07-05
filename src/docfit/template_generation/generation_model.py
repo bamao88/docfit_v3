@@ -270,13 +270,19 @@ def _element_spans(
         runs_by_raw,
         run_text_overrides=run_text_overrides,
     )
-    run_parts = _run_parts(raw_run_ids, run_texts)
+    logical_by_raw = _logical_run_ids_by_raw(raw_run_ids, runs_by_raw)
+    run_parts = _run_parts(raw_run_ids, run_texts, logical_by_raw)
     combined_text = "".join(str(part["text"]) for part in run_parts)
     inline_instruction_ranges = _inline_instruction_ranges(combined_text)
     sample_value_ranges = _sample_value_ranges(
         combined_text,
         inline_instruction_ranges=inline_instruction_ranges,
     )
+    if not sample_value_ranges and str(element.get("policy") or "") == "fill":
+        sample_value_ranges = _fallback_fill_sample_value_ranges(
+            combined_text,
+            inline_instruction_ranges=inline_instruction_ranges,
+        )
     protected_ranges = [*inline_instruction_ranges, *sample_value_ranges]
     spans: list[dict[str, Any]] = []
     order = 1
@@ -308,17 +314,18 @@ def _element_spans(
             )
         )
         order += 1
+    layout_ranges: list[tuple[int, int]] = []
     for part in run_parts:
         raw_run_id = str(part["raw_run_id"])
+        logical_run_id = str(part.get("logical_run_id") or "")
         text = str(part["text"])
         combined_offset = int(part["start"])
-        layout_matches: list[re.Match[str]] = []
         for match in re.finditer(r"□+", text):
             combined_start = combined_offset + match.start()
             combined_end = combined_offset + match.end()
             if _range_overlaps_any(combined_start, combined_end, protected_ranges):
                 continue
-            layout_matches.append(match)
+            layout_ranges.append((combined_start, combined_end))
             spans.append(
                 _span(
                     element,
@@ -327,16 +334,26 @@ def _element_spans(
                     policy="remove_instruction",
                     text=match.group(0),
                     raw_run_id=raw_run_id,
+                    logical_run_id=logical_run_id,
                     start=match.start(),
                     end=match.end(),
                 )
             )
             order += 1
-        if layout_matches:
-            label_text = _remove_ranges_from_text(
-                text,
-                [(match.start(), match.end()) for match in layout_matches],
-            )
+    protected_ranges = [*protected_ranges, *layout_ranges]
+    for part in run_parts:
+        raw_run_id = str(part["raw_run_id"])
+        logical_run_id = str(part.get("logical_run_id") or "")
+        text = str(part["text"])
+        combined_offset = int(part["start"])
+        for start, end in _unprotected_part_ranges(
+            text,
+            combined_offset=combined_offset,
+            protected_ranges=protected_ranges,
+        ):
+            label_text = text[start:end]
+            if not label_text.strip():
+                continue
             spans.append(
                 {
                     "span_id": f"{element.get('element_id')}.span_{order:03d}",
@@ -344,7 +361,15 @@ def _element_spans(
                     "policy": "fixed",
                     "text": label_text,
                     "raw_run_ids": [raw_run_id],
-                    "char_ranges": [],
+                    "logical_run_ids": [logical_run_id] if logical_run_id else [],
+                    "char_ranges": [
+                        {
+                            "raw_run_id": raw_run_id,
+                            "start": start,
+                            "end": end,
+                            "replacement": "",
+                        }
+                    ],
                     "origin": "deterministic_parser",
                     "confidence": "high",
                 }
@@ -353,7 +378,36 @@ def _element_spans(
     return spans
 
 
-def _run_parts(raw_run_ids: list[str], run_texts: dict[str, str]) -> list[dict[str, Any]]:
+def _unprotected_part_ranges(
+    text: str,
+    *,
+    combined_offset: int,
+    protected_ranges: list[tuple[int, int]],
+) -> list[tuple[int, int]]:
+    ranges: list[tuple[int, int]] = []
+    cursor = 0
+    local_protected = sorted(
+        (
+            max(0, start - combined_offset),
+            min(len(text), end - combined_offset),
+        )
+        for start, end in protected_ranges
+        if start < combined_offset + len(text) and end > combined_offset
+    )
+    for start, end in local_protected:
+        if cursor < start:
+            ranges.append((cursor, start))
+        cursor = max(cursor, end)
+    if cursor < len(text):
+        ranges.append((cursor, len(text)))
+    return ranges
+
+
+def _run_parts(
+    raw_run_ids: list[str],
+    run_texts: dict[str, str],
+    logical_by_raw: dict[str, str],
+) -> list[dict[str, Any]]:
     parts: list[dict[str, Any]] = []
     cursor = 0
     for raw_run_id in raw_run_ids:
@@ -361,6 +415,7 @@ def _run_parts(raw_run_ids: list[str], run_texts: dict[str, str]) -> list[dict[s
         parts.append(
             {
                 "raw_run_id": raw_run_id,
+                "logical_run_id": logical_by_raw.get(raw_run_id, ""),
                 "text": text,
                 "start": cursor,
                 "end": cursor + len(text),
@@ -410,6 +465,8 @@ def _sample_value_ranges(
     *,
     inline_instruction_ranges: list[tuple[int, int]],
 ) -> list[tuple[int, int]]:
+    if _contains_internal_marker(text):
+        return []
     colon_indexes = [index for index in (text.find("："), text.find(":")) if index >= 0]
     if colon_indexes:
         start = min(colon_indexes) + 1
@@ -434,6 +491,35 @@ def _sample_value_ranges(
     if stripped and _looks_like_sample_value(stripped):
         return [(stripped_start, stripped_end)]
     return []
+
+
+def _fallback_fill_sample_value_ranges(
+    text: str,
+    *,
+    inline_instruction_ranges: list[tuple[int, int]],
+) -> list[tuple[int, int]]:
+    if _contains_internal_marker(text):
+        return []
+    start, end = _trim_range(text, 0, len(text))
+    for inline_start, _inline_end in sorted(inline_instruction_ranges):
+        if inline_start >= start:
+            end = min(end, inline_start)
+            break
+    start, end = _trim_range(text, start, end)
+    while start < end and text[start] in {"□", " "}:
+        start += 1
+    start, end = _trim_range(text, start, end)
+    if start >= end:
+        return []
+    colon_indexes = [
+        index
+        for index in (text.find("：", start, end), text.find(":", start, end))
+        if index >= 0
+    ]
+    if colon_indexes:
+        sample_start, sample_end = _trim_range(text, min(colon_indexes) + 1, end)
+        return [(sample_start, sample_end)] if sample_start < sample_end else []
+    return [(start, end)]
 
 
 def _contains_placeholder_marker(text: str) -> bool:
@@ -482,13 +568,6 @@ def _range_overlaps_any(
     return any(start < range_end and end > range_start for range_start, range_end in ranges)
 
 
-def _remove_ranges_from_text(text: str, ranges: list[tuple[int, int]]) -> str:
-    result = text
-    for start, end in sorted(ranges, reverse=True):
-        result = f"{result[:start]}{result[end:]}"
-    return result
-
-
 def _span_from_combined_range(
     element: dict[str, Any],
     *,
@@ -502,6 +581,7 @@ def _span_from_combined_range(
 ) -> dict[str, Any]:
     char_ranges: list[dict[str, Any]] = []
     raw_run_ids: list[str] = []
+    logical_run_ids: list[str] = []
     for part in run_parts:
         part_start = int(part["start"])
         part_end = int(part["end"])
@@ -511,6 +591,9 @@ def _span_from_combined_range(
             continue
         raw_run_id = str(part["raw_run_id"])
         raw_run_ids.append(raw_run_id)
+        logical_run_id = str(part.get("logical_run_id") or "")
+        if logical_run_id:
+            logical_run_ids.append(logical_run_id)
         char_ranges.append(
             {
                 "raw_run_id": raw_run_id,
@@ -525,6 +608,7 @@ def _span_from_combined_range(
         "policy": policy,
         "text": text,
         "raw_run_ids": raw_run_ids,
+        "logical_run_ids": _dedupe_strings(logical_run_ids),
         "char_ranges": char_ranges,
         "origin": "deterministic_parser",
         "confidence": "high",
@@ -556,6 +640,21 @@ def _run_texts_for_element(
         return semantic
     if missing and len(raw_run_ids) == 1:
         return {raw_run_ids[0]: content}
+    return result
+
+
+def _logical_run_ids_by_raw(
+    raw_run_ids: list[str],
+    runs_by_raw: dict[str, Any],
+) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for raw_run_id in raw_run_ids:
+        run = runs_by_raw.get(raw_run_id)
+        if not isinstance(run, dict):
+            continue
+        logical_run_id = str(run.get("logical_run_id") or "").strip()
+        if logical_run_id:
+            result[raw_run_id] = logical_run_id
     return result
 
 
@@ -597,6 +696,10 @@ def _looks_like_sample_value(text: str) -> bool:
     return "×" in stripped or stripped in {"……", "..."} or bool(re.fullmatch(r"…+", stripped))
 
 
+def _contains_internal_marker(text: str) -> bool:
+    return "[[DOCFIT_" in text
+
+
 def _span(
     element: dict[str, Any],
     *,
@@ -605,6 +708,7 @@ def _span(
     policy: str,
     text: str,
     raw_run_id: str,
+    logical_run_id: str,
     start: int,
     end: int,
 ) -> dict[str, Any]:
@@ -614,6 +718,7 @@ def _span(
         "policy": policy,
         "text": text,
         "raw_run_ids": [raw_run_id],
+        "logical_run_ids": [logical_run_id] if logical_run_id else [],
         "char_ranges": [
             {
                 "raw_run_id": raw_run_id,
@@ -661,7 +766,8 @@ def _span_decisions(
                 "source_ref": source_ref,
                 "source_seq_refs": _source_seq_refs(element),
                 "raw_run_ids": list(span.get("raw_run_ids") or []),
-                "logical_run_ids": element.get("logical_run_ids", []),
+                "logical_run_ids": list(span.get("logical_run_ids") or [])
+                or element.get("logical_run_ids", []),
                 "char_ranges": list(span.get("char_ranges") or []),
                 "reason": _decision_reason(decision_type),
             }

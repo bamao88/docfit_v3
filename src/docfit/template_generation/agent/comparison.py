@@ -414,6 +414,19 @@ def _compare_t3(
             deterministic=deterministic,
             risk_level="high",
         )
+    current_policy = str(deterministic.get("current_policy") or "")
+    downgrade_reason = _t3_policy_downgrade_reason(current_policy, policy)
+    if downgrade_reason is not None:
+        return _item(
+            proposal,
+            layer="t3",
+            collection=collection,
+            status="conflict",
+            check_id="C-POLICY-DOWNGRADE",
+            reason=downgrade_reason,
+            affected_refs=affected_refs,
+            deterministic=deterministic,
+        )
     return _item(
         proposal,
         layer="t3",
@@ -424,6 +437,26 @@ def _compare_t3(
         affected_refs=affected_refs,
         deterministic=deterministic,
     )
+
+
+def _t3_policy_downgrade_reason(current_policy: str, proposed_policy: str) -> str | None:
+    if not current_policy or current_policy == proposed_policy:
+        return None
+    downgrades = {
+        ("fill", "fixed"),
+        ("fill", "remove_instruction"),
+        ("generated", "fixed"),
+        ("generated", "fill"),
+        ("manual_only", "fixed"),
+        ("manual_only", "fill"),
+        ("manual_only", "generated"),
+    }
+    if (current_policy, proposed_policy) in downgrades:
+        return (
+            "T3 proposal would downgrade deterministic policy "
+            f"{current_policy!r} to {proposed_policy!r}; manual review required"
+        )
+    return None
 
 
 def _compare_t4(

@@ -14,6 +14,7 @@ from .constants import (
     GENERATED_MARKERS,
     INSTRUCTION_MARKERS,
     MANUAL_ONLY_MARKERS,
+    MANUAL_ONLY_UNIT_IDS,
     UNIT_DEFINITION_NAMES,
     UNIT_DEFINITIONS,
 )
@@ -2625,19 +2626,7 @@ def _unit_policy(unit_id: str) -> str:
         return "fill"
     if unit_id in {"toc", "figure_list", "table_list"}:
         return "generated"
-    if unit_id in {
-        "integrity_statement",
-        "copyright_notice",
-        "originality_statement",
-        "authorization_statement",
-        "originality_authorization_statement",
-        "design_task",
-        "proposal",
-        "proposal_record",
-        "defense_record",
-        "topic_change_approval",
-        "grade_form",
-    }:
+    if unit_id in MANUAL_ONLY_UNIT_IDS:
         return "manual_only"
     return "fixed"
 
@@ -2657,6 +2646,8 @@ def _element_policy(unit_id: str, text: str, entry: dict[str, Any]) -> str:
         label in text for label in FILLABLE_LABELS
     ):
         return "fill"
+    if _looks_like_fillable_example_text(unit_id, text):
+        return "fill"
     if unit_policy == "fixed":
         return "fixed"
     if unit_id in FILLABLE_CONTENT_UNIT_IDS and not _looks_like_unit_heading(
@@ -2665,6 +2656,23 @@ def _element_policy(unit_id: str, text: str, entry: dict[str, Any]) -> str:
     ):
         return "fill"
     return "fixed"
+
+
+def _looks_like_fillable_example_text(unit_id: str, text: str) -> bool:
+    if unit_id not in {"cover", "body_title_block"}:
+        return False
+    normalized = _normalize_for_match(text)
+    if normalized in {
+        "论文题目",
+        "中文题目",
+        "英文题目",
+        "英文题名",
+        "毕业论文题目",
+        "毕业论文设计中文题目",
+        "titleofgraduationpaper",
+    }:
+        return True
+    return "titleofgraduationpaper" in normalized
 
 
 def _looks_like_instruction(text: str) -> bool:
