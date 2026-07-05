@@ -331,6 +331,19 @@ post_t6_gap:
     - 03.2_t3_merged_element_spec.yaml：bridge/reconciler 后最终 merged T3
   兼容文件 03_element_spec.yaml 保持为最终 merged T3，供现有 T5/T6/verifier 继续消费。
   这一步只解决 route artifact 捕获；完整 route evaluator / T5-T6 replay / post_t6_gap 仍按本 plan 后续执行。
+
+2026-07-01:
+  补齐 template-generate run bundle 的 T2/T4 三路线产物捕获：
+    - T2:
+      - 02.0_t2_code_unit_map.yaml：agent 合并前 deterministic code_raw T2
+      - 02.2_t2_ai_unit_observation.yaml：Module 1 ai_raw T2；未传 AI bundle 时明确 NOT_AVAILABLE
+      - 02.3_t2_merged_unit_map.yaml：bridge/reconciler 后最终 merged T2
+    - T4:
+      - 04.0_t4_code_global_spec.yaml：agent 合并前 deterministic code_raw T4
+      - 04.1_t4_ai_layout_observation.yaml：Module 1 ai_raw T4；未传 AI bundle 时明确 NOT_AVAILABLE
+      - 04.2_t4_merged_global_spec.yaml：当前进入 T5/T6 的最终 merged T4
+  兼容文件 02_unit_map.yaml / 04_global_spec.yaml 保持为最终 merged 产物，供现有 T3/T5/T6/verifier 继续消费。
+  这一步仍只解决 route artifact 捕获；统一 route evaluator / T5-T6 replay / post_t6_gap 仍按本 plan 后续执行。
 ```
 
 ## Test Plan

@@ -12,7 +12,7 @@ last_updated: 2026-07-01
 previous_issue:
   id: T3-ELEMENT-ISSUE-03
   doc: docs/plans/2026-06-30-template-parse-refactor-t3-element-policy-issue-03-within-paragraph-run-split.md
-  status: draft
+  status: resolved
 previous_optimization:
   doc: docs/plans/2026-07-01-template-parse-refactor-t2t3t4-agent-proposal-plan-06-observation-code-bridge-acceptance.md
   summary: AI observation bridge 与 standard acceptance 已接入，但真实模板输出暴露 T3 deterministic policy 仍会把说明文本误判为 manual_only。
