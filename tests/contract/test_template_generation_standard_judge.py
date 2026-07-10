@@ -50,6 +50,7 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     expected_stage_reports = [
         "00_template_generation_request_standard_quality_report",
         "01_document_facts_standard_quality_report",
+        "01.5_l1_input_contract_standard_quality_report",
         "02_unit_map_standard_quality_report",
         "03_element_spec_standard_quality_report",
         "04_global_spec_standard_quality_report",
@@ -64,6 +65,7 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     expected_stage_diff_reports = [
         "00_template_generation_request_standard_diff_report",
         "01_document_facts_standard_diff_report",
+        "01.5_l1_input_contract_standard_diff_report",
         "02_unit_map_standard_diff_report",
         "03_element_spec_standard_diff_report",
         "04_global_spec_standard_diff_report",
@@ -91,6 +93,7 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     root_cause_report = read_json(out_dir / "template_generation_root_cause_report.json")
     bridge_acceptance = read_json(out_dir / "template_agent_bridge_standard_acceptance.json")
     route_eval = read_json(out_dir / "template_generation_route_eval_report.json")
+    l1_contract = read_json(run_dir / "01.5_l1_input_contract.json")
     fillable_quality = read_json(
         out_dir / "06.1_fillable_template_standard_quality_report.json"
     )
@@ -115,8 +118,8 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     assert len(judge_report["root_causes"]) >= 5
     assert len(judge_report["owner_assignments"]) >= 5
     assert len(judge_report["fix_plan"]) >= 5
-    assert len(judge_report["stage_standard_quality_reports"]) == 9
-    assert len(judge_report["stage_standard_diff_reports"]) == 9
+    assert len(judge_report["stage_standard_quality_reports"]) == 10
+    assert len(judge_report["stage_standard_diff_reports"]) == 10
     assert summary["coverage"]["standard_acceptance_status"] == "UNKNOWN"
     assert summary["coverage"]["signoff_status"] == "NOT_SIGNABLE"
     assert summary["coverage"]["mismatch_count"] >= 5
@@ -142,8 +145,36 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     assert bridge_acceptance["bridge_present"] is False
     assert "bridged_output_accuracy" in bridge_acceptance
     assert route_eval["artifact_type"] == "template_generation_route_eval_report"
-    assert len(route_eval["routes"]) == 9
-    assert set(route_eval["stage_metrics"]) == {"T2", "T3", "T4"}
+    assert l1_contract["artifact_type"] == "template_generation_l1_input_contract"
+    assert "source_text_index" in l1_contract
+    assert "source_object_index" in l1_contract
+    assert "layout_fact_index" in l1_contract
+    assert "visual_page_index" in l1_contract
+    assert "bundle_gate_view" in l1_contract
+    assert len(route_eval["routes"]) == 23
+    assert set(route_eval["stage_metrics"]) == {
+        "T1",
+        "L1",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+        "T7",
+        "POST_T6",
+    }
+    assert route_eval["stage_metrics"]["L1"]["coverage"]["available"] is True
+    assert route_eval["stage_metrics"]["T6"]["route_availability"]["merged"] == "AVAILABLE"
+    assert route_eval["stage_metrics"]["POST_T6"]["route_availability"]["merged"] == "NOT_AVAILABLE"
+    assert any(
+        mismatch["type"] == "route_replay_not_materialized"
+        for mismatch in route_eval["mismatches"]
+    )
+    assert any(
+        mismatch["type"] == "merged_route_not_available"
+        and mismatch["stage_id"] == "POST_T6"
+        for mismatch in route_eval["mismatches"]
+    )
     assert "mismatches" in route_eval
     assert "root_causes" in route_eval
     assert "owner_assignments" in route_eval
@@ -181,6 +212,122 @@ def test_template_generation_standard_quality_cli_supports_profile(
     report = read_json(out_dir / "template_generation_stage_standard_quality_report.json")
     assert report["scope"] == "demo-profile"
     assert report["status"] == "PASS"
+
+
+def test_route_eval_reports_t4_hint_consumption_gaps(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    source = tmp_path / "inputs/targets/demo-school/raw/source_template.docx"
+    _write_source_docx(source, ["封面", "正文"])
+    _write_demo_standard_set(tmp_path, sha256_file(source))
+    from docfit.template_generation.agent.packet import build_template_agent_render_packet
+    from docfit.template_generation.artifacts import source_tree_from_document_facts
+    from docfit.template_generation.source_tree import inspect_document_facts_docx
+    from docfit.template_generation.structure_candidates import build_template_structure_candidates
+    from docfit.core.io import write_json
+
+    facts = inspect_document_facts_docx(source)
+    candidates = build_template_structure_candidates(source_tree_from_document_facts(facts))
+    packet = build_template_agent_render_packet(
+        document_facts=facts,
+        structure_candidates=candidates,
+        source_template_docx=source,
+    )
+    packet["render_status"] = "real_render"
+    packet["render_artifacts"]["render_status"] = "real_render"
+    packet_path = tmp_path / "packet.json"
+    transcript_path = tmp_path / "transcript.json"
+    write_json(packet_path, packet)
+    write_json(
+        transcript_path,
+        {
+            "artifact_type": "template_agent_transcript",
+            "rounds": [
+                {
+                    "submission": {
+                        "source_render_hash": packet["source_render_hash"],
+                        "round_id": "round_001",
+                        "model": "fixture",
+                        "layers": {
+                            "t2": {"unit_candidates": [], "block_candidates": [], "boundary_adjustments": [], "open_questions": []},
+                            "t3": {"element_policy_candidates": [], "open_questions": []},
+                            "t4": {
+                                "page_policy_hints": [
+                                    {
+                                        "proposal_id": "t4_page_body",
+                                        "kind": "page_policy_hint",
+                                        "unit_id": "body_main",
+                                        "standalone": True,
+                                        "page_nos": [1],
+                                        "source_seq_refs": [2],
+                                    }
+                                ],
+                                "section_profile_hints": [
+                                    {
+                                        "proposal_id": "t4_section_001",
+                                        "kind": "section_profile_hint",
+                                        "source_seq_refs": [1],
+                                    }
+                                ],
+                                "page_numbering_hints": [
+                                    {
+                                        "proposal_id": "t4_page_number_001",
+                                        "kind": "page_numbering_hint",
+                                        "source_seq_refs": [1],
+                                    }
+                                ],
+                                "open_questions": [],
+                            },
+                        },
+                    }
+                }
+            ],
+        },
+    )
+    run_dir = tmp_path / "runs/template_generate"
+    generate_result = CliRunner().invoke(
+        app,
+        [
+            "eval",
+            "template-generate",
+            "--template",
+            str(source),
+            "--out",
+            str(run_dir),
+            "--agent-replay",
+            str(transcript_path),
+            "--agent-render-packet",
+            str(packet_path),
+        ],
+    )
+    assert generate_result.exit_code == 0, generate_result.output
+    out_dir = tmp_path / "runs/template_generation_judge"
+    judge_result = CliRunner().invoke(
+        app,
+        [
+            "eval",
+            "template-generation-judge",
+            "--school",
+            "demo-school",
+            "--run",
+            str(run_dir),
+            "--out",
+            str(out_dir),
+        ],
+    )
+    assert judge_result.exit_code == 0, judge_result.output
+
+    route_eval = read_json(out_dir / "template_generation_route_eval_report.json")
+    consumption = route_eval["stage_metrics"]["T4"]["hint_consumption"]
+    assert consumption["page_policy_hint_count"] == 1
+    assert consumption["page_policy_consumed_count"] == 1
+    assert consumption["section_profile_hint_count"] == 1
+    assert consumption["page_numbering_hint_count"] == 1
+    assert {
+        mismatch["type"] for mismatch in route_eval["mismatches"]
+    } >= {
+        "t4_section_profile_hint_advisory_only",
+        "t4_page_numbering_hint_advisory_only",
+    }
 
 
 def _write_source_docx(path: Path, paragraphs: list[str]) -> None:

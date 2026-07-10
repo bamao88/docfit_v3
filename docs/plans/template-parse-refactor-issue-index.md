@@ -2,7 +2,7 @@
 status: active
 owner: template-generation
 created: 2026-06-25
-last_updated: 2026-07-03
+last_updated: 2026-07-10
 ---
 
 # 模板解析重构 issue 迭代索引
@@ -66,7 +66,7 @@ next_plan: ...
 | 07 | issue | `docs/plans/2026-07-01-template-parse-refactor-t2t3t4-agent-proposal-issue-07-end-to-end-workflow-not-integrated.md` | draft | 计划 06 / route-eval 03 已落代码与 artifact 槽位，但默认真实 run 未贯通 Module 1→桥接→三路线；03.1 常为 NOT_AVAILABLE 占位且语义与 abstain 混用。 |
 | 07 | optimization plan | `docs/plans/2026-07-01-template-parse-refactor-t2t3t4-agent-proposal-plan-07-end-to-end-workflow-integration.md` | draft | 四阶段：NOT_AVAILABLE 占位修正 → 同 run Module1 编排 → hunannongye replay contract → 运行口径文档与 T3 route summary。 |
 | 08 | issue | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-issue-08-t1-l1-input-contract.md` | draft | T1a DOCX/OOXML 结构事实、T1b PDF/页面图/overlay 视觉事实和 L1 统一输入投影契约未收口；code 与 AI 输入字段不对齐，图片/对象/page binding 尚未成为一等输入。 |
-| 08 | optimization plan | none | pending | 尚未进入完整实施计划；其中 T4 输入切片（页眉页脚内容/fields/breaks/vision prompt 注入）由 plan-10 Phase 1 承接，其余（对象索引、overlay、bundle gate）仍待独立 plan。 |
+| 08 | optimization plan | `docs/plans/2026-07-10-template-parse-refactor-t1l1-input-contract-plan-08-l1-projection-bundle-gate.md` | implemented_in_part | 已落 L1 输入投影 artifact、run bundle 绑定和 route-eval 诊断；精确 object/page overlay 与强制下游只读 L1 仍作为后续缺口暴露。 |
 | 09 | issue | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-issue-09-ai-raw-not-merged.md` | draft | 同 run AI raw 已经 AVAILABLE 且 hash 对齐，但 T2 schema 拒绝、T3 manual review、T4 advisory-only 导致 AI 未进入 merged 权威产物。 |
 | 09 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-plan-09-ai-raw-to-merged.md` | draft | 修 T2 bridge collection/kind、T3 executable overlay、T4 merged global_spec evidence，并用 hunannongye replay 验证每层 accepted/merged。 |
 | 10 | issue | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-issue-10-t4-observation-downstream-dead-end.md` | draft | T4 accepted observation（含 vision 明点识别）只落 `agent_observation_hints`，生产代码零读取者；T4 AI 观察对最终产物零影响。 |
@@ -84,7 +84,7 @@ next_plan: ...
 | 02 | issue | `docs/plans/template-parse-refactor-standard-judge-issue-02-stage-standard-diff-diagnosis-priority.md` | draft | 纠偏：stage standard diff diagnosis 优先于 gate。**待拆分**：正文混入了 plan 内容，应迁到独立 `plan-02` 文档 |
 | 02 | optimization plan | TBD | pending | 对应 issue-02；从 issue-02 正文拆出实施计划后登记 |
 | 03 | issue | `docs/plans/2026-07-01-template-parse-refactor-standard-judge-route-eval-issue-03-full-chain-three-route-gap.md` | draft | 当前缺口：模板生成全链路尚未统一比较 code_raw、ai_raw、merged，T3 元素级 draft gold、T5/T6 隔离重放和 template-gap 证据未纳入同一诊断闭环 |
-| 03 | optimization plan | `docs/plans/2026-07-01-template-parse-refactor-standard-judge-route-eval-plan-03-full-chain-three-route-evaluator.md` | draft | 三路线 route evaluator 计划；已先落 T3 三份 route artifact，完整 T1-T6 route eval 待后续实现 |
+| 03 | optimization plan | `docs/plans/2026-07-01-template-parse-refactor-standard-judge-route-eval-plan-03-full-chain-three-route-evaluator.md` | implemented_in_part | route-eval 已覆盖 T1/L1/T2/T3/T4/T5/T6/T7/POST_T6 共 23 个 route candidates；T5/T6/T7/post-T6 的 code_raw/ai_raw 隔离重放仍显式 NOT_EVALUABLE，template-gap 缺失时显式 NOT_AVAILABLE。 |
 
 ## Stage standards completeness
 

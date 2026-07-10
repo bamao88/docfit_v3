@@ -1,5 +1,5 @@
 ---
-status: draft
+status: implemented_in_part
 owner: template-generation
 stage: standard-judge
 topic: route-eval
@@ -12,7 +12,7 @@ previous_plan:
   id: STANDARD-JUDGE-PLAN-01
   doc: docs/plans/template-parse-refactor-standard-judge-plan-01-stage-diff-root-cause.md
 created: 2026-07-01
-last_updated: 2026-07-01
+last_updated: 2026-07-10
 ---
 
 # Standard Judge Plan 03：模板生成全链路三路线评测闭环
@@ -344,6 +344,28 @@ post_t6_gap:
       - 04.2_t4_merged_global_spec.yaml：当前进入 T5/T6 的最终 merged T4
   兼容文件 02_unit_map.yaml / 04_global_spec.yaml 保持为最终 merged 产物，供现有 T3/T5/T6/verifier 继续消费。
   这一步仍只解决 route artifact 捕获；统一 route evaluator / T5-T6 replay / post_t6_gap 仍按本 plan 后续执行。
+
+2026-07-10:
+  已把 unified route evaluator 从 T2/T3/T4 扩展为全链路可见性报告：
+    - T1: shared_input -> 01_document_facts.json
+    - L1: shared_input -> 01.5_l1_input_contract.json
+    - T2/T3/T4: code_raw / ai_raw / merged 三路线 artifact
+    - T5: merged -> 05_template_spec.yaml；code_raw / ai_raw 目前明确 NOT_EVALUABLE
+    - T6: merged -> 06.1_fillable_template.docx + 06.2_build_manifest.json；code_raw / ai_raw 目前明确 NOT_EVALUABLE
+    - T7: merged -> 07_verification_report.json；code_raw / ai_raw 目前明确 NOT_EVALUABLE
+    - POST_T6: merged 尝试绑定 template_gap_report.json；不存在时输出 NOT_AVAILABLE
+  报告现在输出 23 个 route candidates，并覆盖 T1/L1/T2/T3/T4/T5/T6/T7/POST_T6 的 stage_metrics。
+  新增诊断：
+    - route_replay_not_materialized：T5/T6/T7/post-T6 的 code_raw/ai_raw 隔离重放尚未物化。
+    - merged_route_not_available：POST_T6 缺 template-gap 报告时显式归因。
+    - l1_*：L1 render、object binding、bundle gate 缺口。
+    - t4_*：page_policy_hint 消费、section_profile_hint/page_numbering_hint 仍 advisory-only 的消费缺口。
+  已验证：
+    - uv run pytest tests/contract/test_template_generation_standard_judge.py -q
+    - uv run pytest -q
+  仍非闭环项：
+    - T5/T6 code_raw 与 ai_raw 隔离重放 harness 尚未实现，本轮没有把 NOT_EVALUABLE 当作完成。
+    - post-T6 template-gap 仅在报告存在时绑定，尚未由 judge 默认派生运行。
 ```
 
 ## Test Plan

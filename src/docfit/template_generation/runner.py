@@ -13,6 +13,7 @@ from .agent import AgentConfig, AgentConfigError, run_template_agent
 from .constants import BODY_SLOT_MARKER, DEFAULT_TEMPLATE_GENERATION_STRATEGY
 from .executor import execute_template_generation_plan
 from .generation_model import build_template_generation_model
+from .input_contract import build_l1_input_contract
 from .manifest import build_template_generation_manifest
 from .artifacts import (
     build_element_spec,
@@ -192,6 +193,12 @@ def generate_template(
         route_id="merged",
         origin="agent_bridge_reconciled_final_t4",
     )
+    l1_input_contract = build_l1_input_contract(
+        document_facts=document_facts,
+        render_packet=agent_run.render_packet,
+        ai_observation_bundle=agent_run.ai_observation_bundle,
+        observation_bridge=agent_run.observation_bridge,
+    )
     template_spec = build_template_spec(
         document_facts,
         unit_map,
@@ -245,6 +252,7 @@ def generate_template(
             source_template_docx=source_template_docx,
             request=request,
             document_facts=document_facts,
+            l1_input_contract=l1_input_contract,
             unit_map=unit_map,
             element_spec=element_spec,
             global_spec=global_spec,
@@ -294,6 +302,7 @@ def generate_template(
     artifacts = {
         "template_generation_request": request,
         "document_facts": document_facts,
+        "template_generation_l1_input_contract": l1_input_contract,
         "unit_map": unit_map,
         "element_spec": element_spec,
         "global_spec": global_spec,

@@ -13,9 +13,9 @@ previous_issue:
 previous_optimization:
   doc: docs/plans/2026-07-01-template-parse-refactor-t2t3t4-agent-proposal-plan-07-end-to-end-workflow-integration.md
   summary: Plan 07 讨论端到端 Module 1 -> bridge -> merged 编排，但仍未把 T1 结构事实、PDF/页面图事实和 AI/code 统一输入投影字段契约完全摊开。
-next_plan: none
+next_plan: docs/plans/2026-07-10-template-parse-refactor-t1l1-input-contract-plan-08-l1-projection-bundle-gate.md
 created: 2026-07-03
-last_updated: 2026-07-03
+last_updated: 2026-07-10
 related_code:
   - src/docfit/template_generation/source_tree.py
   - src/docfit/template_gap/inspector.py

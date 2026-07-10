@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from docfit.core.io import read_json, read_yaml, sha256_file, write_json, write_text
+from docfit.core.io import read_json, read_yaml, sha256_file, sha256_json, write_json, write_text
 from docfit.core.models import Finding, StageResult
 from docfit.core.status import Status, merge_statuses
 from docfit.harness.reports import write_report_bundle
@@ -2058,23 +2058,80 @@ def build_judge_markdown(report: TemplateGenerationJudgeReport) -> str:
 
 
 _ROUTE_STAGE_FILES = {
+    "T1": {
+        "stage_key": "t1_document_facts",
+        "routes": {
+            "shared_input": {"filename": "01_document_facts.json", "payload_type": "json"},
+        },
+    },
+    "L1": {
+        "stage_key": "l1_input_contract",
+        "routes": {
+            "shared_input": {
+                "filename": "01.5_l1_input_contract.json",
+                "payload_type": "json",
+            },
+        },
+    },
     "T2": {
         "stage_key": "t2_unit_pagination",
-        "code_raw": "02.0_t2_code_unit_map.yaml",
-        "ai_raw": "02.2_t2_ai_unit_observation.yaml",
-        "merged": "02.3_t2_merged_unit_map.yaml",
+        "routes": {
+            "code_raw": {"filename": "02.0_t2_code_unit_map.yaml", "payload_type": "yaml"},
+            "ai_raw": {"filename": "02.2_t2_ai_unit_observation.yaml", "payload_type": "yaml"},
+            "merged": {"filename": "02.3_t2_merged_unit_map.yaml", "payload_type": "yaml"},
+        },
     },
     "T3": {
         "stage_key": "t3_element_policy",
-        "code_raw": "03.0_t3_code_element_spec.yaml",
-        "ai_raw": "03.1_t3_ai_element_observation.yaml",
-        "merged": "03.2_t3_merged_element_spec.yaml",
+        "routes": {
+            "code_raw": {"filename": "03.0_t3_code_element_spec.yaml", "payload_type": "yaml"},
+            "ai_raw": {"filename": "03.1_t3_ai_element_observation.yaml", "payload_type": "yaml"},
+            "merged": {"filename": "03.2_t3_merged_element_spec.yaml", "payload_type": "yaml"},
+        },
     },
     "T4": {
         "stage_key": "t4_global_layout",
-        "code_raw": "04.0_t4_code_global_spec.yaml",
-        "ai_raw": "04.1_t4_ai_layout_observation.yaml",
-        "merged": "04.2_t4_merged_global_spec.yaml",
+        "routes": {
+            "code_raw": {"filename": "04.0_t4_code_global_spec.yaml", "payload_type": "yaml"},
+            "ai_raw": {"filename": "04.1_t4_ai_layout_observation.yaml", "payload_type": "yaml"},
+            "merged": {"filename": "04.2_t4_merged_global_spec.yaml", "payload_type": "yaml"},
+        },
+    },
+    "T5": {
+        "stage_key": "t5_template_spec",
+        "routes": {
+            "code_raw": {"not_evaluable_reason": "T5 code_raw replay is not materialized"},
+            "ai_raw": {"not_evaluable_reason": "T5 ai_raw replay is not materialized"},
+            "merged": {"filename": "05_template_spec.yaml", "payload_type": "yaml"},
+        },
+    },
+    "T6": {
+        "stage_key": "t6_fillable_template",
+        "routes": {
+            "code_raw": {"not_evaluable_reason": "T6 code_raw replay is not materialized"},
+            "ai_raw": {"not_evaluable_reason": "T6 ai_raw replay is not materialized"},
+            "merged": {
+                "filename": ["06.1_fillable_template.docx", "06.2_build_manifest.json"],
+                "payload_type": "composite",
+                "artifact_type": "t6_execution_bundle",
+            },
+        },
+    },
+    "T7": {
+        "stage_key": "t7_verification_report",
+        "routes": {
+            "code_raw": {"not_evaluable_reason": "T7 code_raw replay is not materialized"},
+            "ai_raw": {"not_evaluable_reason": "T7 ai_raw replay is not materialized"},
+            "merged": {"filename": "07_verification_report.json", "payload_type": "json"},
+        },
+    },
+    "POST_T6": {
+        "stage_key": "post_t6_template_gap",
+        "routes": {
+            "code_raw": {"not_evaluable_reason": "post-T6 code_raw gap replay is not materialized"},
+            "ai_raw": {"not_evaluable_reason": "post-T6 ai_raw gap replay is not materialized"},
+            "merged": {"filename": "template_gap_report.json", "payload_type": "json"},
+        },
     },
 }
 
@@ -2094,16 +2151,18 @@ def build_template_generation_route_eval_report(
                 stage_id=stage_id,
                 stage_key=str(spec["stage_key"]),
                 route_id=route_id,
-                filename=str(filename),
+                filename=route_spec.get("filename"),
+                payload_type=str(route_spec.get("payload_type") or "yaml"),
+                artifact_type=route_spec.get("artifact_type"),
+                not_evaluable_reason=route_spec.get("not_evaluable_reason"),
             )
-            for route_id, filename in spec.items()
-            if route_id in {"code_raw", "ai_raw", "merged"}
+            for route_id, route_spec in (spec.get("routes") or {}).items()
         }
         routes.extend(stage_routes.values())
-        code_hash = stage_routes["code_raw"].get("payload_hash")
-        ai_hash = stage_routes["ai_raw"].get("payload_hash")
-        merged_hash = stage_routes["merged"].get("payload_hash")
-        ai_availability = stage_routes["ai_raw"].get("availability")
+        code_hash = (stage_routes.get("code_raw") or {}).get("payload_hash")
+        ai_hash = (stage_routes.get("ai_raw") or {}).get("payload_hash")
+        merged_hash = (stage_routes.get("merged") or {}).get("payload_hash")
+        ai_availability = (stage_routes.get("ai_raw") or {}).get("availability", "NOT_APPLICABLE")
         changed_from_code = bool(
             code_hash and merged_hash and code_hash != merged_hash
         )
@@ -2114,7 +2173,26 @@ def build_template_generation_route_eval_report(
             "code_raw_hash": code_hash,
             "ai_raw_hash": ai_hash,
             "merged_hash": merged_hash,
+            "route_availability": {
+                route_id: route.get("availability")
+                for route_id, route in stage_routes.items()
+            },
+            "route_hashes": {
+                route_id: route.get("payload_hash")
+                for route_id, route in stage_routes.items()
+            },
         }
+        if stage_id == "L1":
+            stage_metrics[stage_id]["coverage"] = _l1_route_coverage(
+                stage_routes.get("shared_input")
+            )
+            mismatches.extend(
+                _l1_route_mismatches(stage_routes.get("shared_input"))
+            )
+        if stage_id == "T4":
+            hint_consumption = _t4_hint_consumption(report)
+            stage_metrics[stage_id]["hint_consumption"] = hint_consumption
+            mismatches.extend(_t4_hint_consumption_mismatches(hint_consumption))
         if ai_availability == "AVAILABLE" and not changed_from_code:
             mismatches.append(
                 {
@@ -2139,17 +2217,41 @@ def build_template_generation_route_eval_report(
                     "route_ids": ["ai_raw"],
                 }
             )
+        for route_id, route in stage_routes.items():
+            if route.get("availability") != "NOT_EVALUABLE":
+                continue
+            mismatches.append(
+                {
+                    "id": f"{stage_id}-{route_id.upper()}-ROUTE-MISMATCH-001",
+                    "stage_id": stage_id,
+                    "stage_key": spec["stage_key"],
+                    "type": "route_replay_not_materialized",
+                    "expected": f"{route_id} route can be evaluated or explicitly skipped by stage contract",
+                    "observed": str(route.get("not_evaluable_reason") or "route is not evaluable"),
+                    "route_ids": [route_id],
+                }
+            )
+        merged_route = stage_routes.get("merged")
+        if stage_id in {"T5", "T6", "T7", "POST_T6"} and merged_route is not None:
+            if merged_route.get("availability") == "NOT_AVAILABLE":
+                mismatches.append(
+                    {
+                        "id": f"{stage_id}-MERGED-ROUTE-MISMATCH-001",
+                        "stage_id": stage_id,
+                        "stage_key": spec["stage_key"],
+                        "type": "merged_route_not_available",
+                        "expected": "merged route artifact exists for downstream diagnosis",
+                        "observed": f"{stage_id} merged route artifact is NOT_AVAILABLE",
+                        "route_ids": ["merged"],
+                    }
+                )
     root_causes = [
         {
             "id": mismatch["id"].replace("MISMATCH", "ROOT-CAUSE"),
             "mismatch_id": mismatch["id"],
             "stage_id": mismatch["stage_id"],
             "stage_key": mismatch["stage_key"],
-            "category": (
-                "merge_bridge_no_effect"
-                if mismatch["type"] == "ai_available_but_merged_equals_code"
-                else "ai_route_missing"
-            ),
+            "category": _route_mismatch_root_cause_category(mismatch),
             "reason": mismatch["observed"],
         }
         for mismatch in mismatches
@@ -2158,11 +2260,7 @@ def build_template_generation_route_eval_report(
         {
             "id": mismatch["id"].replace("MISMATCH", "OWNER"),
             "mismatch_id": mismatch["id"],
-            "primary": (
-                "template_generation_agent_bridge_owner"
-                if mismatch["type"] == "ai_available_but_merged_equals_code"
-                else "template_generation_observation_owner"
-            ),
+            "primary": _route_mismatch_owner(mismatch),
             "secondary": ["standard_judge_owner"],
         }
         for mismatch in mismatches
@@ -2171,11 +2269,7 @@ def build_template_generation_route_eval_report(
         {
             "id": mismatch["id"].replace("MISMATCH", "FIX"),
             "mismatch_id": mismatch["id"],
-            "action": (
-                "Patch bridge/reconciler so accepted AI observation changes merged output or records explicit noop."
-                if mismatch["type"] == "ai_available_but_merged_equals_code"
-                else "Run Module 1 observation or provide replay bundle before judging AI-primary readiness."
-            ),
+            "action": _route_mismatch_fix_action(mismatch),
             "verification": "rerun template_generation_route_eval_report and confirm mismatch is gone",
         }
         for mismatch in mismatches
@@ -2200,21 +2294,105 @@ def build_template_generation_route_eval_report(
     }
 
 
+def _route_mismatch_root_cause_category(mismatch: dict[str, Any]) -> str:
+    mismatch_type = str(mismatch.get("type") or "")
+    if mismatch_type == "ai_available_but_merged_equals_code":
+        return "merge_bridge_no_effect"
+    if mismatch_type == "route_replay_not_materialized":
+        return "route_replay_missing"
+    if mismatch_type == "merged_route_not_available":
+        return "downstream_evidence_missing"
+    if mismatch_type.startswith("l1_"):
+        return "l1_input_contract_gap"
+    if mismatch_type.startswith("t4_"):
+        return "t4_layout_hint_consumption_gap"
+    return "ai_route_missing"
+
+
+def _route_mismatch_owner(mismatch: dict[str, Any]) -> str:
+    mismatch_type = str(mismatch.get("type") or "")
+    if mismatch_type == "ai_available_but_merged_equals_code":
+        return "template_generation_agent_bridge_owner"
+    if mismatch_type == "route_replay_not_materialized":
+        return "template_generation_route_eval_owner"
+    if mismatch_type == "merged_route_not_available":
+        return "template_generation_downstream_evidence_owner"
+    if mismatch_type.startswith("l1_"):
+        return "template_generation_input_contract_owner"
+    if mismatch_type.startswith("t4_"):
+        return "template_generation_t4_layout_owner"
+    return "template_generation_observation_owner"
+
+
+def _route_mismatch_fix_action(mismatch: dict[str, Any]) -> str:
+    mismatch_type = str(mismatch.get("type") or "")
+    if mismatch_type == "ai_available_but_merged_equals_code":
+        return (
+            "Patch bridge/reconciler so accepted AI observation changes merged output "
+            "or records explicit noop."
+        )
+    if mismatch_type == "route_replay_not_materialized":
+        return (
+            "Implement isolated route replay or mark the route explicitly out of scope "
+            "in the stage contract."
+        )
+    if mismatch_type == "merged_route_not_available":
+        return "Persist or generate the downstream evidence artifact before running route eval."
+    if mismatch_type.startswith("l1_"):
+        return (
+            "Patch L1 input projection, render binding, or bundle gate coverage until "
+            "the contract is explicit."
+        )
+    if mismatch_type.startswith("t4_"):
+        return (
+            "Promote accepted T4 layout hints from advisory observations into "
+            "first-class global_spec/T5/T6 consumption fields."
+        )
+    return "Run Module 1 observation or provide replay bundle before judging AI-primary readiness."
+
+
 def _route_candidate(
     run_dir: Path,
     *,
     stage_id: str,
     stage_key: str,
     route_id: str,
-    filename: str,
+    filename: Any,
+    payload_type: str,
+    artifact_type: Any = None,
+    not_evaluable_reason: Any = None,
 ) -> dict[str, Any]:
-    path = _route_artifact_path(run_dir, filename)
+    if not_evaluable_reason:
+        return {
+            "route_id": route_id,
+            "stage_key": stage_key,
+            "stage_id": stage_id,
+            "artifact_type": artifact_type,
+            "payload_path": None,
+            "payload_paths": [],
+            "payload_hash": None,
+            "availability": "NOT_EVALUABLE",
+            "origin": "route_eval_contract",
+            "not_evaluable_reason": str(not_evaluable_reason),
+        }
+    filenames = (
+        [str(item) for item in filename]
+        if isinstance(filename, list)
+        else [str(filename)]
+    )
+    paths = [_route_artifact_path(run_dir, item) for item in filenames]
+    found_paths = [path for path in paths if path is not None]
+    path = found_paths[0] if found_paths else None
     payload: dict[str, Any] = {}
     payload_hash = None
     availability = "NOT_AVAILABLE"
-    if path is not None:
-        payload_hash = sha256_file(path)
-        payload = read_yaml(path) or {}
+    if found_paths and len(found_paths) == len(filenames):
+        payload_hash = (
+            sha256_file(path)
+            if len(found_paths) == 1 and path is not None
+            else sha256_json({item.name: sha256_file(item) for item in found_paths})
+        )
+        payload = _read_route_payload(found_paths, payload_type)
         availability = str(
             (payload.get("route") or {}).get("availability")
             or ("AVAILABLE" if payload else "UNKNOWN")
@@ -2223,12 +2401,38 @@ def _route_candidate(
         "route_id": route_id,
         "stage_key": stage_key,
         "stage_id": stage_id,
-        "artifact_type": payload.get("artifact_type"),
+        "artifact_type": artifact_type or payload.get("artifact_type"),
         "payload_path": str(path) if path is not None else None,
+        "payload_paths": [str(item) for item in found_paths],
         "payload_hash": payload_hash,
         "availability": availability,
         "origin": (payload.get("route") or {}).get("origin"),
     }
+
+
+def _read_route_payload(paths: list[Path], payload_type: str) -> dict[str, Any]:
+    if payload_type == "json":
+        loaded = read_json(paths[0])
+        return loaded if isinstance(loaded, dict) else {}
+    if payload_type == "yaml":
+        loaded = read_yaml(paths[0])
+        return loaded if isinstance(loaded, dict) else {}
+    if payload_type == "composite":
+        payload: dict[str, Any] = {"artifact_type": "composite_route_artifact", "parts": []}
+        for path in paths:
+            part: dict[str, Any] = {
+                "name": path.name,
+                "path": str(path),
+                "sha256": sha256_file(path),
+            }
+            if path.suffix == ".json":
+                loaded = read_json(path)
+                if isinstance(loaded, dict):
+                    part["artifact_type"] = loaded.get("artifact_type")
+                    part["status"] = loaded.get("status")
+            payload["parts"].append(part)
+        return payload
+    return {"artifact_type": payload_type}
 
 
 def _route_artifact_path(run_dir: Path, filename: str) -> Path | None:
@@ -2236,6 +2440,14 @@ def _route_artifact_path(run_dir: Path, filename: str) -> Path | None:
         run_dir / filename,
         run_dir / "artifacts" / _compat_route_filename(filename),
     ]
+    if filename == "template_gap_report.json":
+        candidates.extend(
+            [
+                run_dir.parent / "template_gap" / filename,
+                run_dir.parent / "template_gap" / "artifacts" / filename,
+                run_dir.parent.parent / "template_gap" / "artifacts" / filename,
+            ]
+        )
     for path in candidates:
         if path.exists():
             return path
@@ -2244,6 +2456,7 @@ def _route_artifact_path(run_dir: Path, filename: str) -> Path | None:
 
 def _compat_route_filename(filename: str) -> str:
     return {
+        "01.5_l1_input_contract.json": "template_generation_l1_input_contract.json",
         "02.0_t2_code_unit_map.yaml": "t2_code_unit_map.yaml",
         "02.2_t2_ai_unit_observation.yaml": "t2_ai_unit_observation.yaml",
         "02.3_t2_merged_unit_map.yaml": "t2_merged_unit_map.yaml",
@@ -2253,7 +2466,186 @@ def _compat_route_filename(filename: str) -> str:
         "04.0_t4_code_global_spec.yaml": "t4_code_global_spec.yaml",
         "04.1_t4_ai_layout_observation.yaml": "t4_ai_layout_observation.yaml",
         "04.2_t4_merged_global_spec.yaml": "t4_merged_global_spec.yaml",
+        "05_template_spec.yaml": "template_spec.yaml",
+        "06.2_build_manifest.json": "build_manifest.json",
+        "07_verification_report.json": "verification_report.json",
+        "template_gap_report.json": "template_gap_report.json",
     }.get(filename, filename)
+
+
+def _l1_route_coverage(route: dict[str, Any] | None) -> dict[str, Any]:
+    if not route or route.get("availability") != "AVAILABLE" or not route.get("payload_path"):
+        return {"available": False}
+    payload = read_json(Path(str(route["payload_path"])))
+    coverage = payload.get("coverage", {}) if isinstance(payload, dict) else {}
+    return {"available": True, **coverage}
+
+
+def _l1_route_mismatches(route: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not route or route.get("availability") != "AVAILABLE" or not route.get("payload_path"):
+        return [
+            {
+                "id": "L1-ROUTE-MISMATCH-001",
+                "stage_id": "L1",
+                "stage_key": "l1_input_contract",
+                "type": "l1_input_contract_not_available",
+                "expected": "L1 input contract artifact exists",
+                "observed": "template_generation_l1_input_contract route is not AVAILABLE",
+                "route_ids": ["shared_input"],
+            }
+        ]
+    payload = read_json(Path(str(route["payload_path"])))
+    coverage = payload.get("coverage", {}) if isinstance(payload, dict) else {}
+    mismatches: list[dict[str, Any]] = []
+    if coverage.get("render_status") in {None, "", "not_available", "projection_fallback"}:
+        mismatches.append(
+            {
+                "id": "L1-ROUTE-MISMATCH-002",
+                "stage_id": "L1",
+                "stage_key": "l1_input_contract",
+                "type": "l1_visual_render_not_real",
+                "expected": "visual_page_index binds a real render or records why it cannot",
+                "observed": f"render_status={coverage.get('render_status')}",
+                "route_ids": ["shared_input"],
+            }
+        )
+    if int(coverage.get("source_object_unbound_count") or 0) > 0:
+        mismatches.append(
+            {
+                "id": "L1-ROUTE-MISMATCH-003",
+                "stage_id": "L1",
+                "stage_key": "l1_input_contract",
+                "type": "l1_object_binding_gaps",
+                "expected": "source_object_index entries have explicit page/bbox binding or reason",
+                "observed": f"{coverage.get('source_object_unbound_count')} object(s) unbound",
+                "route_ids": ["shared_input"],
+            }
+        )
+    invalid = coverage.get("bundle_gate_invalid_stages") or []
+    if invalid:
+        mismatches.append(
+            {
+                "id": "L1-ROUTE-MISMATCH-004",
+                "stage_id": "L1",
+                "stage_key": "l1_input_contract",
+                "type": "l1_bundle_gate_invalid",
+                "expected": "AI observation bundle passes hash/schema/coverage gate",
+                "observed": f"invalid bundle stages: {invalid}",
+                "route_ids": ["shared_input"],
+            }
+        )
+    return mismatches
+
+
+def _t4_hint_consumption(report: TemplateGenerationJudgeReport) -> dict[str, Any]:
+    run_dir = report.run_bundle.source_run_dir
+    hints = _load_run_json(
+        run_dir,
+        "13_agent_t4_hints.json",
+        "artifacts/agent_t4_hints.json",
+    ) or {}
+    unit_map = report.run_bundle.payload("unit_map") or {}
+    global_spec = report.run_bundle.payload("global_spec") or {}
+    template_spec = report.run_bundle.payload("template_spec") or {}
+    build_manifest = report.run_bundle.payload("build_manifest") or {}
+    page_hint_ids = {
+        str(item.get("proposal_id"))
+        for item in hints.get("page_policy_hints", []) or []
+        if isinstance(item, dict) and item.get("proposal_id")
+    }
+    page_ids_in_units = {
+        str((unit.get("page") or {}).get("agent_proposal_id"))
+        for unit in unit_map.get("units", []) or []
+        if isinstance(unit, dict) and (unit.get("page") or {}).get("agent_proposal_id")
+    }
+    page_ids_in_actions = {
+        str(action.get("agent_proposal_id"))
+        for action in build_manifest.get("actions_executed", []) or []
+        if isinstance(action, dict) and action.get("agent_proposal_id")
+    }
+    global_page_ids = page_hint_ids & (page_ids_in_units | page_ids_in_actions)
+    section_hints = [
+        item for item in hints.get("section_profile_hints", []) or [] if isinstance(item, dict)
+    ]
+    page_numbering_hints = [
+        item for item in hints.get("page_numbering_hints", []) or [] if isinstance(item, dict)
+    ]
+    section_observation_count = sum(
+        len(profile.get("ai_observations") or [])
+        for profile in global_spec.get("section_profiles", []) or []
+        if isinstance(profile, dict)
+    )
+    template_section_observation_count = sum(
+        len(profile.get("ai_observations") or [])
+        for profile in (template_spec.get("global", {}) or {}).get("section_profiles", []) or []
+        if isinstance(profile, dict)
+    )
+    page_numbering_observation_count = len(
+        (global_spec.get("page_numbering", {}) or {}).get("ai_observations", []) or []
+    )
+    return {
+        "hints_present": bool(hints),
+        "page_policy_hint_count": len(page_hint_ids),
+        "page_policy_consumed_count": len(global_page_ids),
+        "page_policy_consumed_proposal_ids": sorted(global_page_ids),
+        "section_profile_hint_count": len(section_hints),
+        "section_profile_recorded_in_global_spec_count": section_observation_count,
+        "section_profile_recorded_in_template_spec_count": template_section_observation_count,
+        "section_profile_effective_action_count": 0,
+        "page_numbering_hint_count": len(page_numbering_hints),
+        "page_numbering_recorded_in_global_spec_count": page_numbering_observation_count,
+        "page_numbering_effective_action_count": 0,
+    }
+
+
+def _t4_hint_consumption_mismatches(consumption: dict[str, Any]) -> list[dict[str, Any]]:
+    mismatches: list[dict[str, Any]] = []
+    if consumption.get("page_policy_hint_count") and (
+        consumption.get("page_policy_consumed_count") != consumption.get("page_policy_hint_count")
+    ):
+        mismatches.append(
+            {
+                "id": "T4-HINT-MISMATCH-001",
+                "stage_id": "T4",
+                "stage_key": "t4_global_layout",
+                "type": "t4_page_policy_hint_not_consumed",
+                "expected": "accepted page_policy_hints patch unit page policy and T6 page actions",
+                "observed": (
+                    f"{consumption.get('page_policy_consumed_count')} of "
+                    f"{consumption.get('page_policy_hint_count')} page hints consumed"
+                ),
+                "route_ids": ["merged"],
+            }
+        )
+    if consumption.get("section_profile_hint_count") and not consumption.get(
+        "section_profile_effective_action_count"
+    ):
+        mismatches.append(
+            {
+                "id": "T4-HINT-MISMATCH-002",
+                "stage_id": "T4",
+                "stage_key": "t4_global_layout",
+                "type": "t4_section_profile_hint_advisory_only",
+                "expected": "accepted section_profile_hints become first-class layout fields consumed by T5/T6",
+                "observed": "section_profile_hints are recorded as ai_observations without effective T6 action",
+                "route_ids": ["merged"],
+            }
+        )
+    if consumption.get("page_numbering_hint_count") and not consumption.get(
+        "page_numbering_effective_action_count"
+    ):
+        mismatches.append(
+            {
+                "id": "T4-HINT-MISMATCH-003",
+                "stage_id": "T4",
+                "stage_key": "t4_global_layout",
+                "type": "t4_page_numbering_hint_advisory_only",
+                "expected": "accepted page_numbering_hints become first-class page numbering fields consumed by T5/T6",
+                "observed": "page_numbering_hints are recorded as ai_observations without effective T6 action",
+                "route_ids": ["merged"],
+            }
+        )
+    return mismatches
 
 
 def build_template_generation_route_eval_markdown(report: dict[str, Any]) -> str:

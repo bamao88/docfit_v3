@@ -28,6 +28,7 @@ def write_template_generation_debug_snapshot(
     source_template_docx: Path,
     request: dict[str, Any],
     document_facts: dict[str, Any],
+    l1_input_contract: dict[str, Any] | None = None,
     unit_map: dict[str, Any],
     element_spec: dict[str, Any],
     global_spec: dict[str, Any],
@@ -113,6 +114,12 @@ def write_template_generation_debug_snapshot(
         document_facts,
         "T1：从学校原始 Word 解析出的 run 级事实库。",
     )
+    if l1_input_contract is not None:
+        write_step_json(
+            "01.5_l1_input_contract.json",
+            l1_input_contract,
+            "L1：T1 结构事实、render/page 事实和 observation bundle gate 的统一输入投影。",
+        )
     write_step_yaml(
         "02.0_t2_code_unit_map.yaml",
         t2_code_unit_map or unit_map,
@@ -335,6 +342,7 @@ def write_template_generation_outputs(out_dir: Path, result: StageResult) -> Non
     json_keys = [
         "template_generation_request",
         "document_facts",
+        "template_generation_l1_input_contract",
         "build_manifest",
         "verification_report",
         "template_artifact",
@@ -458,6 +466,11 @@ def write_template_generation_ordered_files(out_dir: Path, result: StageResult) 
         "01_document_facts.json",
         "document_facts",
         "T1：从学校原始 Word 解析出的 run 级事实库。",
+    )
+    write_step_json(
+        "01.5_l1_input_contract.json",
+        "template_generation_l1_input_contract",
+        "L1：T1 结构事实、render/page 事实和 observation bundle gate 的统一输入投影。",
     )
     write_step_yaml(
         "02.0_t2_code_unit_map.yaml",

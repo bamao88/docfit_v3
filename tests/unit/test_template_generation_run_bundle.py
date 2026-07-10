@@ -135,6 +135,41 @@ def _write_run_bundle(
             "warnings": [],
         },
     )
+    write_json(
+        run_dir / "01.5_l1_input_contract.json",
+        {
+            "artifact_type": "template_generation_l1_input_contract",
+            "source_text_index": [],
+            "source_object_index": [],
+            "layout_fact_index": {
+                "sections": [],
+                "headers_footers": [],
+                "fields": [],
+                "breaks": [],
+                "numbering": {},
+            },
+            "visual_page_index": {
+                "render_status": "not_available",
+                "pages": [],
+                "binding_summary": {},
+            },
+            "bundle_gate_view": {
+                "validated_stages": [],
+                "invalid_stages": [],
+                "findings": [],
+            },
+            "coverage": {
+                "source_text_count": 0,
+                "source_object_count": 0,
+                "source_text_unbound_count": 0,
+                "source_object_unbound_count": 0,
+                "layout_fact_count": 0,
+                "visual_page_count": 0,
+                "render_status": "not_available",
+                "bundle_gate_invalid_stages": [],
+            },
+        },
+    )
     write_yaml(run_dir / "02_unit_map.yaml", {"artifact_type": "unit_map", "units": []})
     write_yaml(run_dir / "03_element_spec.yaml", {"artifact_type": "element_spec", "elements": []})
     write_yaml(run_dir / "04_global_spec.yaml", {"artifact_type": "global_spec", "section_profiles": []})

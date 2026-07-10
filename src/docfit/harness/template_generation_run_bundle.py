@@ -40,6 +40,14 @@ RUN_ARTIFACT_SPECS = [
         "json",
     ),
     RunArtifactSpec(
+        "template_generation_l1_input_contract",
+        None,
+        "L1",
+        "01.5_l1_input_contract.json",
+        "artifacts/template_generation_l1_input_contract.json",
+        "json",
+    ),
+    RunArtifactSpec(
         "unit_map",
         "t2_unit_pagination",
         "T2",
