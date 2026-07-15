@@ -40,6 +40,13 @@ from .observation_schema import (
 )
 from .observation_windows import build_observation_windows
 from .packet import packet_source_seq_set
+from .t3_input import (
+    build_t3_local_evidence,
+    build_t3_object_plan_evidence,
+    build_t3_object_tasks,
+    sanitize_object_plan,
+    task_summary,
+)
 
 
 class ObservationResponder(Protocol):
@@ -290,6 +297,143 @@ def _run_t3(
 ) -> dict[str, Any]:
     windows = [w for w in unit_windows.get("windows", []) if isinstance(w, dict)]
 
+    fetch_plan = getattr(responder, "fetch_element_plan", None)
+    if not callable(fetch_plan):
+        # 旧 replay / 自定义 responder 没有对象级调用能力时维持原协议，避免历史录制失效。
+        return _run_t3_flat(
+            responder=responder,
+            windows=windows,
+            unit_windows=unit_windows,
+            packet=packet,
+            valid_seq=valid_seq,
+            model=model,
+            concurrency=concurrency,
+        )
+
+    tasks = build_t3_object_tasks(packet, unit_windows=windows)
+    unit_windows["object_windows"] = [task_summary(task) for task in tasks]
+
+    def observe_task(task: dict[str, Any]) -> dict[str, Any]:
+        plan_evidence = build_t3_object_plan_evidence(packet, task=task)
+        object_plan = sanitize_object_plan(fetch_plan(evidence=plan_evidence, task=task))
+        observations: list[dict[str, Any]] = []
+        executed_windows: list[dict[str, Any]] = []
+
+        def observe_local(local_window: dict[str, Any], *, retry_depth: int = 0) -> None:
+            evidence = build_t3_local_evidence(
+                packet,
+                task=task,
+                local_window=local_window,
+                object_plan=object_plan,
+            )
+            payload = responder.fetch_elements(evidence=evidence, window=local_window)
+            refs = list(local_window.get("source_seq_refs", []) or [])
+            if payload.get("_observation_error") and len(refs) > 1 and retry_depth < 3:
+                for split_window in _split_failed_t3_window(local_window):
+                    observe_local(split_window, retry_depth=retry_depth + 1)
+                return
+            executed_windows.append(local_window)
+            observations.append(
+                materialize_element_observation(
+                    list(payload.get("items", []) or []),
+                    packet=packet,
+                    window=local_window,
+                    model=model,
+                )
+            )
+
+        for local_window in task.get("local_windows", []):
+            observe_local(local_window)
+        return {
+            "task": task_summary(task),
+            "object_plan": object_plan,
+            "observations": observations,
+            "executed_windows": executed_windows,
+        }
+
+    if concurrency > 1 and len(tasks) > 1:
+        with ThreadPoolExecutor(max_workers=concurrency) as pool:
+            task_results = list(pool.map(observe_task, tasks))
+    else:
+        task_results = [observe_task(task) for task in tasks]
+
+    items: list[dict[str, Any]] = []
+    unknown_items: list[dict[str, Any]] = []
+    demotions: list[dict[str, Any]] = []
+    object_analysis: list[dict[str, Any]] = []
+    for result in task_results:
+        object_analysis.append(
+            {
+                **result["task"],
+                "object_plan": result["object_plan"],
+                "executed_local_windows": [
+                    {
+                        "window_id": window.get("window_id"),
+                        "source_seq_refs": window.get("source_seq_refs", []),
+                        "context_source_seq_refs": window.get("context_source_seq_refs", []),
+                    }
+                    for window in result["executed_windows"]
+                ],
+            }
+        )
+        for observation in result["observations"]:
+            items.extend(observation.get("items", []))
+            unknown_items.extend(observation.get("unknown_items", []))
+            demotions.extend(observation.get("quality_report", {}).get("demotions", []))
+
+    return _finalize_t3_observation(
+        items=items,
+        unknown_items=unknown_items,
+        demotions=demotions,
+        object_analysis=object_analysis,
+        unit_windows=unit_windows,
+        packet=packet,
+        valid_seq=valid_seq,
+        model=model,
+        input_mode="object_plan_then_local",
+    )
+
+
+def _split_failed_t3_window(window: dict[str, Any]) -> list[dict[str, Any]]:
+    """模型连续返回无效 JSON 时缩小 claim 范围；保持上下文只读和唯一 owner。"""
+
+    refs = list(window.get("source_seq_refs", []) or [])
+    midpoint = max(1, len(refs) // 2)
+    left_refs = refs[:midpoint]
+    right_refs = refs[midpoint:]
+    base_context = list(window.get("context_source_seq_refs", []) or [])
+    return [
+        {
+            **window,
+            "window_id": f"{window.get('window_id')}:retry_a",
+            "source_seq_refs": left_refs,
+            "context_source_seq_refs": sorted(
+                set(base_context + ([right_refs[0]] if right_refs else [])) - set(left_refs)
+            ),
+        },
+        {
+            **window,
+            "window_id": f"{window.get('window_id')}:retry_b",
+            "source_seq_refs": right_refs,
+            "context_source_seq_refs": sorted(
+                set(base_context + ([left_refs[-1]] if left_refs else [])) - set(right_refs)
+            ),
+        },
+    ]
+
+
+def _run_t3_flat(
+    *,
+    responder: ObservationResponder,
+    windows: list[dict[str, Any]],
+    unit_windows: dict[str, Any],
+    packet: dict[str, Any],
+    valid_seq: set[int],
+    model: str,
+    concurrency: int,
+) -> dict[str, Any]:
+    """兼容旧 transcript 的单元级平铺调用。"""
+
     def observe(window: dict[str, Any]) -> dict[str, Any]:
         # 第一相同样独立：T3 看的是按 AI 单元裁出的窗口证据（firewall asserted）。
         t3_evidence = build_t3_evidence(packet, window=window)
@@ -314,6 +458,31 @@ def _run_t3(
         unknown_items.extend(observation.get("unknown_items", []))
         demotions.extend(observation.get("quality_report", {}).get("demotions", []))
 
+    return _finalize_t3_observation(
+        items=items,
+        unknown_items=unknown_items,
+        demotions=demotions,
+        object_analysis=[],
+        unit_windows=unit_windows,
+        packet=packet,
+        valid_seq=valid_seq,
+        model=model,
+        input_mode="legacy_unit_flat",
+    )
+
+
+def _finalize_t3_observation(
+    *,
+    items: list[dict[str, Any]],
+    unknown_items: list[dict[str, Any]],
+    demotions: list[dict[str, Any]],
+    object_analysis: list[dict[str, Any]],
+    unit_windows: dict[str, Any],
+    packet: dict[str, Any],
+    valid_seq: set[int],
+    model: str,
+    input_mode: str,
+) -> dict[str, Any]:
     coverage = compute_coverage(items, all_source_seq=valid_seq)
     return {
         "artifact_type": "ai_element_observation",
@@ -329,12 +498,15 @@ def _run_t3(
         "open_questions": open_questions_from(demotions=demotions, coverage=coverage),
         "abstain": not items,
         "self_consistency": None,
+        "object_analysis": object_analysis,
         "quality_report": {
             "demotions": demotions,
             "owned_count": len(coverage.get("owned_source_seq", [])),
             "unknown_count": len(coverage.get("unknown_source_seq", [])),
             "window_source": unit_windows.get("window_source"),
             "post_t2_observation_hash": unit_windows.get("post_t2_observation_hash"),
+            "input_mode": input_mode,
+            "object_count": len(object_analysis),
         },
     }
 

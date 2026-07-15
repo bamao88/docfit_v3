@@ -1,0 +1,8 @@
+在本单元窗口内，先按 source_seq 内的 raw_run_ids/logical_run_ids 拆出独立元素，再逐个元素**按顺序**判断 policy（命中即停）：
+1) 含格式/排版说明（如 $instruction_markers…）→ instruction_remove
+2) 原样保留的模板固定文字（校名、声明标题、固定样板）→ fixed
+3) 模板自带的标题/标签等默认内容 → template_default
+4) 留空待填（如 $fillable_markers 或 $fillable_labels）→ fill  ⇒ 必给 fill_source ∈ {student_content | manual | generated_field}
+5) 系统自动生成（如 $generated_markers）→ generated  ⇒ 必给 generated.field_type ∈ {TOC | PAGE | SEQ | FIELD_PLACEHOLDER}
+6) 只能人工手写（如 $manual_only_markers）→ manual_only  ⇒ 必给 manual_semantics
+都不匹配/没把握 → 降低 confidence、少认领。回报 ai_decision_path 说明命中哪一支。

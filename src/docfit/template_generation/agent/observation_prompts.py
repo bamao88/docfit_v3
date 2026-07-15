@@ -11,7 +11,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from functools import lru_cache
+from importlib import resources
 import json
+from string import Template
 from typing import Any
 
 from ..constants import (
@@ -33,12 +38,57 @@ from .observation_schema import (
     PROMPT_CONTRACT_VERSION,
     ROLE_DEFINITIONS,
 )
+from .t3_exemplars import (
+    T3_QUALITY_GOAL,
+    format_exemplars,
+    select_t3_element_exemplars,
+    select_t3_object_exemplars,
+)
 
 ALLOWED_LABELS = {
     "unit_ids": sorted(ALLOWED_UNIT_IDS),
     "policies": sorted(ALLOWED_POLICIES),
     "generated_field_types": sorted(ALLOWED_FIELD_TYPES),
 }
+_PROMPT_TEMPLATE_DIR = "prompt_templates"
+_STAGES = ("t2", "t3_object", "t3", "t4")
+
+
+@dataclass(frozen=True)
+class ObservationPromptTemplates:
+    system: str
+    rubrics: Mapping[str, str]
+    output_contracts: Mapping[str, str]
+    policy_decision_tree: str
+    t4_page_vision: str
+    blocks: Mapping[str, str] = field(default_factory=dict)
+
+
+@lru_cache(maxsize=1)
+def default_observation_prompt_templates() -> ObservationPromptTemplates:
+    base = resources.files(__package__).joinpath(_PROMPT_TEMPLATE_DIR)
+    return ObservationPromptTemplates(
+        system=_read_prompt_resource(base, "system.txt"),
+        rubrics={
+            "t2": _read_prompt_resource(base, "t2_rubric.txt"),
+            "t3_object": _read_prompt_resource(base, "t3_object_rubric.txt"),
+            "t3": _read_prompt_resource(base, "t3_rubric.txt"),
+            "t4": _read_prompt_resource(base, "t4_rubric.txt"),
+        },
+        output_contracts={
+            "t2": _read_prompt_resource(base, "t2_output_contract.txt"),
+            "t3_object": _read_prompt_resource(base, "t3_object_output_contract.txt"),
+            "t3": _read_prompt_resource(base, "t3_output_contract.txt"),
+            "t4": _read_prompt_resource(base, "t4_output_contract.txt"),
+        },
+        policy_decision_tree=_read_prompt_resource(base, "t3_policy_decision_tree.txt"),
+        t4_page_vision=_read_prompt_resource(base, "t4_page_vision_prompt.txt"),
+        blocks={
+            "quality": _read_prompt_resource(base, "quality_block.txt"),
+            "glossary": _read_prompt_resource(base, "glossary_block.txt"),
+            "exemplar": _read_prompt_resource(base, "exemplar_block.txt"),
+        },
+    )
 
 
 def _markers(markers: tuple[str, ...], limit: int = 6) -> str:
@@ -70,64 +120,32 @@ def _policy_glossary() -> str:
     return "\n".join(lines)
 
 
-def _policy_decision_tree() -> str:
+def _read_prompt_resource(base: resources.abc.Traversable, filename: str) -> str:
+    return base.joinpath(filename).read_text(encoding="utf-8").strip()
+
+
+def _policy_decision_tree(templates: ObservationPromptTemplates) -> str:
     """C2：按顺序的 cue→policy 决策树，必填规则放在每个叶子（与闸门同口径）。"""
 
-    return (
-        "在本单元窗口内，逐个元素**按顺序**判断 policy（命中即停）：\n"
-        f"1) 含格式/排版说明（如 {_markers(INSTRUCTION_MARKERS)}…）→ instruction_remove\n"
-        "2) 原样保留的模板固定文字（校名、声明标题、固定样板）→ fixed\n"
-        "3) 模板自带的标题/标签等默认内容 → template_default\n"
-        f"4) 留空待填（如 {_markers(FILLABLE_MARKERS)} 或 {_markers(FILLABLE_LABELS)}）→ fill"
-        "  ⇒ 必给 fill_source ∈ {student_content | manual | generated_field}\n"
-        f"5) 系统自动生成（如 {_markers(GENERATED_MARKERS)}）→ generated"
-        "  ⇒ 必给 generated.field_type ∈ {TOC | PAGE | SEQ | FIELD_PLACEHOLDER}\n"
-        f"6) 只能人工手写（如 {_markers(MANUAL_ONLY_MARKERS)}）→ manual_only"
-        "  ⇒ 必给 manual_semantics\n"
-        "都不匹配/没把握 → 降低 confidence、少认领。回报 ai_decision_path 说明命中哪一支。"
+    return _render_prompt_template(
+        templates.policy_decision_tree,
+        {
+            "instruction_markers": _markers(INSTRUCTION_MARKERS),
+            "fillable_markers": _markers(FILLABLE_MARKERS),
+            "fillable_labels": _markers(FILLABLE_LABELS),
+            "generated_markers": _markers(GENERATED_MARKERS),
+            "manual_only_markers": _markers(MANUAL_ONLY_MARKERS),
+        },
     )
 
 
-_RUBRIC = {
-    "t2": (
-        "只依据给定的 Word 事实，把每个 source_seq 归到一个 unit_id（或 unknown_unit）。"
-        "参考下方单元词典的中文名与别名关键词做匹配；不确定就用 unknown_unit 并降低 confidence。"
-        "每个判断必须给 source_seq_refs。"
-    ),
-    "t3": _policy_decision_tree(),
-    "t4": (
-        "只在拿到真实页图时判定 section/页眉脚/页码/版式；拿不到页图就 abstain，不要猜。"
-        "每条 section 边界必须带 page_no + render_target 的 evidence_refs。"
-    ),
-}
-
 # 模型必须严格返回的 JSON 形状（live 路径解析依据）。
-OUTPUT_CONTRACT = {
-    "t2": (
-        '返回 JSON 对象：{"items":[{"unit_id":"<taxonomy 之一或 unknown_unit>",'
-        '"source_seq_refs":[<int>],"confidence":"low|medium|high",'
-        '"name":"<可选>","ai_rationale":"<可选>"}]}。'
-        "只输出 JSON，不要解释文字。无把握的 source_seq 不要硬塞，留给 unknown_unit。"
-    ),
-    "t3": (
-        '返回 JSON 对象：{"items":[{"element_id":"<unit_id>.<序号>",'
-        '"policy":"<policies 之一>","role":"<roles 之一或省略>","content":"<文本>",'
-        '"source_seq_refs":[<int>],"fill_source":"...","generated":{"field_type":"..."},'
-        '"manual_semantics":"...","ai_decision_path":"<命中哪一支>"}]}。\n'
-        "发射每个 item 前自检（缺条件字段的 item 会被拒收并丢失）：\n"
-        "  policy==fill ⇒ 必有 fill_source；policy==generated ⇒ 必有 generated.field_type；"
-        "policy==manual_only ⇒ 必有 manual_semantics。\n"
-        "其余 policy 不需要这些条件字段。只输出 JSON；source_seq_refs 必须落在本窗口内。"
-    ),
-    "t4": (
-        '返回 JSON 对象：{"section_profiles":[...],"default_font":...,"page_numbering":...,'
-        '"header_footer":[...]}。拿不到真实页图时返回 {"section_profiles":[]} 表示弃权。'
-    ),
-}
+OUTPUT_CONTRACT = dict(default_observation_prompt_templates().output_contracts)
 
 # 每阶段注入的词典（C1 单元词典给 t2；C3 policy 词典给 t3）。
 _GLOSSARY_BY_STAGE = {
     "t2": _unit_glossary,
+    "t3_object": lambda: "",
     "t3": _policy_glossary,
     "t4": lambda: "",
 }
@@ -137,41 +155,108 @@ def build_observation_prompt(
     *,
     stage: str,
     evidence_view: dict[str, Any],
+    prompt_templates: ObservationPromptTemplates | None = None,
 ) -> dict[str, Any]:
     """装配单阶段 prompt payload，并在 evidence 子树上复核防火墙。"""
 
-    if stage not in _RUBRIC:
+    templates = prompt_templates or default_observation_prompt_templates()
+    if stage not in _STAGES:
         raise ValueError(f"unknown observation stage: {stage!r}")
     assert_firewall_clean(evidence_view)
+    if stage not in templates.rubrics or stage not in templates.output_contracts:
+        raise ValueError(f"prompt templates missing stage: {stage!r}")
+    exemplars: list[dict[str, Any]] = []
+    quality_goal = ""
+    if stage == "t3_object":
+        exemplars = select_t3_object_exemplars(evidence_view)
+        quality_goal = T3_QUALITY_GOAL
+    elif stage == "t3":
+        exemplars = select_t3_element_exemplars(evidence_view)
+        quality_goal = T3_QUALITY_GOAL
     return {
         "prompt_contract_version": PROMPT_CONTRACT_VERSION,
         "stage": stage,
-        "rubric": _RUBRIC[stage],
+        "rubric": _render_prompt_template(
+            templates.rubrics[stage],
+            {
+                "quality_goal": T3_QUALITY_GOAL,
+                "policy_decision_tree": _policy_decision_tree(templates),
+            },
+        ),
         "glossary": _GLOSSARY_BY_STAGE[stage](),
+        "quality_goal": quality_goal,
+        "exemplars": exemplars,
         "allowed_labels": ALLOWED_LABELS,
+        "output_contract": templates.output_contracts[stage],
         "abstain_is_valid": True,
-        "evidence": evidence_view,
+        "evidence": _strip_private_fields(evidence_view),
     }
 
 
 def assemble_observation_messages(
     stage: str,
     evidence_view: dict[str, Any],
+    prompt_templates: ObservationPromptTemplates | None = None,
 ) -> tuple[str, str]:
     """把单阶段 prompt 装配成 (system, user) 文本——Kimi/MiniMax 等 provider 共用，
     保证不同模型拿到**完全相同**的 prompt。evidence 子树已在 build_observation_prompt 过防火墙。"""
 
-    prompt = build_observation_prompt(stage=stage, evidence_view=evidence_view)
+    templates = prompt_templates or default_observation_prompt_templates()
+    prompt = build_observation_prompt(
+        stage=stage,
+        evidence_view=evidence_view,
+        prompt_templates=templates,
+    )
     glossary = prompt.get("glossary") or ""
-    glossary_block = f"词典（领域先验，非答案）：\n{glossary}\n" if glossary else ""
-    system = (
-        "你是 DocFit 模板结构观察器。只依据给定的 Word 事实独立判断，"
-        "看不到也不要假设任何代码已有结论。\n"
-        f"任务：{prompt['rubric']}\n"
-        f"{glossary_block}"
-        f"允许标签集：{json.dumps(ALLOWED_LABELS, ensure_ascii=False)}\n"
-        f"输出契约：{OUTPUT_CONTRACT[stage]}\n"
-        "弃权是合法输出：没有证据支撑就少认领、留 unknown。"
+    glossary_block = _optional_prompt_block(templates, "glossary", glossary)
+    quality_block = _optional_prompt_block(templates, "quality", prompt.get("quality_goal"))
+    exemplar_block = (
+        _optional_prompt_block(templates, "exemplar", format_exemplars(prompt["exemplars"]))
+        if prompt.get("exemplars")
+        else ""
+    )
+    system = _render_prompt_template(
+        templates.system,
+        {
+            "rubric": str(prompt["rubric"]),
+            "quality_block": quality_block,
+            "glossary_block": glossary_block,
+            "exemplar_block": exemplar_block,
+            "allowed_labels_json": json.dumps(prompt["allowed_labels"], ensure_ascii=False),
+            "output_contract": str(prompt["output_contract"]),
+        },
     )
     user = json.dumps(prompt["evidence"], ensure_ascii=False)
     return system, user
+
+
+def _render_prompt_template(template: str, values: Mapping[str, Any]) -> str:
+    return Template(template).safe_substitute(
+        {key: str(value) for key, value in values.items()}
+    )
+
+
+def _optional_prompt_block(
+    templates: ObservationPromptTemplates,
+    block_name: str,
+    content: Any,
+) -> str:
+    text = str(content or "")
+    if not text:
+        return ""
+    template = templates.blocks.get(block_name, "$content\n")
+    return _render_prompt_template(template, {"content": text}) + "\n"
+
+
+def _strip_private_fields(value: Any) -> Any:
+    """附件路径只给 responder 读取，不把本机路径和实现细节塞进模型文本。"""
+
+    if isinstance(value, dict):
+        return {
+            key: _strip_private_fields(item)
+            for key, item in value.items()
+            if not str(key).startswith("_")
+        }
+    if isinstance(value, list):
+        return [_strip_private_fields(item) for item in value]
+    return value

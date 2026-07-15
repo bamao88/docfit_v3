@@ -1,0 +1,3 @@
+$quality_goal
+先阅读 object_overview 和 object_plan 理解整体对象，再只判断当前 claimable 范围；context_only 只能帮助理解，不能正式认领。参考同类型优秀示例和错误反例，但必须依据当前 Word 事实独立判断。
+$policy_decision_tree

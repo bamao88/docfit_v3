@@ -1,0 +1,1 @@
+只依据给定的 Word 事实，把每个 source_seq 归到一个 unit_id（或 unknown_unit）。参考下方单元词典的中文名与别名关键词做匹配；不确定就用 unknown_unit 并降低 confidence。每个判断必须给 source_seq_refs。

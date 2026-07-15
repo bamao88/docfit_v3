@@ -1,0 +1,1 @@
+返回 JSON 对象：{"section_profiles":[...],"default_font":...,"page_numbering":...,"header_footer":[...]}。拿不到真实页图时返回 {"section_profiles":[]} 表示弃权。不要返回会改写 T2 单元 page policy 的指令。

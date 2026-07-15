@@ -110,6 +110,38 @@ def test_element_accepts_valid_fill_with_source() -> None:
     assert obs["items"][0]["policy"] == "fill"
 
 
+def test_element_keeps_disjoint_run_claims_inside_same_source_seq() -> None:
+    packet = clean_packet()
+    seq = sorted(packet_source_seq_set(packet))[0]
+    window = {"window_id": "unit:cover", "unit_id": "cover", "source_seq_refs": [seq]}
+    obs = materialize_element_observation(
+        [
+            {
+                "element_id": "cover.001",
+                "policy": "fixed",
+                "source_seq_refs": [seq],
+                "raw_run_ids": ["p_0001.r_001"],
+                "logical_run_ids": ["p_0001.lr_001"],
+                "confidence": "high",
+            },
+            {
+                "element_id": "cover.002",
+                "policy": "instruction_remove",
+                "source_seq_refs": [seq],
+                "raw_run_ids": ["p_0001.r_002"],
+                "logical_run_ids": ["p_0001.lr_002"],
+                "confidence": "high",
+            },
+        ],
+        packet=packet,
+        window=window,
+    )
+
+    assert [item["element_id"] for item in obs["items"]] == ["cover.001", "cover.002"]
+    assert obs["items"][1]["logical_run_ids"] == ["p_0001.lr_002"]
+    assert "C-COVERAGE-CONTESTED" not in demotion_checks(obs)
+
+
 def test_layout_visual_abstains_without_facts_or_images() -> None:
     # 无分节事实(helpers sections=[]) 且无页图 → 无确定性 profile → 仍整体弃权。
     packet = clean_packet()

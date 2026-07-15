@@ -20,10 +20,10 @@ from typing import Any
 from docfit.core.io import sha256_json
 
 from .observation_prompts import (
-    ALLOWED_LABELS,
-    OUTPUT_CONTRACT,
-    build_observation_prompt,
+    ObservationPromptTemplates,
+    assemble_observation_messages,
 )
+from .observation_multimodal import attachment_refs, openai_user_content
 from .transport import strip_think
 
 KIMI_DEFAULT_BASE_URL = "https://api.kimi.com/coding/v1"
@@ -78,6 +78,7 @@ class LiveResponder:
         retry_backoff: float = 5.0,
         cache_dir: Path | None = None,
         refresh: bool = False,
+        prompt_templates: ObservationPromptTemplates | None = None,
     ) -> None:
         self._client = client
         self._model = model
@@ -94,6 +95,7 @@ class LiveResponder:
         self._retry_backoff = retry_backoff
         self._cache_dir = cache_dir
         self._refresh = refresh
+        self._prompt_templates = prompt_templates
         if cache_dir is not None:
             cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -103,6 +105,13 @@ class LiveResponder:
 
     def fetch_elements(self, *, evidence: dict[str, Any], window: dict[str, Any]) -> dict[str, Any]:
         return self._complete("t3", evidence, label=str(window.get("window_id") or "t3"))
+
+    def fetch_element_plan(self, *, evidence: dict[str, Any], task: dict[str, Any]) -> dict[str, Any]:
+        return self._complete(
+            "t3_object",
+            evidence,
+            label=str(task.get("task_id") or task.get("object_id") or "t3_object"),
+        )
 
     def fetch_layout(self, *, evidence: dict[str, Any]) -> dict[str, Any]:
         return self._complete("t4", evidence)
@@ -115,19 +124,12 @@ class LiveResponder:
         sample_index: int = 0,
         label: str | None = None,
     ) -> dict[str, Any]:
-        prompt = build_observation_prompt(stage=stage, evidence_view=evidence)  # firewall asserted
-        glossary = prompt.get("glossary") or ""
-        glossary_block = f"词典（领域先验，非答案）：\n{glossary}\n" if glossary else ""
-        system = (
-            "你是 DocFit 模板结构观察器。只依据给定的 Word 事实独立判断，"
-            "看不到也不要假设任何代码已有结论。\n"
-            f"任务：{prompt['rubric']}\n"
-            f"{glossary_block}"
-            f"允许标签集：{json.dumps(ALLOWED_LABELS, ensure_ascii=False)}\n"
-            f"输出契约：{OUTPUT_CONTRACT[stage]}\n"
-            "弃权是合法输出：没有证据支撑就少认领、留 unknown。"
+        system, user = assemble_observation_messages(
+            stage,
+            evidence,
+            prompt_templates=self._prompt_templates,
         )
-        user = json.dumps(prompt["evidence"], ensure_ascii=False)
+        user_content = openai_user_content(user, evidence)
         tag = f"{stage}:{label or sample_index}"
         started = time.monotonic()
 
@@ -141,6 +143,7 @@ class LiveResponder:
                 "temperature": self._temperature,
                 "thinking": self._thinking,
                 "sample_index": sample_index,
+                "visual_refs": attachment_refs(evidence),
             }
         )
         cached = self._cache_load(cache_key)
@@ -169,7 +172,7 @@ class LiveResponder:
                     model=self._model,
                     messages=[
                         {"role": "system", "content": system},
-                        {"role": "user", "content": user},
+                        {"role": "user", "content": user_content},
                     ],
                     temperature=self._temperature,
                     max_tokens=attempt_tokens,
@@ -192,15 +195,25 @@ class LiveResponder:
                     time.sleep(self._retry_backoff * attempt)
 
         if error is not None:
-            payload: dict[str, Any] = {"items": []} if stage in {"t2", "t3"} else {"section_profiles": []}
+            payload: dict[str, Any] = (
+                {"items": []}
+                if stage in {"t2", "t3"}
+                else ({} if stage == "t3_object" else {"section_profiles": []})
+            )
         else:
             try:
                 payload = _parse_json_object(content, stage=stage)
             except LiveObservationError as exc:
                 error = str(exc)
-                payload = {"items": []} if stage in {"t2", "t3"} else {"section_profiles": []}
+                payload = (
+                    {"items": []}
+                    if stage in {"t2", "t3"}
+                    else ({} if stage == "t3_object" else {"section_profiles": []})
+                )
         if finish_reason == "length" and not content.strip():
             error = error or "model hit max_tokens before emitting content (reasoning budget exhausted)"
+        if error is not None:
+            payload["_observation_error"] = error
         # 只缓存成功结果；失败/降级不写缓存，下次还会真打。
         if error is None:
             self._cache_store(cache_key, payload)
@@ -252,7 +265,11 @@ class LiveResponder:
 def _parse_json_object(content: str, *, stage: str) -> dict[str, Any]:
     if not content.strip():
         # 空响应 → 该阶段弃权（物化闸门会把它落成 schema-valid 的全 unknown 产物）。
-        return {"items": []} if stage in {"t2", "t3"} else {"section_profiles": []}
+        if stage in {"t2", "t3"}:
+            return {"items": []}
+        if stage == "t3_object":
+            return {}
+        return {"section_profiles": []}
     try:
         decoded = json.loads(content)
     except json.JSONDecodeError as exc:

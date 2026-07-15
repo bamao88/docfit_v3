@@ -17,11 +17,16 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from docfit.core.io import sha256_json
+
+from .observation_multimodal import anthropic_user_content, attachment_refs
+
+if TYPE_CHECKING:
+    from .observation_prompts import ObservationPromptTemplates
 
 MINIMAX_DEFAULT_BASE_URL = "https://api.minimaxi.com/anthropic"
 MINIMAX_DEFAULT_MODEL = "MiniMax-M3"
@@ -259,6 +264,7 @@ class MinimaxTextResponder:
         refresh: bool = False,
         record: list[dict[str, Any]] | None = None,
         progress: bool = True,
+        prompt_templates: ObservationPromptTemplates | None = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url
@@ -272,6 +278,7 @@ class MinimaxTextResponder:
         self._refresh = refresh
         self._record = record
         self._progress = progress
+        self._prompt_templates = prompt_templates
         if cache_dir is not None:
             cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -280,6 +287,13 @@ class MinimaxTextResponder:
 
     def fetch_elements(self, *, evidence: dict[str, Any], window: dict[str, Any]) -> dict[str, Any]:
         return self._complete("t3", evidence, label=str(window.get("window_id") or "t3"))
+
+    def fetch_element_plan(self, *, evidence: dict[str, Any], task: dict[str, Any]) -> dict[str, Any]:
+        return self._complete(
+            "t3_object",
+            evidence,
+            label=str(task.get("task_id") or task.get("object_id") or "t3_object"),
+        )
 
     def fetch_layout(self, *, evidence: dict[str, Any]) -> dict[str, Any]:
         del evidence
@@ -296,11 +310,22 @@ class MinimaxTextResponder:
         # 延迟导入避免循环依赖（observation_prompts → evidence → ...）。
         from .observation_prompts import assemble_observation_messages
 
-        system, user = assemble_observation_messages(stage, evidence)  # firewall asserted inside
+        system, user = assemble_observation_messages(
+            stage,
+            evidence,
+            prompt_templates=self._prompt_templates,
+        )  # firewall asserted inside
+        user_content = anthropic_user_content(user, evidence)
         tag = f"{stage}:{label or sample_index}"
         started = time.monotonic()
         cache_key = sha256_json(
-            {"system": system, "user": user, "model": self._model, "sample_index": sample_index}
+            {
+                "system": system,
+                "user": user,
+                "model": self._model,
+                "sample_index": sample_index,
+                "visual_refs": attachment_refs(evidence),
+            }
         )
         cached = self._cache_load(cache_key)
         if cached is not None:
@@ -308,7 +333,7 @@ class MinimaxTextResponder:
                 print(f"  [ cache] {tag}", file=sys.stderr, flush=True)
             return cached
 
-        empty: dict[str, Any] = {"items": []}
+        empty: dict[str, Any] = {} if stage == "t3_object" else {"items": []}
         error: str | None = None
         payload = empty
         for attempt in range(1, self._max_attempts + 1):
@@ -317,7 +342,7 @@ class MinimaxTextResponder:
                     base_url=self._base_url,
                     api_key=self._api_key,
                     model=self._model,
-                    content=user,
+                    content=user_content,
                     system=system,
                     max_tokens=self._max_tokens,
                     timeout=self._timeout,
@@ -334,6 +359,8 @@ class MinimaxTextResponder:
 
         if error is None:
             self._cache_store(cache_key, payload)
+        else:
+            payload["_observation_error"] = error
         if self._progress:
             n = len(payload.get("items", []) or [])
             flag = f" ERROR={error}" if error else ""

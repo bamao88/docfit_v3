@@ -133,6 +133,106 @@ def test_pipeline_t3_windows_come_from_ai_units() -> None:
     assert element_units <= {"cover", "body_main", "integrity_statement"}
 
 
+def test_live_capable_t3_responder_plans_object_before_local_elements() -> None:
+    packet = clean_packet()
+    calls = []
+
+    class HierarchicalResponder:
+        def fetch_units(self, *, evidence, n_samples):
+            del evidence, n_samples
+            return [{"items": [{"unit_id": "cover", "source_seq_refs": [1, 2, 3, 4]}]}]
+
+        def fetch_element_plan(self, *, evidence, task):
+            calls.append(("plan", evidence["scope"], task["object_type"]))
+            return {
+                "object_hypothesis": {
+                    "archetype": "cover_title_block",
+                    "purpose": "封面内容",
+                    "confidence": "high",
+                },
+                "regions": [],
+                "relationship_patterns": [],
+                "quality_risks": ["不要保留示例学生内容"],
+            }
+
+        def fetch_elements(self, *, evidence, window):
+            calls.append(("elements", evidence["scope"], evidence["object_plan"]["object_hypothesis"]["archetype"]))
+            return {
+                "items": [
+                    {
+                        "element_id": "cover.001",
+                        "policy": "fixed",
+                        "source_seq_refs": window["source_seq_refs"],
+                        "confidence": "high",
+                    }
+                ]
+            }
+
+        def fetch_layout(self, *, evidence):
+            del evidence
+            return {"section_profiles": []}
+
+    bundle = run_observation_pipeline(
+        packet=packet,
+        responder=HierarchicalResponder(),
+        config=ObservationConfig(enabled=True, self_consistency_samples=1),
+    )
+
+    assert calls[0] == ("plan", "t3_object_overview", "text_flow")
+    assert calls[1] == ("elements", "t3_object_local_window", "cover_title_block")
+    t3 = bundle["ai_element_observation"]
+    assert t3["quality_report"]["input_mode"] == "object_plan_then_local"
+    assert t3["quality_report"]["object_count"] == 1
+    assert t3["object_analysis"][0]["object_plan"]["object_hypothesis"]["archetype"] == "cover_title_block"
+
+
+def test_hierarchical_t3_splits_failed_json_window_and_retries_smaller_scopes() -> None:
+    packet = clean_packet()
+    attempted = []
+
+    class RetryResponder:
+        def fetch_units(self, *, evidence, n_samples):
+            del evidence, n_samples
+            return [{"items": [{"unit_id": "cover", "source_seq_refs": [1, 2, 3, 4]}]}]
+
+        def fetch_element_plan(self, *, evidence, task):
+            del evidence, task
+            return {"object_hypothesis": {"archetype": "cover", "confidence": "high"}}
+
+        def fetch_elements(self, *, evidence, window):
+            del evidence
+            attempted.append((window["window_id"], list(window["source_seq_refs"])))
+            if ":retry_" not in window["window_id"]:
+                return {"items": [], "_observation_error": "invalid JSON"}
+            return {
+                "items": [
+                    {
+                        "element_id": window["window_id"],
+                        "policy": "fixed",
+                        "source_seq_refs": window["source_seq_refs"],
+                        "confidence": "high",
+                    }
+                ]
+            }
+
+        def fetch_layout(self, *, evidence):
+            del evidence
+            return {"section_profiles": []}
+
+    bundle = run_observation_pipeline(
+        packet=packet,
+        responder=RetryResponder(),
+        config=ObservationConfig(enabled=True, self_consistency_samples=1),
+    )
+
+    assert attempted[0][1] == [1, 2, 3, 4]
+    assert attempted[1][1] == [1, 2]
+    assert attempted[2][1] == [3, 4]
+    analysis = bundle["ai_element_observation"]["object_analysis"][0]
+    assert len(analysis["executed_local_windows"]) == 2
+    assert bundle["ai_element_observation"]["coverage"]["owned_source_seq"] == [1, 2, 3, 4]
+
+
 def test_pipeline_t4_abstains_without_real_render() -> None:
     packet = clean_packet()
     bundle = run_observation_pipeline(

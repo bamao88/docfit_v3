@@ -147,6 +147,7 @@ def materialize_element_observation(
                 "content": raw.get("content"),
                 "source_seq_refs": sorted(bound),
                 "raw_run_ids": raw.get("raw_run_ids", []),
+                "logical_run_ids": raw.get("logical_run_ids", []),
                 "confidence": confidence,
                 "evidence_refs": raw.get("evidence_refs", []),
                 "fill_source": raw.get("fill_source"),
@@ -157,7 +158,13 @@ def materialize_element_observation(
             }
         )
 
-    items = _resolve_overlap(survivors, unknown_items, demotions, id_key="element_id")
+    items = _resolve_overlap(
+        survivors,
+        unknown_items,
+        demotions,
+        id_key="element_id",
+        allow_disjoint_run_claims=True,
+    )
     # 元素覆盖只在本单元窗口内衡量。
     coverage = compute_coverage(items, all_source_seq=window_refs & valid_seq)
     observation = _envelope(
@@ -384,8 +391,9 @@ def _resolve_overlap(
     demotions: list[dict[str, Any]],
     *,
     id_key: str = "unit_id",
+    allow_disjoint_run_claims: bool = False,
 ) -> list[dict[str, Any]]:
-    """同一 source_seq 被多 item 争用：高 confidence 留，平票判 contested→让位 unknown。"""
+    """解决真实证据重叠；元素若绑定到同段内互不相交的 run，则不属于争用。"""
 
     claims: dict[int, list[int]] = {}
     for idx, item in enumerate(survivors):
@@ -395,6 +403,10 @@ def _resolve_overlap(
     contested_drop: dict[int, set[int]] = {}
     for seq, claimants in claims.items():
         if len(claimants) <= 1:
+            continue
+        if allow_disjoint_run_claims and _run_claims_are_disjoint(
+            [survivors[index] for index in claimants]
+        ):
             continue
         ranked = sorted(claimants, key=lambda i: _rank(survivors[i]), reverse=True)
         top = _rank(survivors[ranked[0]])
@@ -424,6 +436,27 @@ def _resolve_overlap(
             continue
         result.append({**item, "source_seq_refs": kept})
     return result
+
+
+def _run_claims_are_disjoint(items: list[dict[str, Any]]) -> bool:
+    use_raw = all(item.get("raw_run_ids") for item in items)
+    use_logical = all(item.get("logical_run_ids") for item in items)
+    if not use_raw and not use_logical:
+        return False
+    identity_key = "raw_run_ids" if use_raw else "logical_run_ids"
+    claims: list[set[str]] = []
+    for item in items:
+        identities = {
+            str(value)
+            for value in (item.get(identity_key) or [])
+            if str(value)
+        }
+        if not identities:
+            return False
+        if any(identities & existing for existing in claims):
+            return False
+        claims.append(identities)
+    return True
 
 
 def _required_field_error(policy: str, raw: dict[str, Any]) -> str | None:

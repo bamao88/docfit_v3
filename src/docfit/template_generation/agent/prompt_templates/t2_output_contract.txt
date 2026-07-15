@@ -1,0 +1,1 @@
+返回 JSON 对象：{"items":[{"unit_id":"<taxonomy 之一或 unknown_unit>","source_seq_refs":[<int>],"confidence":"low|medium|high","name":"<可选>","ai_rationale":"<可选>"}]}。只输出 JSON，不要解释文字。无把握的 source_seq 不要硬塞，留给 unknown_unit。

@@ -6,6 +6,7 @@ import pytest
 
 from docfit.template_generation.agent.evidence import EvidenceFirewallError
 from docfit.template_generation.agent.observation_prompts import (
+    ObservationPromptTemplates,
     OUTPUT_CONTRACT,
     assemble_observation_messages,
     build_observation_prompt,
@@ -47,6 +48,9 @@ def test_t3_prompt_required_fields_mirror_the_gate() -> None:
     text = prompt["rubric"] + OUTPUT_CONTRACT["t3"]
     for policy, field in (("fill", "fill_source"), ("generated", "field_type"), ("manual_only", "manual_semantics")):
         assert policy in text and field in text, (policy, field)
+    assert "raw_run_ids" in text
+    assert "logical_run_ids" in text
+    assert "不要整段合并" in text
 
 
 def test_build_prompt_still_firewalls_evidence() -> None:
@@ -58,10 +62,93 @@ def test_build_prompt_still_firewalls_evidence() -> None:
         )
 
 
+def test_prompt_templates_are_explicit_parameters() -> None:
+    templates = ObservationPromptTemplates(
+        system="SYSTEM $rubric :: $output_contract :: $allowed_labels_json",
+        rubrics={"t2": "CUSTOM T2 RUBRIC"},
+        output_contracts={"t2": "CUSTOM T2 CONTRACT"},
+        policy_decision_tree="CUSTOM TREE",
+        t4_page_vision="PAGE $page_no $layout_context",
+    )
+    prompt = build_observation_prompt(
+        stage="t2",
+        evidence_view=clean_evidence("t2"),
+        prompt_templates=templates,
+    )
+    system, user = assemble_observation_messages(
+        "t2",
+        clean_evidence("t2"),
+        prompt_templates=templates,
+    )
+
+    assert prompt["rubric"] == "CUSTOM T2 RUBRIC"
+    assert prompt["output_contract"] == "CUSTOM T2 CONTRACT"
+    assert "CUSTOM T2 RUBRIC" in system
+    assert "CUSTOM T2 CONTRACT" in system
+    assert user.startswith("{")
+
+
 def test_t3_glossary_defines_policies() -> None:
     glossary = build_observation_prompt(stage="t3", evidence_view=clean_evidence("t3"))["glossary"]
     assert "manual_only" in glossary
     assert "fill_source" in glossary
+
+
+def test_t3_prompt_teaches_quality_with_selected_positive_and_negative_examples() -> None:
+    evidence = {
+        "scope": "t3_object_local_window",
+        "source_render_hash": "sha256:x",
+        "object_overview": {"object_type": "table", "object_id": "tbl_001"},
+        "object_plan": {
+            "object_hypothesis": {"archetype": "metadata_form", "confidence": "high"}
+        },
+        "rows": [{"source_seq": 1, "text": "学生姓名"}],
+    }
+    prompt = build_observation_prompt(stage="t3", evidence_view=evidence)
+    system, _ = assemble_observation_messages("t3", evidence)
+
+    assert "高质量学校模板" in prompt["quality_goal"]
+    assert 1 <= len(prompt["exemplars"]) <= 3
+    assert any(item["exemplar_id"] == "two_column_field_table" for item in prompt["exemplars"])
+    assert "bad_result" in system and "excellent_result" in system
+    assert "不要把标签和值合并" in system or "固定标签" in system
+
+
+def test_t3_object_prompt_teaches_whole_object_plan_before_policy() -> None:
+    evidence = {
+        "scope": "t3_object_overview",
+        "source_render_hash": "sha256:x",
+        "object_overview": {
+            "object_id": "tbl_001",
+            "object_type": "table",
+            "dimensions": {"rows": 8, "columns": 2},
+        },
+    }
+    system, user = assemble_observation_messages("t3_object", evidence)
+
+    assert "先理解当前对象的整体用途" in system
+    assert "metadata_form" in system
+    assert "不要逐元素分配 policy" in system
+    assert '"object_type": "table"' in user
+
+
+def test_prompt_hides_private_visual_attachment_paths() -> None:
+    evidence = {
+        "scope": "t3_object_overview",
+        "source_render_hash": "sha256:x",
+        "object_overview": {"object_type": "table"},
+        "visual_evidence": [
+            {
+                "visual_ref": "page:1",
+                "page_no": 1,
+                "_attachment_path": "/private/tmp/page.png",
+            }
+        ],
+    }
+    _, user = assemble_observation_messages("t3_object", evidence)
+    assert "page:1" in user
+    assert "_attachment_path" not in user
+    assert "/private/tmp/page.png" not in user
 
 
 def test_assemble_messages_shared_by_providers() -> None:
