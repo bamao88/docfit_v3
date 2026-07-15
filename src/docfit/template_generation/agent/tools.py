@@ -11,7 +11,7 @@ SUBMIT_TOOL_COLLECTIONS = {
     "submit_t3": ("t3", ["element_policy_candidates"]),
     "submit_t4": (
         "t4",
-        ["page_policy_hints", "section_profile_hints", "page_numbering_hints"],
+        ["section_profile_hints", "page_numbering_hints"],
     ),
 }
 
@@ -52,7 +52,7 @@ def agent_tool_schemas() -> list[dict[str, Any]]:
         _submit_tool("submit_t3", ["element_policy_candidates"]),
         _submit_tool(
             "submit_t4",
-            ["page_policy_hints", "section_profile_hints", "page_numbering_hints"],
+            ["section_profile_hints", "page_numbering_hints"],
         ),
         {
             "type": "function",

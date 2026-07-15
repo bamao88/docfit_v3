@@ -2,7 +2,7 @@
 
 M3 的视觉端点是 **Anthropic 兼容**（`/v1/messages` + `x-api-key`），不是 OpenAI 格式，
 所以单独一个 responder，不复用 OpenAI 兼容 transport。逐页把渲染 PNG 发给 M3，
-要一份每页版式 JSON（页眉/页脚/页码/是否独立页/单元线索）。
+    要一份每页版式 JSON（页眉/页脚/页码/全局版式观察）。
 
 凭证从环境读取（``MINIMAX_API_KEY`` / ``MINIMAX_BASE_URL`` / ``MINIMAX_MODEL``），不写死。
 单页失败/超时不拖垮整条：重试后降级为该页空观察。可选磁盘缓存（键含图 sha256）。
@@ -12,42 +12,31 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from string import Template
 from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from docfit.core.io import sha256_json
 
+from .api_config import (
+    MINIMAX_DEFAULT_BASE_URL,
+    MINIMAX_DEFAULT_MODEL,
+    LiveProviderConfigError,
+    resolve_live_provider_config,
+)
 from .observation_multimodal import anthropic_user_content, attachment_refs
+
+ANTHROPIC_VERSION = "2023-06-01"
 
 if TYPE_CHECKING:
     from .observation_prompts import ObservationPromptTemplates
 
-MINIMAX_DEFAULT_BASE_URL = "https://api.minimaxi.com/anthropic"
-MINIMAX_DEFAULT_MODEL = "MiniMax-M3"
-ANTHROPIC_VERSION = "2023-06-01"
-
-PAGE_PROMPT = (
-    "这是一份学位论文模板的第 {page_no} 页渲染图。只依据图里看到的，输出一个 JSON 对象："
-    "已知 Word/OOXML 版式事实摘要如下，供你对照确认或指出视觉不一致，不要把它当作最终答案："
-    "{layout_context}。"
-    '{{"is_standalone_page": 该页是否只含一个逻辑单元(布尔),'
-    '"unit_hint": "该页主要是什么单元(封面/版权/诚信声明/目录/摘要/正文/参考文献/致谢/附录/'
-    '任务书/开题报告/开题论证记录表/答辩记录表/题目变更审批表/成绩评定表 等，不确定填 unknown)",'
-    '"has_header": 有无页眉(布尔),"has_footer": 有无页脚(布尔),'
-    '"page_number_visible": 能否看到页码(布尔),"page_number_text": "看到的页码文本，没有填空字符串",'
-    '"visual_notes": "简要版式观察(居中/空行/字号/表格等)"}}。'
-    "只输出 JSON，不要解释文字。看不清就把对应布尔设 false、字符串留空。"
-)
-
 _EMPTY_PAGE = {
-    "is_standalone_page": None,
-    "unit_hint": "unknown",
     "has_header": None,
     "has_footer": None,
     "page_number_visible": None,
@@ -103,12 +92,14 @@ def post_anthropic_messages(
 
 
 def build_minimax_vision_config() -> tuple[str, str, str]:
-    api_key = os.environ.get("MINIMAX_API_KEY")
-    if not api_key:
-        raise MinimaxVisionError("MINIMAX_API_KEY is required for T4 vision observation")
-    base_url = (os.environ.get("MINIMAX_BASE_URL") or MINIMAX_DEFAULT_BASE_URL).rstrip("/")
-    model = os.environ.get("MINIMAX_MODEL") or MINIMAX_DEFAULT_MODEL
-    return api_key, base_url, model
+    try:
+        provider_config = resolve_live_provider_config(
+            role="vision",
+            provider="minimax",
+        )
+    except LiveProviderConfigError as exc:
+        raise MinimaxVisionError(str(exc)) from exc
+    return provider_config.api_key, provider_config.base_url, provider_config.model
 
 
 class MinimaxVisionResponder:
@@ -129,6 +120,7 @@ class MinimaxVisionResponder:
         refresh: bool = False,
         record: list[dict[str, Any]] | None = None,
         progress: bool = True,
+        prompt_templates: ObservationPromptTemplates | None = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url
@@ -142,6 +134,11 @@ class MinimaxVisionResponder:
         self._refresh = refresh
         self._record = record
         self._progress = progress
+        if prompt_templates is None:
+            from .observation_prompts import default_observation_prompt_templates
+
+            prompt_templates = default_observation_prompt_templates()
+        self._page_prompt_template = prompt_templates.t4_page_vision
         if cache_dir is not None:
             cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -169,7 +166,11 @@ class MinimaxVisionResponder:
             ensure_ascii=False,
             sort_keys=True,
         )
-        prompt = PAGE_PROMPT.format(page_no=page_no, layout_context=layout_context)
+        prompt = _render_page_prompt(
+            self._page_prompt_template,
+            page_no=page_no,
+            layout_context=layout_context,
+        )
         cache_key = sha256_json(
             {"prompt": prompt, "model": self._model, "image_sha256": page.get("sha256"), "page_no": page_no}
         )
@@ -177,7 +178,17 @@ class MinimaxVisionResponder:
         if cached is not None:
             if self._progress:
                 print(f"  [ cache] vision page {page_no}", file=sys.stderr, flush=True)
-            return {**cached, "page_no": page_no}
+            observation = {**cached, "page_no": page_no}
+            if self._record is not None:
+                self._record.append(
+                    {
+                        "page_no": page_no,
+                        "from_cache": True,
+                        "payload": observation,
+                        "error": None,
+                    }
+                )
+            return observation
 
         img_b64 = base64.b64encode(path.read_bytes()).decode()
         error: str | None = None
@@ -199,7 +210,11 @@ class MinimaxVisionResponder:
         else:
             self._cache_store(cache_key, observation)
         if self._progress:
-            flag = f" ERROR={error}" if error else f" unit={observation.get('unit_hint')}"
+            flag = (
+                f" ERROR={error}"
+                if error
+                else f" page_number_visible={observation.get('page_number_visible')}"
+            )
             print(
                 f"  [{time.monotonic() - started:5.1f}s] vision page {page_no}{flag}",
                 file=sys.stderr,
@@ -401,6 +416,20 @@ def _parse_json_object(content: str) -> dict[str, Any]:
     if not isinstance(decoded, dict):
         raise MinimaxVisionError("vision response JSON is not an object")
     return decoded
+
+
+def _render_page_prompt(
+    template: str,
+    *,
+    page_no: int,
+    layout_context: str,
+) -> str:
+    return Template(template).safe_substitute(
+        {
+            "page_no": str(page_no),
+            "layout_context": layout_context,
+        }
+    )
 
 
 def _as_int(value: Any) -> int | None:

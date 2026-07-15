@@ -58,7 +58,6 @@ def _attribution(
         t2_overlay={"operations": []},
         t3_overlay={"operations": []},
         t4_hints={
-            "page_policy_hints": [],
             "section_profile_hints": [],
             "page_numbering_hints": [],
         },

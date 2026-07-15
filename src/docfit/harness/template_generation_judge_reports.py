@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import ast
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Any
+
+from docx import Document
 
 from docfit.core.io import read_json, read_yaml, sha256_file, sha256_json, write_json, write_text
 from docfit.core.models import Finding, StageResult
@@ -14,12 +18,14 @@ from docfit.harness.template_generation_run_bundle import (
     RunArtifactSpec,
     TemplateGenerationRunBundle,
 )
+from docfit.harness.template_generation_route_replay import (
+    materialize_template_generation_route_replay,
+)
 from docfit.harness.template_generation_stage_verifiers import StageCheck
 from docfit.harness.template_generation_standard_quality import (
     TemplateGenerationStandardQualityReport,
     TemplateGenerationStandardSet,
 )
-
 
 @dataclass
 class TemplateGenerationJudgeReport:
@@ -204,7 +210,16 @@ def write_template_generation_judge_outputs(
     report_dict = report.to_dict()
     root_cause_report = build_template_generation_root_cause_report(report, report_dict)
     bridge_acceptance = build_template_agent_bridge_standard_acceptance(report, report_dict)
-    route_eval = build_template_generation_route_eval_report(report, report_dict)
+    materialize_template_generation_route_replay(
+        run_dir=report.run_bundle.source_run_dir,
+        out_dir=out_dir,
+        standard_set=report.standard_set,
+    )
+    route_eval = build_template_generation_route_eval_report(
+        report,
+        report_dict,
+        derived_root=out_dir,
+    )
     write_json(root_cause_path, root_cause_report)
     write_text(root_cause_md_path, build_template_generation_root_cause_markdown(root_cause_report))
     write_json(bridge_acceptance_path, bridge_acceptance)
@@ -667,12 +682,10 @@ def build_template_agent_bridge_standard_acceptance(
     bridge = _load_run_json(
         report.run_bundle.source_run_dir,
         "09.25_agent_observation_bridge.json",
-        "artifacts/template_agent_observation_bridge.json",
     )
     attribution = _load_run_json(
         report.run_bundle.source_run_dir,
         "14_agent_attribution.json",
-        "artifacts/agent_attribution.json",
     )
     stage_metrics = {
         check.stage_key: _stage_accuracy_metric(report, check)
@@ -942,6 +955,20 @@ def _load_run_json(run_dir: Path, *relative_paths: str) -> dict[str, Any] | None
             continue
         try:
             value = read_json(path)
+        except Exception:
+            continue
+        if isinstance(value, dict):
+            return value
+    return None
+
+
+def _load_run_yaml(run_dir: Path, *relative_paths: str) -> dict[str, Any] | None:
+    for relative_path in relative_paths:
+        path = run_dir / relative_path
+        if not path.exists():
+            continue
+        try:
+            value = read_yaml(path)
         except Exception:
             continue
         if isinstance(value, dict):
@@ -2100,16 +2127,24 @@ _ROUTE_STAGE_FILES = {
     "T5": {
         "stage_key": "t5_template_spec",
         "routes": {
-            "code_raw": {"not_evaluable_reason": "T5 code_raw replay is not materialized"},
-            "ai_raw": {"not_evaluable_reason": "T5 ai_raw replay is not materialized"},
+            "code_raw": {"filename": "05_template_spec.yaml", "payload_type": "yaml"},
+            "ai_raw": {"filename": "05_template_spec.yaml", "payload_type": "yaml"},
             "merged": {"filename": "05_template_spec.yaml", "payload_type": "yaml"},
         },
     },
     "T6": {
         "stage_key": "t6_fillable_template",
         "routes": {
-            "code_raw": {"not_evaluable_reason": "T6 code_raw replay is not materialized"},
-            "ai_raw": {"not_evaluable_reason": "T6 ai_raw replay is not materialized"},
+            "code_raw": {
+                "filename": ["06.1_fillable_template.docx", "06.2_build_manifest.json"],
+                "payload_type": "composite",
+                "artifact_type": "t6_execution_bundle",
+            },
+            "ai_raw": {
+                "filename": ["06.1_fillable_template.docx", "06.2_build_manifest.json"],
+                "payload_type": "composite",
+                "artifact_type": "t6_execution_bundle",
+            },
             "merged": {
                 "filename": ["06.1_fillable_template.docx", "06.2_build_manifest.json"],
                 "payload_type": "composite",
@@ -2120,29 +2155,47 @@ _ROUTE_STAGE_FILES = {
     "T7": {
         "stage_key": "t7_verification_report",
         "routes": {
-            "code_raw": {"not_evaluable_reason": "T7 code_raw replay is not materialized"},
-            "ai_raw": {"not_evaluable_reason": "T7 ai_raw replay is not materialized"},
+            "code_raw": {"filename": "07_verification_report.json", "payload_type": "json"},
+            "ai_raw": {"filename": "07_verification_report.json", "payload_type": "json"},
             "merged": {"filename": "07_verification_report.json", "payload_type": "json"},
         },
     },
     "POST_T6": {
         "stage_key": "post_t6_template_gap",
         "routes": {
-            "code_raw": {"not_evaluable_reason": "post-T6 code_raw gap replay is not materialized"},
-            "ai_raw": {"not_evaluable_reason": "post-T6 ai_raw gap replay is not materialized"},
+            "code_raw": {"filename": "template_gap_report.json", "payload_type": "json"},
+            "ai_raw": {"filename": "template_gap_report.json", "payload_type": "json"},
             "merged": {"filename": "template_gap_report.json", "payload_type": "json"},
         },
     },
 }
 
+_OBSERVATION_POLICY_GROUPS = {
+    "fixed_units": "fixed",
+    "manual_only_units": "manual_only",
+    "fill_units": "fill",
+    "generated_units": "generated",
+    "template_default_optional_units": "template_default",
+}
+_FORMAT_ANNOTATION_RE = re.compile(
+    r"[（(][^（）()]{0,80}(?:"
+    r"号|宋体|黑体|楷体|仿宋|华文|Times|Arial|加粗|居中|空[一二三四五六七八九十0-9]*行|"
+    r"小四|小三|三号|四号|一号|二号|行距|磅"
+    r")[^（）()]{0,80}[）)]"
+)
+_PLACEHOLDER_RE = re.compile(r"(?:□+|×{2,}|20×+|…{2,}|\.{6,}|_{4,})")
+
 
 def build_template_generation_route_eval_report(
     report: TemplateGenerationJudgeReport,
     report_dict: dict[str, Any] | None = None,
+    *,
+    derived_root: Path | None = None,
 ) -> dict[str, Any]:
     routes: list[dict[str, Any]] = []
     stage_metrics: dict[str, dict[str, Any]] = {}
     mismatches: list[dict[str, Any]] = []
+    ai_payloads_by_stage: dict[str, dict[str, Any]] = {}
     run_dir = report.run_bundle.source_run_dir
     for stage_id, spec in _ROUTE_STAGE_FILES.items():
         stage_routes = {
@@ -2155,6 +2208,7 @@ def build_template_generation_route_eval_report(
                 payload_type=str(route_spec.get("payload_type") or "yaml"),
                 artifact_type=route_spec.get("artifact_type"),
                 not_evaluable_reason=route_spec.get("not_evaluable_reason"),
+                derived_root=derived_root,
             )
             for route_id, route_spec in (spec.get("routes") or {}).items()
         }
@@ -2177,11 +2231,44 @@ def build_template_generation_route_eval_report(
                 route_id: route.get("availability")
                 for route_id, route in stage_routes.items()
             },
+            "route_reasons": {
+                route_id: route.get("reason")
+                for route_id, route in stage_routes.items()
+                if route.get("reason")
+            },
+            "route_payload_summaries": {
+                route_id: route.get("payload_summary")
+                for route_id, route in stage_routes.items()
+                if route.get("payload_summary")
+            },
             "route_hashes": {
                 route_id: route.get("payload_hash")
                 for route_id, route in stage_routes.items()
             },
         }
+        ai_route = stage_routes.get("ai_raw") or {}
+        if ai_route.get("availability") == "AVAILABLE":
+            ai_payload = _route_candidate_payload(ai_route)
+            if ai_payload:
+                ai_payloads_by_stage[stage_id] = ai_payload
+                standard = report.standard_set.stages.get(str(spec["stage_key"]))
+                expected = standard.expected if standard is not None else {}
+                if stage_id == "T2":
+                    stage_metrics[stage_id]["ai_raw_accuracy"] = (
+                        _evaluate_ai_unit_accuracy(ai_payload, expected)
+                    )
+                elif stage_id == "T3":
+                    stage_metrics[stage_id]["ai_raw_accuracy"] = (
+                        _evaluate_ai_element_accuracy(ai_payload, expected)
+                    )
+                elif stage_id == "T4":
+                    stage_metrics[stage_id]["ai_raw_accuracy"] = (
+                        _evaluate_ai_layout_accuracy(
+                            ai_payload,
+                            ai_payloads_by_stage.get("T2", {}),
+                            expected,
+                        )
+                    )
         if stage_id == "L1":
             stage_metrics[stage_id]["coverage"] = _l1_route_coverage(
                 stage_routes.get("shared_input")
@@ -2193,6 +2280,10 @@ def build_template_generation_route_eval_report(
             hint_consumption = _t4_hint_consumption(report)
             stage_metrics[stage_id]["hint_consumption"] = hint_consumption
             mismatches.extend(_t4_hint_consumption_mismatches(hint_consumption))
+        if stage_id == "T3":
+            residual_gate = _t3_residual_gate(report.run_bundle.source_run_dir)
+            stage_metrics[stage_id]["residual_gate"] = residual_gate
+            mismatches.extend(_t3_residual_mismatches(residual_gate))
         if ai_availability == "AVAILABLE" and not changed_from_code:
             mismatches.append(
                 {
@@ -2206,6 +2297,7 @@ def build_template_generation_route_eval_report(
                 }
             )
         if ai_availability == "NOT_AVAILABLE":
+            ai_reason = str((stage_routes.get("ai_raw") or {}).get("reason") or "")
             mismatches.append(
                 {
                     "id": f"{stage_id}-ROUTE-MISMATCH-001",
@@ -2213,7 +2305,10 @@ def build_template_generation_route_eval_report(
                     "stage_key": spec["stage_key"],
                     "type": "ai_raw_not_available",
                     "expected": "ai_raw route available for route comparison",
-                    "observed": "ai_raw route is NOT_AVAILABLE",
+                    "observed": (
+                        "ai_raw route is NOT_AVAILABLE"
+                        + (f": {ai_reason}" if ai_reason else "")
+                    ),
                     "route_ids": ["ai_raw"],
                 }
             )
@@ -2274,6 +2369,7 @@ def build_template_generation_route_eval_report(
         }
         for mismatch in mismatches
     ]
+    ai_primary_gate_decision = _ai_primary_gate_decision(stage_metrics, mismatches)
     return {
         "artifact_type": "template_generation_route_eval_report",
         "artifact_version": "1.0",
@@ -2286,11 +2382,66 @@ def build_template_generation_route_eval_report(
         "cross_route_summary": {
             "route_count": len(routes),
             "mismatch_count": len(mismatches),
+            "availability_by_stage": {
+                stage_id: metrics.get("route_availability", {})
+                for stage_id, metrics in stage_metrics.items()
+            },
         },
         "mismatches": mismatches,
         "root_causes": root_causes,
         "owner_assignments": owner_assignments,
         "fix_plan": fix_plan,
+        "ai_primary_gate_decision": ai_primary_gate_decision,
+    }
+
+
+def _ai_primary_gate_decision(
+    stage_metrics: dict[str, dict[str, Any]],
+    mismatches: list[dict[str, Any]],
+) -> dict[str, Any]:
+    stage_decisions: dict[str, dict[str, Any]] = {}
+    mismatches_by_stage: dict[str, list[dict[str, Any]]] = {}
+    for mismatch in mismatches:
+        mismatches_by_stage.setdefault(str(mismatch.get("stage_id")), []).append(mismatch)
+    for stage_id in ("T3", "T4"):
+        metrics = stage_metrics.get(stage_id, {})
+        ai_availability = str(metrics.get("ai_availability") or "NOT_AVAILABLE")
+        stage_mismatches = mismatches_by_stage.get(stage_id, [])
+        if ai_availability != "AVAILABLE":
+            stage_decisions[stage_id] = {
+                "eligible": False,
+                "status": "BLOCKED",
+                "authority_mode": "merge",
+                "reason": f"ai_raw is {ai_availability}; AI-primary requires available route evidence",
+                "fallback": "deterministic_code",
+            }
+            continue
+        if stage_mismatches:
+            stage_decisions[stage_id] = {
+                "eligible": False,
+                "status": "BLOCKED",
+                "authority_mode": "merge",
+                "reason": "route-eval still reports stage mismatches; ai_raw >= code_raw is not proven",
+                "mismatch_ids": [mismatch.get("id") for mismatch in stage_mismatches],
+                "fallback": "deterministic_code",
+            }
+            continue
+        stage_decisions[stage_id] = {
+            "eligible": False,
+            "status": "REQUIRES_THREE_SCHOOL_EVIDENCE",
+            "authority_mode": "merge",
+            "reason": (
+                "single-run route-eval is clean, but default AI-primary requires "
+                "three-school evidence that ai_raw >= code_raw and merged >= both"
+            ),
+            "fallback": "deterministic_code",
+        }
+    return {
+        "artifact_type": "template_generation_ai_primary_gate_decision",
+        "artifact_version": "1.0",
+        "default_authority_mode": "merge",
+        "allowed_ai_primary_stages": ["T3", "T4"],
+        "stages": stage_decisions,
     }
 
 
@@ -2361,6 +2512,7 @@ def _route_candidate(
     payload_type: str,
     artifact_type: Any = None,
     not_evaluable_reason: Any = None,
+    derived_root: Path | None = None,
 ) -> dict[str, Any]:
     if not_evaluable_reason:
         return {
@@ -2380,8 +2532,36 @@ def _route_candidate(
         if isinstance(filename, list)
         else [str(filename)]
     )
-    paths = [_route_artifact_path(run_dir, item) for item in filenames]
+    paths = [
+        _route_artifact_path(
+            run_dir,
+            item,
+            route_id=route_id,
+            stage_id=stage_id,
+            derived_root=derived_root,
+        )
+        for item in filenames
+    ]
     found_paths = [path for path in paths if path is not None]
+    status_payload = _route_status_payload(
+        route_id=route_id,
+        stage_id=stage_id,
+        derived_root=derived_root,
+    )
+    if not found_paths and status_payload is not None:
+        route = status_payload.get("route") or {}
+        return {
+            "route_id": route_id,
+            "stage_key": stage_key,
+            "stage_id": stage_id,
+            "artifact_type": status_payload.get("artifact_type"),
+            "payload_path": str(_route_status_path(route_id, stage_id, derived_root)),
+            "payload_paths": [str(_route_status_path(route_id, stage_id, derived_root))],
+            "payload_hash": sha256_json(status_payload),
+            "availability": str(route.get("availability") or "UNKNOWN"),
+            "origin": route.get("origin"),
+            "reason": route.get("reason") or status_payload.get("reason"),
+        }
     path = found_paths[0] if found_paths else None
     payload: dict[str, Any] = {}
     payload_hash = None
@@ -2397,6 +2577,7 @@ def _route_candidate(
             (payload.get("route") or {}).get("availability")
             or ("AVAILABLE" if payload else "UNKNOWN")
         )
+    route = payload.get("route") or {}
     return {
         "route_id": route_id,
         "stage_key": stage_key,
@@ -2406,8 +2587,278 @@ def _route_candidate(
         "payload_paths": [str(item) for item in found_paths],
         "payload_hash": payload_hash,
         "availability": availability,
-        "origin": (payload.get("route") or {}).get("origin"),
+        "origin": route.get("origin"),
+        "reason": route.get("reason"),
+        "payload_summary": _route_payload_summary(payload),
     }
+
+
+def _route_payload_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    if not payload:
+        return {}
+    items = payload.get("items")
+    unknown_items = payload.get("unknown_items")
+    summary: dict[str, Any] = {
+        "model": payload.get("model"),
+        "schema_version": payload.get("schema_version"),
+    }
+    if isinstance(items, list):
+        summary["item_count"] = len(items)
+    if isinstance(unknown_items, list):
+        summary["unknown_item_count"] = len(unknown_items)
+    coverage = payload.get("coverage")
+    if isinstance(coverage, dict):
+        summary["coverage"] = {
+            key: value
+            for key, value in coverage.items()
+            if key in {"total", "owned_source_seq", "unknown_source_seq"}
+        }
+        for key in ("owned_source_seq", "unknown_source_seq"):
+            value = summary["coverage"].get(key)
+            if isinstance(value, list):
+                summary["coverage"][f"{key}_count"] = len(value)
+                summary["coverage"].pop(key, None)
+    return {key: value for key, value in summary.items() if value is not None}
+
+
+def _route_candidate_payload(route: dict[str, Any]) -> dict[str, Any]:
+    payload_path = route.get("payload_path")
+    if not payload_path:
+        return {}
+    path = Path(str(payload_path))
+    if not path.exists():
+        return {}
+    try:
+        loaded = read_json(path) if path.suffix == ".json" else read_yaml(path)
+    except Exception:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
+def _evaluate_ai_unit_accuracy(
+    observation: dict[str, Any],
+    expected: dict[str, Any],
+) -> dict[str, Any]:
+    gold_order = [str(unit_id) for unit_id in expected.get("unit_order", []) or []]
+    gold_set = set(gold_order)
+    observed_order = [
+        str(item.get("unit_id"))
+        for item in observation.get("items", [])
+        if isinstance(item, dict)
+        and item.get("unit_id")
+        and item.get("unit_id") != "unknown_unit"
+    ]
+    observed_unique: list[str] = []
+    for unit_id in observed_order:
+        if unit_id not in observed_unique:
+            observed_unique.append(unit_id)
+    observed_set = set(observed_unique)
+    hits = observed_set & gold_set
+    precision = len(hits) / len(observed_set) if observed_set else 0.0
+    recall = len(hits) / len(gold_set) if gold_set else 0.0
+    f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
+    return {
+        "gold_units": len(gold_set),
+        "observed_units": len(observed_set),
+        "precision": round(precision, 4),
+        "recall": round(recall, 4),
+        "f1": round(f1, 4),
+        "order_exact_match": observed_unique == gold_order,
+        "missing_units": sorted(gold_set - observed_set),
+        "extra_units": sorted(observed_set - gold_set),
+    }
+
+
+def _evaluate_ai_element_accuracy(
+    observation: dict[str, Any],
+    expected: dict[str, Any],
+) -> dict[str, Any]:
+    groups = expected.get("policy_groups", {}) or {}
+    expected_policy: dict[str, str] = {}
+    for group_name, policy in _OBSERVATION_POLICY_GROUPS.items():
+        for unit_id in groups.get(group_name, []) or []:
+            expected_policy[str(unit_id)] = policy
+
+    by_unit: dict[str, list[str]] = {}
+    items = [item for item in observation.get("items", []) if isinstance(item, dict)]
+    for item in items:
+        unit_id = str(item.get("unit_id") or "")
+        policy = str(item.get("policy") or "")
+        if unit_id and policy:
+            by_unit.setdefault(unit_id, []).append(policy)
+    dominant = {
+        unit_id: Counter(policies).most_common(1)[0][0]
+        for unit_id, policies in by_unit.items()
+    }
+    policy_sets = {unit_id: set(policies) for unit_id, policies in by_unit.items()}
+    evaluated = [unit_id for unit_id in expected_policy if unit_id in dominant]
+    dominant_hits = [
+        unit_id
+        for unit_id in evaluated
+        if dominant[unit_id] == expected_policy[unit_id]
+    ]
+    present_hits = [
+        unit_id
+        for unit_id in evaluated
+        if expected_policy[unit_id] in policy_sets[unit_id]
+    ]
+    mismatches = [
+        {
+            "unit_id": unit_id,
+            "expected": expected_policy[unit_id],
+            "ai_dominant": dominant[unit_id],
+            "expected_present": expected_policy[unit_id] in policy_sets[unit_id],
+        }
+        for unit_id in evaluated
+        if dominant[unit_id] != expected_policy[unit_id]
+    ]
+    demotions = observation.get("quality_report", {}).get("demotions", []) or []
+    required_field_fails = sum(
+        1
+        for demotion in demotions
+        if isinstance(demotion, dict)
+        and demotion.get("check_id") == "C-REQUIRED-FIELD"
+    )
+    total_items = len(items) + required_field_fails
+    result = {
+        "units_evaluated": len(evaluated),
+        "unit_dominant_policy_accuracy": (
+            round(len(dominant_hits) / len(evaluated), 4) if evaluated else 0.0
+        ),
+        "distinguishing_policy_recall": (
+            round(len(present_hits) / len(evaluated), 4) if evaluated else 0.0
+        ),
+        "policy_mismatches": mismatches,
+        "required_field_compliance": (
+            round(1 - required_field_fails / total_items, 4) if total_items else 1.0
+        ),
+    }
+    expectations = expected.get("element_expectations") or []
+    result["element_expectation_eval"] = (
+        _evaluate_ai_element_expectations(items, expectations)
+        if isinstance(expectations, list) and expectations
+        else {
+            "status": "NOT_AVAILABLE",
+            "reason": "t3 standard does not provide expected.element_expectations",
+        }
+    )
+    return result
+
+
+def _evaluate_ai_element_expectations(
+    items: list[dict[str, Any]],
+    expectations: list[Any],
+) -> dict[str, Any]:
+    expected_items = [item for item in expectations if isinstance(item, dict)]
+    matched: list[dict[str, Any]] = []
+    policy_mismatches: list[dict[str, Any]] = []
+    missing: list[dict[str, Any]] = []
+    for expected in expected_items:
+        unit_id = str(expected.get("unit_id") or "")
+        policy = str(expected.get("policy") or "")
+        expected_refs = _observation_int_set(expected.get("source_seq_refs"))
+        if not unit_id or not policy or not expected_refs:
+            continue
+        candidates = [
+            item
+            for item in items
+            if str(item.get("unit_id") or "") == unit_id
+            and expected_refs & _observation_int_set(item.get("source_seq_refs"))
+        ]
+        exact = [item for item in candidates if str(item.get("policy") or "") == policy]
+        if exact:
+            matched.append(
+                {
+                    "unit_id": unit_id,
+                    "expected_policy": policy,
+                    "source_seq_refs": sorted(expected_refs),
+                    "observed_policy": exact[0].get("policy"),
+                    "observed_element_id": exact[0].get("element_id"),
+                }
+            )
+        elif candidates:
+            policy_mismatches.append(
+                {
+                    "unit_id": unit_id,
+                    "expected_policy": policy,
+                    "source_seq_refs": sorted(expected_refs),
+                    "observed_policies": sorted(
+                        {
+                            str(item.get("policy") or "")
+                            for item in candidates
+                            if item.get("policy")
+                        }
+                    ),
+                    "observed_element_ids": [
+                        str(item.get("element_id") or "")
+                        for item in candidates[:3]
+                        if item.get("element_id")
+                    ],
+                }
+            )
+        else:
+            missing.append(
+                {
+                    "unit_id": unit_id,
+                    "expected_policy": policy,
+                    "source_seq_refs": sorted(expected_refs),
+                    "name": expected.get("name"),
+                    "content_contains": expected.get("content_contains"),
+                }
+            )
+    evaluable = len(matched) + len(policy_mismatches) + len(missing)
+    source_overlap = len(matched) + len(policy_mismatches)
+    return {
+        "status": "AVAILABLE",
+        "expectation_count": len(expected_items),
+        "evaluable_count": evaluable,
+        "source_overlap_count": source_overlap,
+        "source_overlap_recall": round(source_overlap / evaluable, 4) if evaluable else 0.0,
+        "policy_match_count": len(matched),
+        "source_policy_overlap_accuracy": (
+            round(len(matched) / evaluable, 4) if evaluable else 0.0
+        ),
+        "policy_mismatch_count": len(policy_mismatches),
+        "missing_count": len(missing),
+        "policy_mismatch_samples": policy_mismatches[:10],
+        "missing_samples": missing[:10],
+    }
+
+
+def _evaluate_ai_layout_accuracy(
+    observation: dict[str, Any],
+    unit_observation: dict[str, Any],
+    expected: dict[str, Any],
+) -> dict[str, Any]:
+    global_profile_present = any(
+        isinstance(item, dict) and item.get("source") == "deterministic_facts"
+        for item in observation.get("items", [])
+    )
+    page_observations = observation.get("page_observations") or []
+    return {
+        "global_profile_present": global_profile_present,
+        "page_policy_evaluable": False,
+        "page_policy_owner": "T2",
+        "reason": "T4 layout accuracy does not evaluate or generate unit page policy",
+        "page_count": observation.get("page_count"),
+        "page_structure_source": observation.get("page_structure_source"),
+        "vision_page_observation_count": len(page_observations)
+        if isinstance(page_observations, list)
+        else 0,
+    }
+
+
+def _observation_int_set(values: Any) -> set[int]:
+    if not isinstance(values, list):
+        return set()
+    result: set[int] = set()
+    for value in values:
+        try:
+            if value not in (None, ""):
+                result.add(int(value))
+        except (TypeError, ValueError):
+            continue
+    return result
 
 
 def _read_route_payload(paths: list[Path], payload_type: str) -> dict[str, Any]:
@@ -2435,42 +2886,63 @@ def _read_route_payload(paths: list[Path], payload_type: str) -> dict[str, Any]:
     return {"artifact_type": payload_type}
 
 
-def _route_artifact_path(run_dir: Path, filename: str) -> Path | None:
-    candidates = [
-        run_dir / filename,
-        run_dir / "artifacts" / _compat_route_filename(filename),
-    ]
-    if filename == "template_gap_report.json":
-        candidates.extend(
-            [
-                run_dir.parent / "template_gap" / filename,
-                run_dir.parent / "template_gap" / "artifacts" / filename,
-                run_dir.parent.parent / "template_gap" / "artifacts" / filename,
-            ]
-        )
+def _route_artifact_path(
+    run_dir: Path,
+    filename: str,
+    *,
+    route_id: str,
+    stage_id: str,
+    derived_root: Path | None,
+) -> Path | None:
+    candidates: list[Path] = []
+    if route_id not in {"merged", "shared_input"} and derived_root is not None:
+        candidates.append(derived_root / "route_replay" / route_id / filename)
+        if filename == "template_gap_report.json":
+            candidates.extend(
+                [
+                    derived_root / "route_replay" / route_id / "template_gap" / filename,
+                    derived_root / "route_replay" / route_id / "template_gap" / "artifacts" / filename,
+                ]
+            )
+    if route_id in {"code_raw", "ai_raw"} and stage_id in {"T2", "T3", "T4"}:
+        candidates.append(run_dir / filename)
+    if route_id in {"merged", "shared_input"}:
+        candidates.append(run_dir / filename)
+        if filename == "template_gap_report.json":
+            candidates.extend(
+                [
+                    run_dir.parent / "template_gap" / filename,
+                    run_dir.parent / "template_gap" / "artifacts" / filename,
+                    run_dir.parent.parent / "template_gap" / "artifacts" / filename,
+                ]
+            )
     for path in candidates:
         if path.exists():
             return path
     return None
 
 
-def _compat_route_filename(filename: str) -> str:
-    return {
-        "01.5_l1_input_contract.json": "template_generation_l1_input_contract.json",
-        "02.0_t2_code_unit_map.yaml": "t2_code_unit_map.yaml",
-        "02.2_t2_ai_unit_observation.yaml": "t2_ai_unit_observation.yaml",
-        "02.3_t2_merged_unit_map.yaml": "t2_merged_unit_map.yaml",
-        "03.0_t3_code_element_spec.yaml": "t3_code_element_spec.yaml",
-        "03.1_t3_ai_element_observation.yaml": "t3_ai_element_observation.yaml",
-        "03.2_t3_merged_element_spec.yaml": "t3_merged_element_spec.yaml",
-        "04.0_t4_code_global_spec.yaml": "t4_code_global_spec.yaml",
-        "04.1_t4_ai_layout_observation.yaml": "t4_ai_layout_observation.yaml",
-        "04.2_t4_merged_global_spec.yaml": "t4_merged_global_spec.yaml",
-        "05_template_spec.yaml": "template_spec.yaml",
-        "06.2_build_manifest.json": "build_manifest.json",
-        "07_verification_report.json": "verification_report.json",
-        "template_gap_report.json": "template_gap_report.json",
-    }.get(filename, filename)
+def _route_status_payload(
+    *,
+    route_id: str,
+    stage_id: str,
+    derived_root: Path | None,
+) -> dict[str, Any] | None:
+    path = _route_status_path(route_id, stage_id, derived_root)
+    if path is None or not path.exists():
+        return None
+    loaded = read_json(path)
+    return loaded if isinstance(loaded, dict) else None
+
+
+def _route_status_path(
+    route_id: str,
+    stage_id: str,
+    derived_root: Path | None,
+) -> Path | None:
+    if derived_root is None:
+        return None
+    return derived_root / "route_replay" / route_id / f"{stage_id.lower()}_route_status.json"
 
 
 def _l1_route_coverage(route: dict[str, Any] | None) -> dict[str, Any]:
@@ -2505,7 +2977,10 @@ def _l1_route_mismatches(route: dict[str, Any] | None) -> list[dict[str, Any]]:
                 "stage_key": "l1_input_contract",
                 "type": "l1_visual_render_not_real",
                 "expected": "visual_page_index binds a real render or records why it cannot",
-                "observed": f"render_status={coverage.get('render_status')}",
+                "observed": (
+                    f"render_status={coverage.get('render_status')}; "
+                    f"render_error={coverage.get('render_error') or 'none'}"
+                ),
                 "route_ids": ["shared_input"],
             }
         )
@@ -2542,28 +3017,10 @@ def _t4_hint_consumption(report: TemplateGenerationJudgeReport) -> dict[str, Any
     hints = _load_run_json(
         run_dir,
         "13_agent_t4_hints.json",
-        "artifacts/agent_t4_hints.json",
     ) or {}
-    unit_map = report.run_bundle.payload("unit_map") or {}
     global_spec = report.run_bundle.payload("global_spec") or {}
     template_spec = report.run_bundle.payload("template_spec") or {}
     build_manifest = report.run_bundle.payload("build_manifest") or {}
-    page_hint_ids = {
-        str(item.get("proposal_id"))
-        for item in hints.get("page_policy_hints", []) or []
-        if isinstance(item, dict) and item.get("proposal_id")
-    }
-    page_ids_in_units = {
-        str((unit.get("page") or {}).get("agent_proposal_id"))
-        for unit in unit_map.get("units", []) or []
-        if isinstance(unit, dict) and (unit.get("page") or {}).get("agent_proposal_id")
-    }
-    page_ids_in_actions = {
-        str(action.get("agent_proposal_id"))
-        for action in build_manifest.get("actions_executed", []) or []
-        if isinstance(action, dict) and action.get("agent_proposal_id")
-    }
-    global_page_ids = page_hint_ids & (page_ids_in_units | page_ids_in_actions)
     section_hints = [
         item for item in hints.get("section_profile_hints", []) or [] if isinstance(item, dict)
     ]
@@ -2583,40 +3040,184 @@ def _t4_hint_consumption(report: TemplateGenerationJudgeReport) -> dict[str, Any
     page_numbering_observation_count = len(
         (global_spec.get("page_numbering", {}) or {}).get("ai_observations", []) or []
     )
+    layout_consumption = build_manifest.get("layout_hint_consumption") or {}
+    section_effective = [
+        item
+        for item in layout_consumption.get("section_profile_hints", []) or []
+        if isinstance(item, dict) and item.get("effective_action")
+    ]
+    page_numbering_effective = [
+        item
+        for item in layout_consumption.get("page_numbering_hints", []) or []
+        if isinstance(item, dict) and item.get("effective_action")
+    ]
     return {
         "hints_present": bool(hints),
-        "page_policy_hint_count": len(page_hint_ids),
-        "page_policy_consumed_count": len(global_page_ids),
-        "page_policy_consumed_proposal_ids": sorted(global_page_ids),
         "section_profile_hint_count": len(section_hints),
         "section_profile_recorded_in_global_spec_count": section_observation_count,
         "section_profile_recorded_in_template_spec_count": template_section_observation_count,
-        "section_profile_effective_action_count": 0,
+        "section_profile_effective_action_count": len(section_effective),
+        "section_profile_effective_actions": section_effective,
         "page_numbering_hint_count": len(page_numbering_hints),
         "page_numbering_recorded_in_global_spec_count": page_numbering_observation_count,
-        "page_numbering_effective_action_count": 0,
+        "page_numbering_effective_action_count": len(page_numbering_effective),
+        "page_numbering_effective_actions": page_numbering_effective,
     }
 
 
-def _t4_hint_consumption_mismatches(consumption: dict[str, Any]) -> list[dict[str, Any]]:
+def _t3_residual_gate(run_dir: Path) -> dict[str, Any]:
+    element_spec = _load_run_yaml(
+        run_dir,
+        "03.2_t3_merged_element_spec.yaml",
+        "03_element_spec.yaml",
+    ) or {}
+    format_element_hits = []
+    placeholder_element_hits = []
+    for element in _iter_element_dicts(element_spec):
+        policy = str(element.get("policy") or "")
+        content = str(
+            element.get("content")
+            or element.get("text")
+            or element.get("name")
+            or ""
+        )
+        element_id = str(element.get("element_id") or element.get("id") or "")
+        unit_id = str(element.get("unit_id") or "")
+        if not _is_instruction_policy(policy) and _FORMAT_ANNOTATION_RE.search(content):
+            format_element_hits.append(
+                {
+                    "unit_id": unit_id,
+                    "element_id": element_id,
+                    "policy": policy,
+                    "content": content[:160],
+                }
+            )
+        if not _is_instruction_policy(policy) and _PLACEHOLDER_RE.search(content):
+            placeholder_element_hits.append(
+                {
+                    "unit_id": unit_id,
+                    "element_id": element_id,
+                    "policy": policy,
+                    "content": content[:160],
+                }
+            )
+    visible_text = _visible_docx_text(_generated_docx_for_run(run_dir))
+    format_docx_hits = _regex_samples(_FORMAT_ANNOTATION_RE, visible_text)
+    placeholder_docx_hits = _regex_samples(_PLACEHOLDER_RE, visible_text)
+    return {
+        "artifact_type": "template_generation_t3_residual_gate",
+        "artifact_version": "1.0",
+        "format_annotation_non_instruction_count": len(format_element_hits),
+        "format_annotation_final_docx_count": len(format_docx_hits),
+        "placeholder_non_instruction_count": len(placeholder_element_hits),
+        "placeholder_final_docx_count": len(placeholder_docx_hits),
+        "format_annotation_non_instruction_samples": format_element_hits[:20],
+        "format_annotation_final_docx_samples": format_docx_hits[:20],
+        "placeholder_non_instruction_samples": placeholder_element_hits[:20],
+        "placeholder_final_docx_samples": placeholder_docx_hits[:20],
+        "status": (
+            "PASS"
+            if not (
+                format_element_hits
+                or placeholder_element_hits
+                or format_docx_hits
+                or placeholder_docx_hits
+            )
+            else "FAIL"
+        ),
+    }
+
+
+def _t3_residual_mismatches(gate: dict[str, Any]) -> list[dict[str, Any]]:
     mismatches: list[dict[str, Any]] = []
-    if consumption.get("page_policy_hint_count") and (
-        consumption.get("page_policy_consumed_count") != consumption.get("page_policy_hint_count")
+    if int(gate.get("format_annotation_non_instruction_count") or 0) or int(
+        gate.get("format_annotation_final_docx_count") or 0
     ):
         mismatches.append(
             {
-                "id": "T4-HINT-MISMATCH-001",
-                "stage_id": "T4",
-                "stage_key": "t4_global_layout",
-                "type": "t4_page_policy_hint_not_consumed",
-                "expected": "accepted page_policy_hints patch unit page policy and T6 page actions",
+                "id": "T3-RESIDUAL-MISMATCH-001",
+                "stage_id": "T3",
+                "stage_key": "t3_element_policy",
+                "type": "t3_inline_format_instruction_residual",
+                "expected": "format annotations are instruction_remove or absent from final DOCX",
                 "observed": (
-                    f"{consumption.get('page_policy_consumed_count')} of "
-                    f"{consumption.get('page_policy_hint_count')} page hints consumed"
+                    f"{gate.get('format_annotation_non_instruction_count')} element residual(s), "
+                    f"{gate.get('format_annotation_final_docx_count')} final DOCX residual(s)"
                 ),
                 "route_ids": ["merged"],
             }
         )
+    if int(gate.get("placeholder_non_instruction_count") or 0) or int(
+        gate.get("placeholder_final_docx_count") or 0
+    ):
+        mismatches.append(
+            {
+                "id": "T3-RESIDUAL-MISMATCH-002",
+                "stage_id": "T3",
+                "stage_key": "t3_element_policy",
+                "type": "t3_placeholder_like_residual",
+                "expected": "placeholder-like sample spans are replaced with slots or justified",
+                "observed": (
+                    f"{gate.get('placeholder_non_instruction_count')} element residual(s), "
+                    f"{gate.get('placeholder_final_docx_count')} final DOCX residual(s)"
+                ),
+                "route_ids": ["merged"],
+            }
+        )
+    return mismatches
+
+
+def _is_instruction_policy(policy: str) -> bool:
+    return str(policy or "") in {"instruction_remove", "remove_instruction"}
+
+
+def _iter_element_dicts(payload: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    if isinstance(payload, dict):
+        if "policy" in payload and any(key in payload for key in ("element_id", "content", "text", "name")):
+            result.append(payload)
+        for value in payload.values():
+            result.extend(_iter_element_dicts(value))
+    elif isinstance(payload, list):
+        for item in payload:
+            result.extend(_iter_element_dicts(item))
+    return result
+
+
+def _generated_docx_for_run(run_dir: Path) -> Path | None:
+    path = run_dir / "06.1_fillable_template.docx"
+    return path if path.exists() else None
+
+
+def _visible_docx_text(path: Path | None) -> str:
+    if path is None or not path.exists():
+        return ""
+    try:
+        doc = Document(path)
+    except Exception:
+        return ""
+    chunks: list[str] = []
+    chunks.extend(paragraph.text for paragraph in doc.paragraphs)
+    for table in doc.tables:
+        for row in table.rows:
+            for cell in row.cells:
+                chunks.extend(paragraph.text for paragraph in cell.paragraphs)
+    return "\n".join(chunks)
+
+
+def _regex_samples(pattern: re.Pattern[str], text: str) -> list[str]:
+    samples: list[str] = []
+    for match in pattern.finditer(text):
+        value = match.group(0).strip()
+        if value and value not in samples:
+            samples.append(value[:160])
+        if len(samples) >= 50:
+            break
+    return samples
+
+
+def _t4_hint_consumption_mismatches(consumption: dict[str, Any]) -> list[dict[str, Any]]:
+    mismatches: list[dict[str, Any]] = []
     if consumption.get("section_profile_hint_count") and not consumption.get(
         "section_profile_effective_action_count"
     ):

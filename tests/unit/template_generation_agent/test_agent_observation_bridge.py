@@ -173,7 +173,9 @@ def test_observation_bridge_low_confidence_goes_to_manual_review(tmp_path) -> No
     assert bridge["manual_review_items"][0]["reason_code"] == "OBSERVATION-LOW-CONFIDENCE"
 
 
-def test_observation_bridge_converts_vision_page_observation_to_page_policy_hint(tmp_path) -> None:
+def test_observation_bridge_does_not_convert_vision_page_observation_to_t4_policy(
+    tmp_path,
+) -> None:
     artifacts = round0_artifacts(tmp_path)
     artifacts["packet"]["render_status"] = "real_render"
     artifacts["packet"]["page_layout_index"] = [
@@ -189,8 +191,6 @@ def test_observation_bridge_converts_vision_page_observation_to_page_policy_hint
     bundle["ai_layout_observation"]["page_observations"] = [
         {
             "page_no": 2,
-            "unit_hint": "正文",
-            "is_standalone_page": True,
             "page_number_visible": True,
             "page_number_text": "1",
         }
@@ -203,13 +203,8 @@ def test_observation_bridge_converts_vision_page_observation_to_page_policy_hint
     )
 
     t4_submission = bridge["transcript"]["rounds"][2]["submission"]
-    proposals = t4_submission["layers"]["t4"]["page_policy_hints"]
-    assert bridge["summary"]["t4_proposals"] == 1
-    assert proposals[0]["kind"] == "page_policy_hint"
-    assert proposals[0]["unit_id"] == "body_main"
-    assert proposals[0]["standalone"] is True
-    assert proposals[0]["page_nos"] == [2]
-    assert proposals[0]["origin"] == "ai_observation"
+    assert "page_policy_hints" not in t4_submission["layers"]["t4"]
+    assert bridge["summary"]["t4_proposals"] == 0
 
 
 def test_run_template_agent_consumes_observation_bundle(tmp_path) -> None:

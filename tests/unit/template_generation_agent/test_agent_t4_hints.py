@@ -15,12 +15,12 @@ def test_t4_hints_are_artifacts_only(tmp_path) -> None:
         artifacts["packet"]["source_render_hash"],
         layers={
             "t4": {
-                "page_policy_hints": [
+                "section_profile_hints": [
                     {
-                        "proposal_id": "t4_page_001",
-                        "kind": "page_policy_hint",
-                        "page_no": 1,
-                        "hint": "visual_new_page",
+                        "proposal_id": "t4_section_001",
+                        "kind": "section_profile_hint",
+                        "source_seq_refs": [1],
+                        "hint": "visual_section_profile",
                     }
                 ]
             }
@@ -50,7 +50,7 @@ def test_t4_hints_are_artifacts_only(tmp_path) -> None:
     assert result.unit_map == artifacts["unit_map"]
     assert result.element_spec == artifacts["element_spec"]
     assert result.t4_hints is not None
-    assert result.t4_hints["page_policy_hints"][0]["proposal_id"] == "t4_page_001"
+    assert result.t4_hints["section_profile_hints"][0]["proposal_id"] == "t4_section_001"
 
 
 def test_t4_hints_are_rejected_without_real_render_packet(tmp_path) -> None:
@@ -59,12 +59,12 @@ def test_t4_hints_are_rejected_without_real_render_packet(tmp_path) -> None:
         artifacts["packet"]["source_render_hash"],
         layers={
             "t4": {
-                "page_policy_hints": [
+                "section_profile_hints": [
                     {
-                        "proposal_id": "t4_page_001",
-                        "kind": "page_policy_hint",
-                        "page_no": 1,
-                        "hint": "visual_new_page",
+                        "proposal_id": "t4_section_001",
+                        "kind": "section_profile_hint",
+                        "source_seq_refs": [1],
+                        "hint": "visual_section_profile",
                     }
                 ]
             }
@@ -92,7 +92,7 @@ def test_t4_hints_are_rejected_without_real_render_packet(tmp_path) -> None:
 
     assert result.changed is False
     assert result.t4_hints is not None
-    assert result.t4_hints["page_policy_hints"] == []
+    assert result.t4_hints["section_profile_hints"] == []
     assert result.decisions is not None
-    assert result.decisions["rejected_proposal_ids"] == ["t4_page_001"]
+    assert result.decisions["rejected_proposal_ids"] == ["t4_section_001"]
     assert result.decisions["decisions"][0]["checks"][0]["check_id"] == "C-RENDER-REQUIRED"

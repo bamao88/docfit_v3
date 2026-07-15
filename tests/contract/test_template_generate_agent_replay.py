@@ -53,15 +53,14 @@ def test_template_generate_cli_replay_writes_agent_artifacts(tmp_path) -> None:
                                 "open_questions": []
                             },
                             "t4": {
-                                "page_policy_hints": [
+                                "section_profile_hints": [
                                     {
-                                        "proposal_id": "t4_page_001",
-                                        "kind": "page_policy_hint",
-                                        "page_no": 1,
-                                        "hint": "visual_new_page"
+                                        "proposal_id": "t4_section_001",
+                                        "kind": "section_profile_hint",
+                                        "source_seq_refs": [1],
+                                        "hint": "visual_section_profile"
                                     }
                                 ],
-                                "section_profile_hints": [],
                                 "page_numbering_hints": [],
                                 "open_questions": []
                             }
@@ -90,24 +89,24 @@ def test_template_generate_cli_replay_writes_agent_artifacts(tmp_path) -> None:
     )
 
     assert result.exit_code == 0, result.output
-    hints = read_json(out_dir / "artifacts/agent_t4_hints.json")
-    t4_merged = read_yaml(out_dir / "artifacts/t4_merged_global_spec.yaml")
-    decisions = read_json(out_dir / "artifacts/template_agent_decisions.json")
+    hints = read_json(out_dir / "13_agent_t4_hints.json")
+    t4_merged = read_yaml(out_dir / "04.2_t4_merged_global_spec.yaml")
+    decisions = read_json(out_dir / "10_agent_decisions.json")
     comparison = read_json(
-        out_dir / "artifacts/template_agent_submission_comparison.json"
+        out_dir / "09.5_agent_submission_comparison.json"
     )
     manual_review = read_json(
-        out_dir / "artifacts/template_agent_manual_review_items.json"
+        out_dir / "10.5_agent_manual_review_items.json"
     )
-    assert hints["page_policy_hints"][0]["proposal_id"] == "t4_page_001"
+    assert hints["section_profile_hints"][0]["proposal_id"] == "t4_section_001"
     assert t4_merged["merge_trace"][-1]["source_artifact"] == "agent_t4_hints"
     assert t4_merged["merge_trace"][-1]["accepted_count"] == 1
-    assert decisions["accepted_proposal_ids"] == ["t4_page_001"]
+    assert decisions["accepted_proposal_ids"] == ["t4_section_001"]
     assert comparison["summary"]["compatible"] == 1
     assert manual_review["summary"]["total"] == 0
 
 
-def test_template_generate_cli_replay_page_policy_hint_creates_page_break_action(tmp_path) -> None:
+def test_template_generate_cli_replay_rejects_t4_page_policy_hint(tmp_path) -> None:
     source = tmp_path / "school-template.docx"
     doc = Document()
     doc.add_paragraph("封面")
@@ -187,18 +186,24 @@ def test_template_generate_cli_replay_page_policy_hint_creates_page_break_action
     )
 
     assert result.exit_code == 0, result.output
-    plan = read_json(out_dir / "artifacts/template_generation_plan.json")
-    unit_map = read_yaml(out_dir / "artifacts/unit_map.yaml")
+    manifest = read_json(out_dir / "06.2_build_manifest.json")
+    decisions = read_json(out_dir / "10_agent_decisions.json")
+    unit_map = read_yaml(out_dir / "02_unit_map.yaml")
     body = next(unit for unit in unit_map["units"] if unit["unit_id"] == "body_main")
-    action = next(
+    page_actions = [
         action
-        for action in plan["actions"]
+        for action in manifest["actions_executed"]
         if action["action_type"] == "insert_page_break_before_unit"
         and action["unit_id"] == "body_main"
-    )
-    assert body["page"]["origin"] == "ai_observation"
-    assert action["page_policy_origin"] == "ai_observation"
-    assert action["agent_proposal_id"] == "t4_page_body"
+    ]
+    page = body.get("page") or {}
+    assert page.get("origin") != "ai_observation"
+    assert page.get("agent_proposal_id") is None
+    assert page_actions == []
+    assert "page_policy_hints" not in manifest.get("layout_hint_consumption", {})
+    assert decisions["accepted_proposal_ids"] == []
+    assert decisions["decisions"][0]["checks"][0]["check_id"] == "C-SCHEMA"
+    assert "unsupported t4 proposal collection" in decisions["decisions"][0]["reason"]
 
 
 def test_template_generate_cli_observation_bundle_writes_bridge_artifacts(tmp_path) -> None:
@@ -262,14 +267,14 @@ def test_template_generate_cli_observation_bundle_writes_bridge_artifacts(tmp_pa
     )
 
     assert result.exit_code == 0, result.output
-    bridge = read_json(out_dir / "artifacts/template_agent_observation_bridge.json")
-    ai_t2 = read_yaml(out_dir / "artifacts/t2_ai_unit_observation.yaml")
-    ai_t3 = read_yaml(out_dir / "artifacts/t3_ai_element_observation.yaml")
-    ai_t4 = read_yaml(out_dir / "artifacts/t4_ai_layout_observation.yaml")
+    bridge = read_json(out_dir / "09.25_agent_observation_bridge.json")
+    ai_t2 = read_yaml(out_dir / "02.2_t2_ai_unit_observation.yaml")
+    ai_t3 = read_yaml(out_dir / "03.1_t3_ai_element_observation.yaml")
+    ai_t4 = read_yaml(out_dir / "04.1_t4_ai_layout_observation.yaml")
     comparison = read_json(
-        out_dir / "artifacts/template_agent_submission_comparison.json"
+        out_dir / "09.5_agent_submission_comparison.json"
     )
-    attribution = read_json(out_dir / "artifacts/agent_attribution.json")
+    attribution = read_json(out_dir / "14_agent_attribution.json")
     assert bridge["summary"]["total_proposals"] == 0
     assert ai_t2["route"]["route_id"] == "ai_raw"
     assert ai_t2["route"]["availability"] == "AVAILABLE"
@@ -385,11 +390,13 @@ def test_template_generate_cli_observation_replay_runs_module1_in_same_run(tmp_p
     )
 
     assert result.exit_code == 0, result.output
-    bundle = read_json(out_dir / "artifacts/ai_observation_bundle.json")
-    render_packet = read_json(out_dir / "artifacts/template_agent_render_packet.json")
-    bridge = read_json(out_dir / "artifacts/template_agent_observation_bridge.json")
-    ai_t3 = read_yaml(out_dir / "artifacts/t3_ai_element_observation.yaml")
-    assert bundle["source_render_hash"] == render_packet["source_render_hash"]
+    bundle = read_json(out_dir / "09.1_ai_observation_bundle.json")
+    l1_input_contract = read_json(out_dir / "01.5_l1_input_contract.json")
+    bridge = read_json(out_dir / "09.25_agent_observation_bridge.json")
+    ai_t3 = read_yaml(out_dir / "03.1_t3_ai_element_observation.yaml")
+    assert bundle["source_render_hash"] == (
+        l1_input_contract["visual_page_index"]["source_render_hash"]
+    )
     assert ai_t3["route"]["route_id"] == "ai_raw"
     assert ai_t3["route"]["availability"] == "AVAILABLE"
     assert ai_t3["items"]

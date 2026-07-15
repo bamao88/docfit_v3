@@ -1,1 +1,1 @@
-只在拿到真实页图时判定 section/页眉脚/页码/版式；拿不到页图就 abstain，不要猜。每条 section 边界必须带 page_no + render_target 的 evidence_refs。T4 的分页观察只能作为验证或差异报告，不要生成或改写最终单元分页策略。
+只在拿到真实页图时判定 section/页眉脚/页码/版式；拿不到页图就 abstain，不要猜。每条 section 边界必须带 page_no + render_target 的 evidence_refs。T4 不判断单元起止，也不输出单元分页策略。

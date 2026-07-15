@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from docfit.template_generation.agent.observation_eval import (
-    evaluate_element_stage,
-    evaluate_layout_stage,
-    evaluate_unit_stage,
+from docfit.harness.template_generation_judge_reports import (
+    _evaluate_ai_element_accuracy,
+    _evaluate_ai_layout_accuracy,
+    _evaluate_ai_unit_accuracy,
 )
 
 
@@ -30,7 +30,7 @@ def element_obs(items: list[dict[str, Any]], demotions: int = 0) -> dict[str, An
 
 def test_unit_stage_perfect_match() -> None:
     gold = ["cover", "toc", "body_main"]
-    result = evaluate_unit_stage(unit_obs(gold), t2_standard(gold))
+    result = _evaluate_ai_unit_accuracy(unit_obs(gold), t2_standard(gold)["expected"])
     assert result["precision"] == 1.0
     assert result["recall"] == 1.0
     assert result["f1"] == 1.0
@@ -41,7 +41,7 @@ def test_unit_stage_perfect_match() -> None:
 def test_unit_stage_missing_and_extra() -> None:
     gold = ["cover", "toc", "body_main"]
     ai = ["cover", "body_main", "appendix"]  # 漏 toc，多 appendix
-    result = evaluate_unit_stage(unit_obs(ai), t2_standard(gold))
+    result = _evaluate_ai_unit_accuracy(unit_obs(ai), t2_standard(gold)["expected"])
     assert result["missing_units"] == ["toc"]
     assert result["extra_units"] == ["appendix"]
     assert result["recall"] == round(2 / 3, 4)
@@ -50,7 +50,10 @@ def test_unit_stage_missing_and_extra() -> None:
 
 def test_unit_stage_ignores_unknown_unit() -> None:
     gold = ["cover", "toc"]
-    result = evaluate_unit_stage(unit_obs(["cover", "toc", "unknown_unit"]), t2_standard(gold))
+    result = _evaluate_ai_unit_accuracy(
+        unit_obs(["cover", "toc", "unknown_unit"]),
+        t2_standard(gold)["expected"],
+    )
     assert result["precision"] == 1.0
     assert result["extra_units"] == []
 
@@ -67,87 +70,90 @@ def test_element_stage_dominant_policy_accuracy() -> None:
             {"unit_id": "abstract_cn", "policy": "instruction_remove"},
         ]
     )
-    result = evaluate_element_stage(obs, standard)
+    result = _evaluate_ai_element_accuracy(obs, standard["expected"])
     assert result["units_evaluated"] == 2
     assert result["unit_dominant_policy_accuracy"] == 0.5  # 1/2 众数对
     # grade_form 有 manual_only（定性策略出现）；abstract_cn 只有 instruction_remove（fill 没出现）
     assert result["distinguishing_policy_recall"] == 0.5
     assert [m["unit_id"] for m in result["policy_mismatches"]] == ["abstract_cn"]
+    assert result["element_expectation_eval"]["status"] == "NOT_AVAILABLE"
+
+
+def test_element_stage_reports_element_expectation_overlap_metrics() -> None:
+    standard = {
+        "expected": {
+            "policy_groups": {"fill_units": ["cover"]},
+            "element_expectations": [
+                {
+                    "unit_id": "cover",
+                    "name": "中文题名",
+                    "policy": "fill",
+                    "source_seq_refs": [6],
+                },
+                {
+                    "unit_id": "cover",
+                    "name": "格式说明",
+                    "policy": "instruction_remove",
+                    "source_seq_refs": [6],
+                },
+                {
+                    "unit_id": "cover",
+                    "name": "提交日期",
+                    "policy": "manual_only",
+                    "source_seq_refs": [16],
+                },
+            ],
+        }
+    }
+    obs = element_obs(
+        [
+            {
+                "element_id": "cover.1",
+                "unit_id": "cover",
+                "policy": "fill",
+                "source_seq_refs": [6],
+            },
+            {
+                "element_id": "cover.2",
+                "unit_id": "cover",
+                "policy": "fixed",
+                "source_seq_refs": [16],
+            },
+        ]
+    )
+
+    result = _evaluate_ai_element_accuracy(obs, standard["expected"])
+    element_eval = result["element_expectation_eval"]
+    assert element_eval["status"] == "AVAILABLE"
+    assert element_eval["expectation_count"] == 3
+    assert element_eval["source_overlap_count"] == 3
+    assert element_eval["policy_match_count"] == 1
+    assert element_eval["policy_mismatch_count"] == 2
+    assert element_eval["missing_count"] == 0
+    assert element_eval["source_policy_overlap_accuracy"] == round(1 / 3, 4)
 
 
 def test_element_stage_required_field_compliance() -> None:
     standard = t3_standard({"fill_units": ["abstract_cn"]})
     obs = element_obs([{"unit_id": "abstract_cn", "policy": "fill"}] * 3, demotions=1)
     # 3 accepted + 1 required-field 降级 → 合规率 3/4
-    result = evaluate_element_stage(obs, standard)
+    result = _evaluate_ai_element_accuracy(obs, standard["expected"])
     assert result["required_field_compliance"] == 0.75
 
 
-def test_layout_page_policy_not_evaluable_without_render() -> None:
-    r = evaluate_layout_stage(
-        {"items": [{"source": "deterministic_facts"}]}, {"items": []}, {}
+def test_layout_stage_does_not_evaluate_unit_page_policy() -> None:
+    r = _evaluate_ai_layout_accuracy(
+        {
+            "items": [{"source": "deterministic_facts"}],
+            "page_map": {"1": 1, "2": 2},
+            "page_count": 2,
+            "page_structure_source": "deterministic_pdf_layout",
+            "page_observations": [{"page_no": 1, "page_number_visible": True}],
+        },
+        {"items": [{"unit_id": "cover", "source_seq_refs": [1]}]},
+        {"layout_policy": {"standalone_units": ["cover"]}},
     )
     assert r["global_profile_present"] is True
     assert r["page_policy_evaluable"] is False
-
-
-def test_layout_page_isolation_accuracy_vs_gold() -> None:
-    # cover 独占 page1；abstract_cn + abstract_en 共享 page2（flowing）。
-    layout = {
-        "items": [{"source": "deterministic_facts"}],
-        "page_map": {"1": 1, "2": 1, "3": 2, "4": 2},
-        "page_count": 2,
-    }
-    units = {
-        "items": [
-            {"unit_id": "cover", "source_seq_refs": [1, 2]},
-            {"unit_id": "abstract_cn", "source_seq_refs": [3]},
-            {"unit_id": "abstract_en", "source_seq_refs": [4]},
-        ]
-    }
-    std = {
-        "expected": {
-            "layout_policy": {
-                "standalone_units": ["cover"],
-                "flowing_units": ["abstract_cn", "abstract_en"],
-            }
-        }
-    }
-    r = evaluate_layout_stage(layout, units, std)
-    assert r["page_policy_evaluable"] is True
-    assert r["units_evaluated"] == 3
-    assert r["page_isolation_accuracy"] == 1.0
-    assert r["page_policy_mismatches"] == []
-
-
-def test_layout_page_isolation_from_vision_units_no_t2() -> None:
-    # 视觉逐页 unit_hint(中文) → unit_id，独立于 Kimi 的 T2 算页隔离。
-    layout = {
-        "items": [{"source": "deterministic_facts"}],
-        "page_count": 3,
-        "page_observations": [
-            {"page_no": 1, "unit_hint": "封面"},
-            {"page_no": 2, "unit_hint": "目录"},
-            {"page_no": 3, "unit_hint": "目录"},
-        ],
-    }
-    std = {"expected": {"layout_policy": {"standalone_units": ["cover", "toc"], "flowing_units": []}}}
-    r = evaluate_layout_stage(layout, {"items": []}, std)  # 无 T2 单元
-    assert r["unit_pages_source"] == "vision_page_units"
-    assert r["page_policy_evaluable"] is True
-    assert r["page_isolation_accuracy"] == 1.0  # cover 独占 p1，toc 独占 p2-3
-
-
-def test_layout_page_policy_mismatch_becomes_open_question() -> None:
-    # cover 与 toc 挤在 page1 → cover 实测 flowing，但 gold 要 standalone → mismatch + open_question。
-    layout = {"items": [{"source": "deterministic_facts"}], "page_map": {"1": 1, "2": 1}}
-    units = {
-        "items": [
-            {"unit_id": "cover", "source_seq_refs": [1]},
-            {"unit_id": "toc", "source_seq_refs": [2]},
-        ]
-    }
-    std = {"expected": {"layout_policy": {"standalone_units": ["cover", "toc"], "flowing_units": []}}}
-    r = evaluate_layout_stage(layout, units, std)
-    assert r["page_isolation_accuracy"] == 0.0
-    assert {q["check_id"] for q in r["open_questions"]} == {"C-LAYOUT-PAGE-POLICY"}
+    assert r["page_policy_owner"] == "T2"
+    assert r["vision_page_observation_count"] == 1

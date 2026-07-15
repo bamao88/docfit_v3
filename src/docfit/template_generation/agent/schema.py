@@ -7,7 +7,6 @@ from typing import Any, Iterable
 T2_COLLECTIONS = ("unit_candidates", "block_candidates", "boundary_adjustments")
 T3_COLLECTIONS = ("element_policy_candidates",)
 T4_COLLECTIONS = (
-    "page_policy_hints",
     "section_profile_hints",
     "page_numbering_hints",
 )
@@ -21,7 +20,6 @@ PROPOSAL_KIND_BY_COLLECTION = {
     "block_candidates": "block_candidate",
     "boundary_adjustments": "boundary_adjustment",
     "element_policy_candidates": "element_policy_candidate",
-    "page_policy_hints": "page_policy_hint",
     "section_profile_hints": "section_profile_hint",
     "page_numbering_hints": "page_numbering_hint",
 }
@@ -51,7 +49,6 @@ def empty_layered_submission(
                 "open_questions": [],
             },
             "t4": {
-                "page_policy_hints": [],
                 "section_profile_hints": [],
                 "page_numbering_hints": [],
                 "open_questions": [],
@@ -98,6 +95,15 @@ def validate_layered_submission(
         if not isinstance(layer_value["open_questions"], list):
             errors.append(_error(f"$.layers.{layer}.open_questions", "C-SCHEMA", "open_questions must be a list"))
             layer_value["open_questions"] = []
+        allowed_keys = {*collections, "open_questions"}
+        for key in sorted(set(layer_value) - allowed_keys):
+            errors.append(
+                _error(
+                    f"$.layers.{layer}.{key}",
+                    "C-SCHEMA",
+                    f"unsupported {layer} proposal collection: {key}",
+                )
+            )
         for collection in collections:
             value = layer_value.setdefault(collection, [])
             if not isinstance(value, list):

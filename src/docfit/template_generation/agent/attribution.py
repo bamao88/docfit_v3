@@ -55,7 +55,6 @@ def build_agent_t3_overlay(operations: list[dict[str, Any]]) -> dict[str, Any]:
 
 def build_agent_t4_hints(hints: list[dict[str, Any]]) -> dict[str, Any]:
     grouped = {
-        "page_policy_hints": [],
         "section_profile_hints": [],
         "page_numbering_hints": [],
     }
@@ -113,7 +112,6 @@ def build_agent_attribution(
             "t3": t3_overlay.get("operations", []),
         },
         "t4_hint_counts": {
-            "page_policy_hints": len(t4_hints.get("page_policy_hints", [])),
             "section_profile_hints": len(t4_hints.get("section_profile_hints", [])),
             "page_numbering_hints": len(t4_hints.get("page_numbering_hints", [])),
         },

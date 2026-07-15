@@ -127,7 +127,6 @@ def layered_submission(source_render_hash: str, *, layers: dict[str, Any]) -> di
                 **layers.get("t3", {}),
             },
             "t4": {
-                "page_policy_hints": [],
                 "section_profile_hints": [],
                 "page_numbering_hints": [],
                 "open_questions": [],

@@ -25,7 +25,6 @@ PROPOSAL_KIND_BY_COLLECTION = {
     "block_candidates": "block_candidate",
     "boundary_adjustments": "boundary_adjustment",
     "element_policy_candidates": "element_policy_candidate",
-    "page_policy_hints": "page_policy_hint",
     "section_profile_hints": "section_profile_hint",
     "page_numbering_hints": "page_numbering_hint",
 }
@@ -479,7 +478,6 @@ def _layered_submission_shape(*, source_render_hash: str) -> dict[str, Any]:
                 "open_questions": [],
             },
             "t4": {
-                "page_policy_hints": [],
                 "section_profile_hints": [],
                 "page_numbering_hints": [],
                 "open_questions": [],

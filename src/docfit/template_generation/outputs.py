@@ -645,7 +645,7 @@ def write_template_generation_ordered_files(out_dir: Path, result: StageResult) 
     write_step_json(
         "13_agent_t4_hints.json",
         "agent_t4_hints",
-        "T4 Agent hints：只做归因 artifact，不改 T4/T5/T6 权威产物。",
+        "T4 Agent hints：T4 全局布局诊断/佐证 artifact，只包含 section profile 与 page numbering hint。",
     )
     write_step_json(
         "14_agent_attribution.json",

@@ -150,7 +150,8 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     assert "source_object_index" in l1_contract
     assert "layout_fact_index" in l1_contract
     assert "visual_page_index" in l1_contract
-    assert "bundle_gate_view" in l1_contract
+    assert "run_index" in l1_contract
+    assert "bundle_gate_view" not in l1_contract
     assert len(route_eval["routes"]) == 23
     assert set(route_eval["stage_metrics"]) == {
         "T1",
@@ -165,16 +166,30 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     }
     assert route_eval["stage_metrics"]["L1"]["coverage"]["available"] is True
     assert route_eval["stage_metrics"]["T6"]["route_availability"]["merged"] == "AVAILABLE"
-    assert route_eval["stage_metrics"]["POST_T6"]["route_availability"]["merged"] == "NOT_AVAILABLE"
-    assert any(
-        mismatch["type"] == "route_replay_not_materialized"
-        for mismatch in route_eval["mismatches"]
+    assert route_eval["stage_metrics"]["POST_T6"]["route_availability"]["merged"] == "AVAILABLE"
+    assert route_eval["stage_metrics"]["T5"]["route_availability"]["code_raw"] in {
+        "AVAILABLE",
+        "OUT_OF_SCOPE",
+    }
+    assert route_eval["stage_metrics"]["T5"]["route_availability"]["ai_raw"] in {
+        "NOT_AVAILABLE",
+        "OUT_OF_SCOPE",
+    }
+    t2_ai_route = next(
+        route
+        for route in route_eval["routes"]
+        if route["stage_id"] == "T2" and route["route_id"] == "ai_raw"
     )
-    assert any(
-        mismatch["type"] == "merged_route_not_available"
-        and mismatch["stage_id"] == "POST_T6"
+    assert t2_ai_route["availability"] == "NOT_AVAILABLE"
+    assert "no AI observation bundle" in t2_ai_route["reason"]
+    assert t2_ai_route["payload_summary"]["item_count"] == 0
+    assert "no AI observation bundle" in route_eval["stage_metrics"]["T2"]["route_reasons"]["ai_raw"]
+    ai_not_available = [
+        mismatch
         for mismatch in route_eval["mismatches"]
-    )
+        if mismatch["stage_id"] == "T2" and mismatch["type"] == "ai_raw_not_available"
+    ][0]
+    assert "no AI observation bundle" in ai_not_available["observed"]
     assert "mismatches" in route_eval
     assert "root_causes" in route_eval
     assert "owner_assignments" in route_eval
@@ -214,7 +229,80 @@ def test_template_generation_standard_quality_cli_supports_profile(
     assert report["status"] == "PASS"
 
 
-def test_route_eval_reports_t4_hint_consumption_gaps(tmp_path: Path, monkeypatch) -> None:
+def test_template_generation_full_cli_writes_gap_judge_and_full_summary(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    source = tmp_path / "inputs/targets/demo-school/raw/source_template.docx"
+    _write_source_docx(source, ["学校固定封面", "目录", "正文开始"])
+    _write_demo_standard_set(tmp_path, sha256_file(source))
+
+    out_dir = tmp_path / "runs/full"
+    result = CliRunner().invoke(
+        app,
+        [
+            "eval",
+            "template-generation-full",
+            "--school",
+            "demo-school",
+            "--template",
+            str(source),
+            "--out",
+            str(out_dir),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert (out_dir / "eval_runs/template_generate/summary.json").exists()
+    assert (out_dir / "eval_runs/template_gap/artifacts/template_gap_report.json").exists()
+    assert (
+        out_dir
+        / "eval_runs/template_generation_judge/template_generation_route_eval_report.json"
+    ).exists()
+    assert (out_dir / "full_summary.json").exists()
+    summary = read_json(out_dir / "full_summary.json")
+    assert summary["artifact_type"] == "template_generation_full_summary"
+    assert summary["stage_statuses"]["template_generate"] in {"PASS", "UNKNOWN", "FAIL"}
+    assert summary["final_gap"]
+    assert "first_bad_stage" in summary
+    assert "render_l1" in summary["gates"]
+    assert "t3_residual" in summary["gates"]
+    assert "ai_primary" in summary["gates"]
+    run_manifest = read_json(out_dir / "run_manifest.json")
+    nested_manifest = read_json(
+        out_dir / "eval_runs/template_generate/run_manifest.json"
+    )
+    assert run_manifest["entrypoint"] == "python.run_template_generation_full_eval"
+    assert run_manifest["ai_mode"] == nested_manifest["ai_mode"] == "off"
+    assert run_manifest["source_render_hash"] == nested_manifest["source_render_hash"]
+    assert run_manifest["l1_contract_hash"] == nested_manifest["l1_contract_hash"]
+    assert run_manifest["api_call_count"] == nested_manifest["api_call_count"] == 0
+    quality_report = summary["quality_report"]
+    assert quality_report["artifact_type"] == "template_generation_full_quality_report"
+    assert quality_report["overall_status"] in {"PASS", "UNKNOWN", "FAIL"}
+    stage_cards = quality_report["stage_cards"]
+    assert [card["stage_id"] for card in stage_cards] == [
+        "T1",
+        "L1",
+        "T2",
+        "T3",
+        "T4",
+        "T5",
+        "T6",
+        "T7",
+        "POST_T6",
+    ]
+    assert all("quality_checks" in card for card in stage_cards)
+    assert all("mismatches" in card for card in stage_cards)
+    assert all("root_causes" in card for card in stage_cards)
+    assert all("owner_assignments" in card for card in stage_cards)
+    assert all("fix_plan" in card for card in stage_cards)
+    assert "top_blockers" in quality_report
+    assert "next_optimization_targets" in quality_report
+
+
+def test_route_eval_reports_t4_layout_hint_consumption_gaps(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
     source = tmp_path / "inputs/targets/demo-school/raw/source_template.docx"
     _write_source_docx(source, ["封面", "正文"])
@@ -251,16 +339,6 @@ def test_route_eval_reports_t4_hint_consumption_gaps(tmp_path: Path, monkeypatch
                             "t2": {"unit_candidates": [], "block_candidates": [], "boundary_adjustments": [], "open_questions": []},
                             "t3": {"element_policy_candidates": [], "open_questions": []},
                             "t4": {
-                                "page_policy_hints": [
-                                    {
-                                        "proposal_id": "t4_page_body",
-                                        "kind": "page_policy_hint",
-                                        "unit_id": "body_main",
-                                        "standalone": True,
-                                        "page_nos": [1],
-                                        "source_seq_refs": [2],
-                                    }
-                                ],
                                 "section_profile_hints": [
                                     {
                                         "proposal_id": "t4_section_001",
@@ -318,16 +396,14 @@ def test_route_eval_reports_t4_hint_consumption_gaps(tmp_path: Path, monkeypatch
 
     route_eval = read_json(out_dir / "template_generation_route_eval_report.json")
     consumption = route_eval["stage_metrics"]["T4"]["hint_consumption"]
-    assert consumption["page_policy_hint_count"] == 1
-    assert consumption["page_policy_consumed_count"] == 1
     assert consumption["section_profile_hint_count"] == 1
     assert consumption["page_numbering_hint_count"] == 1
-    assert {
+    assert consumption["section_profile_effective_action_count"] == 1
+    assert consumption["page_numbering_effective_action_count"] == 1
+    mismatch_types = {
         mismatch["type"] for mismatch in route_eval["mismatches"]
-    } >= {
-        "t4_section_profile_hint_advisory_only",
-        "t4_page_numbering_hint_advisory_only",
     }
+    assert "t4_section_profile_hint_advisory_only" not in mismatch_types
 
 
 def _write_source_docx(path: Path, paragraphs: list[str]) -> None:

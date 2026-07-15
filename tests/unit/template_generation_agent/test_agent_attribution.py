@@ -16,7 +16,7 @@ def test_attribution_records_round0_and_post_hashes() -> None:
         post_agent_element_spec={"elements": []},
         t2_overlay={"operations": [{"proposal_id": "p1"}]},
         t3_overlay={"operations": []},
-        t4_hints={"page_policy_hints": [], "section_profile_hints": [], "page_numbering_hints": []},
+        t4_hints={"section_profile_hints": [], "page_numbering_hints": []},
     )
 
     assert attribution["artifact_type"] == "agent_attribution"

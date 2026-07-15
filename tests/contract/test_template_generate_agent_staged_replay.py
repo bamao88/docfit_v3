@@ -63,7 +63,6 @@ def test_template_generate_cli_staged_replay_writes_pass_plan(tmp_path) -> None:
                             },
                             "t3": {"element_policy_candidates": [], "open_questions": []},
                             "t4": {
-                                "page_policy_hints": [],
                                 "section_profile_hints": [],
                                 "page_numbering_hints": [],
                                 "open_questions": [],
@@ -101,7 +100,6 @@ def test_template_generate_cli_staged_replay_writes_pass_plan(tmp_path) -> None:
                                 "open_questions": [],
                             },
                             "t4": {
-                                "page_policy_hints": [],
                                 "section_profile_hints": [],
                                 "page_numbering_hints": [],
                                 "open_questions": [],
@@ -131,19 +129,19 @@ def test_template_generate_cli_staged_replay_writes_pass_plan(tmp_path) -> None:
     )
 
     assert result.exit_code == 0, result.output
-    pass_plan = read_json(out_dir / "artifacts/template_agent_pass_plan.json")
-    checkpoint = read_json(out_dir / "artifacts/template_agent_post_t2_checkpoint.json")
-    post_t2_input = read_json(out_dir / "artifacts/template_agent_post_t2_input.json")
-    unit_windows = read_json(out_dir / "artifacts/template_agent_unit_windows.json")
-    decisions = read_json(out_dir / "artifacts/template_agent_decisions.json")
+    pass_plan = read_json(out_dir / "08.5_agent_pass_plan.json")
+    checkpoint = read_json(out_dir / "08.6_agent_post_t2_checkpoint.json")
+    post_t2_input = read_json(out_dir / "08.65_agent_post_t2_input.json")
+    unit_windows = read_json(out_dir / "08.7_agent_unit_windows.json")
+    decisions = read_json(out_dir / "10_agent_decisions.json")
     comparison = read_json(
-        out_dir / "artifacts/template_agent_submission_comparison.json"
+        out_dir / "09.5_agent_submission_comparison.json"
     )
     manual_review = read_json(
-        out_dir / "artifacts/template_agent_manual_review_items.json"
+        out_dir / "10.5_agent_manual_review_items.json"
     )
-    unit_map = read_yaml(out_dir / "artifacts/unit_map.yaml")
-    element_spec = read_yaml(out_dir / "artifacts/element_spec.yaml")
+    unit_map = read_yaml(out_dir / "02_unit_map.yaml")
+    element_spec = read_yaml(out_dir / "03_element_spec.yaml")
     assert [item["pass_kind"] for item in pass_plan["passes"]] == [
         "t2_unit_scan",
         "t3_unit_elements",
