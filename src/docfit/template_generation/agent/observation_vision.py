@@ -303,11 +303,11 @@ class MinimaxTextResponder:
     def fetch_elements(self, *, evidence: dict[str, Any], window: dict[str, Any]) -> dict[str, Any]:
         return self._complete("t3", evidence, label=str(window.get("window_id") or "t3"))
 
-    def fetch_element_plan(self, *, evidence: dict[str, Any], task: dict[str, Any]) -> dict[str, Any]:
+    def fetch_unit_plan(self, *, evidence: dict[str, Any], window: dict[str, Any]) -> dict[str, Any]:
         return self._complete(
-            "t3_object",
+            "t3_unit",
             evidence,
-            label=str(task.get("task_id") or task.get("object_id") or "t3_object"),
+            label=str(window.get("window_id") or window.get("unit_id") or "t3_unit"),
         )
 
     def fetch_layout(self, *, evidence: dict[str, Any]) -> dict[str, Any]:
@@ -348,7 +348,7 @@ class MinimaxTextResponder:
                 print(f"  [ cache] {tag}", file=sys.stderr, flush=True)
             return cached
 
-        empty: dict[str, Any] = {} if stage == "t3_object" else {"items": []}
+        empty: dict[str, Any] = {} if stage == "t3_unit" else {"items": []}
         error: str | None = None
         payload = empty
         for attempt in range(1, self._max_attempts + 1):

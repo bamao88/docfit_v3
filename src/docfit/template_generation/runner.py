@@ -10,6 +10,7 @@ from docfit.core.status import Status
 from docfit.ooxml.package import is_valid_docx
 
 from .agent import AgentConfig, AgentConfigError, run_template_agent
+from .agent.packet import build_template_agent_render_packet, load_render_packet
 from .constants import BODY_SLOT_MARKER, DEFAULT_TEMPLATE_GENERATION_STRATEGY
 from .executor import execute_template_generation_plan
 from .generation_model import build_template_generation_model
@@ -20,17 +21,18 @@ from .artifacts import (
     build_global_spec,
     build_template_spec,
     build_unit_map,
-    source_tree_from_document_facts,
-    template_artifact_view_from_template_spec,
 )
-from .outputs import (
-    _new_template_generation_debug_dir,
-    write_template_generation_debug_snapshot,
-    write_template_generation_outputs,
-)
+from .outputs import write_template_generation_outputs
 from .plan import build_template_generation_plan
 from .request import build_template_generation_request
 from .source_tree import inspect_document_facts_docx
+from .stage_inputs import (
+    build_agent_stage_packet,
+    build_t2_stage_input,
+    build_t3_compatibility_input,
+    build_t4_stage_input,
+    l1_artifact_hash,
+)
 from .structure_candidates import build_template_structure_candidates
 from .verifier import verify_template_parse_build
 
@@ -40,7 +42,6 @@ def generate_template(
     out_dir: Path,
     *,
     strategy: str = DEFAULT_TEMPLATE_GENERATION_STRATEGY,
-    debug_root: Path | None = None,
     agent_config: AgentConfig | None = None,
 ) -> StageResult:
     if not source_template_docx.exists():
@@ -83,31 +84,55 @@ def generate_template(
             blocked_at="template_generate",
         )
 
-    debug_dir = _new_template_generation_debug_dir(debug_root)
-    copy_source_snapshot_docx = (
-        debug_dir / "06.0_copy_source_docx.docx" if debug_dir is not None else None
-    )
-
     request = build_template_generation_request(
         source_template_docx,
         out_dir,
         strategy=strategy,
     )
     document_facts = inspect_document_facts_docx(source_template_docx)
-    source_tree = source_tree_from_document_facts(document_facts)
+    effective_agent_config = agent_config or AgentConfig(enabled=False)
+    render_facts = (
+        load_render_packet(effective_agent_config.render_packet_path)
+        if effective_agent_config.render_packet_path is not None
+        else build_template_agent_render_packet(
+            document_facts=document_facts,
+            structure_candidates={},
+            source_template_docx=source_template_docx,
+            render_artifacts_dir=out_dir / "agent_render_artifacts",
+        )
+    )
+    l1_input_contract = build_l1_input_contract(
+        document_facts=document_facts,
+        render_packet=render_facts,
+    )
+    l1_hash = l1_artifact_hash(l1_input_contract)
+    t2_stage_input = build_t2_stage_input(l1_input_contract)
+    t3_compatibility_input = build_t3_compatibility_input(l1_input_contract)
+    t4_stage_input = build_t4_stage_input(l1_input_contract)
+    agent_stage_packet = build_agent_stage_packet(l1_input_contract)
+    source_tree = t2_stage_input["source_tree"]
+    t2_facts = t2_stage_input["facts"]
+    t3_facts = t3_compatibility_input["facts"]
+    t4_facts = t4_stage_input["facts"]
     structure_candidates = build_template_structure_candidates(source_tree)
     t2_input = structure_candidates.get("t2_input")
-    unit_map = build_unit_map(document_facts, structure_candidates)
+    unit_map = build_unit_map(
+        t2_facts,
+        structure_candidates,
+        l1_hash=l1_hash,
+    )
     code_raw_unit_map = _route_t2_unit_map(
         unit_map,
         route_id="code_raw",
         origin="deterministic_code_before_agent_bridge",
+        l1_hash=l1_hash,
     )
-    global_spec = build_global_spec(document_facts)
+    global_spec = build_global_spec(t4_facts, l1_hash=l1_hash)
     code_raw_global_spec = _route_t4_global_spec(
         global_spec,
         route_id="code_raw",
         origin="deterministic_code_before_agent_bridge",
+        l1_hash=l1_hash,
     )
     generation_model = build_template_generation_model(
         request,
@@ -118,18 +143,19 @@ def generate_template(
         element_spec,
         route_id="code_raw",
         origin="deterministic_code_before_agent_bridge",
+        l1_hash=l1_hash,
     )
-    effective_agent_config = agent_config or AgentConfig(enabled=False)
     try:
         agent_run = run_template_agent(
             source_template_docx=source_template_docx,
             request=request,
-            document_facts=document_facts,
+            document_facts=t3_facts,
             structure_candidates=structure_candidates,
             unit_map=unit_map,
             generation_model=generation_model,
             element_spec=element_spec,
             agent_config=effective_agent_config,
+            render_packet=agent_stage_packet,
             render_artifacts_dir=out_dir / "agent_render_artifacts",
         )
     except AgentConfigError as exc:
@@ -162,40 +188,40 @@ def generate_template(
     global_spec = _merge_t4_agent_hints(global_spec, agent_run.t4_hints)
     t2_ai_unit_observation = _route_t2_ai_observation(
         agent_run.ai_unit_observation,
-        document_facts=document_facts,
+        document_facts=t2_facts,
+        l1_hash=l1_hash,
     )
     t2_merged_unit_map = _route_t2_unit_map(
         unit_map,
         route_id="merged",
         origin="agent_bridge_reconciled_final_t2",
+        l1_hash=l1_hash,
     )
     element_spec = agent_run.element_spec
     t3_ai_element_observation = _route_t3_ai_observation(
         agent_run.ai_element_observation,
-        document_facts=document_facts,
+        document_facts=t3_facts,
+        l1_hash=l1_hash,
     )
     t3_merged_element_spec = _route_t3_element_spec(
         element_spec,
         route_id="merged",
         origin="agent_bridge_reconciled_final_t3",
+        l1_hash=l1_hash,
     )
     t4_ai_layout_observation = _route_t4_ai_observation(
         agent_run.ai_layout_observation,
-        document_facts=document_facts,
+        document_facts=t4_facts,
+        l1_hash=l1_hash,
     )
     t4_merged_global_spec = _route_t4_global_spec(
         global_spec,
         route_id="merged",
         origin="agent_bridge_reconciled_final_t4",
-    )
-    l1_input_contract = build_l1_input_contract(
-        document_facts=document_facts,
-        render_packet=agent_run.render_packet,
-        ai_observation_bundle=agent_run.ai_observation_bundle,
-        observation_bridge=agent_run.observation_bridge,
+        l1_hash=l1_hash,
     )
     template_spec = build_template_spec(
-        document_facts,
+        l1_input_contract,
         unit_map,
         element_spec,
         global_spec,
@@ -203,17 +229,18 @@ def generate_template(
     plan = build_template_generation_plan(
         request,
         generation_model=generation_model,
+        template_spec=template_spec,
     )
-    fillable_template_docx = out_dir / "fillable_template.docx"
+    fillable_template_docx = out_dir / "06.1_fillable_template.docx"
     execution = execute_template_generation_plan(
         source_template_docx,
         fillable_template_docx,
         plan,
-        copy_source_snapshot_docx=copy_source_snapshot_docx,
+        l1_input_contract=l1_input_contract,
     )
     build_manifest = build_template_generation_manifest(
         request=request,
-        document_facts=document_facts,
+        l1_input_contract=l1_input_contract,
         unit_map=unit_map,
         element_spec=element_spec,
         global_spec=global_spec,
@@ -221,90 +248,36 @@ def generate_template(
         plan=plan,
         fillable_template_docx=fillable_template_docx,
         execution=execution,
-        debug_snapshot_dir=debug_dir,
-        copy_source_snapshot_docx=copy_source_snapshot_docx,
-    )
-    template_artifact = template_artifact_view_from_template_spec(
-        request,
-        template_spec,
-        fillable_template_docx=str(fillable_template_docx),
-        build_manifest="build_manifest.json",
     )
     verification_status, verification_findings, verification_report, verification_coverage = (
         verify_template_parse_build(
-            document_facts=document_facts,
-            unit_map=unit_map,
-            element_spec=element_spec,
-            global_spec=global_spec,
-            template_spec=template_spec,
-            build_manifest=build_manifest,
-            fillable_template_docx=fillable_template_docx,
-        )
-    )
-    if debug_dir is not None:
-        write_template_generation_debug_snapshot(
-            debug_dir,
-            source_template_docx=source_template_docx,
-            request=request,
             document_facts=document_facts,
             l1_input_contract=l1_input_contract,
             unit_map=unit_map,
             element_spec=element_spec,
             global_spec=global_spec,
             template_spec=template_spec,
-            source_tree=source_tree,
-            structure_candidates=structure_candidates,
-            generation_model=generation_model,
-            plan=plan,
-            copy_source_snapshot_docx=copy_source_snapshot_docx,
-            fillable_template_docx=fillable_template_docx,
             build_manifest=build_manifest,
-            verification_report=verification_report,
-            t2_input=t2_input if isinstance(t2_input, dict) else None,
-            t2_code_unit_map=code_raw_unit_map,
-            t2_ai_unit_observation=t2_ai_unit_observation,
-            t2_merged_unit_map=t2_merged_unit_map,
-            t3_code_element_spec=code_raw_element_spec,
-            t3_ai_element_observation=t3_ai_element_observation,
-            t3_merged_element_spec=t3_merged_element_spec,
-            t4_code_global_spec=code_raw_global_spec,
-            t4_ai_layout_observation=t4_ai_layout_observation,
-            t4_merged_global_spec=t4_merged_global_spec,
-            agent_render_packet=agent_run.render_packet,
-            agent_pass_plan=agent_run.pass_plan,
-            agent_post_t2_checkpoint=agent_run.post_t2_checkpoint,
-            agent_post_t2_input=agent_run.post_t2_input,
-            agent_unit_windows=agent_run.unit_windows,
-            agent_transcript=agent_run.transcript,
-            agent_observation_bundle=agent_run.ai_observation_bundle,
-            agent_observation_bridge=agent_run.observation_bridge,
-            agent_submission_comparison=agent_run.submission_comparison,
-            agent_decisions=agent_run.decisions,
-            agent_manual_review_items=agent_run.manual_review_items,
-            agent_t2_overlay=agent_run.t2_overlay,
-            agent_t3_overlay=agent_run.t3_overlay,
-            agent_t4_hints=agent_run.t4_hints,
-            agent_attribution=agent_run.attribution,
+            fillable_template_docx=fillable_template_docx,
         )
-
+    )
     artifact_paths = {
         "fillable_template_docx": fillable_template_docx,
         "generated_template_docx": fillable_template_docx,
     }
-    if debug_dir is not None:
-        artifact_paths["template_generation_debug_dir"] = debug_dir
-
     artifacts = {
         "template_generation_request": request,
         "document_facts": document_facts,
         "template_generation_l1_input_contract": l1_input_contract,
+        "t2_l1_stage_input": t2_stage_input,
+        "t3_l1_compatibility_input": t3_compatibility_input,
+        "t4_l1_stage_input": t4_stage_input,
         "unit_map": unit_map,
         "element_spec": element_spec,
         "global_spec": global_spec,
         "template_spec": template_spec,
         "build_manifest": build_manifest,
         "verification_report": verification_report,
-        "template_artifact": template_artifact,
         "source_template_tree": source_tree,
         "template_structure_candidates": structure_candidates,
         "template_generation_model": generation_model,
@@ -321,8 +294,6 @@ def generate_template(
     }
     if isinstance(t2_input, dict):
         artifacts["t2_input"] = t2_input
-    if agent_run.render_packet is not None:
-        artifacts["template_agent_render_packet"] = agent_run.render_packet
     if agent_run.pass_plan is not None:
         artifacts["template_agent_pass_plan"] = agent_run.pass_plan
     if agent_run.post_t2_checkpoint is not None:
@@ -376,7 +347,7 @@ def generate_template(
         ),
         user_message=(
             "template_generate produced document_facts, template_spec, "
-            "fillable_template.docx, and deterministic verification evidence."
+            "06.1_fillable_template.docx and deterministic verification evidence."
         ),
     )
 
@@ -418,6 +389,7 @@ def _route_t2_unit_map(
     *,
     route_id: str,
     origin: str,
+    l1_hash: str,
 ) -> dict[str, object]:
     return _route_stage_artifact(
         unit_map,
@@ -425,6 +397,7 @@ def _route_t2_unit_map(
         stage_id="T2",
         stage_key="t2_unit_recognition",
         origin=origin,
+        l1_hash=l1_hash,
     )
 
 
@@ -433,6 +406,7 @@ def _route_t3_element_spec(
     *,
     route_id: str,
     origin: str,
+    l1_hash: str,
 ) -> dict[str, object]:
     return _route_stage_artifact(
         element_spec,
@@ -440,6 +414,7 @@ def _route_t3_element_spec(
         stage_id="T3",
         stage_key="t3_element_policy",
         origin=origin,
+        l1_hash=l1_hash,
     )
 
 
@@ -448,6 +423,7 @@ def _route_t4_global_spec(
     *,
     route_id: str,
     origin: str,
+    l1_hash: str,
 ) -> dict[str, object]:
     return _route_stage_artifact(
         global_spec,
@@ -455,6 +431,7 @@ def _route_t4_global_spec(
         stage_id="T4",
         stage_key="t4_global_layout",
         origin=origin,
+        l1_hash=l1_hash,
     )
 
 
@@ -570,12 +547,12 @@ def _layout_hint_effective_record(
     return {
         "proposal_id": hint.get("proposal_id"),
         "kind": hint.get("kind"),
+        "collection": hint.get("collection"),
         "effective_action": action,
-        "reason": reason,
-        "source_seq_refs": hint.get("source_seq_refs", []),
-        "page_nos": hint.get("page_nos", []),
-        "render_target_refs": hint.get("render_target_refs", []),
-        "changed_authoritative_field": False,
+        "changed_from_code": False,
+        "explicit_noop_with_reason": reason,
+        "source_seq_refs": list(hint.get("source_seq_refs") or []),
+        "evidence_refs": list(hint.get("evidence") or hint.get("evidence_refs") or []),
     }
 
 
@@ -586,6 +563,7 @@ def _route_stage_artifact(
     stage_id: str,
     stage_key: str,
     origin: str,
+    l1_hash: str,
 ) -> dict[str, object]:
     routed = deepcopy(payload)
     routed["route"] = {
@@ -594,6 +572,7 @@ def _route_stage_artifact(
         "stage_key": stage_key,
         "availability": "AVAILABLE",
         "origin": origin,
+        "l1_hash": l1_hash,
     }
     return routed
 
@@ -602,6 +581,7 @@ def _route_t2_ai_observation(
     ai_unit_observation: dict[str, object] | None,
     *,
     document_facts: dict[str, object],
+    l1_hash: str,
 ) -> dict[str, object]:
     if isinstance(ai_unit_observation, dict):
         routed = deepcopy(ai_unit_observation)
@@ -611,6 +591,7 @@ def _route_t2_ai_observation(
             "stage_key": "t2_unit_recognition",
             "availability": "AVAILABLE",
             "origin": "module1_ai_unit_observation",
+            "l1_hash": l1_hash,
         }
         return routed
     return _unavailable_ai_observation(
@@ -620,6 +601,7 @@ def _route_t2_ai_observation(
         stage_key="t2_unit_recognition",
         origin="module1_ai_unit_observation",
         document_facts=document_facts,
+        l1_hash=l1_hash,
     )
 
 
@@ -627,6 +609,7 @@ def _route_t3_ai_observation(
     ai_element_observation: dict[str, object] | None,
     *,
     document_facts: dict[str, object],
+    l1_hash: str,
 ) -> dict[str, object]:
     if isinstance(ai_element_observation, dict):
         routed = deepcopy(ai_element_observation)
@@ -636,6 +619,7 @@ def _route_t3_ai_observation(
             "stage_key": "t3_element_policy",
             "availability": "AVAILABLE",
             "origin": "module1_ai_element_observation",
+            "l1_hash": l1_hash,
         }
         return routed
     return _unavailable_ai_observation(
@@ -645,6 +629,7 @@ def _route_t3_ai_observation(
         stage_key="t3_element_policy",
         origin="module1_ai_element_observation",
         document_facts=document_facts,
+        l1_hash=l1_hash,
     )
 
 
@@ -652,6 +637,7 @@ def _route_t4_ai_observation(
     ai_layout_observation: dict[str, object] | None,
     *,
     document_facts: dict[str, object],
+    l1_hash: str,
 ) -> dict[str, object]:
     if isinstance(ai_layout_observation, dict):
         routed = deepcopy(ai_layout_observation)
@@ -661,6 +647,7 @@ def _route_t4_ai_observation(
             "stage_key": "t4_global_layout",
             "availability": "AVAILABLE",
             "origin": "module1_ai_layout_observation",
+            "l1_hash": l1_hash,
         }
         return routed
     routed = _unavailable_ai_observation(
@@ -670,6 +657,7 @@ def _route_t4_ai_observation(
         stage_key="t4_global_layout",
         origin="module1_ai_layout_observation",
         document_facts=document_facts,
+        l1_hash=l1_hash,
     )
     routed["default_font"] = None
     routed["page_numbering"] = None
@@ -686,6 +674,7 @@ def _unavailable_ai_observation(
     stage_key: str,
     origin: str,
     document_facts: dict[str, object],
+    l1_hash: str,
 ) -> dict[str, object]:
     source_seq_refs = _document_source_seq_refs(document_facts)
     return {
@@ -700,6 +689,7 @@ def _unavailable_ai_observation(
             "stage_key": stage_key,
             "availability": "NOT_AVAILABLE",
             "origin": origin,
+            "l1_hash": l1_hash,
             "reason": "no AI observation bundle was supplied for this run",
         },
         "items": [],

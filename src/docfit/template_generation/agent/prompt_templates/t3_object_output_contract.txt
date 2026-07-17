@@ -1,1 +1,0 @@
-返回 JSON 对象：{"object_hypothesis":{"archetype":"<对象原型>","purpose":"<整体用途>","confidence":"low|medium|high"},"regions":[{"region":"<区域名>","row_refs":[<可选行号>],"pattern":"<结构模式>"}],"relationship_patterns":[{"pattern":"..."}],"quality_risks":["<容易破坏最终模板的风险>"]}。这是软性整体计划，不要输出 items，不要逐元素分配 policy。只输出 JSON。

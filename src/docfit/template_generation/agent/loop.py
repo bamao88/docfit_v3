@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
 from pathlib import Path
 from typing import Any
 
 from docfit.core.io import now_iso, sha256_json
+from docfit.template_generation.input_contract import build_l1_input_contract
+from docfit.template_generation.stage_inputs import build_agent_stage_packet
 
 from .attribution import (
     build_agent_attribution,
@@ -22,7 +23,7 @@ from .comparison import (
     compare_proposal,
     comparison_rejection_decision,
 )
-from .config import AgentConfig, AgentConfigError, LIVE_TRANSPORTS, require_valid_agent_config
+from .config import AgentConfig, AgentConfigError, require_valid_agent_config
 from .manual_review import build_agent_manual_review_items
 from .observation_bridge import (
     build_observation_bridge,
@@ -35,8 +36,6 @@ from .reconciler import process_proposal
 from .regenerate import regenerate_from_structure_candidates
 from .replay import load_agent_transcript, pass_plan_from_steps, transcript_steps
 from .schema import iter_layer_proposals, schema_error_decisions, validate_layered_submission
-from .tools import agent_tool_schemas, execute_agent_tool_call
-from .transport import KimiOpenAICompatibleTransport, MinimaxOpenAICompatibleTransport
 from .windows import build_agent_unit_windows, t3_window_error, window_for_step
 
 
@@ -78,6 +77,7 @@ def run_template_agent(
     generation_model: dict[str, Any],
     element_spec: dict[str, Any],
     agent_config: AgentConfig,
+    render_packet: dict[str, Any] | None = None,
     render_artifacts_dir: Path | None = None,
 ) -> AgentRunResult:
     if not agent_config.enabled:
@@ -91,21 +91,27 @@ def run_template_agent(
         )
 
     require_valid_agent_config(agent_config)
-    packet = (
-        load_render_packet(agent_config.render_packet_path)
-        if agent_config.render_packet_path is not None
-        else build_template_agent_render_packet(
-            document_facts=document_facts,
-            structure_candidates=structure_candidates,
-            source_template_docx=source_template_docx,
-            render_artifacts_dir=render_artifacts_dir,
+    if render_packet is not None:
+        packet = render_packet
+    else:
+        render_facts = (
+            load_render_packet(agent_config.render_packet_path)
+            if agent_config.render_packet_path is not None
+            else build_template_agent_render_packet(
+                document_facts=document_facts,
+                structure_candidates=structure_candidates,
+                source_template_docx=source_template_docx,
+                render_artifacts_dir=render_artifacts_dir,
+            )
         )
-    )
+        packet = build_agent_stage_packet(
+            build_l1_input_contract(
+                document_facts=document_facts,
+                render_packet=render_facts,
+            )
+        )
     if (
-        (
-            agent_config.transport in LIVE_TRANSPORTS
-            or agent_config.observation_mode == "live"
-        )
+        agent_config.observation_mode == "live"
         and packet.get("render_status") != "real_render"
         and not agent_config.allow_live_without_real_render
     ):
@@ -133,12 +139,7 @@ def run_template_agent(
         ai_unit_observation = None
         ai_element_observation = None
         ai_layout_observation = None
-        transcript, steps = _load_submissions(
-            agent_config,
-            packet=packet,
-            request=request,
-            structure_candidates=structure_candidates,
-        )
+        transcript, steps = _load_submissions(agent_config)
     pass_plan = build_agent_pass_plan(
         pass_plan_from_steps(
             steps,
@@ -576,70 +577,10 @@ def _t2_boundary_batch_decision(
 
 def _load_submissions(
     config: AgentConfig,
-    *,
-    packet: dict[str, Any],
-    request: dict[str, Any],
-    structure_candidates: dict[str, Any],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    if config.transport == "replay":
-        assert config.transcript_path is not None
-        transcript = load_agent_transcript(config.transcript_path)
-        return transcript, transcript_steps(transcript, max_rounds=config.max_rounds)
-
-    if config.transport in {"kimi", "minimax"}:
-        if config.transport == "kimi":
-            transport = KimiOpenAICompatibleTransport(
-                model=config.model or "kimi-for-coding",
-            )
-        else:
-            transport = MinimaxOpenAICompatibleTransport(
-                model=config.model or "minimax-text-01",
-            )
-        rounds: list[dict[str, Any]] = []
-        pass_specs = _live_pass_specs(
-            config=config,
-            packet=packet,
-            structure_candidates=structure_candidates,
-        )
-        for round_index, pass_spec in enumerate(pass_specs, start=1):
-            round_id = f"round_{round_index:03d}"
-            submission = transport.complete_round(
-                messages=_live_messages(
-                    packet,
-                    request,
-                    round_index=round_index,
-                    pass_spec=pass_spec,
-                ),
-                tools=agent_tool_schemas(),
-                response_format=None,
-                max_tokens=config.max_tokens,
-                temperature=config.temperature,
-                tool_executor=lambda name, arguments, round_id=round_id: execute_agent_tool_call(
-                    name,
-                    arguments,
-                    packet=packet,
-                    round_id=round_id,
-                    model=transport.model,
-                ),
-            )
-            if submission is None:
-                break
-            tool_trace = submission.pop("_tool_trace", [])
-            rounds.append(
-                {
-                    **pass_spec,
-                    "round_id": submission.get("round_id") or round_id,
-                    "provider": config.transport,
-                    "tool_trace": tool_trace,
-                    "submission": submission,
-                }
-            )
-            if submission.get("abstain"):
-                break
-        transcript = _transcript(rounds, provider=config.transport)
-        return transcript, transcript_steps(transcript, max_rounds=config.max_rounds)
-
-    raise ValueError(f"unsupported live agent transport: {config.transport}")
+    assert config.transcript_path is not None
+    transcript = load_agent_transcript(config.transcript_path)
+    return transcript, transcript_steps(transcript, max_rounds=config.max_rounds)
 
 
 def _pass_context(step: dict[str, Any]) -> dict[str, Any]:
@@ -810,382 +751,4 @@ def _build_post_t2_input(
             seq for seq in sorted(source_seq_values) if seq not in ownership
         ],
         "open_questions": structure_candidates.get("open_questions", []),
-    }
-
-
-def _live_messages(
-    packet: dict[str, Any],
-    request: dict[str, Any],
-    *,
-    round_index: int,
-    pass_spec: dict[str, Any],
-) -> list[dict[str, Any]]:
-    payload = {
-        "round_index": round_index,
-        "pass": pass_spec,
-        "prompt_contract": _prompt_contract(pass_spec),
-        "request": request,
-        "packet": _prompt_packet_view(packet, pass_spec=pass_spec),
-    }
-    return [
-        {
-            "role": "system",
-            "content": _system_prompt(),
-        },
-        {
-            "role": "user",
-            "content": _user_prompt(payload),
-        },
-    ]
-
-
-def _system_prompt() -> str:
-    return "\n".join(
-        [
-            "You are an advisory-only DocFit template agent.",
-            "Your job is to propose precise, evidence-bound improvements to a school thesis template parse.",
-            "You never write final artifacts and never decide PASS/FAIL; deterministic DocFit code will accept or reject every proposal.",
-            "Use the provided tools to inspect packet evidence, then call exactly one submit_t2, submit_t3, submit_t4, or abstain tool.",
-            "For T2, text_outline and query_text source_seq evidence are valid packet evidence even when page images are truncated.",
-            "Do not read or infer signed school standards; use only the packet, pass context, tool results, and optional canonical unit id reference.",
-            "Prefer abstain over speculative proposals when evidence is weak, ambiguous, or outside the active pass/window.",
-        ]
-    )
-
-
-def _user_prompt(payload: dict[str, Any]) -> str:
-    return (
-        "\n".join(
-            [
-                "Run the requested pass with the quality contract below.",
-                "Workflow:",
-                "1. Inspect relevant evidence with query_text and, for layout/page reasoning, view_pages.",
-                "2. Propose only changes that are directly supported by packet evidence.",
-                "   For T2 unit boundaries, packet evidence includes text_outline and query_text source_seq text; page images are optional unless the proposal claims layout/page appearance.",
-                "3. Submit only proposals from pass.allowed_layers.",
-                "4. Bind every proposal to source_seq_refs, page_no/page_nos, or render_target_refs from packet evidence.",
-                "5. Include a short rationale and evidence list on every proposal so humans can audit the decision.",
-                "6. If no high-confidence proposal exists, call abstain with open_questions instead of sending weak guesses.",
-                "Quality pitfalls to avoid: duplicate existing units, broad source ranges, cross-window T3 edits, unsupported policy values, unbound page hints, and claims based on school standards.",
-                "Context JSON follows.",
-            ]
-        )
-        + "\n"
-        + json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
-    )
-
-
-def _prompt_packet_view(
-    packet: dict[str, Any],
-    *,
-    pass_spec: dict[str, Any],
-) -> dict[str, Any]:
-    return {
-        "artifact_type": packet.get("artifact_type"),
-        "artifact_version": packet.get("artifact_version"),
-        "source_template_docx": packet.get("source_template_docx"),
-        "render_status": packet.get("render_status"),
-        "source_render_hash": packet.get("source_render_hash"),
-        "status_authority": packet.get("status_authority"),
-        "advisory_only": packet.get("advisory_only"),
-        "allowed_ai_tasks": packet.get("allowed_ai_tasks"),
-        "forbidden_ai_tasks": packet.get("forbidden_ai_tasks"),
-        "tool_access": {
-            "query_text": (
-                "Use query_text for exact visible text by source_seq_refs, "
-                "page_nos, or text_query. The tool sees the full packet. "
-                "For T2 source_seq/text-boundary proposals, query_text evidence "
-                "is sufficient even if rendered page images are not included."
-            ),
-            "view_pages": (
-                "Use view_pages for clean or annotated render references. "
-                "The tool sees the full packet."
-            ),
-        },
-        "render_artifacts": _prompt_render_artifact_summary(
-            packet.get("render_artifacts") or {}
-        ),
-        "page_index_summary": _prompt_page_index_summary(packet),
-        "text_outline": _prompt_text_outline(packet, pass_spec=pass_spec),
-        "optional_reference": packet.get("optional_reference"),
-        "round0_snapshot_id": packet.get("round0_snapshot_id"),
-    }
-
-
-def _prompt_render_artifact_summary(render_artifacts: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "render_status": render_artifacts.get("render_status"),
-        "render_engine": render_artifacts.get("render_engine"),
-        "render_version": render_artifacts.get("render_version"),
-        "page_count": render_artifacts.get("page_count"),
-        "text_binding_summary": render_artifacts.get("text_binding_summary"),
-        "render_error": render_artifacts.get("render_error"),
-        "clean_page_images": _prompt_page_artifacts(
-            render_artifacts.get("clean_page_images")
-        ),
-        "annotated_page_images": _prompt_page_artifacts(
-            render_artifacts.get("annotated_page_images")
-        ),
-    }
-
-
-def _prompt_page_artifacts(value: Any) -> list[dict[str, Any]]:
-    result = []
-    for item in value or []:
-        if not isinstance(item, dict):
-            continue
-        result.append(
-            {
-                "page_no": item.get("page_no"),
-                "path": item.get("path"),
-                "sha256": item.get("sha256"),
-                "width_px": item.get("width_px"),
-                "height_px": item.get("height_px"),
-                "image_type": item.get("image_type"),
-            }
-        )
-    return result
-
-
-def _prompt_page_index_summary(packet: dict[str, Any]) -> list[dict[str, Any]]:
-    full_pass = (packet.get("input_windows") or {}).get("full_pass") or {}
-    summary = full_pass.get("page_index_summary")
-    if isinstance(summary, list):
-        return [item for item in summary if isinstance(item, dict)]
-
-    counts: dict[int, int] = {}
-    for item in packet.get("page_text_index", []) or []:
-        if not isinstance(item, dict):
-            continue
-        page_no = _int_or_none(item.get("page_no")) or 1
-        counts[page_no] = counts.get(page_no, 0) + 1
-    return [
-        {"page_no": page_no, "text_items": counts[page_no]}
-        for page_no in sorted(counts)
-    ]
-
-
-def _prompt_text_outline(
-    packet: dict[str, Any],
-    *,
-    pass_spec: dict[str, Any],
-) -> dict[str, Any]:
-    pass_kind = str(pass_spec.get("pass_kind") or "")
-    wanted_refs = _prompt_source_ref_filter(pass_spec)
-    max_items = 180 if wanted_refs else 120
-    max_text_chars = 110 if pass_kind == "t2_unit_scan" else 180
-    items: list[dict[str, Any]] = []
-    total_matching = 0
-    for item in packet.get("page_text_index", []) or []:
-        if not isinstance(item, dict):
-            continue
-        source_seq = _int_or_none(item.get("source_seq"))
-        if wanted_refs and source_seq not in wanted_refs:
-            continue
-        total_matching += 1
-        if len(items) >= max_items:
-            continue
-        items.append(
-            {
-                "source_seq": source_seq,
-                "page_no": item.get("page_no"),
-                "render_target_id": item.get("render_target_id"),
-                "text": _truncate_prompt_text(item.get("text"), max_text_chars),
-            }
-        )
-    return {
-        "scope": "active_unit_window" if wanted_refs else "full_document_outline",
-        "total_matching_items": total_matching,
-        "items": items,
-        "truncated": total_matching > len(items),
-        "note": (
-            "Outline text is truncated for prompt size. Use query_text for exact "
-            "full packet evidence before submitting proposals."
-        ),
-    }
-
-
-def _prompt_source_ref_filter(pass_spec: dict[str, Any]) -> set[int]:
-    unit_window = pass_spec.get("unit_window")
-    if not isinstance(unit_window, dict):
-        return set()
-    return {
-        parsed
-        for value in unit_window.get("source_seq_refs", []) or []
-        if (parsed := _int_or_none(value)) is not None
-    }
-
-
-def _truncate_prompt_text(value: Any, limit: int) -> str:
-    text = str(value or "")
-    if len(text) <= limit:
-        return text
-    return text[: limit - 3] + "..."
-
-
-def _int_or_none(value: Any) -> int | None:
-    try:
-        if value is None or value == "":
-            return None
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _prompt_contract(pass_spec: dict[str, Any]) -> dict[str, Any]:
-    pass_kind = str(pass_spec.get("pass_kind") or "")
-    return {
-        "contract_version": "template-agent-prompt-quality-1.1",
-        "pass_goal": _pass_goal(pass_kind),
-        "allowed_operations": {
-            "t2": ["add_unit", "relabel_unit", "adjust_unit_range", "replace_unit_elements"],
-            "t3": ["set_candidate_policy"],
-            "t4": ["advisory_hints_only"],
-        },
-        "policy_values": ["fixed", "fill", "manual_only", "generated", "remove_instruction"],
-        "proposal_quality_bar": [
-            "proposal_id is stable and unique within the pass",
-            "kind matches the submit tool collection",
-            "source_seq_refs are minimal and directly visible in packet evidence",
-            "rationale explains why the current deterministic parse is likely wrong or incomplete",
-            "evidence lists source_seq/page/render target references used for the proposal",
-            "do not use standards/targets or expected school-specific gold answers",
-        ],
-        "pass_specific_rules": _pass_specific_rules(pass_kind),
-        "abstain_when": [
-            "the evidence is ambiguous",
-            "the required source_seq or target_candidate_id is outside the active window",
-            "the desired operation is not represented by an allowed submit tool",
-            "the proposal would require writing final artifacts directly",
-        ],
-    }
-
-
-def _pass_goal(pass_kind: str) -> str:
-    return {
-        "t2_unit_scan": (
-            "Find missing, mislabeled, or incorrectly bounded template units using "
-            "visible source text and source_seq evidence."
-        ),
-        "t3_unit_elements": (
-            "Within the active unit window, improve element candidate_policy choices "
-            "for existing candidate targets."
-        ),
-        "t4_global_layout": (
-            "Submit advisory-only layout hints based on real rendered pages, page "
-            "numbers, and visible layout evidence."
-        ),
-    }.get(pass_kind, "Submit advisory proposals for the active pass only.")
-
-
-def _pass_specific_rules(pass_kind: str) -> list[str]:
-    if pass_kind == "t2_unit_scan":
-        return [
-            "Use submit_t2 only.",
-            "Prefer canonical unit_id values from optional_reference when the visible text supports them.",
-            "Do not abstain solely because page images are truncated; inspect text_outline/query_text for full-document source_seq boundary evidence.",
-            "Use add_unit for source_seq ranges that are unowned or wrongly absorbed by another unit.",
-            "Use adjust_unit_range only when the new range is minimal and does not cross multiple unrelated units.",
-            "Do not duplicate an existing unit_id; relabel only when evidence names the unit more precisely.",
-        ]
-    if pass_kind == "t3_unit_elements":
-        return [
-            "Use submit_t3 only.",
-            "Stay inside pass.unit_window.source_seq_refs and pass.unit_window.candidate_targets.",
-            "Prefer target_candidate_id from the active unit window when available.",
-            "Use fixed for literal template text, fill for user-filled placeholders, manual_only for content that needs human authoring, generated only for deterministic generated content.",
-            "Never submit T2 boundary changes from a T3 pass.",
-        ]
-    if pass_kind == "t4_global_layout":
-        return [
-            "Use submit_t4 only.",
-            "Submit hints only; do not request direct global_spec/template_spec patches.",
-            "Use page_no/page_nos or render_target_refs from real_render evidence.",
-            "Abstain if render_status is not real_render or page evidence is missing.",
-        ]
-    return ["Use only the submit tool matching pass.allowed_layers."]
-
-
-def _live_pass_specs(
-    *,
-    config: AgentConfig,
-    packet: dict[str, Any],
-    structure_candidates: dict[str, Any],
-) -> list[dict[str, Any]]:
-    specs: list[dict[str, Any]] = [
-        {
-            "pass_id": "t2_unit_scan",
-            "pass_kind": "t2_unit_scan",
-            "window_id": "full_document",
-            "unit_id": None,
-            "allowed_layers": ["t2"],
-            "attempt_index": 1,
-            "checkpoint_summary": _structure_summary(structure_candidates),
-        }
-    ]
-    if config.max_rounds <= 1:
-        return specs[: config.max_rounds]
-
-    windows = build_agent_unit_windows(
-        structure_candidates=structure_candidates,
-        packet=packet,
-    )
-    reserve_t4 = config.max_rounds > 2
-    t3_capacity = max(0, config.max_rounds - len(specs) - (1 if reserve_t4 else 0))
-    for window in windows.get("windows", [])[:t3_capacity]:
-        unit_id = str(window.get("unit_id") or "")
-        specs.append(
-            {
-                "pass_id": f"t3_unit_elements_{unit_id}",
-                "pass_kind": "t3_unit_elements",
-                "window_id": window.get("window_id"),
-                "unit_id": unit_id,
-                "allowed_layers": ["t3"],
-                "attempt_index": 1,
-                "unit_window": window,
-                "checkpoint_summary": _structure_summary(structure_candidates),
-            }
-        )
-    if len(specs) < config.max_rounds:
-        specs.append(
-            {
-                "pass_id": "t4_global_layout",
-                "pass_kind": "t4_global_layout",
-                "window_id": "full_document",
-                "unit_id": None,
-                "allowed_layers": ["t4"],
-                "attempt_index": 1,
-                "checkpoint_summary": _structure_summary(structure_candidates),
-            }
-        )
-    return specs[: config.max_rounds]
-
-
-def _structure_summary(structure_candidates: dict[str, Any]) -> dict[str, Any]:
-    units = []
-    for unit in structure_candidates.get("units", []) or []:
-        if not isinstance(unit, dict):
-            continue
-        units.append(
-            {
-                "unit_id": unit.get("unit_id"),
-                "name": unit.get("name"),
-                "source_seq_refs": unit.get("source_seq_refs", []),
-                "element_count": len(unit.get("elements", []) or []),
-            }
-        )
-    return {
-        "unit_count": len(units),
-        "units": units,
-    }
-
-
-def _transcript(rounds: list[dict[str, Any]], *, provider: str) -> dict[str, Any]:
-    return {
-        "artifact_type": "template_agent_transcript",
-        "artifact_version": "1.0",
-        "created_at": now_iso(),
-        "provider": provider,
-        "rounds": rounds,
-        "stop_reason": "max_rounds_or_abstain",
     }

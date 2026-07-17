@@ -5,5 +5,4 @@ strategy and product semantics in `README.md`, `SPEC.md`, and intentional human
 docs; keep repeatable agent procedures here when they are too long for
 `AGENTS.md`.
 
-- `bootstrap-eval-runbook.md`: bootstrap verification command matrix.
 - `lsp-and-mcp.md`: repo-local Pyright config and Serena MCP setup notes.

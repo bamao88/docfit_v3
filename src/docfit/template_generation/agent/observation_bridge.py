@@ -4,6 +4,11 @@ from copy import deepcopy
 from typing import Any
 
 from docfit.core.io import now_iso, sha256_json
+from docfit.template_generation.page_policy import (
+    PAGE_POLICY_FIELDS,
+    normalize_page_policy,
+    pages_equivalent,
+)
 
 from .schema import empty_layered_submission
 
@@ -23,6 +28,7 @@ COLLECTION_BY_KIND = {
         "unit_candidate": "unit_candidates",
         "block_candidate": "block_candidates",
         "boundary_adjustment": "boundary_adjustments",
+        "page_policy_candidate": "page_policy_candidates",
     },
     "t3": {
         "element_policy_candidate": "element_policy_candidates",
@@ -169,7 +175,33 @@ def _bridge_t2(
             continue
         existing = existing_by_unit.get(unit_id)
         if existing is not None and _ints(existing.get("source_seq_refs")) == refs:
-            proposal_map.append(_map_item(item_id, "t2", None, "noop", "deterministic unit already matches observation"))
+            page_proposal = _t2_page_policy_proposal(
+                item,
+                existing=existing,
+                index=index,
+                item_id=item_id,
+            )
+            if page_proposal is None:
+                proposal_map.append(
+                    _map_item(
+                        item_id,
+                        "t2",
+                        None,
+                        "noop",
+                        "deterministic unit and page policy already match observation",
+                    )
+                )
+            else:
+                proposals["t2"].append(page_proposal)
+                proposal_map.append(
+                    _map_item(
+                        item_id,
+                        "t2",
+                        page_proposal["proposal_id"],
+                        "proposal",
+                        "converted to T2 page policy proposal",
+                    )
+                )
             continue
         proposal_id = f"obs_t2_{_slug(unit_id)}_{index:03d}"
         proposal = {
@@ -189,6 +221,45 @@ def _bridge_t2(
         proposals["t2"].append(proposal)
         proposal_map.append(_map_item(item_id, "t2", proposal_id, "proposal", "converted to T2 proposal"))
     _demotions_to_manual(observation, manual_items, layer="t2")
+
+
+def _t2_page_policy_proposal(
+    item: dict[str, Any],
+    *,
+    existing: dict[str, Any],
+    index: int,
+    item_id: str,
+) -> dict[str, Any] | None:
+    if not any(field in item for field in PAGE_POLICY_FIELDS):
+        return None
+    unit_id = str(item.get("unit_id") or "")
+    observed_page = normalize_page_policy(
+        {
+            field: item.get(field)
+            for field in PAGE_POLICY_FIELDS
+            if field in item
+        },
+        default_origin="ai_observation",
+        default_confidence=_confidence(item),
+        default_evidence_refs=list(item.get("evidence_refs") or []),
+    )
+    existing_page = normalize_page_policy(existing.get("page") or {})
+    if pages_equivalent(existing_page, observed_page):
+        return None
+    proposal_id = f"obs_t2_page_{_slug(unit_id)}_{index:03d}"
+    return {
+        "proposal_id": proposal_id,
+        "kind": "page_policy_candidate",
+        "operation": "set_page_policy",
+        "unit_id": unit_id,
+        "target_unit_id": unit_id,
+        "source_seq_refs": _ints(item.get("source_seq_refs")),
+        "page": observed_page,
+        "rationale": item.get("ai_rationale"),
+        "evidence": item.get("evidence_refs", []),
+        "origin": "ai_observation",
+        "observation_item_id": item_id,
+    }
 
 
 def _bridge_t3(

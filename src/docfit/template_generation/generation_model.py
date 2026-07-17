@@ -93,6 +93,11 @@ def build_template_generation_model(
         "input_hashes": {
             "template_docx": request.get("source_template_hash"),
             "template_structure_candidates": sha256_json(structure_candidates),
+            **(
+                {"l1": structure_candidates.get("input_hashes", {}).get("l1")}
+                if structure_candidates.get("input_hashes", {}).get("l1")
+                else {}
+            ),
         },
         "provenance": {"template_docx": request.get("source_template_docx")},
         "status_notes": [
@@ -682,11 +687,6 @@ def _semantic_field_run_texts(
         raw_run_ids[2]: sample,
         **{raw_run_id: "" for raw_run_id in raw_run_ids[3:]},
     }
-
-
-def _is_layout_square_text(text: str) -> bool:
-    stripped = text.strip()
-    return bool(stripped) and set(stripped) <= {"□"}
 
 
 def _looks_like_sample_value(text: str) -> bool:

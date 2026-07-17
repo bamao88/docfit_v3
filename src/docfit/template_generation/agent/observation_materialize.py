@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Any
 
 from docfit.core.io import now_iso
+from docfit.template_generation.page_policy import PAGE_POLICY_FIELDS, normalize_page_policy
 
 from .observation_schema import (
     ALLOWED_FIELD_TYPES,
@@ -73,7 +74,7 @@ def materialize_unit_observation(
                 "name": raw.get("name"),
                 "order": raw.get("order", index),
                 "source_seq_refs": sorted(bound),
-                "page_start": raw.get("page_start"),
+                **_unit_page_fields(raw),
                 "confidence": confidence,
                 "anchors": raw.get("anchors", []),
                 "evidence_refs": raw.get("evidence_refs", []),
@@ -95,6 +96,26 @@ def materialize_unit_observation(
         demotions=demotions,
         self_consistency=self_consistency,
     )
+
+
+def _unit_page_fields(raw: dict[str, Any]) -> dict[str, Any]:
+    if not any(field in raw for field in PAGE_POLICY_FIELDS):
+        return {"page_start": raw.get("page_start")}
+    page = normalize_page_policy(
+        {
+            field: raw.get(field)
+            for field in PAGE_POLICY_FIELDS
+            if field in raw
+        },
+        default_origin="ai_observation",
+        default_confidence=_normalize_confidence(raw.get("confidence")),
+        default_evidence_refs=list(raw.get("evidence_refs") or []),
+    )
+    return {
+        "page": page,
+        **{field: page[field] for field in PAGE_POLICY_FIELDS},
+        "page_start": raw.get("page_start"),
+    }
 
 
 def materialize_element_observation(
@@ -153,6 +174,9 @@ def materialize_element_observation(
                 "fill_source": raw.get("fill_source"),
                 "generated": raw.get("generated"),
                 "manual_semantics": raw.get("manual_semantics"),
+                "semantic_role": raw.get("semantic_role"),
+                "transformation": raw.get("transformation"),
+                "removal_reason": raw.get("removal_reason"),
                 "ai_rationale": raw.get("ai_rationale"),
                 "ai_decision_path": raw.get("ai_decision_path"),
             }

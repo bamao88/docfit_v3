@@ -15,7 +15,7 @@
 
 | 范围 | 当前状态 | 说明 |
 | --- | --- | --- |
-| 模板解析 / 模板生成 | active | 从学校原始模板 Word 产出 `document_facts.json`、`unit_map.yaml`、`element_spec.yaml`、`global_spec.yaml`、`template_spec.yaml`、`fillable_template.docx` |
+| 模板解析 / 模板生成 | active | 从学校原始模板 Word 产出 `01_document_facts.json`、`02_unit_map.yaml`、`03_element_spec.yaml`、`04_global_spec.yaml`、`05_template_spec.yaml`、`06.1_fillable_template.docx` |
 | 模板质量检查 | active | 用 `template-gap` 和后续标准裁判对照模板阶段标准 |
 | 学生内容提取 | deferred | 流程和阶段边界未实现清楚，暂不制作签收标准 |
 | 内容放置 | deferred | 依赖学生内容提取和模板 slot 语义，暂不制作签收标准 |
@@ -39,7 +39,7 @@ AI 只能读报告、解释问题、建议下一步，不能裁定通过或失�
 
 当前真实主线是模板阶段：
 
-- 模板生成支撑流程能从学校原始模板 Word 产出阶段产物和 `fillable_template.docx`。
+- 模板生成支撑流程能从学校原始模板 Word 产出阶段产物和 `06.1_fillable_template.docx`。
 - 三校模板生成 T1-T5 阶段标准已经准备好，但标准裁判代码还在规划/接入中。
 - 学生内容、放置和渲染相关历史 fixture 可以保留为背景材料，但当前不作为标准制作对象。
 
@@ -61,10 +61,21 @@ uv run pytest
 
 ```bash
 RUN_ROOT=test_outputs/debug/template_generation/manual_hunannongye
-uv run docfit eval template-generate \
+uv run docfit template generate \
   --template inputs/targets/hunannongye/raw/source_template.docx \
   --out "$RUN_ROOT/eval_runs/template_generate"
 ```
+
+模板生成和全流程默认 `--ai off`；需要时显式用 `--ai live`。单独调试
+T2/T3/T4 AI 观察时，使用默认 live 且优先复用已有 run 的阶段入口：
+
+```bash
+uv run docfit template stage t2 \
+  --run "$RUN_ROOT/eval_runs/template_generate" \
+  --out /private/tmp/docfit_observe_t2
+```
+
+具体的 T3 上游复用和 T4 视觉 API 要求见 `docs/current/template-generation.md`。
 
 运行模板差距检查：
 
@@ -72,7 +83,7 @@ uv run docfit eval template-generate \
 RUN_ROOT=test_outputs/debug/template_generation/manual_hunannongye
 uv run docfit eval template-gap \
   --school hunannongye \
-  --generated-template "$RUN_ROOT/eval_runs/template_generate/fillable_template.docx" \
+  --generated-template "$RUN_ROOT/eval_runs/template_generate/06.1_fillable_template.docx" \
   --out "$RUN_ROOT/eval_runs/template_gap"
 ```
 
@@ -84,6 +95,7 @@ uv run docfit eval template-gap \
 | 当前状态、下一步和阻塞项 | `STATUS.md` |
 | 当前启用范围、门禁和 AI 边界 | `docs/current/contracts-and-gates.md` |
 | 模板生成支撑流程 | `docs/current/template-generation.md` |
+| 模板生成各阶段的职责、依赖和输入输出契约 | `docs/current/template-generation-stage-contracts.md` |
 | 新增文件放哪里 | `DIRECTORY_STRUCTURE.md` |
 
 目录规则只是新增文件时的参考，不是项目主线。

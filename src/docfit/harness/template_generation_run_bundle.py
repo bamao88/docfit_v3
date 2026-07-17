@@ -18,7 +18,6 @@ class RunArtifactSpec:
     stage_key: str | None
     stage_id: str | None
     top_level_name: str
-    compat_path: str | None
     payload_type: str
 
 
@@ -28,7 +27,6 @@ RUN_ARTIFACT_SPECS = [
         None,
         None,
         "00_template_generation_request.json",
-        "artifacts/template_generation_request.json",
         "json",
     ),
     RunArtifactSpec(
@@ -36,7 +34,6 @@ RUN_ARTIFACT_SPECS = [
         "t1_document_facts",
         "T1",
         "01_document_facts.json",
-        "artifacts/document_facts.json",
         "json",
     ),
     RunArtifactSpec(
@@ -44,7 +41,6 @@ RUN_ARTIFACT_SPECS = [
         None,
         "L1",
         "01.5_l1_input_contract.json",
-        "artifacts/template_generation_l1_input_contract.json",
         "json",
     ),
     RunArtifactSpec(
@@ -52,7 +48,6 @@ RUN_ARTIFACT_SPECS = [
         "t2_unit_pagination",
         "T2",
         "02_unit_map.yaml",
-        "artifacts/unit_map.yaml",
         "yaml",
     ),
     RunArtifactSpec(
@@ -60,7 +55,6 @@ RUN_ARTIFACT_SPECS = [
         "t3_element_policy",
         "T3",
         "03_element_spec.yaml",
-        "artifacts/element_spec.yaml",
         "yaml",
     ),
     RunArtifactSpec(
@@ -68,7 +62,6 @@ RUN_ARTIFACT_SPECS = [
         "t4_global_layout",
         "T4",
         "04_global_spec.yaml",
-        "artifacts/global_spec.yaml",
         "yaml",
     ),
     RunArtifactSpec(
@@ -76,7 +69,6 @@ RUN_ARTIFACT_SPECS = [
         "t5_template_spec",
         "T5",
         "05_template_spec.yaml",
-        "artifacts/template_spec.yaml",
         "yaml",
     ),
     RunArtifactSpec(
@@ -84,7 +76,6 @@ RUN_ARTIFACT_SPECS = [
         None,
         "T6",
         "06.1_fillable_template.docx",
-        "fillable_template.docx",
         "binary",
     ),
     RunArtifactSpec(
@@ -92,7 +83,6 @@ RUN_ARTIFACT_SPECS = [
         None,
         "T6",
         "06.2_build_manifest.json",
-        "artifacts/build_manifest.json",
         "json",
     ),
     RunArtifactSpec(
@@ -100,7 +90,6 @@ RUN_ARTIFACT_SPECS = [
         None,
         "T7",
         "07_verification_report.json",
-        "artifacts/verification_report.json",
         "json",
     ),
 ]
@@ -288,15 +277,11 @@ def _bind_artifact(
     findings: list[Finding],
 ) -> BoundArtifact:
     top_level_path = run_dir / spec.top_level_name
-    compat_path = run_dir / spec.compat_path if spec.compat_path is not None else None
     path: Path | None = None
     source_kind = "missing"
     if top_level_path.exists():
         path = top_level_path
         source_kind = "ordered_top_level"
-    elif compat_path is not None and compat_path.exists():
-        path = compat_path
-        source_kind = "artifacts_compat"
 
     if path is None:
         findings.append(

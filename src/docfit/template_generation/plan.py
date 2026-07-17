@@ -5,6 +5,11 @@ from typing import Any
 from docfit.core.io import now_iso, sha256_json
 
 from .constants import BODY_SLOT_MARKER
+from .page_policy import (
+    PAGE_POLICY_FIELDS,
+    normalize_page_policy,
+    page_policy_known_values,
+)
 from .refs import _first_source_ref, _paragraph_index
 from .text_utils import _normalize_text
 
@@ -13,6 +18,7 @@ def build_template_generation_plan(
     request: dict[str, Any],
     *,
     generation_model: dict[str, Any],
+    template_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     actions: list[dict[str, Any]] = [
         {
@@ -28,76 +34,12 @@ def build_template_generation_plan(
         }
     ]
     next_id = 2
-    page_boundary_refs: set[str] = set()
-    section_boundary_refs: set[str] = set()
-    for index, unit in enumerate(generation_model.get("data", {}).get("units", [])):
-        if index == 0:
-            continue
-        page = unit.get("page") or {}
-        page_break_rule = str(page.get("page_break") or "")
-        page_policy = _generation_page_policy(page)
-        page_policy_origin = _page_policy_origin(page)
-        agent_proposal_id = _page_policy_agent_proposal_id(page)
-        policy_requires_new_page = page_policy.get("requires_new_page") is True
-        enforcement_hint = str(page_policy.get("enforcement_hint") or "")
-        source_ref = _first_source_ref(unit)
-        if not source_ref:
-            continue
-        if (
-            _page_break_rule_requires_break(page_break_rule)
-            or (
-                policy_requires_new_page
-                and enforcement_hint not in {"section_break", "section"}
-            )
-        ) and source_ref not in page_boundary_refs:
-            actions.append(
-                {
-                    "action_id": f"a_{next_id:03d}",
-                    "action_type": "insert_page_break_before_unit",
-                    "unit_id": unit.get("unit_id"),
-                    "element_id": None,
-                    "source_ref": source_ref,
-                    "affected_source_seq_refs": unit.get("source_seq_refs", []),
-                    "target_ref": source_ref,
-                    "status": "planned",
-                    "reason": (
-                        "unit page rule requires a page break before this unit "
-                        f"(source={page_policy_origin})"
-                    ),
-                    "page_policy_origin": page_policy_origin,
-                    "agent_proposal_id": agent_proposal_id,
-                }
-            )
-            page_boundary_refs.add(source_ref)
-            next_id += 1
-        section_isolation_rule = str(page.get("section_isolation") or "")
-        if (
-            _page_break_rule_requires_break(section_isolation_rule)
-            or (
-                policy_requires_new_page
-                and enforcement_hint in {"section_break", "section"}
-            )
-        ) and source_ref not in section_boundary_refs:
-            actions.append(
-                {
-                    "action_id": f"a_{next_id:03d}",
-                    "action_type": "insert_section_break_before_unit",
-                    "unit_id": unit.get("unit_id"),
-                    "element_id": None,
-                    "source_ref": source_ref,
-                    "affected_source_seq_refs": unit.get("source_seq_refs", []),
-                    "target_ref": source_ref,
-                    "status": "planned",
-                    "reason": (
-                        "unit page rule requires a section boundary before this unit "
-                        f"(source={page_policy_origin})"
-                    ),
-                    "page_policy_origin": page_policy_origin,
-                    "agent_proposal_id": agent_proposal_id,
-                }
-            )
-            section_boundary_refs.add(source_ref)
-            next_id += 1
+    pagination = _build_pagination_actions(
+        _pagination_units(generation_model, template_spec),
+        next_id=next_id,
+    )
+    actions.extend(pagination["actions"])
+    next_id = int(pagination["next_id"])
     for action in _synthetic_unit_title_actions(generation_model):
         action["action_id"] = f"a_{next_id:03d}"
         actions.append(action)
@@ -177,8 +119,211 @@ def build_template_generation_plan(
         "input_hashes": {
             "source_template_docx": request.get("source_template_hash"),
             "template_generation_model": sha256_json(generation_model),
+            **({"template_spec": sha256_json(template_spec)} if template_spec else {}),
         },
+        "page_policy_results": pagination["page_policy_results"],
         "actions": actions,
+    }
+
+
+def _pagination_units(
+    generation_model: dict[str, Any],
+    template_spec: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if template_spec is not None:
+        units = template_spec.get("units")
+        return list(units or []) if isinstance(units, list) else []
+    return list(generation_model.get("data", {}).get("units", []) or [])
+
+
+def _build_pagination_actions(
+    units: list[dict[str, Any]],
+    *,
+    next_id: int,
+) -> dict[str, Any]:
+    actions: list[dict[str, Any]] = []
+    page_policy_results: list[dict[str, Any]] = []
+    page_boundary_refs: set[str] = set()
+    section_boundary_refs: set[str] = set()
+    for index, unit in enumerate(units):
+        page = normalize_page_policy(
+            unit.get("page") or {},
+            document_start=index == 0,
+        )
+        unit_id = str(unit.get("unit_id") or "")
+        result = {
+            "unit_id": unit_id,
+            "page": page,
+            "status": "no_action_required",
+            "planned_action_ids": [],
+            "reason": "page policy has no executable requirement",
+        }
+        unknown_fields = [
+            field for field in PAGE_POLICY_FIELDS if page.get(field) == "unknown"
+        ]
+        planned_ids: list[str] = []
+        page_break = page.get("page_break")
+        source_ref = _first_source_ref(unit)
+        if page_break is True:
+            if not source_ref:
+                result.update(
+                    {
+                        "status": "manual_review",
+                        "reason": "page_break=true but unit has no source_ref",
+                    }
+                )
+            elif index == 0:
+                result["reason"] = "first unit already starts at document start"
+            else:
+                action_id = f"a_{next_id:03d}"
+                action_type = (
+                    "insert_section_break_before_unit"
+                    if _page_enforcement_hint(page) in {"section_break", "section"}
+                    else "insert_page_break_before_unit"
+                )
+                boundary_refs = (
+                    section_boundary_refs
+                    if action_type == "insert_section_break_before_unit"
+                    else page_boundary_refs
+                )
+                if source_ref not in boundary_refs:
+                    actions.append(
+                        _page_boundary_action(
+                            action_id,
+                            action_type=action_type,
+                            target_unit=unit,
+                            policy_unit=unit,
+                            page=page,
+                            reason="unit page_break requires a boundary before this unit",
+                        )
+                    )
+                    boundary_refs.add(source_ref)
+                    planned_ids.append(action_id)
+                    next_id += 1
+        page_isolation = page.get("page_isolation")
+        if page_isolation is True and index + 1 < len(units):
+            next_unit = units[index + 1]
+            next_ref = _first_source_ref(next_unit)
+            if not next_ref:
+                result.update(
+                    {
+                        "status": "manual_review",
+                        "reason": "page_isolation=true but next unit has no source_ref",
+                    }
+                )
+            elif next_ref not in page_boundary_refs:
+                action_id = f"a_{next_id:03d}"
+                actions.append(
+                    _page_boundary_action(
+                        action_id,
+                        action_type="insert_page_break_before_unit",
+                        target_unit=next_unit,
+                        policy_unit=unit,
+                        page=page,
+                        reason=(
+                            "previous unit page_isolation requires the next unit "
+                            "to start on a new page"
+                        ),
+                    )
+                )
+                page_boundary_refs.add(next_ref)
+                planned_ids.append(action_id)
+                next_id += 1
+        keep_together = page.get("keep_together")
+        if keep_together in {True, "local_groups_only"} and page.get("allow_multi_page") is not True:
+            if not source_ref:
+                result.update(
+                    {
+                        "status": "manual_review",
+                        "reason": "keep_together requires a unit source_ref",
+                    }
+                )
+            else:
+                action_id = f"a_{next_id:03d}"
+                actions.append(
+                    _keep_together_action(
+                        action_id,
+                        unit=unit,
+                        page=page,
+                        local_only=keep_together == "local_groups_only",
+                    )
+                )
+                planned_ids.append(action_id)
+                next_id += 1
+        if planned_ids:
+            result.update(
+                {
+                    "status": "action_planned",
+                    "planned_action_ids": planned_ids,
+                    "reason": "page policy mapped to planned T6 actions",
+                }
+            )
+        if unknown_fields:
+            result.update(
+                {
+                    "status": "manual_review",
+                    "unknown_fields": unknown_fields,
+                    "planned_action_ids": planned_ids,
+                    "reason": f"page policy has unknown fields: {unknown_fields}",
+                }
+            )
+        if page_policy_known_values(page) or unknown_fields:
+            page_policy_results.append(result)
+    return {
+        "actions": actions,
+        "page_policy_results": page_policy_results,
+        "next_id": next_id,
+    }
+
+
+def _page_boundary_action(
+    action_id: str,
+    *,
+    action_type: str,
+    target_unit: dict[str, Any],
+    policy_unit: dict[str, Any],
+    page: dict[str, Any],
+    reason: str,
+) -> dict[str, Any]:
+    source_ref = _first_source_ref(target_unit)
+    return {
+        "action_id": action_id,
+        "action_type": action_type,
+        "unit_id": target_unit.get("unit_id"),
+        "page_policy_unit_id": policy_unit.get("unit_id"),
+        "element_id": None,
+        "source_ref": source_ref,
+        "affected_source_seq_refs": target_unit.get("source_seq_refs", []),
+        "page_policy_owner_source_seq_refs": policy_unit.get("source_seq_refs", []),
+        "target_ref": source_ref,
+        "status": "planned",
+        "reason": f"{reason} (source={_page_policy_origin(page)})",
+        **_page_policy_trace(page),
+    }
+
+
+def _keep_together_action(
+    action_id: str,
+    *,
+    unit: dict[str, Any],
+    page: dict[str, Any],
+    local_only: bool,
+) -> dict[str, Any]:
+    source_ref = _first_source_ref(unit)
+    return {
+        "action_id": action_id,
+        "action_type": "set_keep_together_unit",
+        "unit_id": unit.get("unit_id"),
+        "page_policy_unit_id": unit.get("unit_id"),
+        "element_id": None,
+        "source_ref": source_ref,
+        "affected_source_seq_refs": unit.get("source_seq_refs", []),
+        "affected_source_refs": unit.get("source_refs", []),
+        "target_ref": source_ref,
+        "status": "planned",
+        "keep_scope": "local_groups_only" if local_only else "whole_unit",
+        "reason": f"unit keep_together requires OOXML keep flags (source={_page_policy_origin(page)})",
+        **_page_policy_trace(page),
     }
 
 
@@ -303,7 +448,8 @@ def _generation_page_policy(page: dict[str, Any]) -> dict[str, Any]:
 
 
 def _page_policy_origin(page: dict[str, Any]) -> str:
-    origin = str(page.get("origin") or "")
+    decision = page.get("decision") if isinstance(page.get("decision"), dict) else {}
+    origin = str(decision.get("origin") or page.get("origin") or "")
     if origin:
         return origin
     generation_policy = _generation_page_policy(page)
@@ -312,9 +458,32 @@ def _page_policy_origin(page: dict[str, Any]) -> str:
 
 
 def _page_policy_agent_proposal_id(page: dict[str, Any]) -> str | None:
+    decision = page.get("decision") if isinstance(page.get("decision"), dict) else {}
+    proposal_ids = decision.get("proposal_ids") or []
+    if proposal_ids:
+        return str(proposal_ids[0])
     proposal_id = page.get("agent_proposal_id")
     if proposal_id:
         return str(proposal_id)
     generation_policy = _generation_page_policy(page)
     proposal_id = generation_policy.get("agent_proposal_id")
     return str(proposal_id) if proposal_id else None
+
+
+def _page_enforcement_hint(page: dict[str, Any]) -> str:
+    return str(_generation_page_policy(page).get("enforcement_hint") or "")
+
+
+def _page_policy_trace(page: dict[str, Any]) -> dict[str, Any]:
+    decision = page.get("decision") if isinstance(page.get("decision"), dict) else {}
+    return {
+        "page_policy": {
+            field: page.get(field)
+            for field in PAGE_POLICY_FIELDS
+        },
+        "page_policy_origin": _page_policy_origin(page),
+        "page_policy_confidence": decision.get("confidence"),
+        "page_policy_evidence_refs": list(decision.get("evidence_refs") or []),
+        "page_policy_proposal_ids": list(decision.get("proposal_ids") or []),
+        "agent_proposal_id": _page_policy_agent_proposal_id(page),
+    }

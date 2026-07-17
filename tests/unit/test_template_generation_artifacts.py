@@ -5,6 +5,7 @@ from docfit.template_generation.artifacts import (
     build_global_spec,
     build_template_spec,
 )
+from docfit.template_generation.input_contract import build_l1_input_contract
 from docfit.template_generation.verifier import (
     _verify_t4_global_spec,
     _verify_t5_template_spec,
@@ -143,7 +144,7 @@ def test_template_spec_binds_units_to_overlapping_section_profiles() -> None:
     }
 
     template_spec = build_template_spec(
-        document_facts,
+        build_l1_input_contract(document_facts=document_facts),
         unit_map,
         {"artifact_type": "element_spec", "elements": [], "flags": []},
         global_spec,
@@ -179,7 +180,7 @@ def test_template_spec_records_cross_section_unit_flag() -> None:
     }
 
     template_spec = build_template_spec(
-        document_facts,
+        build_l1_input_contract(document_facts=document_facts),
         unit_map,
         {"artifact_type": "element_spec", "elements": [], "flags": []},
         global_spec,

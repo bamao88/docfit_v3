@@ -20,7 +20,7 @@ standards/targets/<target_id>/v1/template_generation/t5_template_spec.standard.y
 
 | 不属于本文 | 为什么 |
 | --- | --- |
-| `verification_report.json` | 这是 `template-generate` 伴随某次运行产生的产物检查结果 |
+| `07_verification_report.json` | 这是 `template-generate` 伴随某次运行产生的产物检查结果 |
 | `template_gap_report.*` | 这是 `template-gap` 对最终 Word 的学校格式差距检查 |
 
 ## 现在已经有的
@@ -62,7 +62,7 @@ uv run docfit eval standards --school hunannongye --out runs/eval/standards_audi
 | 阶段类型深校验仍有限 | 例如 T1 必须有 `forbidden_semantic_fields`，T3 必须有 `element_policy_contract`，T4 必须有 `global_layout_contract`，T5 必须有 `template_spec_contract`，这些还需要继续扩展确定性检查 |
 | 没有 hash 反查审计 | 标准里写的源模板、review packet、final template 引用和 sha256，还没有在阶段标准质量检查里逐项重新计算验证 |
 | 阶段质量深校验仍需扩展 | real-core T1-T5 gate 已开启，但标准质量检查仍需继续补 source/review/final template hash 反查 |
-| T6/T7 还没有阶段标准 | `fillable_template.docx`、`build_manifest.json`、`verification_report.json` 当前只能做 run bundle 证据绑定，不能伪装成已有阶段标准比较 |
+| T6/T7 还没有阶段标准 | `06.1_fillable_template.docx`、`06.2_build_manifest.json`、`07_verification_report.json` 当前只能做 run bundle 证据绑定，不能伪装成已有阶段标准比较 |
 
 所以，目前不能说“阶段标准质量衡量已经产品化”。更准确的状态是：
 
@@ -107,7 +107,7 @@ target.standard.yaml
   -> template_generation_stage_standard_quality_report.json
 ```
 
-它不读取本次 `template-generate` 的 `document_facts.json`、`unit_map.yaml`、`template_spec.yaml`。这些是阶段 verifier 的输入，不是标准质量衡量的输入。
+它不读取本次 `template-generate` 的 `01_document_facts.json`、`02_unit_map.yaml`、`05_template_spec.yaml`。这些是阶段 verifier 的输入，不是标准质量衡量的输入。
 
 建议检查顺序：
 
@@ -311,7 +311,7 @@ template_generation_stage_standard_quality_report.md
 不要叫：
 
 ```text
-verification_report.json
+07_verification_report.json
 template_gap_report.json
 ```
 

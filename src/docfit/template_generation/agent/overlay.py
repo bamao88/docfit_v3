@@ -4,6 +4,7 @@ from copy import deepcopy
 from typing import Any
 
 from docfit.core.io import sha256_json
+from docfit.template_generation.page_policy import normalize_page_policy
 from docfit.template_generation.constants import MANUAL_ONLY_UNIT_IDS, UNIT_DEFINITION_NAMES
 from docfit.template_generation.structure_candidates import (
     _element_name,
@@ -18,6 +19,7 @@ T2_OPERATIONS = {
     "relabel_unit",
     "adjust_unit_range",
     "replace_unit_elements",
+    "set_page_policy",
 }
 T3_POLICIES = {"fixed", "fill", "manual_only", "generated", "remove_instruction"}
 
@@ -127,6 +129,33 @@ def apply_t2_proposal(
             entries_by_seq,
             unit_id=str(target.get("unit_id") or ""),
         )
+        target.setdefault("agent_traces", []).append(_trace(proposal))
+        patched["units"] = _sorted_units(units)
+    elif operation == "set_page_policy":
+        target = _resolve_target_unit(units, proposal)
+        if target is None:
+            return None, None, "set_page_policy target is ambiguous or missing"
+        page = proposal.get("page")
+        if not isinstance(page, dict):
+            page = {
+                field: proposal.get(field)
+                for field in (
+                    "page_break",
+                    "page_isolation",
+                    "allow_multi_page",
+                    "keep_together",
+                )
+                if field in proposal
+            }
+        existing_page = target.get("page") if isinstance(target.get("page"), dict) else {}
+        merged_page = normalize_page_policy(
+            {**existing_page, **page},
+            default_origin=str(proposal.get("origin") or "ai_observation"),
+            default_confidence=str(proposal.get("confidence") or "medium"),
+            default_evidence_refs=list(proposal.get("evidence") or []),
+            default_proposal_ids=[str(proposal.get("proposal_id") or "")],
+        )
+        target["page"] = merged_page
         target.setdefault("agent_traces", []).append(_trace(proposal))
         patched["units"] = _sorted_units(units)
 
@@ -324,6 +353,7 @@ def _t2_operation(proposal: dict[str, Any], collection: str) -> str:
         "unit_candidates": "add_unit",
         "block_candidates": "replace_unit_elements",
         "boundary_adjustments": "adjust_unit_range",
+        "page_policy_candidates": "set_page_policy",
     }.get(collection, "")
 
 

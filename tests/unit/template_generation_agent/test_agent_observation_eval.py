@@ -58,6 +58,60 @@ def test_unit_stage_ignores_unknown_unit() -> None:
     assert result["extra_units"] == []
 
 
+def test_unit_stage_evaluates_page_policy_accuracy() -> None:
+    standard = {
+        "unit_order": ["cover", "toc"],
+        "units": [
+            {
+                "unit_id": "cover",
+                "page": {
+                    "page_break": "document_start",
+                    "page_isolation": True,
+                    "allow_multi_page": False,
+                    "keep_together": True,
+                },
+            },
+            {
+                "unit_id": "toc",
+                "page": {
+                    "page_break": True,
+                    "page_isolation": False,
+                    "allow_multi_page": True,
+                    "keep_together": "local_groups_only",
+                },
+            },
+        ],
+    }
+    obs = {
+        "items": [
+            {
+                "unit_id": "cover",
+                "page_break": "document_start",
+                "page_isolation": True,
+                "allow_multi_page": False,
+                "keep_together": True,
+            },
+            {
+                "unit_id": "toc",
+                "page_break": True,
+                "page_isolation": "unknown",
+                "allow_multi_page": True,
+                "keep_together": "local_groups_only",
+            },
+        ]
+    }
+
+    result = _evaluate_ai_unit_accuracy(obs, standard)
+    page_eval = result["page_policy_accuracy"]
+
+    assert page_eval["page_policy_evaluable"] is True
+    assert page_eval["page_policy_owner"] == "T2"
+    assert page_eval["coverage"] == 1.0
+    assert page_eval["field_accuracy"] == round(7 / 8, 4)
+    assert page_eval["exact_match_count"] == 1
+    assert page_eval["mismatch_count"] == 1
+
+
 def test_element_stage_dominant_policy_accuracy() -> None:
     standard = t3_standard({"manual_only_units": ["grade_form"], "fill_units": ["abstract_cn"]})
     # grade_form 主策略应 manual_only（给 2 manual_only + 1 fixed → 众数 manual_only，对）

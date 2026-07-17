@@ -9,7 +9,11 @@ import yaml
 from docfit.core.io import sha256_file
 from docfit.core.models import Finding, make_finding
 from docfit.core.status import Status
-from docfit.harness.coverage import validate_standard_coverage_requirements
+from docfit.harness.profiles import (
+    BOOTSTRAP_PROFILE,
+    REAL_CORE_PROFILE,
+    get_eval_profile,
+)
 
 
 REQUIRED_CONTRACT_FIELDS = {
@@ -50,6 +54,89 @@ class StandardBundle:
 def _load_yaml(path: Path) -> dict[str, Any]:
     loaded = yaml.safe_load(path.read_text(encoding="utf-8"))
     return loaded or {}
+
+
+def validate_standard_coverage_requirements(
+    profile: str | None,
+    required_capabilities: list[str],
+    *,
+    stage: str = "standards",
+    start_index: int = 1,
+) -> list[Finding]:
+    profile_def = get_eval_profile(profile or "")
+    if profile_def is None:
+        return [
+            make_finding(
+                start_index,
+                stage,
+                Status.UNKNOWN,
+                "unknown_coverage_profile",
+                "Signed standard references an unknown coverage profile",
+                ", ".join(
+                    sorted([BOOTSTRAP_PROFILE.profile_id, REAL_CORE_PROFILE.profile_id])
+                ),
+                profile or "missing",
+                root_cause_bucket="coverage_gap",
+            )
+        ]
+
+    expected = set(profile_def.all_required_capabilities())
+    actual = set(required_capabilities)
+    missing = sorted(expected - actual)
+    unknown = sorted(actual - expected)
+    if not missing and not unknown:
+        return []
+
+    details = []
+    if missing:
+        details.append("missing: " + ", ".join(missing))
+    if unknown:
+        details.append("unknown: " + ", ".join(unknown))
+    return [
+        make_finding(
+            start_index,
+            stage,
+            Status.UNKNOWN,
+            "coverage_requirements_drift",
+            "Signed standard coverage requirements do not match the declared capability profile",
+            ", ".join(sorted(expected)),
+            "; ".join(details),
+            root_cause_bucket="coverage_gap",
+        )
+    ]
+
+
+def coverage_gate_findings(
+    stage: str,
+    coverage: dict[str, Any],
+    required_capabilities: list[str],
+    *,
+    start_index: int = 1,
+) -> list[Finding]:
+    missing = [
+        capability
+        for capability in required_capabilities
+        if coverage.get(capability) is not True
+    ]
+    if not missing:
+        return []
+    actual = [
+        f"{capability}={coverage.get(capability, 'missing')}"
+        for capability in missing
+    ]
+    return [
+        make_finding(
+            start_index,
+            stage,
+            Status.UNKNOWN,
+            "coverage_insufficient",
+            f"{stage} coverage is insufficient for the active contract",
+            "all required capabilities covered",
+            ", ".join(actual),
+            affected_ids=missing,
+            root_cause_bucket="coverage_gap",
+        )
+    ]
 
 
 def load_standard_bundle(

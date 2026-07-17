@@ -96,12 +96,10 @@ def test_t3_glossary_defines_policies() -> None:
 
 def test_t3_prompt_teaches_quality_with_selected_positive_and_negative_examples() -> None:
     evidence = {
-        "scope": "t3_object_local_window",
+        "scope": "t3_local_window",
         "source_render_hash": "sha256:x",
         "object_overview": {"object_type": "table", "object_id": "tbl_001"},
-        "object_plan": {
-            "object_hypothesis": {"archetype": "metadata_form", "confidence": "high"}
-        },
+        "unit_plan": {"route": "inspect_suspected_regions"},
         "rows": [{"source_seq": 1, "text": "学生姓名"}],
     }
     prompt = build_observation_prompt(stage="t3", evidence_view=evidence)
@@ -112,31 +110,28 @@ def test_t3_prompt_teaches_quality_with_selected_positive_and_negative_examples(
     assert any(item["exemplar_id"] == "two_column_field_table" for item in prompt["exemplars"])
     assert "bad_result" in system and "excellent_result" in system
     assert "不要把标签和值合并" in system or "固定标签" in system
-
-
-def test_t3_object_prompt_teaches_whole_object_plan_before_policy() -> None:
+def test_t3_unit_prompt_routes_whole_unit_before_local_policy() -> None:
     evidence = {
-        "scope": "t3_object_overview",
+        "scope": "t3_unit_overview",
         "source_render_hash": "sha256:x",
-        "object_overview": {
-            "object_id": "tbl_001",
-            "object_type": "table",
-            "dimensions": {"rows": 8, "columns": 2},
-        },
+        "unit_scope": {"t2_scope_label": "integrity_statement", "source_seq_refs": [1, 2]},
+        "unit_overview": {"objects": []},
+        "routing_options": [],
     }
-    system, user = assemble_observation_messages("t3_object", evidence)
+    system, user = assemble_observation_messages("t3_unit", evidence)
 
-    assert "先理解当前对象的整体用途" in system
-    assert "metadata_form" in system
-    assert "不要逐元素分配 policy" in system
-    assert '"object_type": "table"' in user
+    assert "preserve_whole" in system
+    assert "inspect_suspected_regions" in system
+    assert "错误删除比漏删更严重" in system
+    assert "bad_plan" in system and "excellent_plan" in system
+    assert '"t2_scope_label": "integrity_statement"' in user
 
 
 def test_prompt_hides_private_visual_attachment_paths() -> None:
     evidence = {
-        "scope": "t3_object_overview",
+        "scope": "t3_unit_overview",
         "source_render_hash": "sha256:x",
-        "object_overview": {"object_type": "table"},
+        "unit_scope": {"t2_scope_label": "cover"},
         "visual_evidence": [
             {
                 "visual_ref": "page:1",
@@ -145,7 +140,7 @@ def test_prompt_hides_private_visual_attachment_paths() -> None:
             }
         ],
     }
-    _, user = assemble_observation_messages("t3_object", evidence)
+    _, user = assemble_observation_messages("t3_unit", evidence)
     assert "page:1" in user
     assert "_attachment_path" not in user
     assert "/private/tmp/page.png" not in user

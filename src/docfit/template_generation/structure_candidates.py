@@ -18,6 +18,10 @@ from .constants import (
     UNIT_DEFINITION_NAMES,
     UNIT_DEFINITIONS,
 )
+from .page_policy import (
+    canonical_mechanical_page_policy,
+    canonical_unknown_page_policy,
+)
 from .text_utils import _normalize_for_match, _normalize_text, _strip_format_annotations
 
 
@@ -47,7 +51,14 @@ def build_template_structure_candidates(source_tree: dict[str, Any]) -> dict[str
         "source_template_hash": source_tree.get("metadata", {}).get(
             "source_template_hash"
         ),
-        "input_hashes": {"source_template_tree": sha256_json(source_tree)},
+        "input_hashes": {
+            "source_template_tree": sha256_json(source_tree),
+            **(
+                {"l1": source_tree.get("input_hashes", {}).get("l1")}
+                if source_tree.get("input_hashes", {}).get("l1")
+                else {}
+            ),
+        },
         "discovery_method": "deterministic_multi_signal_boundary_detector",
         "source_context": _source_context_from_source_tree(source_tree),
         "units": units,
@@ -69,10 +80,6 @@ def build_template_structure_candidates(source_tree: dict[str, Any]) -> dict[str
     if t2_input is not None:
         result["t2_input"] = t2_input
     return result
-
-
-def infer_template_rules(source_tree: dict[str, Any]) -> dict[str, Any]:
-    return build_template_structure_candidates(source_tree)
 
 
 def _body_entries(source_tree: dict[str, Any]) -> list[dict[str, Any]]:
@@ -266,6 +273,7 @@ def _infer_units(
         page = _mechanical_page_policy_for_unit(
             anchor,
             region_entries,
+            document_start=anchor_index == 0,
             previous_entry=entries[start_index - 1] if start_index > 0 else None,
             context=context,
         )
@@ -377,6 +385,7 @@ def _empty_body_main_unit() -> dict[str, Any]:
         "responsibility_evidence": [],
         "conflicts": [],
         "confidence": "low",
+        "page": canonical_unknown_page_policy(document_start=True),
         "flags": [
             {
                 "flag_id": "body_main.required_missing",
@@ -395,12 +404,13 @@ def _mechanical_page_policy_for_unit(
     anchor: dict[str, Any],
     region_entries: list[dict[str, Any]],
     *,
+    document_start: bool = False,
     previous_entry: dict[str, Any] | None,
     context: dict[str, Any],
 ) -> dict[str, Any]:
     """Translate OOXML break facts near a unit boundary into unit page policy."""
     if not region_entries:
-        return {}
+        return canonical_unknown_page_policy(document_start=document_start)
 
     first_entry = region_entries[0]
     first_source_ref = str(
@@ -433,31 +443,12 @@ def _mechanical_page_policy_for_unit(
     section_refs = _dedupe_str(section_refs)
     evidence_refs = _dedupe_str([*page_refs, *section_refs])
     if not evidence_refs:
-        return {}
+        return canonical_unknown_page_policy(document_start=document_start)
 
-    enforcement_hint = "section_break" if section_refs and not page_refs else "page_break"
-    page: dict[str, Any] = {
-        "page_policy": {
-            "mechanical": {
-                "has_explicit_break": True,
-                "page_break_evidence_refs": page_refs,
-                "section_break_evidence_refs": section_refs,
-            },
-            "observed": {},
-            "generation_policy": {
-                "requires_new_page": True,
-                "source": "mechanical_fact",
-                "confidence": "high",
-                "enforcement_hint": enforcement_hint,
-                "evidence_refs": evidence_refs,
-            },
-        }
-    }
-    if page_refs:
-        page["page_break"] = "是"
-    if section_refs:
-        page["section_isolation"] = "是"
-    return page
+    return canonical_mechanical_page_policy(
+        page_break_evidence_refs=page_refs,
+        section_break_evidence_refs=section_refs,
+    )
 
 
 def _boundary_scan_paragraph_indices(
@@ -2509,77 +2500,6 @@ def _source_seq_range(source_seq_refs: list[int]) -> dict[str, Any]:
         "end": source_seq_refs[-1],
         "source_seq_refs": source_seq_refs,
     }
-
-
-def _find_body_main_source_entry(
-    entries: list[dict[str, Any]],
-) -> dict[str, Any] | None:
-    candidates: list[tuple[int, int, dict[str, Any]]] = []
-    for entry in entries:
-        text = str(entry.get("text") or "").strip()
-        normalized = _normalize_for_match(text)
-        style = str(entry.get("style") or "").lower()
-        signals = _structural_signals(entry)
-        chapter_heading = _looks_like_body_chapter_heading(normalized)
-        if _body_main_anchor_excluded(text) and not chapter_heading:
-            continue
-        score = 0
-        if style in {"heading 1", "标题 1"} or "heading 1" in style:
-            score += 100
-        if chapter_heading:
-            score += 80
-        if score <= 0:
-            continue
-        if signals.get("short_text"):
-            score += 20
-        if _has_placeholder_chapter_number(text):
-            score -= 70
-        if signals.get("looks_like_instruction_text") and not chapter_heading:
-            score -= 80
-        elif signals.get("looks_like_instruction_text"):
-            score -= 15
-        if len(text) > 60:
-            score -= 40
-        if score <= 0:
-            continue
-        candidates.append((score, -int(entry.get("order") or 0), entry))
-    if not candidates:
-        return None
-    return max(candidates, key=lambda item: (item[0], item[1]))[2]
-
-
-def _looks_like_body_chapter_heading(normalized_text: str) -> bool:
-    return bool(re.match(r"^第[一二三四五六七八九十0-9]+章", normalized_text))
-
-
-def _has_placeholder_chapter_number(text: str) -> bool:
-    return bool(re.search(r"第\s*[Xx]\s*章", text))
-
-
-def _body_main_anchor_excluded(text: str) -> bool:
-    normalized = _normalize_for_match(text)
-    if not normalized:
-        return True
-    excluded = (
-        "目录",
-        "摘要",
-        "abstract",
-        "参考文献",
-        "致谢",
-        "附录",
-        "声明",
-        "封面",
-        "图目录",
-        "表目录",
-        "正文基本格式",
-        "正文标题",
-        "格式",
-        "说明",
-        "黑体",
-        "三号",
-        "第x章",
-    )
-    return any(marker in normalized for marker in excluded)
 
 
 def _rule_unknowns(source_tree: dict[str, Any], units: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -12,7 +12,7 @@ DocFit v3 的长期目标是把学生论文 Word 转成目标学校要求的 Wor
 
 - 学校模板被正确理解；
 - 模板生成 T1-T5 阶段产物可追踪；
-- `fillable_template.docx` 和最终模板 gap 可被检查；
+- `06.1_fillable_template.docx` 和最终模板 gap 可被检查；
 - 缺标准、缺证据、缺检查器时输出 `UNKNOWN`，不能假装成功。
 
 当前不要求证明：
@@ -27,8 +27,8 @@ DocFit v3 的长期目标是把学生论文 Word 转成目标学校要求的 Wor
 
 | 范围 | 当前状态 | 产物或说明 |
 | --- | --- | --- |
-| 模板生成 T1-T5 | active | `document_facts.json`、`unit_map.yaml`、`element_spec.yaml`、`global_spec.yaml`、`template_spec.yaml` |
-| 可填写模板构建 | active | `fillable_template.docx`、`build_manifest.json` |
+| 模板生成 T1-T5 | active | `01_document_facts.json`、`02_unit_map.yaml`、`03_element_spec.yaml`、`04_global_spec.yaml`、`05_template_spec.yaml` |
+| 可填写模板构建 | active | `06.1_fillable_template.docx`、`06.2_build_manifest.json` |
 | 模板 gap / 标准裁判 | active / in progress | `template_gap_report.*`；标准裁判模块已规划，待实现 |
 | 学生内容提取 | deferred | 流程和阶段未定义清楚，不制作标准 |
 | 内容放置 | deferred | 依赖学生内容产物，不制作标准 |
@@ -40,8 +40,8 @@ DocFit v3 的长期目标是把学生论文 Word 转成目标学校要求的 Wor
 flowchart TD
   A["学校 Word 模板"] --> B["1. 模板解析"]
   B --> C["document_facts / unit_map / element_spec / global_spec"]
-  C --> D["template_spec.yaml"]
-  D --> E["fillable_template.docx + build_manifest.json"]
+  C --> D["05_template_spec.yaml"]
+  D --> E["06.1_fillable_template.docx + 06.2_build_manifest.json"]
   E --> F["template-gap / standard judge"]
 
   G["学生源 Word"] -. "deferred" .-> H["内容提取"]
@@ -61,7 +61,7 @@ flowchart TD
 当前真实学校模板还有一个支撑流程：
 
 ```text
-学校原始模板 Word -> template-generate -> fillable_template.docx + template_spec.yaml -> template-gap -> 差距报告
+学校原始模板 Word -> `docfit template generate` -> 06.1_fillable_template.docx + 05_template_spec.yaml -> template-gap -> 差距报告
 ```
 
 这个流程就是当前主线。学生论文转换链路等后续阶段清楚后，再从这里继续往后接。
@@ -73,6 +73,7 @@ flowchart TD
 | `docs/current/README.md` | 项目目标、当前模板主线、读文档顺序 |
 | `docs/current/contracts-and-gates.md` | 当前启用范围、判定、AI 边界 |
 | `docs/current/template-generation.md` | 模板生成支撑流程：字段、执行、证据、template-gap |
+| `docs/current/template-generation-stage-contracts.md` | 模板生成长期阶段契约：T1/L1/T2-T7 职责、依赖、输入输出、身份和 route 不变量 |
 | `docs/current/template-generation-stage-standards.md` | 模板生成 T1-T5 阶段标准：准备方式、使用环节、标准质量和 verify 报告的区别 |
 | `docs/current/template-generation-stage-standard-quality.md` | 阶段标准质量衡量：已有代码、缺口、补全顺序、调用方式和命名规范 |
 | `docs/current/template-generation-stage-optimization.md` | 模板生成各阶段代码优化地图：当前实现、下一步改哪里、first_bad_stage 定位 |
@@ -87,6 +88,7 @@ flowchart TD
 | 理解项目整体 | 本文件 |
 | 判断模板阶段状态能不能通过 | `docs/current/contracts-and-gates.md` |
 | 修改模板生成、字段或 gap 报告 | `docs/current/template-generation.md` |
+| 修改阶段职责、依赖、输入输出或 route 契约 | `docs/current/template-generation-stage-contracts.md` |
 | 查看 T1-T5 标准如何准备、给谁用 | `docs/current/template-generation-stage-standards.md` |
 | 讨论阶段标准质量衡量怎么实现 | `docs/current/template-generation-stage-standard-quality.md` |
 | 讨论模板生成各阶段代码怎么优化 | `docs/current/template-generation-stage-optimization.md` |

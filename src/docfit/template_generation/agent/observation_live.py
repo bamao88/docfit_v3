@@ -11,7 +11,7 @@ json_object 冲突（历史 blocker B3）。送进模型的只有 clean evidence
 from __future__ import annotations
 
 import json
-import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -19,45 +19,62 @@ from typing import Any
 
 from docfit.core.io import sha256_json
 
+from .api_config import (
+    LiveProviderConfig,
+    LiveProviderConfigError,
+    resolve_live_provider_config,
+)
 from .observation_prompts import (
     ObservationPromptTemplates,
     assemble_observation_messages,
 )
 from .observation_multimodal import attachment_refs, openai_user_content
-from .transport import strip_think
-
-KIMI_DEFAULT_BASE_URL = "https://api.kimi.com/coding/v1"
-KIMI_DEFAULT_MODEL = "kimi-for-coding"
-KIMI_DEFAULT_HEADERS = {
-    "User-Agent": "claude-cli/2.0.0 (external, darwin)",
-    "X-Client-Type": "claude-code",
-}
 
 
 class LiveObservationError(RuntimeError):
     pass
 
 
-def build_kimi_client(*, timeout: int = 300) -> tuple[Any, str]:
-    """从环境构造 Kimi OpenAI 兼容 client，返回 (client, model)。"""
+def strip_think(content: str) -> str:
+    return re.sub(r"<think>.*?</think>\s*", "", content, flags=re.DOTALL | re.I).strip()
 
-    api_key = os.environ.get("KIMI_API_KEY")
-    if not api_key:
-        raise LiveObservationError("KIMI_API_KEY is required for live observation")
+
+def build_openai_chat_client(
+    provider_config: LiveProviderConfig,
+    *,
+    timeout: int = 300,
+) -> tuple[Any, str]:
+    """从统一 provider config 构造 OpenAI chat-compatible client。"""
+
+    if provider_config.endpoint_family != "openai_chat":
+        raise LiveObservationError(
+            f"{provider_config.provider} does not expose an OpenAI chat endpoint"
+        )
     try:
         from openai import OpenAI
     except ImportError as exc:  # pragma: no cover - dependency guard
         raise LiveObservationError("openai package is required for live observation") from exc
 
-    base_url = os.environ.get("KIMI_BASE_URL") or KIMI_DEFAULT_BASE_URL
-    model = os.environ.get("KIMI_MODEL") or KIMI_DEFAULT_MODEL
     client = OpenAI(
-        api_key=api_key,
-        base_url=base_url,
+        api_key=provider_config.api_key,
+        base_url=provider_config.base_url,
         timeout=timeout,
-        default_headers=KIMI_DEFAULT_HEADERS,
+        default_headers=dict(provider_config.default_headers),
     )
-    return client, model
+    return client, provider_config.model
+
+
+def build_kimi_client(*, timeout: int = 300) -> tuple[Any, str]:
+    """Compatibility helper: build the default Kimi text client from env."""
+
+    try:
+        provider_config = resolve_live_provider_config(
+            role="text",
+            provider="kimi",
+        )
+    except LiveProviderConfigError as exc:
+        raise LiveObservationError(str(exc)) from exc
+    return build_openai_chat_client(provider_config, timeout=timeout)
 
 
 class LiveResponder:
@@ -106,11 +123,11 @@ class LiveResponder:
     def fetch_elements(self, *, evidence: dict[str, Any], window: dict[str, Any]) -> dict[str, Any]:
         return self._complete("t3", evidence, label=str(window.get("window_id") or "t3"))
 
-    def fetch_element_plan(self, *, evidence: dict[str, Any], task: dict[str, Any]) -> dict[str, Any]:
+    def fetch_unit_plan(self, *, evidence: dict[str, Any], window: dict[str, Any]) -> dict[str, Any]:
         return self._complete(
-            "t3_object",
+            "t3_unit",
             evidence,
-            label=str(task.get("task_id") or task.get("object_id") or "t3_object"),
+            label=str(window.get("window_id") or window.get("unit_id") or "t3_unit"),
         )
 
     def fetch_layout(self, *, evidence: dict[str, Any]) -> dict[str, Any]:
@@ -198,7 +215,7 @@ class LiveResponder:
             payload: dict[str, Any] = (
                 {"items": []}
                 if stage in {"t2", "t3"}
-                else ({} if stage == "t3_object" else {"section_profiles": []})
+                else ({} if stage == "t3_unit" else {"section_profiles": []})
             )
         else:
             try:
@@ -208,7 +225,7 @@ class LiveResponder:
                 payload = (
                     {"items": []}
                     if stage in {"t2", "t3"}
-                    else ({} if stage == "t3_object" else {"section_profiles": []})
+                    else ({} if stage == "t3_unit" else {"section_profiles": []})
                 )
         if finish_reason == "length" and not content.strip():
             error = error or "model hit max_tokens before emitting content (reasoning budget exhausted)"
@@ -267,7 +284,7 @@ def _parse_json_object(content: str, *, stage: str) -> dict[str, Any]:
         # 空响应 → 该阶段弃权（物化闸门会把它落成 schema-valid 的全 unknown 产物）。
         if stage in {"t2", "t3"}:
             return {"items": []}
-        if stage == "t3_object":
+        if stage == "t3_unit":
             return {}
         return {"section_profiles": []}
     try:

@@ -1,10 +1,11 @@
 ---
-status: draft
+status: superseded
 owner: template-generation
 stage: T2
 created: 2026-06-25
-last_updated: 2026-06-25
+last_updated: 2026-07-16
 version: 1
+superseded_by: docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-plan-11-unit-pagination-alignment.md
 related_code:
   - src/docfit/template_generation/structure_candidates.py
   - src/docfit/template_generation/plan.py
@@ -18,6 +19,10 @@ related_docs:
 ---
 
 # 视觉分页（page_policy）实施计划
+
+> 2026-07-16：本草案已被 Plan 11 取代。机械 page policy 和基础 page/section break 原语已经进入当前代码；
+> 尚未完成的 T2 AI page contract、T5 权威汇总、T6 page/isolation/keep 消费和分层门禁统一由 Plan 11 承载，
+> 不再按本文单独执行。
 
 ## 背景
 

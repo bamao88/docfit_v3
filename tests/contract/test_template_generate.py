@@ -8,11 +8,8 @@ from docx import Document
 from typer.testing import CliRunner
 
 from docfit.cli.main import app
-from docfit.convert.orchestrator import (
-    _template_generation_project_dir,
-    run_template_generate_eval,
-)
-from docfit.core.io import read_json, read_yaml, sha256_file
+from docfit.convert.orchestrator import run_template_generate_eval
+from docfit.core.io import read_json, read_yaml, sha256_file, sha256_json
 from docfit.core.status import Status
 from docfit.template_generation.runner import BODY_SLOT_MARKER
 
@@ -75,23 +72,6 @@ def docx_sdt_tags(path: Path) -> set[str]:
     return tags
 
 
-def test_template_generation_debug_root_follows_run_bundle(tmp_path) -> None:
-    bundle_root = tmp_path / "test_outputs/debug/template_generation/run_001"
-
-    assert _template_generation_project_dir(
-        tmp_path,
-        out_dir=bundle_root / "eval_runs/template_generate",
-    ) == bundle_root / "human"
-    assert _template_generation_project_dir(
-        tmp_path,
-        out_dir=bundle_root / "human/20260628T000000+0800",
-    ) == bundle_root / "human"
-    assert _template_generation_project_dir(
-        tmp_path,
-        out_dir=tmp_path / "adhoc_template_generate",
-    ) == (tmp_path / "adhoc_template_generate" / "human").resolve()
-
-
 def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     write_source_docx(source, ["学校固定封面", "目录", "正文开始", "格式说明：小四宋体"])
@@ -106,45 +86,45 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     )
     result = run_template_generate_eval(tmp_path, source, out_dir)
 
-    fillable = out_dir / "fillable_template.docx"
-    artifacts = out_dir / "artifacts"
-    manifest_path = artifacts / "build_manifest.json"
-    plan_path = artifacts / "template_generation_plan.json"
-    debug_root = bundle_root / "human"
+    fillable = out_dir / "06.1_fillable_template.docx"
+    manifest_path = out_dir / "06.2_build_manifest.json"
     summary = read_json(out_dir / "summary.json")
     manifest = read_json(manifest_path)
-    plan = read_json(plan_path)
-    document_facts = read_json(artifacts / "document_facts.json")
-    unit_map = read_yaml(artifacts / "unit_map.yaml")
-    t2_code = read_yaml(artifacts / "t2_code_unit_map.yaml")
-    t2_ai = read_yaml(artifacts / "t2_ai_unit_observation.yaml")
-    t2_merged = read_yaml(artifacts / "t2_merged_unit_map.yaml")
-    element_spec = read_yaml(artifacts / "element_spec.yaml")
-    t3_code = read_yaml(artifacts / "t3_code_element_spec.yaml")
-    t3_ai = read_yaml(artifacts / "t3_ai_element_observation.yaml")
-    t3_merged = read_yaml(artifacts / "t3_merged_element_spec.yaml")
-    global_spec = read_yaml(artifacts / "global_spec.yaml")
-    t4_code = read_yaml(artifacts / "t4_code_global_spec.yaml")
-    t4_ai = read_yaml(artifacts / "t4_ai_layout_observation.yaml")
-    t4_merged = read_yaml(artifacts / "t4_merged_global_spec.yaml")
-    template_spec = read_yaml(artifacts / "template_spec.yaml")
-    verification_report = read_json(artifacts / "verification_report.json")
-    source_tree = read_json(artifacts / "source_template_tree.json")
-    structure_candidates = read_json(artifacts / "template_structure_candidates.json")
-    t2_input = read_json(artifacts / "t2_input.json")
-    generation_model = read_json(artifacts / "template_generation_model.json")
-    debug_dirs = sorted(
-        path for path in debug_root.iterdir() if path.is_dir() and path.name != "eval_runs"
-    )
-    debug_dir = debug_dirs[0]
-    debug_index = read_json(debug_dir / "99_template_generation_debug_index.json")
+    plan = result.artifacts["template_generation_plan"]
+    document_facts = read_json(out_dir / "01_document_facts.json")
+    l1_input_contract = read_json(out_dir / "01.5_l1_input_contract.json")
+    unit_map = read_yaml(out_dir / "02_unit_map.yaml")
+    t2_code = read_yaml(out_dir / "02.0_t2_code_unit_map.yaml")
+    t2_ai = read_yaml(out_dir / "02.2_t2_ai_unit_observation.yaml")
+    t2_merged = read_yaml(out_dir / "02.3_t2_merged_unit_map.yaml")
+    element_spec = read_yaml(out_dir / "03_element_spec.yaml")
+    t3_code = read_yaml(out_dir / "03.0_t3_code_element_spec.yaml")
+    t3_ai = read_yaml(out_dir / "03.1_t3_ai_element_observation.yaml")
+    t3_merged = read_yaml(out_dir / "03.2_t3_merged_element_spec.yaml")
+    global_spec = read_yaml(out_dir / "04_global_spec.yaml")
+    t4_code = read_yaml(out_dir / "04.0_t4_code_global_spec.yaml")
+    t4_ai = read_yaml(out_dir / "04.1_t4_ai_layout_observation.yaml")
+    t4_merged = read_yaml(out_dir / "04.2_t4_merged_global_spec.yaml")
+    template_spec = read_yaml(out_dir / "05_template_spec.yaml")
+    verification_report = read_json(out_dir / "07_verification_report.json")
+    source_tree = result.artifacts["source_template_tree"]
+    structure_candidates = result.artifacts["template_structure_candidates"]
+    t2_input = read_json(out_dir / "02.1_t2_input.json")
+    generation_model = result.artifacts["template_generation_model"]
+    debug_index = read_json(out_dir / "99_template_generation_debug_index.json")
     issue_clusters = read_json(out_dir / "issue_clusters.json")
 
     assert result.status == Status.UNKNOWN
     assert out_dir.parent.name == "eval_runs"
     assert fillable.exists()
-    assert (artifacts / "template_generation_request.json").exists()
+    assert (out_dir / "00_template_generation_request.json").exists()
     assert document_facts["artifact_type"] == "document_facts"
+    assert l1_input_contract["input_hashes"]["document_facts"] == sha256_json(
+        document_facts
+    )
+    serialized_document_facts = repr(document_facts)
+    for forbidden in ("template_policy", "final_disposition", "policy_reason"):
+        assert forbidden not in serialized_document_facts
     assert unit_map["artifact_type"] == "unit_map"
     assert t2_code["route"]["route_id"] == "code_raw"
     assert t2_code["route"]["availability"] == "AVAILABLE"
@@ -221,7 +201,6 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert generation_model["artifact_type"] == "template_generation_model"
     assert any(question["kind"] == "boundary" for question in unit_map["open_questions"])
     assert manifest_path.exists()
-    assert plan_path.exists()
     source_seq_refs = [
         item["source_seq"] for item in document_facts["body_flow"]
     ]
@@ -229,10 +208,10 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert document_facts["indexes"]["by_source_seq"]["1"]["node_id"] == "body_0001"
     assert document_facts["runs"]
     assert all(run["raw_run_id"] and run["logical_run_id"] for run in document_facts["runs"])
-    assert len(debug_dirs) == 1
-    assert debug_dir.parent == debug_root
     assert not (tmp_path / "runs/template_generation").exists()
-    assert summary["artifacts"]["template_generation_debug_dir"] == str(debug_dir)
+    assert not (out_dir / "artifacts").exists()
+    assert not (bundle_root / "human").exists()
+    assert not (out_dir / "fillable_template.docx").exists()
     assert (out_dir / "00_input_source_template.docx").exists()
     assert (out_dir / "00_template_generation_request.json").exists()
     assert (out_dir / "01_document_facts.json").exists()
@@ -255,36 +234,15 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert (out_dir / "06.2_build_manifest.json").exists()
     assert (out_dir / "07_verification_report.json").exists()
     assert (out_dir / "99_template_generation_debug_index.json").exists()
-    assert (debug_dir / "00_input_source_template.docx").exists()
-    assert (debug_dir / "00_template_generation_request.json").exists()
-    assert (debug_dir / "01_document_facts.json").exists()
-    assert (debug_dir / "02.0_t2_code_unit_map.yaml").exists()
-    assert (debug_dir / "02_unit_map.yaml").exists()
-    assert (debug_dir / "02.1_t2_input.json").exists()
-    assert (debug_dir / "02.2_t2_ai_unit_observation.yaml").exists()
-    assert (debug_dir / "02.3_t2_merged_unit_map.yaml").exists()
-    assert (debug_dir / "03.0_t3_code_element_spec.yaml").exists()
-    assert (debug_dir / "03.1_t3_ai_element_observation.yaml").exists()
-    assert (debug_dir / "03.2_t3_merged_element_spec.yaml").exists()
-    assert (debug_dir / "03_element_spec.yaml").exists()
-    assert (debug_dir / "04.0_t4_code_global_spec.yaml").exists()
-    assert (debug_dir / "04.1_t4_ai_layout_observation.yaml").exists()
-    assert (debug_dir / "04.2_t4_merged_global_spec.yaml").exists()
-    assert (debug_dir / "04_global_spec.yaml").exists()
-    assert (debug_dir / "05_template_spec.yaml").exists()
-    assert (debug_dir / "06.0_copy_source_docx.docx").exists()
-    assert (debug_dir / "06.1_fillable_template.docx").exists()
-    assert (debug_dir / "06.2_build_manifest.json").exists()
-    assert (debug_dir / "07_verification_report.json").exists()
     assert summary["status"] == Status.UNKNOWN.value
     assert summary["unknown_findings"] > 0
     assert summary["artifacts"]["fillable_template_docx"] == str(fillable)
     assert "slot_body_start" in docx_sdt_tags(fillable)
     assert not any("[[DOCFIT_" in text for text in docx_texts(fillable))
-    assert BODY_SLOT_MARKER not in docx_texts(debug_dir / "06.0_copy_source_docx.docx")
-    assert "格式说明：小四宋体" in docx_texts(debug_dir / "06.0_copy_source_docx.docx")
+    assert BODY_SLOT_MARKER not in docx_texts(out_dir / "06.0_copy_source_docx.docx")
+    assert "格式说明：小四宋体" in docx_texts(out_dir / "06.0_copy_source_docx.docx")
     assert manifest["strategy"] == "source_copy_scaffold"
-    assert manifest["debug_snapshot"]["dir"] == str(debug_dir)
+    assert "debug_snapshot" not in manifest
     assert manifest["output"]["fillable_template_docx"] == str(fillable)
     assert manifest["output"]["fillable_template_docx_hash"] == sha256_file(fillable)
     assert {
@@ -310,9 +268,9 @@ def test_template_generate_preserves_existing_body_slot(tmp_path) -> None:
     write_source_docx(source, ["学校固定封面", BODY_SLOT_MARKER])
 
     result = run_template_generate_eval(tmp_path, source, tmp_path / "template_generate")
-    fillable = tmp_path / "template_generate/fillable_template.docx"
+    fillable = tmp_path / "template_generate/06.1_fillable_template.docx"
     manifest = read_json(
-        tmp_path / "template_generate/artifacts/build_manifest.json"
+        tmp_path / "template_generate/06.2_build_manifest.json"
     )
 
     assert result.status == Status.UNKNOWN
@@ -337,9 +295,9 @@ def test_template_generate_cleans_instruction_text_inside_table_cells(tmp_path) 
     doc.save(source)
 
     result = run_template_generate_eval(tmp_path, source, tmp_path / "template_generate")
-    fillable = tmp_path / "template_generate/fillable_template.docx"
+    fillable = tmp_path / "template_generate/06.1_fillable_template.docx"
     manifest = read_json(
-        tmp_path / "template_generate/artifacts/build_manifest.json"
+        tmp_path / "template_generate/06.2_build_manifest.json"
     )
 
     assert result.status == Status.UNKNOWN
@@ -371,8 +329,8 @@ def test_template_generate_removes_form_usage_notes_but_keeps_manual_fields(tmp_
     )
 
     result = run_template_generate_eval(tmp_path, source, out_dir)
-    fillable = out_dir / "fillable_template.docx"
-    plan = read_json(out_dir / "artifacts/template_generation_plan.json")
+    fillable = out_dir / "06.1_fillable_template.docx"
+    plan = result.artifacts["template_generation_plan"]
     output_text = "\n".join(docx_texts(fillable))
 
     assert result.status == Status.UNKNOWN
@@ -398,9 +356,7 @@ def test_template_generate_merges_table_label_value_candidates(tmp_path) -> None
     doc.save(source)
 
     result = run_template_generate_eval(tmp_path, source, tmp_path / "template_generate")
-    structure_candidates = read_json(
-        tmp_path / "template_generate/artifacts/template_structure_candidates.json"
-    )
+    structure_candidates = result.artifacts["template_structure_candidates"]
     merged = next(
         element
         for unit in structure_candidates["units"]
@@ -435,7 +391,7 @@ def test_template_generate_merges_business_sentence_continuation(tmp_path) -> No
     )
 
     result = run_template_generate_eval(tmp_path, source, out_dir)
-    structure_candidates = read_json(out_dir / "artifacts/template_structure_candidates.json")
+    structure_candidates = result.artifacts["template_structure_candidates"]
     abstract = next(
         unit for unit in structure_candidates["units"] if unit["unit_id"] == "abstract_cn"
     )
@@ -492,9 +448,9 @@ def test_template_generate_cli_writes_public_outputs(tmp_path) -> None:
 
     assert result.exit_code == 0
     assert "status = UNKNOWN" in result.stdout
-    assert (out_dir / "fillable_template.docx").exists()
-    assert (out_dir / "artifacts/build_manifest.json").exists()
-    assert (out_dir / "artifacts/template_spec.yaml").exists()
+    assert (out_dir / "06.1_fillable_template.docx").exists()
+    assert (out_dir / "06.2_build_manifest.json").exists()
+    assert (out_dir / "05_template_spec.yaml").exists()
     assert (out_dir / "summary.json").exists()
 
 
@@ -527,8 +483,8 @@ def test_template_generate_disables_whole_unit_copy_by_default(tmp_path) -> None
     write_source_docx(source, ["封面", "参考文献"])
 
     result = run_template_generate_eval(tmp_path, source, out_dir)
-    generation_model = read_json(out_dir / "artifacts/template_generation_model.json")
-    plan = read_json(out_dir / "artifacts/template_generation_plan.json")
+    generation_model = result.artifacts["template_generation_model"]
+    plan = result.artifacts["template_generation_plan"]
     cover = next(
         unit for unit in generation_model["unit_strategies"] if unit["unit_id"] == "cover"
     )
@@ -561,8 +517,8 @@ def test_template_generate_custom_units_are_not_copy_only_by_default(tmp_path) -
     doc.save(source)
 
     result = run_template_generate_eval(tmp_path, source, out_dir)
-    generation_model = read_json(out_dir / "artifacts/template_generation_model.json")
-    plan = read_json(out_dir / "artifacts/template_generation_plan.json")
+    generation_model = result.artifacts["template_generation_model"]
+    plan = result.artifacts["template_generation_plan"]
     custom_strategy = next(
         unit
         for unit in generation_model["unit_strategies"]
@@ -601,10 +557,10 @@ def test_template_generate_cover_uses_patch_analysis_when_copy_only_disabled(
     )
 
     result = run_template_generate_eval(tmp_path, source, out_dir)
-    fillable = out_dir / "fillable_template.docx"
-    structure_candidates = read_json(out_dir / "artifacts/template_structure_candidates.json")
-    generation_model = read_json(out_dir / "artifacts/template_generation_model.json")
-    plan = read_json(out_dir / "artifacts/template_generation_plan.json")
+    fillable = out_dir / "06.1_fillable_template.docx"
+    structure_candidates = result.artifacts["template_structure_candidates"]
+    generation_model = result.artifacts["template_generation_model"]
+    plan = result.artifacts["template_generation_plan"]
     cover_candidate = next(
         unit for unit in structure_candidates["units"] if unit["unit_id"] == "cover"
     )
@@ -698,12 +654,12 @@ def test_template_generate_splits_within_paragraph_format_instruction_runs(
     )
 
     result = run_template_generate_eval(tmp_path, source, out_dir)
-    fillable = out_dir / "fillable_template.docx"
-    structure_candidates = read_json(out_dir / "artifacts/template_structure_candidates.json")
-    generation_model = read_json(out_dir / "artifacts/template_generation_model.json")
-    element_spec = read_yaml(out_dir / "artifacts/element_spec.yaml")
-    plan = read_json(out_dir / "artifacts/template_generation_plan.json")
-    manifest = read_json(out_dir / "artifacts/build_manifest.json")
+    fillable = out_dir / "06.1_fillable_template.docx"
+    structure_candidates = result.artifacts["template_structure_candidates"]
+    generation_model = result.artifacts["template_generation_model"]
+    element_spec = read_yaml(out_dir / "03_element_spec.yaml")
+    plan = result.artifacts["template_generation_plan"]
+    manifest = read_json(out_dir / "06.2_build_manifest.json")
 
     cover_candidate = next(
         unit for unit in structure_candidates["units"] if unit["unit_id"] == "cover"
@@ -818,10 +774,10 @@ def test_template_generate_replaces_field_line_placeholder_spans(tmp_path) -> No
     )
 
     result = run_template_generate_eval(tmp_path, source, out_dir)
-    fillable = out_dir / "fillable_template.docx"
-    element_spec = read_yaml(out_dir / "artifacts/element_spec.yaml")
-    plan = read_json(out_dir / "artifacts/template_generation_plan.json")
-    manifest = read_json(out_dir / "artifacts/build_manifest.json")
+    fillable = out_dir / "06.1_fillable_template.docx"
+    element_spec = read_yaml(out_dir / "03_element_spec.yaml")
+    plan = result.artifacts["template_generation_plan"]
+    manifest = read_json(out_dir / "06.2_build_manifest.json")
     cover_field = next(
         element
         for element in element_spec["elements"]
@@ -856,8 +812,8 @@ def test_template_generate_references_unit_is_fillable_not_copy_only(tmp_path) -
     write_source_docx(source, ["封面", "正文", "参考文献", "学生文献内容占位"])
 
     result = run_template_generate_eval(tmp_path, source, out_dir)
-    generation_model = read_json(out_dir / "artifacts/template_generation_model.json")
-    plan = read_json(out_dir / "artifacts/template_generation_plan.json")
+    generation_model = result.artifacts["template_generation_model"]
+    plan = result.artifacts["template_generation_plan"]
     references = next(
         unit
         for unit in generation_model["unit_strategies"]
@@ -871,4 +827,4 @@ def test_template_generate_references_unit_is_fillable_not_copy_only(tmp_path) -
         and action["unit_id"] == "references"
         for action in plan["actions"]
     )
-    assert any(tag.startswith("references.") for tag in docx_sdt_tags(out_dir / "fillable_template.docx"))
+    assert any(tag.startswith("references.") for tag in docx_sdt_tags(out_dir / "06.1_fillable_template.docx"))

@@ -8,6 +8,7 @@ from docx import Document
 from docx.text.paragraph import Paragraph
 
 from .constants import BODY_SLOT_MARKER
+from .identity_resolver import L1IdentityResolver
 from .refs import _cell_for_ref, _paragraph_for_ref, _paragraph_map_by_ooxml_index
 from .text_utils import _dedupe_by_key
 from .word_ops import (
@@ -21,6 +22,7 @@ from .word_ops import (
     _insert_styled_paragraph_before,
     _remove_paragraph,
     _replace_run_text_ranges,
+    _set_keep_together_for_refs,
 )
 
 
@@ -29,13 +31,30 @@ def execute_template_generation_plan(
     generated_template_docx: Path,
     plan: dict[str, Any],
     *,
-    copy_source_snapshot_docx: Path | None = None,
+    l1_input_contract: dict[str, Any],
 ) -> dict[str, Any]:
+    resolver = L1IdentityResolver(l1_input_contract)
+    source_precondition = resolver.validate_source_package(source_template_docx)
+    if source_precondition["status"] != "PASS":
+        return {
+            "actions_executed": [],
+            "actions_requiring_review": [
+                _needs_review(action, str(source_precondition["reason"]))
+                for action in plan.get("actions", [])
+            ],
+            "slots": [],
+            "generated_fields": [],
+            "page_breaks": [],
+            "section_breaks": [],
+            "keep_together": [],
+            "synthesized_texts": [],
+            "identity_resolution": {
+                "source_precondition": source_precondition,
+                "action_preconditions": [],
+            },
+        }
     generated_template_docx.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(source_template_docx, generated_template_docx)
-    if copy_source_snapshot_docx is not None:
-        copy_source_snapshot_docx.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(generated_template_docx, copy_source_snapshot_docx)
     doc = Document(generated_template_docx)
     paragraph_map = _paragraph_map_by_ooxml_index(doc)
     executed: list[dict[str, Any]] = []
@@ -43,8 +62,19 @@ def execute_template_generation_plan(
     slots: list[dict[str, Any]] = []
     generated_fields: list[dict[str, Any]] = []
     paragraphs_to_remove: list[Paragraph] = []
+    action_preconditions: list[dict[str, Any]] = []
 
     for action in plan.get("actions", []):
+        action_precondition = resolver.validate_action(action)
+        action_preconditions.append(action_precondition)
+        if action_precondition["status"] != "PASS":
+            review.append(
+                _needs_review(
+                    action,
+                    "; ".join(action_precondition["errors"]),
+                )
+            )
+            continue
         action_type = action.get("action_type")
         if action_type == "copy_source_docx":
             executed.append(_executed(action, output_ref=str(generated_template_docx)))
@@ -68,6 +98,19 @@ def execute_template_generation_plan(
                 review.append(_needs_review(action, "source node not found"))
                 continue
             executed.append(_executed(action, output_ref=output_ref))
+        elif action_type == "set_keep_together_unit":
+            source_refs = [
+                str(ref)
+                for ref in action.get("affected_source_refs", []) or []
+                if ref
+            ]
+            if not source_refs and action.get("source_ref"):
+                source_refs = [str(action.get("source_ref"))]
+            output_refs = _set_keep_together_for_refs(doc, paragraph_map, source_refs)
+            if not output_refs:
+                review.append(_needs_review(action, "no paragraph refs found for keep_together"))
+                continue
+            executed.append(_executed(action, output_ref=";".join(output_refs)))
         elif action_type == "remove_instruction_text":
             target = _paragraph_for_ref(paragraph_map, action.get("source_ref"))
             target_cell = _cell_for_ref(doc, action.get("source_ref"))
@@ -257,25 +300,33 @@ def execute_template_generation_plan(
     return {
         "actions_executed": executed,
         "actions_requiring_review": review,
+        "identity_resolution": {
+            "source_precondition": source_precondition,
+            "action_preconditions": action_preconditions,
+        },
         "slots": _dedupe_by_key(slots, "slot_id"),
         "generated_fields": generated_fields,
         "page_breaks": [
             {
-                "unit_id": action.get("unit_id"),
-                "source_ref": action.get("source_ref"),
-                "output_ref": action.get("output_ref"),
+                **_page_action_summary(action),
             }
             for action in executed
             if action.get("action_type") == "insert_page_break_before_unit"
         ],
         "section_breaks": [
             {
-                "unit_id": action.get("unit_id"),
-                "source_ref": action.get("source_ref"),
-                "output_ref": action.get("output_ref"),
+                **_page_action_summary(action),
             }
             for action in executed
             if action.get("action_type") == "insert_section_break_before_unit"
+        ],
+        "keep_together": [
+            {
+                **_page_action_summary(action),
+                "keep_scope": action.get("keep_scope"),
+            }
+            for action in executed
+            if action.get("action_type") == "set_keep_together_unit"
         ],
         "synthesized_texts": [
             {
@@ -347,6 +398,23 @@ def _needs_review(action: dict[str, Any], reason: str) -> dict[str, Any]:
         **action,
         "status": "needs_review",
         "reason": reason,
+    }
+
+
+def _page_action_summary(action: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "unit_id": action.get("unit_id"),
+        "page_policy_unit_id": action.get("page_policy_unit_id"),
+        "source_ref": action.get("source_ref"),
+        "output_ref": action.get("output_ref"),
+        "action_id": action.get("action_id"),
+        "page_policy": action.get("page_policy"),
+        "page_policy_origin": action.get("page_policy_origin"),
+        "page_policy_confidence": action.get("page_policy_confidence"),
+        "page_policy_evidence_refs": action.get("page_policy_evidence_refs", []),
+        "page_policy_proposal_ids": action.get("page_policy_proposal_ids", []),
+        "agent_proposal_id": action.get("agent_proposal_id"),
+        "status": action.get("status"),
     }
 
 

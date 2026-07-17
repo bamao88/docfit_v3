@@ -1,8 +1,8 @@
 ---
 status: draft
 owner: template-generation
-stage: T2T4
-topic: agent-proposal
+stage: T2T5T6T7
+topic: unit-pagination-consumption
 doc_type: issue
 issue_id: T2T3T4-AGENT-ISSUE-11
 issue_sequence: 11
@@ -13,136 +13,182 @@ previous_issue:
   doc: docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-issue-10-t4-observation-downstream-dead-end.md
   status: draft
 previous_optimization:
-  doc: docs/plans/2026-07-02-template-parse-refactor-module1-t4-observation-fix-plan-01.md
-  summary: module1-t4-fix plan-01 已接通页面图与视觉分页观察，并可对 gold 打分（页隔离 0.6875, 11/16）；但该信号止步于评测，从未进入生成计划的分页动作。
+  doc: docs/plans/template-parse-refactor-t2-visual-pagination.md
+  summary: 旧视觉分页草案已落机械 page policy 和 page/section break 执行原语，但未形成当前 T2→T5→T6 权威消费链；由 Plan 11 接管剩余目标。
 next_plan: docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-plan-11-unit-pagination-alignment.md
 created: 2026-07-03
-last_updated: 2026-07-03
+last_updated: 2026-07-16
 related_code:
-  - src/docfit/template_generation/plan.py
   - src/docfit/template_generation/structure_candidates.py
+  - src/docfit/template_generation/artifacts.py
+  - src/docfit/template_generation/agent/observation_materialize.py
   - src/docfit/template_generation/agent/observation_bridge.py
-  - src/docfit/template_generation/agent/observation_vision.py
-  - src/docfit/template_generation/agent/observation_eval.py
   - src/docfit/template_generation/agent/schema.py
+  - src/docfit/template_generation/agent/reconciler.py
+  - src/docfit/template_generation/agent/overlay.py
+  - src/docfit/template_generation/plan.py
+  - src/docfit/template_generation/executor.py
+  - src/docfit/template_generation/verifier.py
+  - src/docfit/template_generation/t2_standard.py
+  - src/docfit/harness/template_generation_stage_verifiers.py
+  - src/docfit/harness/template_generation_judge_reports.py
 cross_issue:
-  - docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-issue-10-t4-observation-downstream-dead-end.md
+  - docs/plans/2026-07-11-template-parse-refactor-full-chain-capability-issue-01-remaining-end-to-end-gaps.md
 ---
 
-# T2/T3/T4 Agent Issue 11：单元分页只剩机械证据，AI 独占页信号在 bridge 前丢失
+# T2/T5/T6 Issue 11：单元分页策略没有形成权威消费闭环
 
 ## 问题摘要
 
-T2 阶段（含 AI 观察与 T4 vision）已经能识别「哪个单元应独占一页」，但 T6 执行的分页动作
-只消费源 DOCX 的机械 `page_break_before` 证据。识别与执行没有左对齐：AI 识别对了也不影响
-生成的 DOCX 分页。
+阶段契约和三校 T2 标准已经把单元分页归属定义为 T2 责任，并为每个单元给出
+`page_break`、`page_isolation`、`allow_multi_page`、`keep_together`。当前运行链路却没有
+把这组语义稳定物化为 T2 权威输出，更没有让 T5/T6、verifier 和 judge 以同一契约消费。
 
-## 真实运行口径
+这不是单一字段遗漏，而是三个相互叠加的问题：
 
-分页动作的唯一生产链路：
+1. **T2 产出不完整**：真实输出中的 `units[].page` 可以全部为空，`page_start` 仍由默认值补齐。
+2. **下游双轨**：T5 从 `unit_map` 复制单元；T6 的生成计划却绕过 T5，直接读取
+   `generation_model.data.units[].page`。
+3. **门禁失真**：T2 standard 包含分页期望，但当前 T2 standard verifier 只比较单元、顺序和
+   anchor ownership；空分页仍可得到 `PASS` / `SIGNABLE`。
+
+## 当前事实链
 
 ```text
-structure_candidates.py:393 _mechanical_page_policy_for_unit
-  只依据源文档 OOXML page_break_before / break 事实产出 units[].page
-  （page_break / section_isolation / page_policy.generation_policy）
-    -> generation_model.data.units[].page
-    -> plan.py:33-90 依据 page_break_rule / generation_policy 产出
-       insert_page_break_before_unit / insert_section_break_before_unit
-    -> executor.py 落 DOCX
+T2 code_raw
+  structure_candidates._mechanical_page_policy_for_unit
+  -> 仅在源 OOXML 存在 pageBreakBefore / w:br / sectPr 时写 units[].page
+  -> build_unit_map 原样复制 page
+  -> _page_start_for_unit 对空 page 自动写 preserve_source_flow
+
+T2 ai_raw / merged
+  T2 prompt contract 只要求 unit_id/source_seq_refs/confidence
+  -> materializer 虽会透传额外 page_start，但 prompt、schema 和 bridge 不把分页作为正式契约
+  -> _bridge_t2 在单元范围相同时直接 noop，分页差异不会单独形成 proposal
+  -> 当前 T2 proposal schema 没有 page policy collection/kind
+
+T5
+  `build_template_spec` 通过 `**unit` 原样复制 `units[].page/page_start`
+  -> 不检查分页语义完整性、来源、冲突或可执行性
+
+T6
+  build_template_generation_plan(generation_model=...)
+  -> 分页循环读取 generation_model.data.units[].page，而不是 T5 template_spec
+  -> 只支持“单元前插 page/section break”
+  -> 不消费 page_isolation / allow_multi_page / keep_together
+  -> executor/manifest 的分页摘要不保留 page policy 来源和 proposal trace
+
+T7 / judge
+  runtime verifier 只检查 page_start 是否非空
+  -> preserve_source_flow 默认值足以避开 page finding
+  T2 standard verifier 不比较 expected.units[].page
+  -> 空 page 仍可能 PASS / SIGNABLE
 ```
 
-hunannongye 硬事实（module1-t4-fix plan-01 已核实）：
+## 2026-07-16 真实复现
 
-```text
-320 段只有 1 个 Word 分节；page_break_before 全 false；fields=0。
-=> 每单元分页语义在源事实里不存在，只在渲染后可见。
-=> 机械链路对这类模板必然产出空/不完整的分页动作。
-```
+命令：
 
-AI 侧已有但被丢弃的信号：
+```bash
+uv run docfit eval template-generate \
+  --template inputs/targets/hunannongye/raw/source_template.docx \
+  --out /tmp/docfit-t2-pagination-audit-20260716
 
-```text
-1. T4 vision（observation_vision.py）逐页输出 is_standalone_page / unit_hint。
-2. observation_eval.py:267 已对 gold 计算 page_isolation_accuracy，
-   hunannongye 真实结果 0.6875（11/16 单元）——信号存在且大部分正确。
-3. T2 AI unit observation 携带 page_start，但 _bridge_t2
-   （observation_bridge.py:127-192）产出的 proposal 只有
-   unit_candidate / boundary_adjustment，无任何分页字段。
-4. schema.py:10,24 已定义 page_policy_hints collection 与
-   page_policy_hint kind，但全仓库没有任何生产者——现成槽位空转。
-```
-
-## Expected vs observed
-
-Expected：
-
-```text
-1. T2/T4 识别出的单元分页语义（独占页/可流动）应进入 merged unit_map 的
-   units[].page，与机械证据调和。
-2. plan.py 的分页动作应消费调和后的 page policy，动作可溯源
-   （mechanical / ai_observation / both）。
-3. 生成的 fillable_template.docx 的实际页隔离应与识别结果对齐，可实测。
-4. AI 与机械证据冲突时显式上报，不静默丢弃任何一方。
+uv run docfit eval template-generation-judge \
+  --school hunannongye \
+  --run /tmp/docfit-t2-pagination-audit-20260716 \
+  --out /tmp/docfit-t2-pagination-judge-20260716 \
+  --no-derive-template-gap
 ```
 
 Observed：
 
 ```text
-1. plan.py 只读机械 page 规则；AI/vision 分页信号在 bridge 前即丢失。
-2. page_policy_hint 槽位存在但零生产者；_bridge_t4 只产 section_profile_hint。
-3. page_isolation_accuracy 只用于评测报告，不进入任何生成产物。
-4. 对 hunannongye 这类「源文档无机械分页证据」的模板，生成计划中
-   分页动作与 AI 已识别的独占页语义完全脱节。
+02_unit_map.yaml:
+  16/16 units[].page == {}
+  1 个 page_start=document_start
+  15 个 page_start=preserve_source_flow
+
+02.2_t2_ai_unit_observation.yaml:
+  route=NOT_AVAILABLE（默认离线运行，符合预期）
+
+05_template_spec.yaml:
+  16/16 units[].page 仍为 {}
+
+06.2_build_manifest.json:
+  page_breaks=[]
+  section_breaks=[]
+  pagination actions=0
+
+07_verification_report.json:
+  T2=UNKNOWN，但 page findings=[]
+
+template-generation-judge:
+  t2_unit_pagination=PASS
+  02_unit_map standard report=PASS / SIGNABLE
+  page mismatches=[]
+  silent_drop_count=0
 ```
 
-## 疑似根因
+该复现证明：当前系统既没有在 T2 主产物中表达分页策略，也没有把“分页策略缺失”诊断出来。
 
-```text
-1. 分页链路是纯 deterministic 时代的遗留：page policy 生产只认 T1 机械事实，
-   AI 路线加入后没有为分页语义设计回流通道。
-2. bridge 的 T2 投影只覆盖单元边界（range/label），把 page_start /
-   独占页观察当作非目标字段丢弃。
-3. T4 vision 的 page_observations 只被 envelope/评测消费，没有到
-   unit page policy 的映射（与 issue-10 的消费缺失同源，但目标产物不同：
-   issue-10 是 global_spec 明点字段，本 issue 是 units[].page 与分页动作）。
-4. schema 先行定义了 page_policy_hints，实现从未跟上。
-```
+## Expected vs observed
 
-## 上一轮已解决 / 未解决对照
+Expected：
+
+1. T2 merged 对每个单元输出完整、规范化的分页语义，证据不足时显式 `unknown`，不能用
+   `preserve_source_flow` 默认值冒充已识别策略。
+2. code/AI/merged 三条 T2 route 都能独立比较分页维度；单元边界相同不代表分页 proposal 是 noop。
+3. T5 无损保留 T2 分页语义、来源、冲突和 review flags，不重新推断。
+4. T6 只从 T5 权威规格读取分页语义，并把可执行策略转成可溯源 Word 动作；不可执行项给出结构化原因。
+5. T2/T5/T6 verifier、route-eval 和最终 Word gap 能分别证明“识别正确、汇总未丢、执行生效”。
+
+Observed：
+
+1. `units[].page` 可全部为空；`page_start` 只是兼容默认值。
+2. T2 AI 输出契约和 proposal schema 都没有正式分页维度。
+3. T5 只做被动复制；T6 分页动作读取另一份中间模型。
+4. T6 只实现单元前 page/section break，不支持独占页和 keep-together 语义。
+5. T2 standard verifier 没有消费标准里已经存在的 `expected.units[].page`。
+
+## 根因归属
+
+| 根因 | Owner | 说明 |
+| --- | --- | --- |
+| T2 runtime contract 与 T2 signed standard 分裂 | T2 | 标准有四个分页维度，runtime/prompt/schema 没有同形表达。 |
+| T2 boundary proposal 与 pagination proposal 耦合 | T2 agent bridge/reconciler | 相同 unit range 会直接 noop，无法只更新分页策略。 |
+| T5 与 T6 存在两个单元事实入口 | T5/T6 | T5 是文档声明的权威规格，但 T6 page planner 仍读 generation_model。 |
+| verifier/judge 只查字段存在或 unit order | T7/judge | `page_start` 默认值和 unit order PASS 会遮住分页语义缺失。 |
+
+## 已解决 / 未解决
 
 已解决：
 
-```text
-1. 视觉分页观察可产出：真实渲染 + 逐页 is_standalone_page（module1-t4-fix plan-01）。
-2. 分页识别可评测：page_isolation_accuracy 对 gold 打分。
-3. 机械分页链路本身工作正常：有 page_break_before 证据时动作正确产出。
-```
+1. L1 已提供 `page_no`、page position、break facts 和 render binding，T2 有可回查事实输入。
+2. 源 OOXML 存在显式分页/分节证据时，机械 page policy 能生成 before-unit action。
+3. page break / section break 已有 Word 执行原语。
 
 未解决：
 
-```text
-1. AI 分页信号无回流通道，merged units[].page 恒等于机械结果。
-2. page_policy_hint 槽位无生产者。
-3. 生成 DOCX 的实际页隔离没有验收口径（评测只看观察，不看最终产物）。
-```
+1. T2 四维分页语义的统一 runtime contract、AI 输出和 merged 规则。
+2. T5→T6 单一权威消费，以及 page isolation / keep-together 的执行映射。
+3. 标准、运行 verifier、route-eval、最终 Word 之间的分层验收。
 
 ## 后续验收门禁
 
-```text
-1. hunannongye 复跑：被 AI（且与 gold 一致）判定独占页的单元，生成计划中
-   出现对应 insert_page_break_before_unit / insert_section_break_before_unit
-   动作，reason 标明来源（mechanical / ai_observation / both）。
-2. 已有机械分页证据的位置不得重复插入分页动作。
-3. 对生成的 fillable_template.docx 渲染后实测页隔离，与 gold
-   layout_policy 比对；准确率不得低于观察层基线（0.6875）。
-4. AI 与机械证据冲突的单元出现在 open_questions / manual_review，
-   数量与理由可审计。
-```
+1. 当前湖南农大复现必须从“16 个空 page 仍 T2 PASS”变成明确 T2 mismatch；实现完成后再由正确的
+   merged page policy 消除 mismatch。
+2. T2 merged 的每个单元必须有四维分页语义或显式 unknown，并带 origin/confidence/evidence/conflict trace。
+3. T5 对 T2 page policy 做逐单元无损保留；T6 page planner 不再读取 generation_model 的 page 字段。
+4. 每个已确认策略必须对应 executed action，或对应 `no_action_required` / `manual_review` 的结构化理由。
+5. 三校真实离线生成 + judge 不得出现分页 silent drop；有授权时补真实 T2 AI route，merged 不劣于 code/AI。
+6. 最终 DOCX 必须用真实 OOXML 检查和渲染后 gap 证明 page break / isolation / keep 约束生效，不能只看 manifest。
 
-本 issue 只记录问题，不写实施方案；方案见对应 plan。
+本 issue 只记录问题事实；唯一执行契约见 Plan 11。
 
 ## 变更记录
 
 | 日期 | 说明 |
 | --- | --- |
-| 2026-07-03 | 初稿：确认分页动作只消费机械证据，AI 独占页信号（评测准确率 0.6875）在 bridge 前丢失，page_policy_hint 槽位零生产者 |
+| 2026-07-03 | 初稿：记录 AI 独占页信号未进入分页动作。 |
+| 2026-07-16 | 按当前代码与湖南农大真实离线 run 重审：根因扩展为 T2 contract 缺失、T5/T6 双轨消费和 judge 假绿；移除已失真的 T4 page_policy_hint 旧假设。 |

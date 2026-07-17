@@ -224,6 +224,8 @@ def _check_for_t3_reason(reason: str) -> str:
 def _target_path(operation: dict[str, Any]) -> str | None:
     if operation.get("target_candidate_id"):
         return f"structure_candidates.units[].elements[{operation['target_candidate_id']}].candidate_policy"
+    if operation.get("operation") == "set_page_policy" and operation.get("target_unit_id"):
+        return f"structure_candidates.units[{operation['target_unit_id']}].page"
     if operation.get("target_unit_id"):
         return f"structure_candidates.units[{operation['target_unit_id']}]"
     return None

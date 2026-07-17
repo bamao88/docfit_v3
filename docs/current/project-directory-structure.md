@@ -74,15 +74,10 @@ docfit_v3/
 │   │   └── template_generation_judge_reports.py       # 聚合报告与 Markdown/JSON 输出
 │   ├── core/                       # 跨切面：io / models / status
 │   ├── contracts/                  # 契约 schema 与 verifier 基类（不放具体学校标准）
-│   ├── stages/                     # 业务阶段代码；当前 active 只有模板侧
-│   │   ├── template_parse/         # active
-│   │   ├── content_extract/        # reserved，流程未清晰前不做标准
-│   │   ├── placement/              # reserved，依赖 content_extract
-│   │   └── render/                 # reserved，依赖 placement
 │   ├── template_generation/        # 模板侧支撑流程（非业务阶段）
 │   ├── template_gap/               # 模板质量差距检查（非业务阶段）
 │   ├── template_model/             # 模板结构共享模型，不做门禁裁判
-│   ├── convert/                    # 长期产品转换编排；当前不作为 active 标准制作入口
+│   ├── convert/                    # 当前模板 generate/gap/judge/full 编排
 │   ├── ooxml/                      # Word / OOXML 底层能力
 │   ├── ai_rca/                     # AI 只做根因分析建议，不做裁判
 │   └── utils/
@@ -141,7 +136,6 @@ docfit_v3/
 │   ├── unit/ │ contract/ │ regression/ │ e2e/
 │   └── fixtures/                   # 小型代码测试 fixture，不与 inputs/ 混用
 │
-└── scripts/                        # 迁移、检查、维护脚本
 ```
 
 ---
@@ -174,7 +168,7 @@ docfit_v3/
 | 4 | 学生 id 格式 | `real-student-001` | `real-001` | **`real-student-001`** | 仓库实际就是 `real-student-001`，改短反而要动一批文件名 |
 | 5 | raw 原始文件是否带 `.input` | 带（`source_template.input.docx`） | 不带 | **不带** | `.input` 只标记"冻结给下游读的 fixture"；原始证据不是 fixture |
 | 6 | 标准入口名 | `case_standard.yaml`（下划线） | `case.standard.yaml`（点） | **`*.standard.yaml`（后缀）** | 同 #2，后缀体系自洽 |
-| 7 | `runs/` 子目录 | `eval/` + `convert/` + `template_generation/` + `workbench/` | `template_generation/` + `conversion/` + `reports/` | **`template_generation/` + `eval/` + `convert/` + `workbench/`** | 与 CLI 动词（`docfit eval` / `docfit convert`）对齐；`reports/` 实为 eval 输出的子集 |
+| 7 | `runs/` 子目录 | `eval/` + `convert/` + `template_generation/` + `workbench/` | `template_generation/` + `conversion/` + `reports/` | **`template_generation/` + `eval/` + `workbench/`** | 当前只保留模板生成与评测入口；旧 `docfit convert` 已删除 |
 | 8 | src 模块视图 | 给出完整模块树 | 未展开 | **采用架构稿，并按 §6 对齐现状** | 架构稿更完整 |
 | 9 | 当前启用阶段边界 | 四阶段 + 支撑模块分离 | 模板侧先行 | **当前 active 只有模板侧**；学生/放置/render 保留为长期方向 | 学生内容流程和标准尚未定义清楚，不能提前当作当前 gate |
 
@@ -223,7 +217,7 @@ docfit_v3/
 | 输出类型 | 当前路径 |
 | --- | --- |
 | 模板生成一次 run 的公开 eval 产物 | `test_outputs/debug/template_generation/<run_id>/eval_runs/<eval_run_id>/` |
-| 模板生成一次 run 的人工/debug 伴随产物 | `test_outputs/debug/template_generation/<run_id>/human/<timestamp>/` |
+| 模板生成一次 run 的阶段与调试产物 | `test_outputs/debug/template_generation/<run_id>/eval_runs/template_generate/`；只保留一套编号文件树和 `99_template_generation_debug_index.json` |
 | 模板生成同一 run 的后续 gap/judge eval | `test_outputs/debug/template_generation/<run_id>/eval_runs/<gap_or_judge_run_id>/` |
 | 非模板生成 eval / 长期评测报告 | `runs/eval/<run_id>/` |
 | `test_outputs/workbench/**` | `runs/workbench/**` |
@@ -232,16 +226,13 @@ docfit_v3/
 
 ## 6. 代码侧当前状态
 
-`src/docfit/` 已按“模板侧 active + 后续阶段 reserved + harness 控制平面”收敛：
+`src/docfit/` 已按“模板侧 active + harness 控制平面”收敛；未定义的后续产品阶段不保留可运行代码：
 
 | 模块 | 当前身份 | 规则 |
 | --- | --- | --- |
-| `src/docfit/stages/template_parse/` | active | 当前模板解析业务入口 |
-| `src/docfit/stages/content_extract/` | reserved | 学生内容提取流程未定义清楚前，不制作标准 |
-| `src/docfit/stages/placement/` | reserved | 内容放置依赖学生内容产物，不制作标准 |
-| `src/docfit/stages/render/` | reserved | 渲染依赖放置计划，不制作标准 |
-| `src/docfit/template_generation/` | 模板侧支撑流程 | 生成 `fillable_template.docx` 和 T1-T6 调试产物，不是第五业务阶段 |
+| `src/docfit/template_generation/` | 模板生成主流程 | 生成 `06.1_fillable_template.docx` 和 T1-T6 产物 |
 | `src/docfit/template_gap/` | 模板质量差距检查 | 读取被测模板和最终标准，输出 gap 报告 |
+| `src/docfit/convert/` | 模板评测编排 | 组合 generate、gap、judge 和 full summary；不承载学生转换原型 |
 | `src/docfit/harness/` | 控制平面 | 加载标准、绑定运行产物、判 `PASS/FAIL/UNKNOWN` |
 | `src/docfit/core/` | 跨切面基础设施 | `io` / `models` / `status` 等保留在这里 |
 
@@ -297,7 +288,7 @@ template_generation_judge_reports.py
 | 新增 profile | 放 `eval_profiles/<profile>/profile.yaml`，只组合 case 和 coverage gate |
 | 新增某次模板生成 run 的标准裁判输出 | 放同一 run bundle：`test_outputs/debug/template_generation/<run_id>/eval_runs/template_generation_judge/` |
 
-如果确实要执行新的结构迁移，先写 `docs/plans/...`，再配套 `scripts/check_directory_policy.py` 或同等检查，避免重新出现多份目录规则。
+如果确实要执行新的结构迁移，先写 `docs/plans/...`，再配套 pytest 或同等的可复现检查，避免重新出现多份目录规则。
 
 ---
 
@@ -334,7 +325,7 @@ template_generation_judge_reports.py
 | 通用合同 | `<domain>.contract.json` | `render.contract.json` |
 | 标准入口 | `<domain>.standard.yaml` | `target.standard.yaml` / `case.standard.yaml` |
 | manifest | `*_manifest.{yaml,json}` | `input_manifest.yaml` |
-| 运行输出 | 生产产物原名，可带阶段序号，不带 `.expected` | `template_artifact.json` |
+| 运行输出 | 生产产物原名，可带阶段序号，不带 `.expected` | `05_template_spec.yaml` |
 | 阶段标准质量输出 | `<阶段产物编号和名称>_standard_quality_report.{json,md}` | `02_unit_map_standard_quality_report.json` |
 | 标准裁判 run 绑定输出 | `template_generation_run_bundle.json` | `template_generation_run_bundle.json` |
 | 标准裁判阶段输出 | `template_generation_stage_checks.json` | `template_generation_stage_checks.json` |

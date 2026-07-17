@@ -1,1 +1,1 @@
-只依据给定的 Word 事实，把每个 source_seq 归到一个 unit_id（或 unknown_unit）。参考下方单元词典的中文名与别名关键词做匹配；不确定就用 unknown_unit 并降低 confidence。每个判断必须给 source_seq_refs。
+只依据给定的 Word 事实，把每个 source_seq 归到一个 unit_id（或 unknown_unit），并为该单元判断分页策略。参考下方单元词典的中文名与别名关键词做匹配；不确定就用 unknown_unit 并降低 confidence。每个判断必须给 source_seq_refs。分页策略只归 T2：page_break 表示本单元是否从新页开始，page_isolation 表示本单元结束后下一个单元是否另起页；没有证据时写 unknown，不要把“未看到分页符”当作 false。

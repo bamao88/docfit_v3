@@ -6,11 +6,13 @@ from pathlib import Path
 from typing import Literal, Mapping
 
 
-AgentTransportName = Literal["replay", "kimi", "minimax"]
+AgentTransportName = Literal["replay"]
+AgentTextProviderName = Literal["kimi", "minimax"]
+AgentVisionProviderName = Literal["minimax"]
 ObservationMode = Literal["off", "bundle", "replay", "live"]
-LIVE_TRANSPORTS = {"kimi", "minimax"}
-SUPPORTED_TRANSPORTS = {"replay", *LIVE_TRANSPORTS}
 SUPPORTED_OBSERVATION_MODES = {"off", "bundle", "replay", "live"}
+SUPPORTED_TEXT_PROVIDERS = {"kimi", "minimax"}
+SUPPORTED_VISION_PROVIDERS = {"minimax"}
 
 
 class AgentConfigError(ValueError):
@@ -35,6 +37,9 @@ class AgentConfig:
     allow_live_without_render_packet: bool = False
     allow_live_without_real_render: bool = False
     model: str | None = None
+    text_provider: AgentTextProviderName | None = None
+    vision_provider: AgentVisionProviderName | None = None
+    vision_model: str | None = None
 
 
 def validate_agent_config(config: AgentConfig) -> list[str]:
@@ -43,8 +48,17 @@ def validate_agent_config(config: AgentConfig) -> list[str]:
 
     errors: list[str] = []
     errors.extend(config.parse_errors)
-    if config.transport not in SUPPORTED_TRANSPORTS:
-        errors.append(f"unsupported agent transport: {config.transport}")
+    if config.transport != "replay":
+        errors.append(
+            "legacy agent transport has been removed; use observation_mode=live, "
+            "observation_mode=replay, or observation_mode=bundle"
+        )
+    text_provider = effective_text_provider(config)
+    vision_provider = effective_vision_provider(config)
+    if text_provider not in SUPPORTED_TEXT_PROVIDERS:
+        errors.append(f"unsupported text live provider: {text_provider}")
+    if vision_provider not in SUPPORTED_VISION_PROVIDERS:
+        errors.append(f"unsupported vision live provider: {vision_provider}")
     if config.observation_mode not in SUPPORTED_OBSERVATION_MODES:
         errors.append(f"unsupported observation_mode: {config.observation_mode}")
     if config.max_rounds < 1 or config.max_rounds > 4:
@@ -55,14 +69,16 @@ def validate_agent_config(config: AgentConfig) -> list[str]:
         errors.append("agent temperature must be between 0 and 2")
     if config.observation_t3_concurrency < 1:
         errors.append("agent observation_t3_concurrency must be greater than 0")
-    observation_mode_satisfies_replay = config.observation_mode in {"replay", "live"} or (
-        config.observation_bundle_path is not None
-    )
-    if config.transport == "replay" and not observation_mode_satisfies_replay:
-        if config.transcript_path is None:
-            errors.append("replay agent requires transcript_path")
-        elif not config.transcript_path.exists():
-            errors.append(f"agent transcript_path does not exist: {config.transcript_path}")
+    if (
+        config.observation_mode == "off"
+        and config.observation_bundle_path is None
+        and config.transcript_path is None
+    ):
+        errors.append(
+            "enabled agent requires observation_mode=live, replay, or bundle"
+        )
+    if config.transcript_path is not None and not config.transcript_path.exists():
+        errors.append(f"agent transcript_path does not exist: {config.transcript_path}")
     if config.observation_mode == "bundle" and config.observation_bundle_path is None:
         errors.append("bundle observation mode requires observation_bundle_path")
     if config.observation_mode == "replay":
@@ -72,15 +88,6 @@ def validate_agent_config(config: AgentConfig) -> list[str]:
             errors.append(
                 "agent observation_transcript_path does not exist: "
                 f"{config.observation_transcript_path}"
-            )
-    if config.transport in LIVE_TRANSPORTS:
-        if (
-            config.render_packet_path is None
-            and not config.allow_live_without_render_packet
-        ):
-            errors.append(
-                "live agent transport requires render_packet_path or "
-                "allow_live_without_render_packet=true for auto-generated real_render input"
             )
     if config.render_packet_path is not None and not config.render_packet_path.exists():
         errors.append(f"agent render_packet_path does not exist: {config.render_packet_path}")
@@ -98,7 +105,8 @@ def require_valid_agent_config(config: AgentConfig) -> None:
 def agent_config_from_env(env: Mapping[str, str] | None = None) -> AgentConfig | None:
     values = env or os.environ
     enabled_value = values.get("DOCFIT_TEMPLATE_AGENT_ENABLED")
-    provider = values.get("DOCFIT_TEMPLATE_AGENT_PROVIDER")
+    text_provider = values.get("DOCFIT_TEMPLATE_AGENT_TEXT_PROVIDER")
+    vision_provider = values.get("DOCFIT_TEMPLATE_AGENT_VISION_PROVIDER")
     transcript = values.get("DOCFIT_TEMPLATE_AGENT_TRANSCRIPT")
     render_packet = values.get("DOCFIT_TEMPLATE_AGENT_RENDER_PACKET")
     observation_bundle = values.get("DOCFIT_TEMPLATE_AGENT_OBSERVATION_BUNDLE")
@@ -109,12 +117,15 @@ def agent_config_from_env(env: Mapping[str, str] | None = None) -> AgentConfig |
     max_tokens = values.get("DOCFIT_TEMPLATE_AGENT_MAX_TOKENS")
     temperature = values.get("DOCFIT_TEMPLATE_AGENT_TEMPERATURE")
     model = values.get("DOCFIT_TEMPLATE_AGENT_MODEL")
+    text_model = values.get("DOCFIT_TEMPLATE_AGENT_TEXT_MODEL")
+    vision_model = values.get("DOCFIT_TEMPLATE_AGENT_VISION_MODEL")
     allow_projection = values.get("DOCFIT_TEMPLATE_AGENT_ALLOW_PROJECTION_RENDER")
 
     if not any(
         [
             enabled_value,
-            provider,
+            text_provider,
+            vision_provider,
             transcript,
             render_packet,
             observation_bundle,
@@ -125,6 +136,8 @@ def agent_config_from_env(env: Mapping[str, str] | None = None) -> AgentConfig |
             max_tokens,
             temperature,
             model,
+            text_model,
+            vision_model,
             allow_projection,
         ]
     ):
@@ -150,7 +163,6 @@ def agent_config_from_env(env: Mapping[str, str] | None = None) -> AgentConfig |
         name="DOCFIT_TEMPLATE_AGENT_TEMPERATURE",
         errors=parse_errors,
     )
-    transport = str(provider or "replay").strip().lower()
     observation_mode = _infer_observation_mode(
         observation_mode_value=observation_mode_value,
         observation_replay=observation_replay,
@@ -159,7 +171,7 @@ def agent_config_from_env(env: Mapping[str, str] | None = None) -> AgentConfig |
 
     return AgentConfig(
         enabled=enabled,
-        transport=transport,  # type: ignore[arg-type]
+        transport="replay",
         max_rounds=rounds,
         max_tokens=tokens,
         temperature=temp,
@@ -172,8 +184,40 @@ def agent_config_from_env(env: Mapping[str, str] | None = None) -> AgentConfig |
         observation_cache_dir=Path(observation_cache_dir) if observation_cache_dir else None,
         allow_live_without_real_render=str(allow_projection or "").strip().lower()
         in {"1", "true", "yes", "on"},
-        model=model,
+        model=text_model or model,
+        text_provider=(
+            str(text_provider).strip().lower() if text_provider else None
+        ),  # type: ignore[arg-type]
+        vision_provider=(
+            str(vision_provider).strip().lower() if vision_provider else None
+        ),  # type: ignore[arg-type]
+        vision_model=vision_model,
     )
+
+
+def effective_text_provider(config: AgentConfig) -> str:
+    if config.text_provider:
+        return str(config.text_provider).strip().lower()
+    return "kimi"
+
+
+def effective_vision_provider(config: AgentConfig) -> str:
+    if config.vision_provider:
+        return str(config.vision_provider).strip().lower()
+    return "minimax"
+
+
+def live_provider_summary(config: AgentConfig | None) -> list[str]:
+    if config is None:
+        return []
+    providers: list[str] = []
+    for provider in (
+        effective_text_provider(config),
+        effective_vision_provider(config),
+    ):
+        if provider and provider not in providers:
+            providers.append(provider)
+    return providers
 
 
 def _parse_int_setting(

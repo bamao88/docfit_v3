@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 import shutil
 from pathlib import Path
 from typing import Any
@@ -9,397 +8,7 @@ from docfit.core.io import now_iso, sha256_file, write_json, write_yaml
 from docfit.core.models import StageResult
 
 
-def _new_template_generation_debug_dir(debug_root: Path | None) -> Path | None:
-    if debug_root is None:
-        return None
-    timestamp = datetime.now().astimezone().strftime("%Y%m%dT%H%M%S%f%z")
-    debug_dir = debug_root / timestamp
-    suffix = 2
-    while debug_dir.exists():
-        debug_dir = debug_root / f"{timestamp}_{suffix:02d}"
-        suffix += 1
-    debug_dir.mkdir(parents=True, exist_ok=False)
-    return debug_dir
-
-
-def write_template_generation_debug_snapshot(
-    debug_dir: Path,
-    *,
-    source_template_docx: Path,
-    request: dict[str, Any],
-    document_facts: dict[str, Any],
-    l1_input_contract: dict[str, Any] | None = None,
-    unit_map: dict[str, Any],
-    element_spec: dict[str, Any],
-    global_spec: dict[str, Any],
-    template_spec: dict[str, Any],
-    source_tree: dict[str, Any],
-    structure_candidates: dict[str, Any],
-    generation_model: dict[str, Any],
-    plan: dict[str, Any],
-    copy_source_snapshot_docx: Path | None,
-    fillable_template_docx: Path,
-    build_manifest: dict[str, Any],
-    verification_report: dict[str, Any] | None = None,
-    t2_input: dict[str, Any] | None = None,
-    t2_code_unit_map: dict[str, Any] | None = None,
-    t2_ai_unit_observation: dict[str, Any] | None = None,
-    t2_merged_unit_map: dict[str, Any] | None = None,
-    t3_code_element_spec: dict[str, Any] | None = None,
-    t3_ai_element_observation: dict[str, Any] | None = None,
-    t3_merged_element_spec: dict[str, Any] | None = None,
-    t4_code_global_spec: dict[str, Any] | None = None,
-    t4_ai_layout_observation: dict[str, Any] | None = None,
-    t4_merged_global_spec: dict[str, Any] | None = None,
-    agent_render_packet: dict[str, Any] | None = None,
-    agent_pass_plan: dict[str, Any] | None = None,
-    agent_post_t2_checkpoint: dict[str, Any] | None = None,
-    agent_post_t2_input: dict[str, Any] | None = None,
-    agent_unit_windows: dict[str, Any] | None = None,
-    agent_transcript: dict[str, Any] | None = None,
-    agent_observation_bundle: dict[str, Any] | None = None,
-    agent_observation_bridge: dict[str, Any] | None = None,
-    agent_submission_comparison: dict[str, Any] | None = None,
-    agent_decisions: dict[str, Any] | None = None,
-    agent_manual_review_items: dict[str, Any] | None = None,
-    agent_t2_overlay: dict[str, Any] | None = None,
-    agent_t3_overlay: dict[str, Any] | None = None,
-    agent_t4_hints: dict[str, Any] | None = None,
-    agent_attribution: dict[str, Any] | None = None,
-) -> None:
-    debug_dir.mkdir(parents=True, exist_ok=True)
-    files: list[dict[str, Any]] = []
-
-    def record(path: Path, description: str) -> None:
-        files.append(
-            {
-                "name": path.name,
-                "path": str(path),
-                "description": description,
-                "sha256": sha256_file(path) if path.exists() else None,
-            }
-        )
-
-    def copy_docx(src: Path, name: str, description: str) -> Path:
-        dst = debug_dir / name
-        if src.resolve() != dst.resolve():
-            shutil.copyfile(src, dst)
-        record(dst, description)
-        return dst
-
-    def write_step_json(name: str, payload: dict[str, Any], description: str) -> Path:
-        path = debug_dir / name
-        write_json(path, payload)
-        record(path, description)
-        return path
-
-    def write_step_yaml(name: str, payload: dict[str, Any], description: str) -> Path:
-        path = debug_dir / name
-        write_yaml(path, payload)
-        record(path, description)
-        return path
-
-    copy_docx(
-        source_template_docx,
-        "00_input_source_template.docx",
-        "输入：学校原始模板 Word；生成器从这里读取真实 Word 结构。",
-    )
-    write_step_json(
-        "00_template_generation_request.json",
-        request,
-        "运行请求：记录源文件、输出目录和生成策略。",
-    )
-    write_step_json(
-        "01_document_facts.json",
-        document_facts,
-        "T1：从学校原始 Word 解析出的 run 级事实库。",
-    )
-    if l1_input_contract is not None:
-        write_step_json(
-            "01.5_l1_input_contract.json",
-            l1_input_contract,
-            "L1：T1 结构事实、render/page 事实和 observation bundle gate 的统一输入投影。",
-        )
-    write_step_yaml(
-        "02.0_t2_code_unit_map.yaml",
-        t2_code_unit_map or unit_map,
-        "T2/code_raw：agent 合并前由确定性代码直接生成的单元边界。",
-    )
-    if t2_input is not None:
-        write_step_json(
-            "02.1_t2_input.json",
-            t2_input,
-            "T2：边界/标签低置信问题的确定性投影，供人工或 AI 兜底使用。",
-        )
-    if t2_ai_unit_observation is not None:
-        write_step_yaml(
-            "02.2_t2_ai_unit_observation.yaml",
-            t2_ai_unit_observation,
-            "T2/ai_raw：Module 1 AI 独立生成的单元观察；未提供 AI 时标记 NOT_AVAILABLE。",
-        )
-    write_step_yaml(
-        "02.3_t2_merged_unit_map.yaml",
-        t2_merged_unit_map or unit_map,
-        "T2/merged：AI/code bridge 与 reconciler 后进入 T3/T5/T6 的最终单元边界。",
-    )
-    write_step_yaml(
-        "02_unit_map.yaml",
-        unit_map,
-        "T2 兼容别名：当前主链路消费的最终 merged unit_map。",
-    )
-    write_step_yaml(
-        "03.0_t3_code_element_spec.yaml",
-        t3_code_element_spec or element_spec,
-        "T3/code_raw：agent 合并前由确定性代码直接生成的元素策略。",
-    )
-    if t3_ai_element_observation is not None:
-        write_step_yaml(
-            "03.1_t3_ai_element_observation.yaml",
-            t3_ai_element_observation,
-            "T3/ai_raw：Module 1 AI 独立生成的元素观察；未提供 AI 时标记 NOT_AVAILABLE。",
-        )
-    write_step_yaml(
-        "03.2_t3_merged_element_spec.yaml",
-        t3_merged_element_spec or element_spec,
-        "T3/merged：AI/code bridge 与 reconciler 后进入 T5/T6 的最终元素策略。",
-    )
-    write_step_yaml(
-        "03_element_spec.yaml",
-        element_spec,
-        "T3 兼容别名：当前主链路消费的最终 merged element_spec。",
-    )
-    write_step_yaml(
-        "04.0_t4_code_global_spec.yaml",
-        t4_code_global_spec or global_spec,
-        "T4/code_raw：agent 合并前由确定性代码直接生成的全局布局规则。",
-    )
-    if t4_ai_layout_observation is not None:
-        write_step_yaml(
-            "04.1_t4_ai_layout_observation.yaml",
-            t4_ai_layout_observation,
-            "T4/ai_raw：Module 1 AI 独立生成的布局观察；未提供 AI 时标记 NOT_AVAILABLE。",
-        )
-    write_step_yaml(
-        "04.2_t4_merged_global_spec.yaml",
-        t4_merged_global_spec or global_spec,
-        "T4/merged：当前进入 T5/T6 的最终全局布局规则。",
-    )
-    write_step_yaml(
-        "04_global_spec.yaml",
-        global_spec,
-        "T4 兼容别名：当前主链路消费的最终 merged global_spec。",
-    )
-    write_step_yaml(
-        "05_template_spec.yaml",
-        template_spec,
-        "T5：模板解析主产物，供可填模板构建和后续阶段消费。",
-    )
-    write_step_json(
-        "legacy_01_source_template_tree.json",
-        source_tree,
-        "兼容调试视图：由 document_facts 派生的旧 source_template_tree。",
-    )
-    write_step_json(
-        "legacy_02_template_structure_candidates.json",
-        structure_candidates,
-        "兼容调试视图：旧候选结构。",
-    )
-    write_step_json(
-        "legacy_03_template_generation_model.json",
-        generation_model,
-        "兼容调试视图：旧生成模型。",
-    )
-    write_step_json(
-        "legacy_04_template_generation_plan.json",
-        plan,
-        "兼容调试视图：旧 action plan。",
-    )
-    if copy_source_snapshot_docx is not None and copy_source_snapshot_docx.exists():
-        record(
-            copy_source_snapshot_docx,
-            "阶段五：只执行 copy_source_docx 后的 Word；尚未插 slot、删说明、加分页或分节。",
-        )
-    copy_docx(
-        fillable_template_docx,
-        "06.1_fillable_template.docx",
-        "T6：执行全部构建动作后的可填写模板 Word。",
-    )
-    write_step_json(
-        "06.2_build_manifest.json",
-        build_manifest,
-        "T6：构建过程记录，包含 action、hash、SDT、分页和分节等证据。",
-    )
-    if verification_report is not None:
-        write_step_json(
-            "07_verification_report.json",
-            verification_report,
-            "T1-T6 聚合 verifier 报告。",
-        )
-    if agent_render_packet is not None:
-        write_step_json(
-            "08_agent_render_packet.json",
-            agent_render_packet,
-            "Agent 输入：可见层 render packet 与 source_seq/page 绑定。",
-        )
-    if agent_pass_plan is not None:
-        write_step_json(
-            "08.5_agent_pass_plan.json",
-            agent_pass_plan,
-            "Agent 编排：每个 pass 的阶段、窗口和允许输出层。",
-        )
-    if agent_post_t2_checkpoint is not None:
-        write_step_json(
-            "08.6_agent_post_t2_checkpoint.json",
-            agent_post_t2_checkpoint,
-            "Agent 编排：T2 pass 后的结构与 unit_map checkpoint。",
-        )
-    if agent_post_t2_input is not None:
-        write_step_json(
-            "08.65_agent_post_t2_input.json",
-            agent_post_t2_input,
-            "Agent 编排：T2 overlay 后的 source_seq ownership 与 unit input 视图。",
-        )
-    if agent_unit_windows is not None:
-        write_step_json(
-            "08.7_agent_unit_windows.json",
-            agent_unit_windows,
-            "Agent 编排：基于 post-T2 结构生成的 T3 unit windows。",
-        )
-    if agent_transcript is not None:
-        write_step_json(
-            "09_agent_transcript.json",
-            agent_transcript,
-            "Agent replay/live transcript。",
-        )
-    if agent_observation_bundle is not None:
-        write_step_json(
-            "09.1_ai_observation_bundle.json",
-            agent_observation_bundle,
-            "Agent 观察输入：同 run Module 1 AI observation bundle。",
-        )
-    if agent_observation_bridge is not None:
-        write_step_json(
-            "09.25_agent_observation_bridge.json",
-            agent_observation_bridge,
-            "Agent 观察桥接：AI observation bundle 到 executable proposal/manual review 的映射。",
-        )
-    if agent_submission_comparison is not None:
-        write_step_json(
-            "09.5_agent_submission_comparison.json",
-            agent_submission_comparison,
-            "Agent 对账：AI submission 与 deterministic 当前结果的 compatible/conflict/missing/unknown 关系。",
-        )
-    if agent_decisions is not None:
-        write_step_json(
-            "10_agent_decisions.json",
-            agent_decisions,
-            "Agent deterministic reconciler 的 accepted/rejected 决策。",
-        )
-    if agent_manual_review_items is not None:
-        write_step_json(
-            "10.5_agent_manual_review_items.json",
-            agent_manual_review_items,
-            "Agent 人工待决：open_questions、comparison conflicts、validation failures 和高风险项。",
-        )
-    if agent_t2_overlay is not None:
-        write_step_json(
-            "11_agent_t2_overlay.json",
-            agent_t2_overlay,
-            "T2 Agent overlay：只 patch structure_candidates 后重生 unit_map。",
-        )
-    if agent_t3_overlay is not None:
-        write_step_json(
-            "12_agent_t3_overlay.json",
-            agent_t3_overlay,
-            "T3 Agent overlay：只 patch candidate_policy 后重生 element_spec。",
-        )
-    if agent_t4_hints is not None:
-        write_step_json(
-            "13_agent_t4_hints.json",
-            agent_t4_hints,
-            "T4 Agent hints：只做归因 artifact，不改 T4/T5/T6 权威产物。",
-        )
-    if agent_attribution is not None:
-        write_step_json(
-            "14_agent_attribution.json",
-            agent_attribution,
-            "Agent attribution：round0/post-agent diff 与 proposal 归因。",
-        )
-    write_step_json(
-        "99_template_generation_debug_index.json",
-        {
-            "artifact_type": "template_generation_debug_index",
-            "artifact_version": "1.0",
-            "created_at": now_iso(),
-            "debug_dir": str(debug_dir),
-            "files": files,
-        },
-        "非阶段文件：本调试目录里的文件索引和说明。",
-    )
-
-
 def write_template_generation_outputs(out_dir: Path, result: StageResult) -> None:
-    json_keys = [
-        "template_generation_request",
-        "document_facts",
-        "template_generation_l1_input_contract",
-        "build_manifest",
-        "verification_report",
-        "template_artifact",
-        "source_template_tree",
-        "template_structure_candidates",
-        "t2_input",
-        "template_generation_model",
-        "template_generation_plan",
-        "template_agent_render_packet",
-        "template_agent_pass_plan",
-        "template_agent_post_t2_checkpoint",
-        "template_agent_post_t2_input",
-        "template_agent_unit_windows",
-        "template_agent_transcript",
-        "ai_observation_bundle",
-        "template_agent_observation_bridge",
-        "template_agent_submission_comparison",
-        "template_agent_decisions",
-        "template_agent_manual_review_items",
-        "agent_t2_overlay",
-        "agent_t3_overlay",
-        "agent_t4_hints",
-        "agent_attribution",
-    ]
-    yaml_keys = [
-        "unit_map",
-        "element_spec",
-        "global_spec",
-        "template_spec",
-        "t2_code_unit_map",
-        "t2_ai_unit_observation",
-        "t2_merged_unit_map",
-        "t3_code_element_spec",
-        "t3_ai_element_observation",
-        "t3_merged_element_spec",
-        "t4_code_global_spec",
-        "t4_ai_layout_observation",
-        "t4_merged_global_spec",
-    ]
-    for key in json_keys:
-        artifact = result.artifacts.get(key)
-        if artifact is None:
-            continue
-        path = out_dir / "artifacts" / f"{key}.json"
-        write_json(path, artifact)
-        result.artifact_paths[key] = path
-    for key in yaml_keys:
-        artifact = result.artifacts.get(key)
-        if artifact is None:
-            continue
-        path = out_dir / "artifacts" / f"{key}.yaml"
-        write_yaml(path, artifact)
-        result.artifact_paths[key] = path
-    write_template_generation_ordered_files(out_dir, result)
-
-
-def write_template_generation_ordered_files(out_dir: Path, result: StageResult) -> None:
     files: list[dict[str, Any]] = []
 
     def optional_path(value: Any) -> Path | None:
@@ -470,7 +79,22 @@ def write_template_generation_ordered_files(out_dir: Path, result: StageResult) 
     write_step_json(
         "01.5_l1_input_contract.json",
         "template_generation_l1_input_contract",
-        "L1：T1 结构事实、render/page 事实和 observation bundle gate 的统一输入投影。",
+        "L1：T1 与 render/page/object/run 客观事实封存后的唯一事实输入契约。",
+    )
+    write_step_json(
+        "01.6_t2_l1_stage_input.json",
+        "t2_l1_stage_input",
+        "T2 输入：只由 sealed L1 单向派生的阶段视图。",
+    )
+    write_step_json(
+        "01.7_t3_l1_compatibility_input.json",
+        "t3_l1_compatibility_input",
+        "T3 兼容输入：只由 sealed L1 单向派生，等待 Plan 06 替换。",
+    )
+    write_step_json(
+        "01.8_t4_l1_stage_input.json",
+        "t4_l1_stage_input",
+        "T4 输入：只由 sealed L1 单向派生的阶段视图。",
     )
     write_step_yaml(
         "02.0_t2_code_unit_map.yaml",
@@ -543,18 +167,9 @@ def write_template_generation_ordered_files(out_dir: Path, result: StageResult) 
         "T5：模板解析主产物，供可填模板构建和后续阶段消费。",
     )
 
-    manifest = result.artifacts.get("build_manifest") or {}
-    copy_snapshot = optional_path(
-        manifest.get("debug_snapshot", {}).get("copy_source_docx")
-    )
-    copy_source = (
-        copy_snapshot
-        if copy_snapshot is not None and copy_snapshot.exists()
-        else source_template
-    )
-    if copy_source is not None:
+    if source_template is not None:
         copy_docx(
-            copy_source,
+            source_template,
             "06.0_copy_source_docx.docx",
             "T6 中间态：只执行 copy_source_docx，尚未做减法构建。",
         )
@@ -576,11 +191,6 @@ def write_template_generation_ordered_files(out_dir: Path, result: StageResult) 
         "07_verification_report.json",
         "verification_report",
         "T1-T6 聚合 verifier 报告。",
-    )
-    write_step_json(
-        "08_agent_render_packet.json",
-        "template_agent_render_packet",
-        "Agent 输入：可见层 render packet 与 source_seq/page 绑定。",
     )
     write_step_json(
         "08.5_agent_pass_plan.json",

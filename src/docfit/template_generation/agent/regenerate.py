@@ -12,7 +12,11 @@ def regenerate_from_structure_candidates(
     document_facts: dict[str, Any],
     structure_candidates: dict[str, Any],
 ) -> dict[str, Any]:
-    unit_map = build_unit_map(document_facts, structure_candidates)
+    unit_map = build_unit_map(
+        document_facts,
+        structure_candidates,
+        l1_hash=document_facts.get("input_hashes", {}).get("l1"),
+    )
     generation_model = build_template_generation_model(
         request,
         structure_candidates=structure_candidates,

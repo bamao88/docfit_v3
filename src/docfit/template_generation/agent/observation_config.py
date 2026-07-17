@@ -54,9 +54,3 @@ def validate_observation_config(config: ObservationConfig) -> list[str]:
                 f"observation transcript_path does not exist: {config.transcript_path}"
             )
     return errors
-
-
-def require_valid_observation_config(config: ObservationConfig) -> None:
-    errors = validate_observation_config(config)
-    if errors:
-        raise ObservationConfigError("; ".join(errors))

@@ -5,7 +5,8 @@ Last updated: 2026-06-25
 > 迁移提示：本文保留 2026-06-22 以前的 00-05 优化地图，当前主线已经切换为
 > `document_facts -> unit_map -> element_spec -> global_spec -> template_spec ->
 > fillable_template + build_manifest`。当前字段、命令和门禁以
-> `docs/current/template-generation.md` 为准；本文只作为旧优化背景和兼容视图排查参考。
+> `docs/current/template-generation.md` 为准；阶段职责、依赖、输入输出和 route
+> 不变量以 `docs/current/template-generation-stage-contracts.md` 为准；本文只作为旧优化背景和兼容视图排查参考。
 
 一句话结论：这份文档把分散在模板生成主文档和计划文档里的内容收成一张当前可执行地图；它说明每个阶段当前代码已经做到什么、下一步应该改哪里、出了问题先看哪个产物。
 
@@ -44,7 +45,7 @@ Last updated: 2026-06-25
 
 ```python
 request = build_template_generation_request(...)
-document_facts = inspect_source_template_docx(source_template_docx)
+document_facts = inspect_document_facts_docx(source_template_docx)
 unit_map = build_unit_map(document_facts, structure_candidates)
 element_spec = build_element_spec(generation_model)
 global_spec = build_global_spec(document_facts)
@@ -52,19 +53,19 @@ template_spec = build_template_spec(document_facts, unit_map, element_spec, glob
 build_manifest = build_manifest(..., template_spec=template_spec)
 ```
 
-注意：这里的 `template_generation_model.json` 只属于 `template_generate` 支撑流程。legacy downstream 使用的模板解析产物 `template_artifact.json` 仍然属于 `template_parse`，不是这次改名范围。
+注意：generation model 只属于 `template_generate` 的运行内支撑流程，不再作为独立文件落盘。模板解析权威产物是 `05_template_spec.yaml`；旧 `template_artifact.json` 包装视图已经删除。
 
 ## 阶段产物和文件编号
 
 | 编号 | 产物 | 当前生产者 | 主要消费者 | 能证明什么 |
 | --- | --- | --- | --- | --- |
 | `00` | `template_generation_request.json`、`00_input_source_template.docx` | `request.py`、`outputs.py` | 后续所有阶段、debug | 本次运行用的是哪份源模板和哪些输入 |
-| `T1` | `document_facts.json` | inspector / OOXML 解析 | T2/T4/verifier；`source_template_tree.json` 仅作兼容调试视图 | 源 DOCX 里实际观察到了什么 |
-| `T2` | `unit_map.yaml` | unit mapper | T3/T5/verifier；`template_structure_candidates.json` 仅作兼容调试视图 | 单元、边界、来源序号和分页归属 |
-| `T3` | `element_spec.yaml` | element classifier | T5/T6/verifier；`template_generation_model.json` 仅作兼容调试视图 | 元素策略、fill/manual/generated 语义和证据 |
-| `T4` | `global_spec.yaml` | global rule builder | T5/T6/verifier | 页面、分节、页眉页脚、页码和编号事实 |
-| `T5` | `template_spec.yaml` | spec merger | T6、后续流程、verifier | 模板解析主规格 |
-| `T6` | `fillable_template.docx`、`build_manifest.json` | builder | `template-gap`、后续流程、报告、审计 | 构建动作和可填写 Word 模板 |
+| `T1` | `01_document_facts.json` | inspector / OOXML 解析 | T2/T4/verifier；旧 source tree 只在运行内派生，不再单独写盘 | 源 DOCX 里实际观察到了什么 |
+| `T2` | `02_unit_map.yaml` | unit mapper | T3/T5/verifier；结构候选只在运行内派生，不再单独写盘 | 单元、边界、来源序号和分页归属 |
+| `T3` | `03_element_spec.yaml` | element classifier | T5/T6/verifier；generation model 只在运行内消费，不再单独写盘 | 元素策略、fill/manual/generated 语义和证据 |
+| `T4` | `04_global_spec.yaml` | global rule builder | T5/T6/verifier | 页面、分节、页眉页脚、页码和编号事实 |
+| `T5` | `05_template_spec.yaml` | spec merger | T6、后续流程、verifier | 模板解析主规格 |
+| `T6` | `06.1_fillable_template.docx`、`06.2_build_manifest.json` | builder | `template-gap`、后续流程、报告、审计 | 构建动作和可填写 Word 模板 |
 | `99` | `99_template_generation_debug_index.json` | `outputs.py` | 人工排查 | 调试目录索引 |
 
 编号规则：整数部分对应阶段；点后面是阶段内子产物；`00` 给输入和请求；`99` 给索引和非阶段性说明。小数点不是数学小数，也不是旧流水编号兼容。
@@ -91,7 +92,7 @@ build_manifest = build_manifest(..., template_spec=template_spec)
 | 项 | 当前情况 |
 | --- | --- |
 | 模块 | OOXML inspector 与 `src/docfit/template_generation/artifacts.py` 的兼容视图转换 |
-| 产物 | `document_facts.json`；`source_template_tree.json` 仅作兼容调试视图 |
+| 产物 | `01_document_facts.json`；旧 source tree 不再作为公开文件输出 |
 | 已完成 | 解析段落、表格、页眉页脚、section、编号、unknown objects；给可见 body flow 分配连续 `source_seq`；写 `indexes.by_source_seq` |
 | 不负责 | 不判断 unit，不决定 copy-only，不生成 slot，不判断学校标准 |
 
@@ -170,7 +171,7 @@ build_manifest = build_manifest(..., template_spec=template_spec)
 | 项 | 当前情况 |
 | --- | --- |
 | 模块 | `executor.py`、`manifest.py`、`outputs.py` |
-| 产物 | `fillable_template.docx`、`build_manifest.json`、`verification_report.json`、debug 快照 |
+| 产物 | `06.1_fillable_template.docx`、`06.2_build_manifest.json`、`07_verification_report.json`，统一登记在根目录 `99_template_generation_debug_index.json` |
 | 已完成 | 先整包复制，再执行 action；manifest 记录执行动作、slot、generated field、输出 hash；debug 文件按阶段编号写出 |
 | 不负责 | 不决定内容应该放哪里，不证明学校格式通过 |
 
@@ -187,12 +188,12 @@ build_manifest = build_manifest(..., template_spec=template_spec)
 | 现象 | 先看什么 | first_bad_stage | 应该改哪里 |
 | --- | --- | --- | --- |
 | 输入文件不对 | `00_input_source_template.docx`、request | `00_input_request` | 调用命令或 profile 绑定 |
-| 源 Word 内容没解析出来 | `document_facts.json`，调试时看 `01_source_template_tree.json` | `T1/t1_document_facts` | OOXML inspector 或 T1 artifact 输出 |
-| unit 没识别或边界错 | `unit_map.yaml`，调试时看 `02_template_structure_candidates.json` | `T2/t2_unit_pagination` | `structure_candidates.py` |
+| 源 Word 内容没解析出来 | `01_document_facts.json`，调试时看 `01_source_template_tree.json` | `T1/t1_document_facts` | OOXML inspector 或 T1 artifact 输出 |
+| unit 没识别或边界错 | `02_unit_map.yaml`，调试时看 `02_template_structure_candidates.json` | `T2/t2_unit_pagination` | `structure_candidates.py` |
 | logical element 合并错 | T2 调试视图里的 `entry_refs[]`、`source_seq_refs[]`、`merge` | `T2/t2_unit_pagination` | `_logical_entry_groups` |
 | 源模板元素 12 不该删除 | 先查 `by_source_seq["12"]`，再查 T2/T3/T4/T5 引用链 | `T2/t2_unit_pagination` / `T3/t3_element_policy` / `T4/t4_global_layout` / `T5/t5_template_spec` | 找到第一次把 12 判错的阶段再改 |
-| 应保留的元素生成了 slot | `element_spec.yaml` 的 `elements[]` 和 `template_spec.yaml` 的 `units[].elements[]` | `T3/t3_element_policy` 或 `T5/t5_template_spec` | 元素策略、源模板责任推断规则或不确定性表达 |
-| spec 对但 Word 没变 | `template_spec.yaml`、`build_manifest.json`、构建前后 debug 快照 | `T6/build` | builder/executor |
+| 应保留的元素生成了 slot | `03_element_spec.yaml` 的 `elements[]` 和 `05_template_spec.yaml` 的 `units[].elements[]` | `T3/t3_element_policy` 或 `T5/t5_template_spec` | 元素策略、源模板责任推断规则或不确定性表达 |
+| spec 对但 Word 没变 | `05_template_spec.yaml`、`06.2_build_manifest.json`、`06.0_copy_source_docx.docx` 与 `06.1_fillable_template.docx` | `T6/build` | builder/executor |
 | Word 看起来不合格 | `generated_template_tree.json`、`template_gap_report.*` | `06_final_template_gap` 或更早阶段 | 先看 gap 指向的源证据，再回查 01-05 |
 
 ## 当前验证记录

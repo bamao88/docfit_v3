@@ -10,12 +10,7 @@ from docfit.template_gap.inspector import (
     iter_visible_text_entries,
 )
 
-from .artifacts import source_tree_from_document_facts
 from .refs import _part_name
-
-
-def inspect_source_template_docx(source_template_docx: Path) -> dict[str, Any]:
-    return source_tree_from_document_facts(inspect_document_facts_docx(source_template_docx))
 
 
 def inspect_document_facts_docx(source_template_docx: Path) -> dict[str, Any]:

@@ -170,6 +170,29 @@ def _insert_section_break_before(
     return f"{source_ref}/before:sectPr"
 
 
+def _set_keep_together_for_refs(
+    doc: Document,
+    paragraph_map: dict[int, Paragraph],
+    source_refs: list[str],
+) -> list[str]:
+    output_refs: list[str] = []
+    for source_ref in source_refs:
+        target = _paragraph_for_ref(paragraph_map, source_ref)
+        if target is not None:
+            target.paragraph_format.keep_with_next = True
+            target.paragraph_format.keep_together = True
+            output_refs.append(f"{source_ref}/keepWithNext+keepLines")
+            continue
+        target_cell = _cell_for_ref(doc, source_ref)
+        if target_cell is None:
+            continue
+        for index, paragraph in enumerate(target_cell.paragraphs, start=1):
+            paragraph.paragraph_format.keep_with_next = True
+            paragraph.paragraph_format.keep_together = True
+            output_refs.append(f"{source_ref}/p[{index}]/keepWithNext+keepLines")
+    return output_refs
+
+
 def _insert_styled_paragraph_before(
     paragraph_map: dict[int, Paragraph],
     source_ref: str | None,
@@ -271,18 +294,6 @@ def _sdt_block(tag: str, *, alias: str | None = None, placeholder: str = "") -> 
 def _append_marker(doc: Document, marker: str) -> str:
     doc.add_paragraph(marker)
     return f"word/document.xml:p[{_body_paragraph_count(doc)}]"
-
-
-def _find_marker_ref(doc: Document, marker: str) -> str | None:
-    paragraph_index_by_element_id = {
-        id(paragraph_element): index
-        for index, paragraph_element in enumerate(doc.element.body.iter(qn("w:p")), start=1)
-    }
-    for index, paragraph in enumerate(doc.paragraphs, start=1):
-        if marker in paragraph.text:
-            paragraph_index = paragraph_index_by_element_id.get(id(paragraph._p), index)
-            return f"word/document.xml:p[{paragraph_index}]"
-    return None
 
 
 def _body_paragraph_count(doc: Document) -> int:

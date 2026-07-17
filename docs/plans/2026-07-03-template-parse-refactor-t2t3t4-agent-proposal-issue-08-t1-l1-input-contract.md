@@ -1,5 +1,5 @@
 ---
-status: draft
+status: closed
 owner: template-generation
 stage: T1L1
 topic: fact-render-input-projection
@@ -15,7 +15,7 @@ previous_optimization:
   summary: Plan 07 讨论端到端 Module 1 -> bridge -> merged 编排，但仍未把 T1 结构事实、PDF/页面图事实和 AI/code 统一输入投影字段契约完全摊开。
 next_plan: docs/plans/2026-07-10-template-parse-refactor-t1l1-input-contract-plan-08-l1-projection-bundle-gate.md
 created: 2026-07-03
-last_updated: 2026-07-10
+last_updated: 2026-07-11
 related_code:
   - src/docfit/template_generation/source_tree.py
   - src/docfit/template_gap/inspector.py
@@ -31,6 +31,10 @@ cross_issue:
 ---
 
 # T2/T3/T4 Agent Issue 08：T1 事实与 L1 统一输入投影契约未收口
+
+## Closure
+
+2026-07-11 由 Plan 08 验证关闭：T1/render 在阶段判断前封存为纯事实 L1，T2/T3/T4 code 与 AI 只读取 L1 Stage Input，T5/T6/T7 绑定同一 canonical L1 hash，旧 `08_agent_render_packet.json` 输入身份和 run-backed fallback 已删除。三校真实 API 无明显回退门与固定 replay 等价门共同 `PASS`。T3 span/policy/AI-primary 的质量升级仍归 T3 Plan 06，不属于本 issue 残留。
 
 ## 真实运行口径
 

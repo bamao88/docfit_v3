@@ -4,7 +4,12 @@ from copy import deepcopy
 from typing import Any, Iterable
 
 
-T2_COLLECTIONS = ("unit_candidates", "block_candidates", "boundary_adjustments")
+T2_COLLECTIONS = (
+    "unit_candidates",
+    "block_candidates",
+    "boundary_adjustments",
+    "page_policy_candidates",
+)
 T3_COLLECTIONS = ("element_policy_candidates",)
 T4_COLLECTIONS = (
     "section_profile_hints",
@@ -19,6 +24,7 @@ PROPOSAL_KIND_BY_COLLECTION = {
     "unit_candidates": "unit_candidate",
     "block_candidates": "block_candidate",
     "boundary_adjustments": "boundary_adjustment",
+    "page_policy_candidates": "page_policy_candidate",
     "element_policy_candidates": "element_policy_candidate",
     "section_profile_hints": "section_profile_hint",
     "page_numbering_hints": "page_numbering_hint",
@@ -42,6 +48,7 @@ def empty_layered_submission(
                 "unit_candidates": [],
                 "block_candidates": [],
                 "boundary_adjustments": [],
+                "page_policy_candidates": [],
                 "open_questions": [],
             },
             "t3": {

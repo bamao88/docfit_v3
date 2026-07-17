@@ -323,42 +323,36 @@ def test_route_eval_reports_t4_layout_hint_consumption_gaps(tmp_path: Path, monk
     packet["render_status"] = "real_render"
     packet["render_artifacts"]["render_status"] = "real_render"
     packet_path = tmp_path / "packet.json"
-    transcript_path = tmp_path / "transcript.json"
+    bundle_path = tmp_path / "observation_bundle.json"
     write_json(packet_path, packet)
     write_json(
-        transcript_path,
+        bundle_path,
         {
-            "artifact_type": "template_agent_transcript",
-            "rounds": [
-                {
-                    "submission": {
-                        "source_render_hash": packet["source_render_hash"],
-                        "round_id": "round_001",
-                        "model": "fixture",
-                        "layers": {
-                            "t2": {"unit_candidates": [], "block_candidates": [], "boundary_adjustments": [], "open_questions": []},
-                            "t3": {"element_policy_candidates": [], "open_questions": []},
-                            "t4": {
-                                "section_profile_hints": [
-                                    {
-                                        "proposal_id": "t4_section_001",
-                                        "kind": "section_profile_hint",
-                                        "source_seq_refs": [1],
-                                    }
-                                ],
-                                "page_numbering_hints": [
-                                    {
-                                        "proposal_id": "t4_page_number_001",
-                                        "kind": "page_numbering_hint",
-                                        "source_seq_refs": [1],
-                                    }
-                                ],
-                                "open_questions": [],
-                            },
-                        },
+            "artifact_type": "ai_observation_bundle",
+            "source_render_hash": packet["source_render_hash"],
+            "model": "fixture",
+            "ai_unit_observation": {
+                "artifact_type": "ai_unit_observation",
+                "items": [],
+                "quality_report": {"demotions": []},
+            },
+            "ai_element_observation": {
+                "artifact_type": "ai_element_observation",
+                "items": [],
+                "quality_report": {"demotions": []},
+            },
+            "ai_layout_observation": {
+                "artifact_type": "ai_layout_observation",
+                "items": [
+                    {
+                        "section_profile_id": "section_1",
+                        "source_seq_refs": [1],
+                        "confidence": "high",
                     }
-                }
-            ],
+                ],
+                "abstain": False,
+                "quality_report": {"demotions": []},
+            },
         },
     )
     run_dir = tmp_path / "runs/template_generate"
@@ -371,10 +365,10 @@ def test_route_eval_reports_t4_layout_hint_consumption_gaps(tmp_path: Path, monk
             str(source),
             "--out",
             str(run_dir),
-            "--agent-replay",
-            str(transcript_path),
             "--agent-render-packet",
             str(packet_path),
+            "--agent-observation-bundle",
+            str(bundle_path),
         ],
     )
     assert generate_result.exit_code == 0, generate_result.output
@@ -397,9 +391,9 @@ def test_route_eval_reports_t4_layout_hint_consumption_gaps(tmp_path: Path, monk
     route_eval = read_json(out_dir / "template_generation_route_eval_report.json")
     consumption = route_eval["stage_metrics"]["T4"]["hint_consumption"]
     assert consumption["section_profile_hint_count"] == 1
-    assert consumption["page_numbering_hint_count"] == 1
+    assert consumption["page_numbering_hint_count"] == 0
     assert consumption["section_profile_effective_action_count"] == 1
-    assert consumption["page_numbering_effective_action_count"] == 1
+    assert consumption["page_numbering_effective_action_count"] == 0
     mismatch_types = {
         mismatch["type"] for mismatch in route_eval["mismatches"]
     }

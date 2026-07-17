@@ -61,6 +61,34 @@ def test_unit_coverage_invariant_holds_after_materialize() -> None:
     assert owned & unknown == set()
 
 
+def test_unit_materialize_preserves_page_policy_fields() -> None:
+    packet = clean_packet()
+    seq = sorted(packet_source_seq_set(packet))[0]
+    obs = materialize_unit_observation(
+        [
+            {
+                "unit_id": "cover",
+                "source_seq_refs": [seq],
+                "confidence": "high",
+                "page_break": "document_start",
+                "page_isolation": True,
+                "allow_multi_page": False,
+                "keep_together": True,
+                "evidence_refs": ["page:1"],
+            }
+        ],
+        packet=packet,
+    )
+
+    page = obs["items"][0]["page"]
+    assert page["page_break"] == "document_start"
+    assert page["page_isolation"] is True
+    assert page["allow_multi_page"] is False
+    assert page["keep_together"] is True
+    assert page["decision"]["origin"] == "ai_observation"
+    assert page["decision"]["evidence_refs"] == ["page:1"]
+
+
 def test_unit_overlap_higher_confidence_wins() -> None:
     packet = clean_packet()
     seqs = sorted(packet_source_seq_set(packet))

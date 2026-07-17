@@ -19,7 +19,7 @@ Last updated: 2026-06-27
 | 范围 | 状态 | 说明 |
 | --- | --- | --- |
 | 模板生成 T1-T5 | active | 标准已拆为 `t1_document_facts` 到 `t5_template_spec`，后续由标准裁判读取 |
-| 可填写模板构建 / T6 | active | 输出 `fillable_template.docx`、`build_manifest.json`，由内置 verifier 和 gap 检查 |
+| 可填写模板构建 / T6 | active | 输出 `06.1_fillable_template.docx`、`06.2_build_manifest.json`，由内置 verifier 和 gap 检查 |
 | 模板 gap | active | 对照 `template_quality/final_template.expected.yaml` 检查被测模板 |
 | 学生内容提取 | deferred | 流程、阶段产物和签收标准尚未定义清楚 |
 | 内容放置 | deferred | 依赖学生内容提取结果，当前不制作标准 |
@@ -31,7 +31,7 @@ deferred 范围里的 historical fixture 或 expected 文件不能作为当前 g
 
 | 阶段 | 主要产物 | 必须证明什么 | 常见阻断 |
 | --- | --- | --- | --- |
-| 模板解析 | `template_artifact.json` | 系统正确理解学校模板结构、样式、区域和可填写位置 | required unit 缺失、样式/字段/分页不符、检查器证据不足 |
+| 模板解析 | `05_template_spec.yaml` | 系统正确理解学校模板结构、样式、区域和可填写位置 | required unit 缺失、样式/字段/分页不符、检查器证据不足 |
 | 内容提取 | `student_content_artifact.json` | 用户可见内容完整进入 ledger | 可见内容缺 `content_id`、unsupported 可见对象未登记 |
 | 内容放置 | `placement_plan.json` | 每个可见内容有且只有一个明确去向 | silent drop、slot 不存在、学校特例未登记 |
 | DOCX 渲染 | `final.docx`、`render_manifest.json`、`feature_snapshot.json` | renderer 忠实执行 placement plan | action 未执行、feature diff 阻断、oracle 不足 |
@@ -42,17 +42,16 @@ deferred 范围里的 historical fixture 或 expected 文件不能作为当前 g
 
 | 支撑流程 | 主要产物 | 能证明什么 | 不能证明什么 |
 | --- | --- | --- | --- |
-| 模板解析/可填模板生成 | `document_facts.json`、`template_spec.yaml`、`fillable_template.docx`、`build_manifest.json`、`verification_report.json` | 源模板事实、单元/元素/全局规则、构建动作和成品 Word 可追溯 | 不能替代学校签收标准下的最终格式验收 |
+| 模板解析/可填模板生成 | `01_document_facts.json`、`05_template_spec.yaml`、`06.1_fillable_template.docx`、`06.2_build_manifest.json`、`07_verification_report.json` | 源模板事实、单元/元素/全局规则、构建动作和成品 Word 可追溯 | 不能替代学校签收标准下的最终格式验收 |
 | generated-template gap | `generated_template_tree.json`、`template_gap_report.*` | 被测生成模板和学校签收标准之间的差距 | 不能证明学生内容提取、放置或最终论文渲染正确 |
 
 ## 产物不能互相冒充
 
 | 产物 | 能证明什么 | 不能证明什么 |
 | --- | --- | --- |
-| `document_facts.json` | 学校源 Word 里实际解析到什么 | 不能承载单元/元素策略判断 |
-| `template_spec.yaml` | 系统如何理解学校源模板的单元、元素、策略和全局规则 | 不能替代 `fillable_template.docx` 的真实结构证据 |
-| `build_manifest.json` | 构建器执行了什么，输出 Word hash 是什么 | 不能单独证明 Word 里最终真的存在对应内容 |
-| `template_artifact.json` | legacy downstream 接口需要的包装视图 | 不能拥有独立于 `template_spec.yaml` 的模板语义 |
+| `01_document_facts.json` | 学校源 Word 里实际解析到什么 | 不能承载单元/元素策略判断 |
+| `05_template_spec.yaml` | 系统如何理解学校源模板的单元、元素、策略和全局规则 | 不能替代 `06.1_fillable_template.docx` 的真实结构证据 |
+| `06.2_build_manifest.json` | 构建器执行了什么，输出 Word hash 是什么 | 不能单独证明 Word 里最终真的存在对应内容 |
 | `generated_template_tree.json` | 被测生成 Word 实际解析出了什么 | 不能替代学校签收标准 |
 | `template_gap_report.json` | 检查器如何判定差距和阻断状态 | 不能反过来当标准，不能被 AI 改成通过 |
 

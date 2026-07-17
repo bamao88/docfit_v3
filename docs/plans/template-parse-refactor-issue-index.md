@@ -2,7 +2,7 @@
 status: active
 owner: template-generation
 created: 2026-06-25
-last_updated: 2026-07-10
+last_updated: 2026-07-17
 ---
 
 # 模板解析重构 issue 迭代索引
@@ -65,15 +65,29 @@ next_plan: ...
 | 06 | implementation plan | `docs/plans/2026-07-01-template-parse-refactor-t2t3t4-agent-proposal-plan-06-observation-code-bridge-acceptance.md` | implemented | 新增 observation bridge、CLI/config/artifact 接线、manual review/attribution 合并，以及 `template_agent_bridge_standard_acceptance` 标准验收报告。 |
 | 07 | issue | `docs/plans/2026-07-01-template-parse-refactor-t2t3t4-agent-proposal-issue-07-end-to-end-workflow-not-integrated.md` | draft | 计划 06 / route-eval 03 已落代码与 artifact 槽位，但默认真实 run 未贯通 Module 1→桥接→三路线；03.1 常为 NOT_AVAILABLE 占位且语义与 abstain 混用。 |
 | 07 | optimization plan | `docs/plans/2026-07-01-template-parse-refactor-t2t3t4-agent-proposal-plan-07-end-to-end-workflow-integration.md` | draft | 四阶段：NOT_AVAILABLE 占位修正 → 同 run Module1 编排 → hunannongye replay contract → 运行口径文档与 T3 route summary。 |
-| 08 | issue | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-issue-08-t1-l1-input-contract.md` | draft | T1a DOCX/OOXML 结构事实、T1b PDF/页面图/overlay 视觉事实和 L1 统一输入投影契约未收口；code 与 AI 输入字段不对齐，图片/对象/page binding 尚未成为一等输入。 |
-| 08 | optimization plan | `docs/plans/2026-07-10-template-parse-refactor-t1l1-input-contract-plan-08-l1-projection-bundle-gate.md` | implemented_in_part | 已落 L1 输入投影 artifact、run bundle 绑定和 route-eval 诊断；精确 object/page overlay 与强制下游只读 L1 仍作为后续缺口暴露。 |
+| 08 | issue | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-issue-08-t1-l1-input-contract.md` | closed | 2026-07-11 已由 Plan 08 关闭：纯事实 L1、run/object/page identity、T2-T7 shared hash 与旧输入退出均完成。 |
+| 08 | optimization plan | `docs/plans/2026-07-10-template-parse-refactor-t1l1-input-contract-plan-08-l1-projection-bundle-gate.md` | verified | 三校迁移前后真实 API 无明显回退报告 PASS；最终代码固定 replay 的 T1-T6 语义全等、T6 identity failure=0、canonical L1 hash 可重算。 |
 | 09 | issue | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-issue-09-ai-raw-not-merged.md` | draft | 同 run AI raw 已经 AVAILABLE 且 hash 对齐，但 T2 schema 拒绝、T3 manual review、T4 advisory-only 导致 AI 未进入 merged 权威产物。 |
 | 09 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-plan-09-ai-raw-to-merged.md` | draft | 修 T2 bridge collection/kind、T3 executable overlay、T4 merged global_spec evidence，并用 hunannongye replay 验证每层 accepted/merged。 |
 | 10 | issue | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-issue-10-t4-observation-downstream-dead-end.md` | draft | T4 accepted observation（含 vision 明点识别）只落 `agent_observation_hints`，生产代码零读取者；T4 AI 观察对最终产物零影响。 |
 | 10 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-plan-10-t4-ai-primary-layout-consumption.md` | draft | T4 转 AI 为主：明点输入补齐（承接 issue-08 T4 切片）、accepted 观察升为 merged 一等字段、T5/T6 消费、三路线门禁。 |
-| 11 | issue | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-issue-11-unit-pagination-signal-loss.md` | draft | 单元分页动作只消费机械 page_break_before 证据；AI 独占页信号（page_isolation_accuracy=0.6875）在 bridge 前丢失，`page_policy_hint` 槽位零生产者。 |
-| 11 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-plan-11-unit-pagination-alignment.md` | draft | page_policy_hint 生产 → merged units[].page 调和（机械证据为校验方）→ plan.py 消费带溯源 → 生成 DOCX 实测页隔离门禁。 |
+| 11 | issue | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-issue-11-unit-pagination-signal-loss.md` | draft | T2 signed standard 已有四维分页策略，但 runtime page 可全空；T5/T6 双轨消费且 T2 judge 对空 page 仍 PASS/SIGNABLE。 |
+| 11 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-plan-11-unit-pagination-alignment.md` | implemented_in_part | 已落 canonical page、T2 page audit、T2 AI page proposal、T5/T6 单一消费链和 manifest provenance；湖南农大离线 judge 已从空 page 假 PASS 转为 `t2_page_policy_mismatch` FAIL，三校/最终 Word/live route 仍待验。 |
 | — | direction proposal | `docs/plans/2026-07-03-template-parse-refactor-ai-primary-staged-migration-proposal.md` | draft | 分阶段转 AI 为主：T4/T3 先行（deterministic 转校验/兜底），T2 保持 merge；三路线评测 ai_raw ≥ code_raw 作为晋升门禁。 |
+
+## Template generation full-chain capability closure
+
+| 顺序 | 类型 | 文档 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| 01 | issue | `docs/plans/2026-07-11-template-parse-refactor-full-chain-capability-issue-01-remaining-end-to-end-gaps.md` | implemented_in_part | 一行全流程入口、post-T6 自动 gap、full_summary 和 Plan 08 L1 强制消费已落地；仍记录三路线后段隔离重放、真实 object binding、T4 hint 执行、AI-primary 晋升和 T3 真实残留门禁等未闭环质量问题。 |
+| 01 | optimization plan | `docs/plans/2026-07-11-template-parse-refactor-full-chain-capability-plan-01-end-to-end-closure.md` | implemented_in_part | 已落一行全流程、post-T6 gap 派生、full summary、Plan 08 sealed L1、T3 residual gate、route replay reason、T4 explicit noop 消费和 AI-primary gate；真实三校仍暴露 T3 residual、object binding 等质量门禁。 |
+
+## Template generation entropy cleanup
+
+| 顺序 | 类型 | 文档 | 状态 | 说明 |
+| --- | --- | --- | --- | --- |
+| 01 | issue | `docs/plans/2026-07-11-template-generation-entropy-cleanup-issue-01-stale-surfaces.md` | closed | 旧四阶段 CLI/stage、三套 artifact path 和选定无生产调用 evaluator/compatibility leaves 已删除。 |
+| 01 | implementation plan | `docs/plans/2026-07-11-template-generation-entropy-cleanup-plan-01-delete-stale-surfaces.md` | verified | leaf cleanup、旧 workflow 删除和唯一编号输出树均完成；304 tests 与三校 full-chain 验证通过运行/证据契约。 |
 
 ## Standard judge
 
@@ -84,7 +98,7 @@ next_plan: ...
 | 02 | issue | `docs/plans/template-parse-refactor-standard-judge-issue-02-stage-standard-diff-diagnosis-priority.md` | draft | 纠偏：stage standard diff diagnosis 优先于 gate。**待拆分**：正文混入了 plan 内容，应迁到独立 `plan-02` 文档 |
 | 02 | optimization plan | TBD | pending | 对应 issue-02；从 issue-02 正文拆出实施计划后登记 |
 | 03 | issue | `docs/plans/2026-07-01-template-parse-refactor-standard-judge-route-eval-issue-03-full-chain-three-route-gap.md` | draft | 当前缺口：模板生成全链路尚未统一比较 code_raw、ai_raw、merged，T3 元素级 draft gold、T5/T6 隔离重放和 template-gap 证据未纳入同一诊断闭环 |
-| 03 | optimization plan | `docs/plans/2026-07-01-template-parse-refactor-standard-judge-route-eval-plan-03-full-chain-three-route-evaluator.md` | implemented_in_part | route-eval 已覆盖 T1/L1/T2/T3/T4/T5/T6/T7/POST_T6 共 23 个 route candidates；T5/T6/T7/post-T6 的 code_raw/ai_raw 隔离重放仍显式 NOT_EVALUABLE，template-gap 缺失时显式 NOT_AVAILABLE。 |
+| 03 | optimization plan | `docs/plans/2026-07-01-template-parse-refactor-standard-judge-route-eval-plan-03-full-chain-three-route-evaluator.md` | implemented_in_part | route-eval 已覆盖 T1/L1/T2/T3/T4/T5/T6/T7/POST_T6 共 23 个 route candidates；后段 route replay 已写可物化 T5 或 OUT_OF_SCOPE/NOT_AVAILABLE reason，template-gap 可由 judge/full-chain 派生。 |
 
 ## Stage standards completeness
 
@@ -114,6 +128,6 @@ next_plan: ...
 | 04 | issue | `docs/plans/2026-07-01-template-parse-refactor-t3-element-policy-issue-04-instruction-manual-confusion.md` | implemented | hunannongye 真实输出中多条“注/此表/请在/不得更改”等表单说明被 T3 误判为 manual_only，最终未删 |
 | 04 | optimization plan | `docs/plans/2026-07-01-template-parse-refactor-t3-element-policy-plan-04-instruction-manual-confusion.md` | implemented | 表单说明优先识别为 instruction_remove，并保留签名/意见等真实手填字段 |
 | 05 | issue | `docs/plans/2026-07-01-template-parse-refactor-t3-element-policy-issue-05-inline-style-instruction-fixed-merge.md` | draft | issue-04 修复后暴露的新残余：行内括号格式说明被合并进 fixed/fill/generated/manual_only，未作为 instruction_remove 删除；hunannongye 当前扫描命中 8 处并残留到最终 DOCX |
-| 05 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-t3-element-policy-plan-06-run-span-subelement-policy-ai-primary.md` | draft | 与 issue-06 共用综合 plan-06（run/span 子元素模型 + AI 为主）；issue-05 为 also_resolves |
+| 05 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-t3-element-policy-plan-06-run-span-subelement-policy-ai-primary.md` | draft | 与 issue-06 共用综合 plan-06；依赖 Plan 08，按 L1+T2 构造 run/span/视觉输入并做完整 merged/T6 精确消费；issue-05 为 also_resolves |
 | 06 | issue | `docs/plans/2026-07-02-template-parse-refactor-t3-element-policy-issue-06-placeholder-span-granularity.md` | draft | `□` / `××` / `……` placeholder-like 文本缺少子 span 粒度；典型字段行被整段标为 fixed，扫描命中 66 个非删除元素 |
-| 06 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-t3-element-policy-plan-06-run-span-subelement-policy-ai-primary.md` | draft | 综合 plan：span 模型（label/spacer/sample/slot/inline_instruction）、确定性 field-line parser 校验、AI span 级观察、T6 replace_span_with_slot 契约；同时覆盖 issue-05 |
+| 06 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-t3-element-policy-plan-06-run-span-subelement-policy-ai-primary.md` | draft | 综合 plan：L1 run/span/视觉 Stage Input、同形 code/AI decisions、span coverage、完整 merged、T6 精确动作和 AI-primary 真实门禁；同时覆盖 issue-05 |

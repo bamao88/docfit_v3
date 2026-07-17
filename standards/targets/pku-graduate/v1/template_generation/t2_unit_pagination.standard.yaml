@@ -29,6 +29,15 @@ scope:
   - unit_boundary
   - unit_source_seq_range
   - unit_page_policy
+gold_coverage:
+  unit_detection: expected.unit_order and expected.units[].unit_id
+  unit_order: expected.unit_order
+  unit_boundary: expected.units[].boundary.source_seq_range or source_ref_range
+  unit_page_policy: expected.units[].page
+gold_review_notes:
+  - Boundary gold was manually assigned from accepted source template body_flow/source_ref facts, not copied from any generated unit_map.
+  - Source-seq ranges include unit-local format/instruction prefaces when they belong to the school template unit.
+  - Units without ordinary body_flow source_seq use source_ref_range instead of inventing synthetic source_seq.
 expected:
   unit_order:
     - cover
@@ -55,6 +64,9 @@ expected:
       boundary:
         expected_start: document_start
         expected_end: before_next_unit
+        source_seq_range:
+          start: 1
+          end: 11
       page:
         page_break: document_start
         page_isolation: true
@@ -72,6 +84,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 12
+          end: 14
       page:
         page_break: true
         page_isolation: true
@@ -89,6 +104,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 15
+          end: 24
       page:
         page_break: true
         page_isolation: false
@@ -106,6 +124,10 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 25
+          end: 30
+        anchor_source_seq: 28
       page:
         page_break: true
         page_isolation: false
@@ -123,6 +145,10 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: after_last_toc_entry
+        source_ref_range:
+          start: word/document.xml:p[65]/field[39]
+          end: word/document.xml:p[65]/field[39]
+        field_end_source_ref: word/document.xml:p[102]
       page:
         page_break: true
         page_isolation: true
@@ -140,6 +166,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: after_last_toc_entry
+        source_seq_range:
+          start: 31
+          end: 45
       page:
         page_break: true
         page_isolation: true
@@ -157,6 +186,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: after_last_toc_entry
+        source_seq_range:
+          start: 46
+          end: 49
       page:
         page_break: true
         page_isolation: true
@@ -174,6 +206,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 50
+          end: 305
       page:
         page_break: true
         page_isolation: false
@@ -191,6 +226,10 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 306
+          end: 312
+        negative_anchor_source_seq_refs: [244]
       page:
         page_break: true
         page_isolation: false
@@ -208,6 +247,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 313
+          end: 322
       page:
         page_break: true
         page_isolation: false
@@ -225,6 +267,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 323
+          end: 343
       page:
         page_break: true
         page_isolation: false
@@ -242,6 +287,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: document_end
+        source_seq_range:
+          start: 344
+          end: 357
       page:
         page_break: true
         page_isolation: true

@@ -4,58 +4,45 @@ from typing import Any
 
 from docfit.core.io import now_iso, sha256_json
 
-from .agent.observation_schema import validate_observation
-
 
 def build_l1_input_contract(
     *,
     document_facts: dict[str, Any],
     render_packet: dict[str, Any] | None = None,
-    ai_observation_bundle: dict[str, Any] | None = None,
-    observation_bridge: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     source_text_index = _source_text_index(document_facts, render_packet)
+    run_index = _run_index(document_facts, source_text_index)
     source_object_index = _source_object_index(document_facts, source_text_index)
+    source_structure_index = _source_structure_index(document_facts)
     layout_fact_index = _layout_fact_index(document_facts)
     visual_page_index = _visual_page_index(render_packet)
-    bundle_gate_view = _bundle_gate_view(
-        ai_observation_bundle,
-        render_packet=render_packet,
-        observation_bridge=observation_bridge,
-        all_source_seq={
-            int(item["source_seq"])
-            for item in source_text_index
-            if _as_int(item.get("source_seq")) is not None
-        },
-    )
     coverage = _coverage(
         source_text_index=source_text_index,
+        run_index=run_index,
         source_object_index=source_object_index,
         layout_fact_index=layout_fact_index,
         visual_page_index=visual_page_index,
-        bundle_gate_view=bundle_gate_view,
     )
     return {
         "artifact_type": "template_generation_l1_input_contract",
-        "artifact_version": "1.0",
+        "artifact_version": "2.0",
         "producer": {"name": "docfit-template-generate", "version": "0.3.0"},
         "created_at": now_iso(),
         "input_hashes": {
-            "document_facts": sha256_json(document_facts),
-            "template_agent_render_packet": (
-                sha256_json(render_packet) if render_packet is not None else None
+            "source_template": document_facts.get("metadata", {}).get(
+                "source_template_hash"
             ),
-            "ai_observation_bundle": (
-                sha256_json(ai_observation_bundle)
-                if ai_observation_bundle is not None
-                else None
+            "document_facts": sha256_json(document_facts),
+            "render_facts": (
+                sha256_json(render_packet) if render_packet is not None else None
             ),
         },
         "source_text_index": source_text_index,
+        "run_index": run_index,
         "source_object_index": source_object_index,
+        "source_structure_index": source_structure_index,
         "layout_fact_index": layout_fact_index,
         "visual_page_index": visual_page_index,
-        "bundle_gate_view": bundle_gate_view,
         "coverage": coverage,
     }
 
@@ -77,6 +64,7 @@ def _source_text_index(
         packet_row = packet_by_seq.get(source_seq, {})
         rows.append(
             {
+                "source_facts": dict(entry),
                 "source_seq": source_seq,
                 "source_ref": entry.get("source_ref"),
                 "node_id": entry.get("node_id"),
@@ -192,6 +180,136 @@ def _source_object_index(
     return objects
 
 
+def _source_structure_index(document_facts: dict[str, Any]) -> dict[str, Any]:
+    data = document_facts.get("data", {}) or {}
+    indexes = document_facts.get("indexes", {}) or {}
+    return {
+        "metadata": dict(document_facts.get("metadata", {}) or {}),
+        "paragraphs": list(data.get("paragraphs", []) or []),
+        "tables": list(data.get("tables", []) or []),
+        "body_order": list(indexes.get("body_order", []) or []),
+        "by_source_ref": dict(indexes.get("by_source_ref", {}) or {}),
+        "by_source_seq": dict(indexes.get("by_source_seq", {}) or {}),
+        "warnings": list(document_facts.get("warnings", []) or []),
+        "unknown_objects": list(document_facts.get("unknown_objects", []) or []),
+    }
+
+
+def _run_index(
+    document_facts: dict[str, Any],
+    source_text_index: list[dict[str, Any]],
+) -> dict[str, Any]:
+    source_by_raw_run: dict[str, dict[str, Any]] = {}
+    raw_runs_by_id: dict[str, dict[str, Any]] = {}
+    indexed_runs = (
+        document_facts.get("indexes", {}).get("runs_by_raw_run_id", {}) or {}
+    )
+    for source in document_facts.get("body_flow", []) or []:
+        if not isinstance(source, dict):
+            continue
+        raw_run_ids = list(source.get("raw_run_ids", []) or [])
+        style_runs = list((source.get("style_details", {}) or {}).get("runs", []) or [])
+        for index, raw_run_id_value in enumerate(raw_run_ids):
+            raw_run_id = str(raw_run_id_value or "")
+            if not raw_run_id:
+                continue
+            indexed = indexed_runs.get(raw_run_id, {}) or {}
+            style_run = style_runs[index] if index < len(style_runs) else {}
+            if not isinstance(style_run, dict):
+                style_run = {}
+            existing = raw_runs_by_id.get(raw_run_id)
+            if existing is not None:
+                source_seq = source.get("source_seq")
+                source_ref = source.get("source_ref")
+                if source_seq not in existing["parent_source_seq_refs"]:
+                    existing["parent_source_seq_refs"].append(source_seq)
+                if source_ref not in existing["parent_source_refs"]:
+                    existing["parent_source_refs"].append(source_ref)
+                continue
+            row = {
+                "raw_run_id": raw_run_id,
+                "logical_run_id": indexed.get("logical_run_id"),
+                "parent_source_seq": source.get("source_seq"),
+                "parent_source_seq_refs": [source.get("source_seq")],
+                "parent_source_ref": source.get("source_ref"),
+                "parent_source_refs": [source.get("source_ref")],
+                "paragraph_id": indexed.get("paragraph_id")
+                or source.get("paragraph_id"),
+                "source_ref": style_run.get("source_ref")
+                or indexed.get("source_ref"),
+                "text": style_run.get("text", ""),
+                "effective_style": _effective_style(style_run, indexed),
+                "style_provenance": indexed.get("style_provenance", {}),
+                "container_refs": indexed.get("container_refs", []),
+                "kind": indexed.get("kind", "text"),
+            }
+            raw_runs_by_id[raw_run_id] = row
+            source_by_raw_run[raw_run_id] = row
+
+    raw_runs = list(raw_runs_by_id.values())
+
+    logical_runs: list[dict[str, Any]] = []
+    for logical in document_facts.get("runs", []) or []:
+        if not isinstance(logical, dict):
+            continue
+        merged_from = [str(value) for value in logical.get("merged_from", []) or []]
+        parent = next(
+            (source_by_raw_run[raw_id] for raw_id in merged_from if raw_id in source_by_raw_run),
+            {},
+        )
+        logical_runs.append(
+            {
+                "logical_run_id": logical.get("logical_run_id"),
+                "raw_run_id": logical.get("raw_run_id"),
+                "raw_run_ids": merged_from,
+                "parent_source_seq": parent.get("parent_source_seq"),
+                "parent_source_seq_refs": parent.get("parent_source_seq_refs", []),
+                "parent_source_ref": parent.get("parent_source_ref"),
+                "parent_source_refs": parent.get("parent_source_refs", []),
+                "paragraph_id": logical.get("paragraph_id"),
+                "source_refs": logical.get("source_refs", []),
+                "text": logical.get("text", ""),
+                "effective_style": logical.get("effective_style", {}),
+                "style_provenance": logical.get("style_provenance", {}),
+                "container_refs": logical.get("container_refs", []),
+                "kind": logical.get("kind", "text"),
+            }
+        )
+
+    source_run_refs = {
+        str(int(row["source_seq"])): {
+            "raw_run_ids": list(row.get("raw_run_ids", []) or []),
+            "logical_run_ids": list(row.get("logical_run_ids", []) or []),
+        }
+        for row in source_text_index
+        if _as_int(row.get("source_seq")) is not None
+    }
+    return {
+        "raw_runs": raw_runs,
+        "logical_runs": logical_runs,
+        "source_run_refs": source_run_refs,
+    }
+
+
+def _effective_style(
+    style_run: dict[str, Any],
+    indexed_run: dict[str, Any],
+) -> dict[str, Any]:
+    direct = {
+        key: style_run.get(key)
+        for key in (
+            "font_names",
+            "font_size_pt",
+            "bold",
+            "italic",
+            "underline",
+            "color",
+        )
+        if key in style_run
+    }
+    return direct or dict(indexed_run.get("effective_style", {}) or {})
+
+
 def _object_row(
     source: dict[str, Any],
     *,
@@ -208,6 +326,7 @@ def _object_row(
         else "unbound_no_source_seq_anchor"
     )
     row = {
+        "source_facts": dict(source),
         "object_id": object_id,
         "object_type": object_type,
         "source_ref": source_ref or None,
@@ -289,63 +408,13 @@ def _visual_page_index(render_packet: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
-def _bundle_gate_view(
-    ai_observation_bundle: dict[str, Any] | None,
-    *,
-    render_packet: dict[str, Any] | None,
-    observation_bridge: dict[str, Any] | None,
-    all_source_seq: set[int],
-) -> dict[str, Any]:
-    expected_hash = (render_packet or {}).get("source_render_hash")
-    if ai_observation_bundle is None:
-        return {
-            "bundle_present": False,
-            "expected_source_render_hash": expected_hash,
-            "bundle_source_render_hash": None,
-            "source_render_hash_match": None,
-            "stage_gates": {},
-            "bridge_present": observation_bridge is not None,
-            "bridge_summary": (observation_bridge or {}).get("summary", {}),
-        }
-    bundle_hash = ai_observation_bundle.get("source_render_hash")
-    stage_gates: dict[str, Any] = {}
-    for key in (
-        "ai_unit_observation",
-        "ai_element_observation",
-        "ai_layout_observation",
-    ):
-        observation = ai_observation_bundle.get(key)
-        validation = validate_observation(
-            observation,
-            expected_source_render_hash=expected_hash,
-            all_source_seq=all_source_seq,
-        )
-        stage_gates[key] = {
-            "present": isinstance(observation, dict),
-            "valid": bool(validation.get("valid")),
-            "errors": validation.get("errors", []),
-            "coverage": (validation.get("observation") or {}).get("coverage", {}),
-        }
-    return {
-        "bundle_present": True,
-        "expected_source_render_hash": expected_hash,
-        "bundle_source_render_hash": bundle_hash,
-        "source_render_hash_match": (
-            expected_hash is not None and bundle_hash == expected_hash
-        ),
-        "stage_gates": stage_gates,
-        "bridge_present": observation_bridge is not None,
-        "bridge_summary": (observation_bridge or {}).get("summary", {}),
-    }
-
-
 def _coverage(
     *,
     source_text_index: list[dict[str, Any]],
+    run_index: dict[str, Any],
     source_object_index: list[dict[str, Any]],
     layout_fact_index: dict[str, Any],
     visual_page_index: dict[str, Any],
-    bundle_gate_view: dict[str, Any],
 ) -> dict[str, Any]:
     object_unbound = [
         item.get("object_id")
@@ -357,14 +426,30 @@ def _coverage(
         for item in source_text_index
         if item.get("binding_status") in {"unbound", "no_render_packet"}
     ]
-    stage_gates = bundle_gate_view.get("stage_gates", {}) or {}
-    invalid_gates = [
-        stage for stage, gate in stage_gates.items() if not gate.get("valid")
+    raw_runs = list(run_index.get("raw_runs", []) or [])
+    logical_runs = list(run_index.get("logical_runs", []) or [])
+    raw_run_unbound = [
+        item.get("raw_run_id")
+        for item in raw_runs
+        if _as_int(item.get("parent_source_seq")) is None
+        or not item.get("source_ref")
+    ]
+    logical_run_unbound = [
+        item.get("logical_run_id")
+        for item in logical_runs
+        if _as_int(item.get("parent_source_seq")) is None
+        or not item.get("raw_run_ids")
     ]
     return {
         "source_text_count": len(source_text_index),
         "source_text_unbound_count": len(source_unbound),
         "source_text_unbound_refs": source_unbound[:50],
+        "raw_run_count": len(raw_runs),
+        "raw_run_unbound_count": len(raw_run_unbound),
+        "raw_run_unbound_ids": raw_run_unbound[:50],
+        "logical_run_count": len(logical_runs),
+        "logical_run_unbound_count": len(logical_run_unbound),
+        "logical_run_unbound_ids": logical_run_unbound[:50],
         "source_object_count": len(source_object_index),
         "source_object_unbound_count": len(object_unbound),
         "source_object_unbound_ids": object_unbound[:50],
@@ -373,9 +458,8 @@ def _coverage(
         "field_count": len(layout_fact_index.get("fields", []) or []),
         "break_count": len(layout_fact_index.get("breaks", []) or []),
         "render_status": visual_page_index.get("render_status"),
+        "render_error": visual_page_index.get("render_error"),
         "page_count": visual_page_index.get("page_count"),
-        "bundle_present": bundle_gate_view.get("bundle_present"),
-        "bundle_gate_invalid_stages": invalid_gates,
     }
 
 

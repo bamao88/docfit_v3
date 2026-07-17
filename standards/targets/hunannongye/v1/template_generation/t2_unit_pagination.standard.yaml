@@ -29,6 +29,15 @@ scope:
   - unit_boundary
   - unit_source_seq_range
   - unit_page_policy
+gold_coverage:
+  unit_detection: expected.unit_order and expected.units[].unit_id
+  unit_order: expected.unit_order
+  unit_boundary: expected.units[].boundary.source_seq_range or source_ref_range
+  unit_page_policy: expected.units[].page
+gold_review_notes:
+  - Boundary gold was manually assigned from accepted source template body_flow/source_ref facts, not copied from any generated unit_map.
+  - Source-seq ranges include unit-local format/instruction prefaces when they belong to the school template unit.
+  - Units without ordinary body_flow source_seq use source_ref_range instead of inventing synthetic source_seq.
 expected:
   unit_order:
     - cover
@@ -59,6 +68,9 @@ expected:
       boundary:
         expected_start: document_start
         expected_end: before_next_unit
+        source_seq_range:
+          start: 1
+          end: 17
       page:
         page_break: document_start
         page_isolation: true
@@ -76,6 +88,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 18
+          end: 21
       page:
         page_break: true
         page_isolation: true
@@ -93,6 +108,10 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: after_last_toc_entry
+        source_seq_range:
+          start: 22
+          end: 49
+        anchor_source_seq: 24
       page:
         page_break: true
         page_isolation: true
@@ -110,6 +129,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 50
+          end: 56
       page:
         page_break: true
         page_isolation: false
@@ -127,6 +149,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 57
+          end: 59
       page:
         page_break: false
         page_isolation: false
@@ -144,6 +169,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 60
+          end: 67
       page:
         page_break: false
         page_isolation: false
@@ -161,6 +189,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 68
+          end: 89
       page:
         page_break: false
         page_isolation: false
@@ -178,6 +209,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 90
+          end: 93
       page:
         page_break: false
         page_isolation: false
@@ -195,6 +229,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 94
+          end: 96
       page:
         page_break: false
         page_isolation: false
@@ -212,6 +249,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 97
+          end: 102
       page:
         page_break: false
         page_isolation: false
@@ -229,6 +269,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 103
+          end: 142
       page:
         page_break: true
         page_isolation: true
@@ -246,6 +289,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 143
+          end: 180
       page:
         page_break: true
         page_isolation: true
@@ -263,6 +309,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 181
+          end: 212
       page:
         page_break: true
         page_isolation: true
@@ -280,6 +329,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 213
+          end: 259
       page:
         page_break: true
         page_isolation: true
@@ -297,6 +349,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
+        source_seq_range:
+          start: 260
+          end: 284
       page:
         page_break: true
         page_isolation: true
@@ -314,6 +369,9 @@ expected:
       boundary:
         expected_start: anchor_based
         expected_end: document_end
+        source_seq_range:
+          start: 285
+          end: 320
       page:
         page_break: true
         page_isolation: true

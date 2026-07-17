@@ -1,7 +1,7 @@
-"""T3 优质模板示例库与按对象选择逻辑。
+"""T3 优质模板示例库与按单元/局部事实选择逻辑。
 
 示例只教模型什么结果会形成可用的学校模板，不携带任何当前文档答案。选择器仅依据
-当前对象的事实画像与软性 object plan 选少量同类型示例，避免把整个示例库塞进 prompt。
+当前单元路由与局部事实画像选少量同类型示例，避免把整个示例库塞进 prompt。
 """
 
 from __future__ import annotations
@@ -12,9 +12,10 @@ from typing import Any
 
 T3_QUALITY_GOAL = (
     "目标是形成可实际复用的高质量学校模板：固定标题/标签/正式声明完整保留；"
-    "学生姓名、学号、论文题目等个性化示例值变成准确填写字段；格式与填写说明被删除；"
+    "学生姓名、学号、论文题目等个性化示例值变成准确填写字段；只有能精确绑定 run 的纯格式批注才删除；"
     "空白填写区不遗漏；签名、手写意见和人工勾选保留为 manual_only；"
-    "标签和值的关系及表格结构不被破坏；所有判断都能追溯到输入中的 Word 事实。"
+    "标签和值的关系、完整声明及表格结构不被破坏；不确定时宁可保留并复核，避免误删正式内容；"
+    "所有判断都能追溯到输入中的 Word 事实。"
 )
 
 
@@ -75,8 +76,12 @@ _ELEMENT_EXEMPLARS: dict[str, dict[str, Any]] = {
             {
                 "policy": "instruction_remove",
                 "role": "template_instruction",
+                "semantic_role": "format_annotation",
+                "transformation": "remove_exact_span",
+                "confidence": "high",
                 "content": "（小二号黑体加粗）",
                 "raw_run_ids": ["p_0007.r_004"],
+                "removal_reason": "该独立 run 只描述字体字号，不属于成稿内容",
             },
         ],
         "quality_reason": "填写内容与只用于指导排版的说明必须形成两个元素",
@@ -146,56 +151,89 @@ _ELEMENT_EXEMPLARS: dict[str, dict[str, Any]] = {
 }
 
 
-_OBJECT_EXEMPLARS: dict[str, dict[str, Any]] = {
-    "metadata_form_overview": {
-        "name": "对象级识别：学生信息表",
-        "overview": {
-            "object_type": "table",
-            "dimensions": {"rows": 6, "columns": 2},
-            "row_samples": [
-                ["学生姓名", "张三"],
-                ["学号", "20260001"],
-                ["指导教师签字", "________"],
-            ],
+_UNIT_EXEMPLARS: dict[str, dict[str, Any]] = {
+    "declaration_preserve_whole": {
+        "name": "正式声明页：整体保护",
+        "input_summary": {
+            "objects": ["声明标题", "完整声明正文", "签名和日期区域"],
+            "visual_pattern": "正式连续文本，末尾带人工签署区域",
+        },
+        "bad_plan": {
+            "route": "full_local_analysis",
+            "why_bad": "逐句判断容易把声明条款误当填写说明删掉，破坏法律/学术诚信文本完整性",
         },
         "excellent_plan": {
-            "object_hypothesis": {
-                "archetype": "metadata_form",
-                "purpose": "收集学生、论文和指导教师信息",
-                "confidence": "high",
-            },
-            "regions": [
-                {"region": "label_value_fields", "pattern": "左侧固定标签，右侧待填值"},
-                {"region": "manual_signature", "pattern": "固定签字标签，右侧人工签字区"},
-            ],
-            "quality_risks": ["不要把标签和值合并", "不要把签字区判断为普通 fill"],
+            "route": "inspect_suspected_regions",
+            "default_preservation_policy": "manual_only",
+            "protected_source_seq_refs": [101, 102, 103, 104, 105],
+            "inspect_source_seq_refs": [106],
+            "confidence": "high",
+            "rationale": "声明正文与签署区构成需人工确认的完整页面；只检查独立纯格式批注",
+            "quality_risks": ["必须保持声明正文整体性"],
         },
     },
-    "mixed_text_overview": {
-        "name": "对象级识别：标题、示例值与格式说明混合",
-        "overview": {
-            "object_type": "text_flow",
-            "row_samples": ["本科毕业论文", "论文题目", "（小二号黑体加粗）"],
+    "form_inspect_regions": {
+        "name": "结构化表单：保结构，只检查候选字段",
+        "input_summary": {
+            "objects": ["多行两列表格"],
+            "candidate_regions": ["标签-值行", "签名日期行", "纯格式批注行"],
+        },
+        "bad_plan": {
+            "route": "full_local_analysis",
+            "why_bad": "无差别下钻增加调用和标签/内容被割裂的风险",
         },
         "excellent_plan": {
-            "object_hypothesis": {
-                "archetype": "cover_title_block",
-                "purpose": "保留封面固定标题并定位学生题目填写区",
-                "confidence": "high",
-            },
-            "regions": [
-                {"region": "fixed_heading", "pattern": "学校模板标题"},
-                {"region": "student_value", "pattern": "学生论文题目"},
-                {"region": "format_instruction", "pattern": "只用于排版指导"},
-            ],
-            "quality_risks": ["格式说明不得进入填写内容", "示例题目不得固定保留"],
+            "route": "preserve_whole",
+            "default_preservation_policy": "manual_only",
+            "protected_source_seq_refs": [201, 202, 203, 204, 205, 206],
+            "inspect_source_seq_refs": [],
+            "confidence": "high",
+            "rationale": "整张行政表单都是后续人工填写、签署和评审的工作区，整体保留并停止下钻",
+            "quality_risks": ["表格骨架不可破坏", "固定栏目文字也是人工工作流的一部分"],
+        },
+    },
+    "generated_toc": {
+        "name": "自动目录：整体为生成字段，只检查独立格式批注",
+        "input_summary": {
+            "objects": ["目录标题", "多级目录示例行", "引导点和页码"],
+            "visual_pattern": "连续目录条目骨架，最终应由系统根据正文标题生成",
+        },
+        "bad_plan": {
+            "route": "preserve_structure_classify_fields",
+            "default_preservation_policy": "fixed",
+            "why_bad": "会把示例目录条目固定进最终模板，阻止系统重建真实目录",
+        },
+        "excellent_plan": {
+            "route": "inspect_suspected_regions",
+            "default_preservation_policy": "generated",
+            "protected_source_seq_refs": [401, 402, 403, 404],
+            "inspect_source_seq_refs": [405],
+            "confidence": "high",
+            "rationale": "目录主体整体由系统生成；只检查独立字体字号/空行批注",
+            "quality_risks": ["不能把示例目录条目当成 fixed", "格式批注仍需精确 raw run 才可删除"],
+        },
+    },
+    "mixed_content_full": {
+        "name": "混合内容块：确需完整局部判断",
+        "input_summary": {
+            "objects": ["固定标题", "学生示例值", "自动目录", "独立格式批注"],
+            "visual_pattern": "多种用途交错，整体默认策略不足以表达",
+        },
+        "excellent_plan": {
+            "route": "full_local_analysis",
+            "default_preservation_policy": "fixed",
+            "protected_source_seq_refs": [],
+            "inspect_source_seq_refs": [301, 302, 303, 304],
+            "confidence": "high",
+            "rationale": "同一单元存在 fixed/fill/generated/remove 多种变换，需要逐 run 判断",
+            "quality_risks": ["删除仍需高置信度和精确 raw_run_ids"],
         },
     },
 }
 
 
 def select_t3_element_exemplars(evidence: dict[str, Any], *, limit: int = 3) -> list[dict[str, Any]]:
-    """按当前对象画像/规划选择少量正反例。"""
+    """按当前局部事实选择少量正反例。"""
 
     haystack = _evidence_text(evidence)
     scores: list[tuple[int, str]] = []
@@ -211,14 +249,13 @@ def select_t3_element_exemplars(evidence: dict[str, Any], *, limit: int = 3) -> 
     ]
 
 
-def select_t3_object_exemplars(evidence: dict[str, Any], *, limit: int = 1) -> list[dict[str, Any]]:
-    overview = evidence.get("object_overview") or {}
-    object_type = str(overview.get("object_type") or "")
-    preferred = "metadata_form_overview" if object_type == "table" else "mixed_text_overview"
-    ids = [preferred]
+def select_t3_unit_exemplars(evidence: dict[str, Any], *, limit: int = 4) -> list[dict[str, Any]]:
+    """整单元规划固定提供三类路由正反例，不含当前文档答案。"""
+
+    del evidence
     return [
-        {"exemplar_id": exemplar_id, **_OBJECT_EXEMPLARS[exemplar_id]}
-        for exemplar_id in ids[: max(1, limit)]
+        {"exemplar_id": exemplar_id, **exemplar}
+        for exemplar_id, exemplar in list(_UNIT_EXEMPLARS.items())[: max(1, limit)]
     ]
 
 
@@ -230,7 +267,7 @@ def _evidence_text(evidence: dict[str, Any]) -> str:
     return json.dumps(
         {
             "object_overview": evidence.get("object_overview"),
-            "object_plan": evidence.get("object_plan"),
+            "unit_plan": evidence.get("unit_plan"),
             "rows": evidence.get("rows"),
         },
         ensure_ascii=False,

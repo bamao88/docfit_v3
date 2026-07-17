@@ -10,6 +10,14 @@ from docfit.core.models import Finding, make_finding
 from docfit.core.status import Status, merge_statuses
 from docfit.ooxml.package import is_valid_docx
 
+from .page_policy import (
+    PAGE_POLICY_FIELDS,
+    page_policy_has_unknown,
+    page_policy_known_values,
+    page_policy_shape_errors,
+)
+from .stage_inputs import l1_artifact_hash
+
 
 W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 
@@ -17,6 +25,7 @@ W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 def verify_template_parse_build(
     *,
     document_facts: dict[str, Any],
+    l1_input_contract: dict[str, Any],
     unit_map: dict[str, Any],
     element_spec: dict[str, Any],
     global_spec: dict[str, Any],
@@ -30,6 +39,7 @@ def verify_template_parse_build(
 
     for stage, artifact, verifier in [
         ("T1", document_facts, _verify_t1_document_facts),
+        ("L1", l1_input_contract, _verify_l1_input_contract),
         ("T2", unit_map, _verify_t2_unit_map),
         ("T3", element_spec, _verify_t3_element_spec),
         ("T4", global_spec, _verify_t4_global_spec),
@@ -41,6 +51,21 @@ def verify_template_parse_build(
         stage_reports.append(
             _stage_report(stage, artifact, _status_for_findings(stage_findings))
         )
+
+    l1_trace_findings = _verify_l1_trace_chain(
+        document_facts=document_facts,
+        l1_input_contract=l1_input_contract,
+        artifacts={
+            "T2": unit_map,
+            "T3": element_spec,
+            "T4": global_spec,
+            "T5": template_spec,
+            "T6": build_manifest,
+        },
+        start_index=next_index,
+    )
+    findings.extend(l1_trace_findings)
+    next_index += len(l1_trace_findings)
 
     t6_findings = _verify_t6_build(
         template_spec,
@@ -60,19 +85,140 @@ def verify_template_parse_build(
         "artifact_version": "1.0",
         "status": status.value,
         "first_bad_stage": first_bad_stage,
+        "input_hashes": {"l1": l1_artifact_hash(l1_input_contract)},
         "stages": stage_reports,
         "findings": [finding.to_dict() for finding in findings],
     }
+    statuses_by_stage = {item["stage"]: item["status"] for item in stage_reports}
     coverage = {
-        "template_generation.document_facts": stage_reports[0]["status"] == Status.PASS.value,
-        "template_generation.unit_map": stage_reports[1]["status"] == Status.PASS.value,
-        "template_generation.element_spec": stage_reports[2]["status"] == Status.PASS.value,
-        "template_generation.global_spec": stage_reports[3]["status"] == Status.PASS.value,
-        "template_generation.template_spec": stage_reports[4]["status"] == Status.PASS.value,
-        "template_generation.fillable_template": stage_reports[5]["status"] == Status.PASS.value,
+        "template_generation.document_facts": statuses_by_stage.get("T1") == Status.PASS.value,
+        "template_generation.l1_input_contract": statuses_by_stage.get("L1") == Status.PASS.value,
+        "template_generation.unit_map": statuses_by_stage.get("T2") == Status.PASS.value,
+        "template_generation.element_spec": statuses_by_stage.get("T3") == Status.PASS.value,
+        "template_generation.global_spec": statuses_by_stage.get("T4") == Status.PASS.value,
+        "template_generation.template_spec": statuses_by_stage.get("T5") == Status.PASS.value,
+        "template_generation.fillable_template": statuses_by_stage.get("T6") == Status.PASS.value,
         "template_generation.verification_report": True,
     }
     return status, findings, report, coverage
+
+
+def _verify_l1_input_contract(
+    l1_input_contract: dict[str, Any],
+    *,
+    start_index: int,
+) -> list[Finding]:
+    findings: list[Finding] = []
+    next_index = start_index
+    if l1_input_contract.get("artifact_type") != "template_generation_l1_input_contract":
+        findings.append(
+            make_finding(
+                next_index,
+                "template_generate",
+                Status.FAIL,
+                "l1_input_contract_missing",
+                "L1 must be the sealed fact input contract",
+                "artifact_type=template_generation_l1_input_contract",
+                str(l1_input_contract.get("artifact_type")),
+                root_cause_bucket="template_l1_contract_gap",
+            )
+        )
+        next_index += 1
+    coverage = l1_input_contract.get("coverage", {}) or {}
+    for count_key in ("source_text_unbound_count", "raw_run_unbound_count", "logical_run_unbound_count"):
+        if int(coverage.get(count_key) or 0) > 0:
+            findings.append(
+                make_finding(
+                    next_index,
+                    "template_generate",
+                    Status.FAIL,
+                    f"l1_{count_key}",
+                    "L1 text and run identities must be fully bound",
+                    f"{count_key}=0",
+                    str(coverage.get(count_key)),
+                    root_cause_bucket="template_l1_identity_gap",
+                )
+            )
+            next_index += 1
+    serialized = repr(l1_input_contract)
+    forbidden = [
+        field
+        for field in (
+            "ai_observation_bundle",
+            "observation_bridge",
+            "candidate_policy",
+            "accepted_decision",
+            "judge_status",
+        )
+        if field in serialized
+    ]
+    if forbidden:
+        findings.append(
+            make_finding(
+                next_index,
+                "template_generate",
+                Status.FAIL,
+                "l1_forbidden_semantics",
+                "L1 must contain objective facts only",
+                "no AI/bridge/judge semantics",
+                ",".join(forbidden),
+                root_cause_bucket="template_l1_boundary_violation",
+            )
+        )
+    return findings
+
+
+def _verify_l1_trace_chain(
+    *,
+    document_facts: dict[str, Any],
+    l1_input_contract: dict[str, Any],
+    artifacts: dict[str, dict[str, Any]],
+    start_index: int,
+) -> list[Finding]:
+    findings: list[Finding] = []
+    next_index = start_index
+    expected_l1_hash = l1_artifact_hash(l1_input_contract)
+    expected_document_facts_hash = sha256_json(document_facts)
+    observed_document_facts_hash = l1_input_contract.get("input_hashes", {}).get(
+        "document_facts"
+    )
+    if observed_document_facts_hash != expected_document_facts_hash:
+        findings.append(
+            make_finding(
+                next_index,
+                "template_generate",
+                Status.FAIL,
+                "l1_document_facts_hash_mismatch",
+                "sealed L1 must bind the current T1 facts",
+                expected_document_facts_hash,
+                str(observed_document_facts_hash),
+                root_cause_bucket="template_l1_hash_gap",
+            )
+        )
+        next_index += 1
+    for stage, artifact in artifacts.items():
+        observed = (
+            artifact.get("input_hashes", {}).get("l1")
+            or artifact.get("route", {}).get("l1_hash")
+            or artifact.get("l1_input_contract_ref", {}).get("hash")
+        )
+        if observed == expected_l1_hash:
+            continue
+        findings.append(
+            make_finding(
+                next_index,
+                "template_generate",
+                Status.FAIL,
+                "l1_stage_hash_mismatch",
+                f"{stage} must bind the same sealed L1 hash",
+                expected_l1_hash,
+                str(observed),
+                evidence_refs=[stage],
+                root_cause_bucket="template_l1_hash_gap",
+            )
+        )
+        next_index += 1
+    return findings
 
 
 def _verify_t1_document_facts(
@@ -365,6 +511,23 @@ def _verify_t2_unit_map(unit_map: dict[str, Any], *, start_index: int) -> list[F
         )
         next_index += 1
     for unit in units:
+        unit_id = str(unit.get("unit_id") or "")
+        page_errors = page_policy_shape_errors(unit.get("page"))
+        if page_errors:
+            findings.append(
+                make_finding(
+                    next_index,
+                    "template_generate",
+                    Status.FAIL,
+                    "unit_map_page_policy_invalid",
+                    "T2 must emit canonical page policy for each unit",
+                    ",".join(PAGE_POLICY_FIELDS),
+                    "; ".join(page_errors),
+                    affected_ids=[unit_id] if unit_id else [],
+                    root_cause_bucket="template_t2_page_policy_gap",
+                )
+            )
+            next_index += 1
         if not unit.get("page_start"):
             findings.append(
                 make_finding(
@@ -725,6 +888,22 @@ def _verify_t5_template_spec(
     }
     for unit in template_spec.get("units", []):
         unit_id = str(unit.get("unit_id") or "")
+        page_errors = page_policy_shape_errors(unit.get("page"))
+        if page_errors:
+            findings.append(
+                make_finding(
+                    next_index,
+                    "template_generate",
+                    Status.FAIL,
+                    "template_spec_unit_page_policy_invalid",
+                    "T5 must preserve canonical T2 page policy on each unit",
+                    ",".join(PAGE_POLICY_FIELDS),
+                    "; ".join(page_errors),
+                    affected_ids=[unit_id] if unit_id else [],
+                    root_cause_bucket="template_t5_page_policy_gap",
+                )
+            )
+            next_index += 1
         section_profile_refs = unit.get("section_profile_refs") or []
         unit_range = _unit_source_seq_range(unit)
         if not section_profile_refs:
@@ -897,6 +1076,49 @@ def _verify_t6_build(
             )
         )
         next_index += 1
+    page_policy_results = build_manifest.get("page_policy_results") or []
+    results_by_unit = {
+        str(item.get("unit_id") or ""): item
+        for item in page_policy_results
+        if isinstance(item, dict) and item.get("unit_id")
+    }
+    for unit in template_spec.get("units", []):
+        unit_id = str(unit.get("unit_id") or "")
+        page = unit.get("page") or {}
+        known_values = page_policy_known_values(page)
+        if known_values and unit_id not in results_by_unit:
+            findings.append(
+                make_finding(
+                    next_index,
+                    "template_generate",
+                    Status.FAIL,
+                    "build_page_policy_result_missing",
+                    "T6 must report a result for each known T2 page policy",
+                    repr(known_values),
+                    "missing",
+                    affected_ids=[unit_id] if unit_id else [],
+                    root_cause_bucket="template_t6_page_policy_drop",
+                )
+            )
+            next_index += 1
+            continue
+        result = results_by_unit.get(unit_id)
+        if result is not None and result.get("status") == "manual_review":
+            status = Status.UNKNOWN if page_policy_has_unknown(page) else Status.FAIL
+            findings.append(
+                make_finding(
+                    next_index,
+                    "template_generate",
+                    status,
+                    "build_page_policy_needs_review",
+                    "T6 page policy is not fully executable",
+                    "executed, no_action_required, or already_satisfied",
+                    str(result.get("reason") or unit_id),
+                    affected_ids=[unit_id] if unit_id else [],
+                    root_cause_bucket="template_t6_page_policy_review",
+                )
+            )
+            next_index += 1
     return findings
 
 

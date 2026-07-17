@@ -1,8 +1,8 @@
-"""T3 分层输入：对象整体画像 → 对象计划 → 局部判断窗口。
+"""T3 分层输入：单元整体画像 → 条件式局部判断窗口。
 
 本模块只重组 Word/render 事实，不提前写 policy。表格保留 table/row/cell 关系，先生成
-整体画像，再按完整行组切局部窗口；普通文本按连续事实块切窗。视觉证据以独立附件引用
-存在，prompt 里只显示引用，responder 再把真实图片作为多模态内容发送。
+单元级结构画像，再按完整行组切局部窗口；普通文本按连续事实块切窗。视觉证据以独立
+附件引用存在，prompt 里只显示引用，responder 再把真实图片作为多模态内容发送。
 """
 
 from __future__ import annotations
@@ -16,9 +16,16 @@ from .evidence import assert_firewall_clean
 
 
 _CELL_ID_RE = re.compile(r"^(?P<table>.+)\.r_(?P<row>\d+)\.c_(?P<column>\d+)$")
+_UNIT_ROUTES = {
+    "preserve_whole",
+    "preserve_structure_classify_fields",
+    "inspect_suspected_regions",
+    "full_local_analysis",
+}
+_SAFE_DEFAULT_POLICIES = {"fixed", "manual_only", "generated"}
 
 
-def build_t3_object_tasks(
+def build_t3_local_tasks(
     packet: dict[str, Any],
     *,
     unit_windows: list[dict[str, Any]],
@@ -80,20 +87,111 @@ def build_t3_object_tasks(
     return tasks
 
 
-def build_t3_object_plan_evidence(
+def build_t3_unit_plan_evidence(
     packet: dict[str, Any],
     *,
-    task: dict[str, Any],
+    unit_window: dict[str, Any],
+    tasks: list[dict[str, Any]],
 ) -> dict[str, Any]:
+    """先给模型完整单元截图和对象清单，由它决定是否需要继续下钻。"""
+
+    wanted = set(_ints(unit_window.get("source_seq_refs")))
+    rows = [
+        row
+        for row in packet.get("page_text_index", [])
+        if isinstance(row, dict) and _as_int(row.get("source_seq")) in wanted
+    ]
+    pages = sorted(
+        {page for row in rows if (page := _as_int(row.get("page_no"))) is not None}
+    )
     view = {
-        "scope": "t3_object_overview",
+        "scope": "t3_unit_overview",
         "source_render_hash": packet.get("source_render_hash"),
-        "parent_window_id": task.get("parent_window_id"),
-        "object_overview": deepcopy(task.get("object_overview") or {}),
-        "visual_evidence": deepcopy(task.get("visual_evidence") or []),
+        "unit_scope": {
+            "window_id": unit_window.get("window_id"),
+            # 来自已确认 T2 的弱上下文标签，只限定本次观察范围，不作为 T3 policy 结论。
+            "t2_scope_label": unit_window.get("unit_id"),
+            "source_seq_refs": sorted(wanted),
+            "page_nos": pages,
+            "neighbor_context": deepcopy(unit_window.get("neighbor_context") or {}),
+        },
+        "unit_overview": {
+            "source_item_count": len(rows),
+            "local_task_count": len(tasks),
+            "object_type_counts": dict(Counter(str(task.get("object_type") or "unknown") for task in tasks)),
+            "objects": [
+                {
+                    "object_id": task.get("object_id"),
+                    "object_type": task.get("object_type"),
+                    "source_seq_refs": task.get("source_seq_refs", []),
+                    "overview": deepcopy(task.get("object_overview") or {}),
+                }
+                for task in tasks
+            ],
+        },
+        "routing_options": [
+            {
+                "route": "preserve_whole",
+                "meaning": "整体原样保留且无需识别填写/生成字段；直接结束本单元 T3",
+            },
+            {
+                "route": "preserve_structure_classify_fields",
+                "meaning": "整体结构和可见内容都受保护，只继续区分 fill/manual/generated，禁止删除",
+            },
+            {
+                "route": "inspect_suspected_regions",
+                "meaning": "其余区域按默认保留策略处理，只深入 inspect_source_seq_refs",
+            },
+            {
+                "route": "full_local_analysis",
+                "meaning": "固定、填写、生成、人工、纯格式批注混合，需完整局部识别",
+            },
+        ],
+        "visual_evidence": _visual_evidence(packet, rows=rows, limit=6),
     }
     assert_firewall_clean(view)
     return view
+
+
+def sanitize_unit_plan(
+    plan: dict[str, Any] | None,
+    *,
+    unit_window: dict[str, Any],
+) -> dict[str, Any]:
+    """把自由模型输出约束成保守、可执行的单元路由。"""
+
+    raw = plan if isinstance(plan, dict) else {}
+    allowed_refs = set(_ints(unit_window.get("source_seq_refs")))
+    route = str(raw.get("route") or "")
+    if route not in _UNIT_ROUTES:
+        route = "preserve_structure_classify_fields"
+    default_policy = str(raw.get("default_preservation_policy") or "fixed")
+    if default_policy not in _SAFE_DEFAULT_POLICIES:
+        default_policy = "fixed"
+    protected = set(_ints(raw.get("protected_source_seq_refs"))) & allowed_refs
+    inspect = set(_ints(raw.get("inspect_source_seq_refs"))) & allowed_refs
+    if route == "preserve_whole":
+        protected = set(allowed_refs)
+        inspect = set()
+    elif route == "preserve_structure_classify_fields":
+        protected = set(allowed_refs)
+        inspect = set(allowed_refs)
+    elif route == "inspect_suspected_regions":
+        protected |= allowed_refs - inspect
+    else:
+        inspect = set(allowed_refs)
+    confidence = str(raw.get("confidence") or "low")
+    if confidence not in {"low", "medium", "high"}:
+        confidence = "low"
+    return {
+        "route": route,
+        "default_preservation_policy": default_policy,
+        "protected_source_seq_refs": sorted(protected),
+        "inspect_source_seq_refs": sorted(inspect),
+        "rationale": str(raw.get("rationale") or "")[:1200],
+        "confidence": confidence,
+        "quality_risks": [str(value)[:500] for value in (raw.get("quality_risks") or [])[:20]],
+    }
 
 
 def build_t3_local_evidence(
@@ -101,7 +199,7 @@ def build_t3_local_evidence(
     *,
     task: dict[str, Any],
     local_window: dict[str, Any],
-    object_plan: dict[str, Any],
+    unit_plan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     claimable = set(_ints(local_window.get("source_seq_refs")))
     context_only = set(_ints(local_window.get("context_source_seq_refs"))) - claimable
@@ -117,12 +215,12 @@ def build_t3_local_evidence(
         if isinstance(row, dict) and _as_int(row.get("source_seq")) in claimable
     ]
     view = {
-        "scope": "t3_object_local_window",
+        "scope": "t3_local_window",
         "source_render_hash": packet.get("source_render_hash"),
         "window_id": local_window.get("window_id"),
         "parent_window_id": task.get("parent_window_id"),
         "object_overview": deepcopy(task.get("object_overview") or {}),
-        "object_plan": sanitize_object_plan(object_plan),
+        "unit_plan": deepcopy(unit_plan or {}),
         "claimable_source_seq_refs": sorted(claimable),
         "context_only_source_seq_refs": sorted(context_only),
         "rows": rows,
@@ -132,28 +230,6 @@ def build_t3_local_evidence(
     return view
 
 
-def sanitize_object_plan(plan: dict[str, Any] | None) -> dict[str, Any]:
-    """对象计划是软上下文，只保留已声明字段，避免模型把结论字段带回事实层。"""
-
-    if not isinstance(plan, dict):
-        return {}
-    hypothesis = plan.get("object_hypothesis") or {}
-    clean_hypothesis = {
-        key: hypothesis.get(key)
-        for key in ("archetype", "purpose", "confidence")
-        if hypothesis.get(key) is not None
-    }
-    return {
-        "object_hypothesis": clean_hypothesis,
-        "regions": _clean_list(plan.get("regions"), limit=30),
-        "relationship_patterns": _clean_list(
-            plan.get("relationship_patterns") or plan.get("expected_relationships"),
-            limit=20,
-        ),
-        "quality_risks": [str(value) for value in (plan.get("quality_risks") or [])[:20]],
-    }
-
-
 def task_summary(task: dict[str, Any]) -> dict[str, Any]:
     """写入审计 artifact 的紧凑对象窗口摘要，不复制全部事实。"""
 
@@ -161,6 +237,7 @@ def task_summary(task: dict[str, Any]) -> dict[str, Any]:
         "task_id": task.get("task_id"),
         "object_id": task.get("object_id"),
         "object_type": task.get("object_type"),
+        "unit_id": task.get("unit_id"),
         "parent_window_id": task.get("parent_window_id"),
         "source_seq_refs": task.get("source_seq_refs", []),
         "local_windows": [
@@ -216,6 +293,11 @@ def _object_overview(
         row_summaries = [
             {
                 "row": row_no,
+                "source_seq_refs": [
+                    seq
+                    for entry in grouped[row_no]
+                    if (seq := _as_int(entry.get("source_seq"))) is not None
+                ],
                 "cells": [
                     {
                         "cell_id": entry.get("cell_id"),
@@ -226,6 +308,9 @@ def _object_overview(
                     }
                     for entry in grouped[row_no]
                 ],
+                "content_signals": _content_signals(
+                    " ".join(str(entry.get("text") or "") for entry in grouped[row_no])
+                ),
             }
             for row_no in representative
         ]
@@ -243,6 +328,27 @@ def _object_overview(
             ],
             "empty_visible_cell_count": sum(1 for row in rows if not str(row.get("text") or "").strip()),
             "representative_rows": row_summaries,
+            "candidate_regions": [
+                {
+                    "row": row_no,
+                    "source_seq_refs": [
+                        seq
+                        for entry in grouped[row_no]
+                        if (seq := _as_int(entry.get("source_seq"))) is not None
+                    ],
+                    "cell_count": len(grouped[row_no]),
+                    "empty_cell_count": sum(
+                        1 for entry in grouped[row_no] if not str(entry.get("text") or "").strip()
+                    ),
+                    "content_signals": signals,
+                }
+                for row_no in row_numbers
+                if (
+                    signals := _content_signals(
+                        " ".join(str(entry.get("text") or "") for entry in grouped[row_no])
+                    )
+                )
+            ],
             "omitted_row_count": max(0, len(row_numbers) - len(representative)),
         }
     representative_rows = _representative_values(list(range(len(rows))), limit=24)
@@ -257,11 +363,43 @@ def _object_overview(
                 "text": str(rows[index].get("text") or "")[:240],
                 "kind": rows[index].get("kind"),
                 "style_signature": _style_signature(rows[index]),
+                "content_signals": _content_signals(str(rows[index].get("text") or "")),
             }
             for index in representative_rows
         ],
+        "candidate_regions": [
+            {
+                "source_seq_refs": [_as_int(row.get("source_seq"))],
+                "content_signals": signals,
+                "text_preview": str(row.get("text") or "")[:160],
+            }
+            for row in rows
+            if (signals := _content_signals(str(row.get("text") or "")))
+        ],
         "omitted_item_count": max(0, len(rows) - len(representative_rows)),
     }
+
+
+def _content_signals(text: str) -> list[str]:
+    """只给整体规划器低层事实线索，不直接推导 policy。"""
+
+    value = text.strip()
+    if not value:
+        return ["empty_visible_area"]
+    signals: list[str] = []
+    if re.search(r"(?:宋体|黑体|楷体|仿宋|字号|[一二三四五六小]+号|加粗|行距|缩进|居中|对齐)", value):
+        signals.append("format_language")
+    if re.search(r"(?:签名|签字|盖章|意见|审核|评阅)", value):
+        signals.append("manual_action_language")
+    if re.search(r"(?:年\s*月\s*日|日期)", value):
+        signals.append("date_area")
+    if re.search(r"(?:□|☐|☑|√|是否|同意|不同意)", value):
+        signals.append("choice_area")
+    if re.search(r"(?:_{3,}|＿{3,}|…{3,}|×{2,}|\*{3,})", value):
+        signals.append("placeholder_shape")
+    if re.search(r"(?:请|应当|须|要求|说明|填写|不得|注意)", value):
+        signals.append("guidance_language")
+    return signals
 
 
 def _table_local_windows(
@@ -515,12 +653,6 @@ def _representative_values(values: list[int], *, limit: int) -> list[int]:
     for step in range(1, limit - 1):
         indexes.add(round(step * (len(values) - 1) / (limit - 1)))
     return [values[index] for index in sorted(indexes)][:limit]
-
-
-def _clean_list(value: Any, *, limit: int) -> list[dict[str, Any]]:
-    if not isinstance(value, list):
-        return []
-    return [dict(item) for item in value[:limit] if isinstance(item, dict)]
 
 
 def _ints(values: Any) -> list[int]:

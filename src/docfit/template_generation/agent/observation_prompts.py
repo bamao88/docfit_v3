@@ -42,7 +42,7 @@ from .t3_exemplars import (
     T3_QUALITY_GOAL,
     format_exemplars,
     select_t3_element_exemplars,
-    select_t3_object_exemplars,
+    select_t3_unit_exemplars,
 )
 
 ALLOWED_LABELS = {
@@ -51,7 +51,7 @@ ALLOWED_LABELS = {
     "generated_field_types": sorted(ALLOWED_FIELD_TYPES),
 }
 _PROMPT_TEMPLATE_DIR = "prompt_templates"
-_STAGES = ("t2", "t3_object", "t3", "t4")
+_STAGES = ("t2", "t3_unit", "t3", "t4")
 
 
 @dataclass(frozen=True)
@@ -71,13 +71,13 @@ def default_observation_prompt_templates() -> ObservationPromptTemplates:
         system=_read_prompt_resource(base, "system.txt"),
         rubrics={
             "t2": _read_prompt_resource(base, "t2_rubric.txt"),
-            "t3_object": _read_prompt_resource(base, "t3_object_rubric.txt"),
+            "t3_unit": _read_prompt_resource(base, "t3_unit_rubric.txt"),
             "t3": _read_prompt_resource(base, "t3_rubric.txt"),
             "t4": _read_prompt_resource(base, "t4_rubric.txt"),
         },
         output_contracts={
             "t2": _read_prompt_resource(base, "t2_output_contract.txt"),
-            "t3_object": _read_prompt_resource(base, "t3_object_output_contract.txt"),
+            "t3_unit": _read_prompt_resource(base, "t3_unit_output_contract.txt"),
             "t3": _read_prompt_resource(base, "t3_output_contract.txt"),
             "t4": _read_prompt_resource(base, "t4_output_contract.txt"),
         },
@@ -145,7 +145,7 @@ OUTPUT_CONTRACT = dict(default_observation_prompt_templates().output_contracts)
 # 每阶段注入的词典（C1 单元词典给 t2；C3 policy 词典给 t3）。
 _GLOSSARY_BY_STAGE = {
     "t2": _unit_glossary,
-    "t3_object": lambda: "",
+    "t3_unit": _policy_glossary,
     "t3": _policy_glossary,
     "t4": lambda: "",
 }
@@ -167,8 +167,8 @@ def build_observation_prompt(
         raise ValueError(f"prompt templates missing stage: {stage!r}")
     exemplars: list[dict[str, Any]] = []
     quality_goal = ""
-    if stage == "t3_object":
-        exemplars = select_t3_object_exemplars(evidence_view)
+    if stage == "t3_unit":
+        exemplars = select_t3_unit_exemplars(evidence_view)
         quality_goal = T3_QUALITY_GOAL
     elif stage == "t3":
         exemplars = select_t3_element_exemplars(evidence_view)

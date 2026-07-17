@@ -1,29 +1,29 @@
 # DocFit Status
 
-Last updated: 2026-06-27
+Last updated: 2026-07-11
 
-一句话结论：当前工程主线只做模板阶段。学生内容提取、内容放置和最终 DOCX 渲染流程还没有定义清楚，因此对应标准暂不制作，也不作为当前 gate 目标。
+一句话结论：模板生成 L1 输入迁移已验证完成；三校真实 API 无明显回退报告与最终代码固定 replay 均为 `PASS`。T3 Plan 06 现在可恢复，但本轮没有执行其 span/policy/prompt/AI-primary 改造。
 
 ## Current Focus
 
-当前 active 范围：
+本轮已完成范围：
 
 ```text
-学校原始模板 Word
-  -> template-generate
-  -> document_facts.json
-  -> unit_map.yaml
-  -> element_spec.yaml
-  -> global_spec.yaml
-  -> template_spec.yaml
-  -> fillable_template.docx + build_manifest.json
-  -> verification_report.json
-  -> template-gap / template-generation standard judge
+三校 source_template.docx
+  -> 迁移前 `template-generation-full --llm` baseline
+  -> Plan 08: T1/render -> seal L1
+  -> T2/T4 code + AI 统一事实输入；T3 仅兼容迁移
+  -> T5/T6/T7 受限 L1 身份、执行和验证消费
+  -> 旧事实链与重复 mapper 清零
+  -> 迁移后三校同配置真实 API
+  -> live 质量对比 + 固定 observation replay 等价对比
+  -> Plan 08 verified / issue-08 closed
 ```
 
 当前不做：
 
 ```text
+T3 Plan 06 的 span/policy/prompt/AI-primary 改造
 学生内容提取标准
 内容放置标准
 最终 DOCX 渲染标准
@@ -34,33 +34,19 @@ Last updated: 2026-06-27
 
 ## Current State
 
-- 三校模板生成阶段标准已按 T1-T5 拆分并落在 `standards/targets/<target_id>/v1/template_generation/`。
-- `template-generate` 正常只读取学校原始模板 Word，不读取学校签收标准。
-- `template-generate` 已能输出 `document_facts.json`、`unit_map.yaml`、`element_spec.yaml`、`global_spec.yaml`、`template_spec.yaml`、`fillable_template.docx`、`build_manifest.json` 和 `verification_report.json`。
-- `template-gap` 继续用于检查被测生成模板和 `template_quality/final_template.expected.yaml` 的差距。
-- 模板生成标准裁判模块已完成文档规划，位置见 `docs/plans/template-parse-refactor-standard-judge-issue-01-run-bundle-stage-verifiers.md`。
-- 目录结构约定已收敛到 `docs/current/project-directory-structure.md`；历史文档中的旧路径只作历史上下文。
+- `template-generation-full`、post-T6 gap、standard judge、route-eval 和三校标准入口已经存在。
+- L1 现在在 T2/T3/T4 之前封存，只包含 T1/render 客观事实、run/object/page identity、coverage 和稳定 hash。
+- T2/T4 code+AI 与 T3 compatibility 只通过 L1 Stage Input 读取事实；T5/T6/T7 绑定同一 canonical L1 hash。
+- T6 使用 sealed L1 resolver 校验源 package、source/run/char-range identity；失败结构化返回，不扩大动作范围。
+- 旧 `08_agent_render_packet.json` artifact 和 run-backed legacy fallback 已删除；render packet builder 只保留为 L1 前置 render facts 实现。
+- Plan 08 为 `verified`，issue-08 为 `closed`；三校最终报告见 `test_outputs/debug/template_generation/20260711_l1_migration_live_api_candidate_v1/migration_quality_comparison.json`。
+- 当前工作区包含大量用户既有未提交改动，本 session 只修改 Plan 08 直接范围并保护其他改动。
 
 ## Next Action
 
-1. 实现模板生成标准质量报告：
-   `docfit eval template-generation-standard-quality`
-
-2. 实现模板生成标准裁判：
-   `docfit eval template-generation-judge`
-
-3. 先让标准裁判读取已有 `template-generate` run bundle，输出：
-
-   ```text
-   template_generation_run_bundle.json
-   template_generation_stage_checks.json
-   template_generation_judge_report.json
-   template_generation_judge_report.md
-   ```
-
-4. 按 T1-T5 补阶段 verifier。T2 现有 audit 可以复用，但不要让 T2 脚手架主导整个标准裁判模块设计。
-
-5. 标准裁判闭环后，再继续修模板 gap 中仍暴露的样式、页码、section、页面和生成机制问题。
+1. 以 Plan 08 已验证的 sealed L1 为前置，恢复 T3 Plan 06 的 run/span/policy 质量工作。
+2. 保持 T3 compatibility Adapter 的退出条件：新 T3 Stage Input 和完整 merged/T6 精确消费通过后再删除。
+3. 继续把三校当前真实 `FAIL` 归因到既有 T2/T3/T4/最终 Word 质量 gap，不回退 L1 输入契约。
 
 ## Deferred
 
@@ -85,7 +71,7 @@ Last updated: 2026-06-27
 当前模板阶段常用命令：
 
 ```bash
-uv run docfit eval template-generate \
+uv run docfit template generate \
   --template inputs/targets/hunannongye/raw/source_template.docx \
   --out runs/template_generation/hunannongye/eval_runs/template_generate
 ```

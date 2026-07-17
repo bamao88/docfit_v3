@@ -1,0 +1,2 @@
+返回 JSON 对象：{"route":"preserve_whole|preserve_structure_classify_fields|inspect_suspected_regions|full_local_analysis","default_preservation_policy":"fixed|manual_only|generated","protected_source_seq_refs":[<必须整体保护的 int>],"inspect_source_seq_refs":[<需要继续局部判断的 int>],"confidence":"low|medium|high","rationale":"<为什么这样路由>","quality_risks":["<整体性或误删风险>"]}。
+source_seq 必须来自当前 unit_scope；如果证据不足，使用 preserve_structure_classify_fields、default=fixed，并把不确定性写入 quality_risks。只输出 JSON，不输出 items。

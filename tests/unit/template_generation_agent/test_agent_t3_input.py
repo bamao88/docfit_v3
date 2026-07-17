@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from docfit.template_generation.agent.t3_input import (
     build_t3_local_evidence,
-    build_t3_object_plan_evidence,
-    build_t3_object_tasks,
+    build_t3_local_tasks,
+    build_t3_unit_plan_evidence,
+    sanitize_unit_plan,
 )
 
 
@@ -71,7 +72,7 @@ def unit_window() -> dict:
 
 
 def test_t3_table_input_keeps_object_and_row_structure_before_local_split() -> None:
-    tasks = build_t3_object_tasks(
+    tasks = build_t3_local_tasks(
         table_packet(),
         unit_windows=[unit_window()],
         max_table_items=2,
@@ -87,9 +88,9 @@ def test_t3_table_input_keeps_object_and_row_structure_before_local_split() -> N
     assert {1, 2} <= set(table["local_windows"][1]["context_source_seq_refs"])
 
 
-def test_t3_local_evidence_contains_plan_and_only_claimable_plus_context_rows() -> None:
+def test_t3_local_evidence_contains_unit_route_and_only_claimable_plus_context_rows() -> None:
     packet = table_packet()
-    task = build_t3_object_tasks(
+    task = build_t3_local_tasks(
         packet,
         unit_windows=[unit_window()],
         max_table_items=2,
@@ -99,38 +100,52 @@ def test_t3_local_evidence_contains_plan_and_only_claimable_plus_context_rows() 
         packet,
         task=task,
         local_window=local,
-        object_plan={
-            "object_hypothesis": {
-                "archetype": "metadata_form",
-                "purpose": "学生信息",
-                "confidence": "high",
-                "invented": "drop me",
-            },
-            "quality_risks": ["不要把标签和值合并"],
-            "items": [{"policy": "fill"}],
+        unit_plan={
+            "route": "inspect_suspected_regions",
+            "default_preservation_policy": "fixed",
         },
     )
 
-    assert evidence["scope"] == "t3_object_local_window"
-    assert evidence["object_plan"]["object_hypothesis"] == {
-        "archetype": "metadata_form",
-        "purpose": "学生信息",
-        "confidence": "high",
-    }
-    assert "items" not in evidence["object_plan"]
+    assert evidence["scope"] == "t3_local_window"
+    assert evidence["unit_plan"]["route"] == "inspect_suspected_regions"
     assert {row["source_seq"] for row in evidence["rows"]} == (
         set(local["source_seq_refs"]) | set(local["context_source_seq_refs"])
     )
     claimable = {row["source_seq"] for row in evidence["rows"] if row["evidence_role"] == "claimable"}
     assert claimable == set(local["source_seq_refs"])
     assert evidence["rows"][0]["runs"][0]["raw_run_id"]
-
-
-def test_t3_object_plan_evidence_is_overview_not_full_local_rows() -> None:
+def test_t3_unit_plan_evidence_preprocesses_table_before_any_policy_call() -> None:
     packet = table_packet()
-    task = build_t3_object_tasks(packet, unit_windows=[unit_window()])[0]
-    evidence = build_t3_object_plan_evidence(packet, task=task)
+    tasks = build_t3_local_tasks(packet, unit_windows=[unit_window()])
+    evidence = build_t3_unit_plan_evidence(
+        packet,
+        unit_window=unit_window(),
+        tasks=tasks,
+    )
 
-    assert evidence["scope"] == "t3_object_overview"
-    assert evidence["object_overview"]["object_type"] == "table"
-    assert "rows" not in evidence
+    assert evidence["scope"] == "t3_unit_overview"
+    assert evidence["unit_overview"]["object_type_counts"] == {"table": 1, "text_flow": 1}
+    table = evidence["unit_overview"]["objects"][0]["overview"]
+    assert table["dimensions"] == {"rows": 3, "columns": 2}
+    assert any(
+        "manual_action_language" in region["content_signals"]
+        for region in table["candidate_regions"]
+    )
+    assert {option["route"] for option in evidence["routing_options"]} == {
+        "preserve_whole",
+        "preserve_structure_classify_fields",
+        "inspect_suspected_regions",
+        "full_local_analysis",
+    }
+
+
+def test_t3_unit_plan_defaults_to_protected_preservation_when_model_output_is_invalid() -> None:
+    plan = sanitize_unit_plan(
+        {"route": "delete_everything", "default_preservation_policy": "instruction_remove"},
+        unit_window=unit_window(),
+    )
+
+    assert plan["route"] == "preserve_structure_classify_fields"
+    assert plan["default_preservation_policy"] == "fixed"
+    assert plan["protected_source_seq_refs"] == list(range(1, 8))
+    assert plan["inspect_source_seq_refs"] == list(range(1, 8))

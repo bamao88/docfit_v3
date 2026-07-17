@@ -61,6 +61,153 @@ def test_t2_evidence_is_firewall_clean_and_whitelisted() -> None:
         assert set(row).issubset(allowed)
 
 
+def test_t2_evidence_projects_compact_page_and_break_facts_without_local_paths() -> None:
+    packet = clean_packet()
+    packet["render_status"] = "real_render"
+    packet["render_artifacts"] = {
+        "page_count": 2,
+        "clean_page_images": [
+            {
+                "page_no": 1,
+                "path": "/private/tmp/page-01.png",
+                "sha256": "sha256:page-1",
+                "width_px": 900,
+                "height_px": 1200,
+                "image_type": "png",
+            }
+        ],
+    }
+    packet["page_text_index"] = [
+        {
+            "source_seq": 1,
+            "source_ref": "word/document.xml:p[1]",
+            "order": 1,
+            "page_no": 1,
+            "render_target_id": "source_seq:1",
+            "render_binding_status": "exact",
+            "flow_item_type": "paragraph",
+            "text": "封面",
+            "style": "Title",
+            "text_facts": {
+                "alignment": "center",
+                "char_count": 2,
+                "dominant_bold": True,
+                "has_tab": False,
+                "normalized_text": "封面",
+            },
+        },
+        {
+            "source_seq": 2,
+            "source_ref": "word/document.xml:p[2]",
+            "order": 2,
+            "page_no": 2,
+            "render_target_id": "source_seq:2",
+            "render_binding_status": "exact",
+            "flow_item_type": "paragraph",
+            "text": "摘要",
+            "style": "Heading 1",
+        },
+    ]
+    packet["page_layout_index"] = [
+        {
+            "source_seq": 1,
+            "page_no": 1,
+            "page_top_ratio": 0.2,
+            "tier": 1,
+            "bbox": {"y_max": 240, "page_height": 1200},
+        },
+        {
+            "source_seq": 2,
+            "page_no": 2,
+            "page_top_ratio": 0.05,
+            "tier": 1,
+            "bbox": {"y_max": 180, "page_height": 1200},
+        },
+    ]
+    packet["global_layout_facts"] = {
+        "breaks": [
+            {
+                "index": 1,
+                "kind": "section",
+                "type": "section_properties",
+                "paragraph_index": 1,
+                "source_ref": "word/document.xml:p[1]/sectPr",
+                "template_policy": "must_not_leak",
+            }
+        ]
+    }
+
+    view = build_t2_evidence(packet)
+
+    assert view["render_available"] is True
+    assert view["document_summary"] == {"source_seq_count": 2, "page_count": 2}
+    assert view["page_summary"] == [
+        {"page_no": 1, "first_source_seq": 1, "last_source_seq": 1, "text_items": 1},
+        {"page_no": 2, "first_source_seq": 2, "last_source_seq": 2, "text_items": 1},
+    ]
+    assert view["rows"][0]["text_facts"] == {
+        "alignment": "center",
+        "dominant_bold": True,
+    }
+    assert view["rows"][1]["page_position"] == {
+        "starts_new_rendered_page": True,
+        "page_top_ratio": 0.05,
+    }
+    assert view["break_facts"] == [
+        {
+            "index": 1,
+            "kind": "section",
+            "type": "section_properties",
+            "paragraph_index": 1,
+            "after_source_seq": 1,
+        }
+    ]
+    assert view["page_thumbnails"] == [
+        {
+            "page_no": 1,
+            "sha256": "sha256:page-1",
+            "width_px": 900,
+            "height_px": 1200,
+            "image_type": "png",
+        }
+    ]
+    assert "/private/tmp" not in repr(view)
+
+
+def test_t2_evidence_does_not_infer_rendered_page_position_from_projection() -> None:
+    view = build_t2_evidence(clean_packet())
+
+    assert view["render_available"] is False
+    assert view["page_summary"] == []
+    assert all("page_position" not in row for row in view["rows"])
+
+
+def test_t2_evidence_marks_only_page_start_and_aligns_body_section_to_last_seq() -> None:
+    packet = clean_packet()
+    packet["render_status"] = "real_render"
+    packet["page_text_index"] = [
+        {"source_seq": 1, "order": 1, "page_no": 1, "text": "第一行"},
+        {"source_seq": 2, "order": 2, "page_no": 1, "text": "第二行"},
+    ]
+    packet["global_layout_facts"] = {
+        "breaks": [
+            {
+                "index": 1,
+                "kind": "section",
+                "type": "section_properties",
+                "paragraph_index": None,
+                "source_ref": "word/document.xml:body/sectPr",
+            }
+        ]
+    }
+
+    view = build_t2_evidence(packet)
+
+    assert view["rows"][0]["page_position"] == {"starts_new_rendered_page": True}
+    assert "page_position" not in view["rows"][1]
+    assert view["break_facts"][0]["after_source_seq"] == 2
+
+
 def test_t4_evidence_marks_render_unavailable_for_projection_fallback() -> None:
     packet = clean_packet()
     view = build_t4_evidence(packet)

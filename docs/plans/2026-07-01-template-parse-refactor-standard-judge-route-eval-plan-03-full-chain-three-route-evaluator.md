@@ -363,9 +363,14 @@ post_t6_gap:
   已验证：
     - uv run pytest tests/contract/test_template_generation_standard_judge.py -q
     - uv run pytest -q
+  后续进展（2026-07-11）：
+    - judge/full-chain 已能默认派生 post-T6 template-gap。
+    - route replay harness 已为 code_raw 物化 T5；当 code_raw 与 merged 等价时复用 T6/T7/post-T6 证据。
+    - 无法完整物化的 ai_raw 或非等价 code_raw 下游路线写 OUT_OF_SCOPE/NOT_AVAILABLE reason，
+      不再用“尚未实现”的 NOT_EVALUABLE 作为占位。
   仍非闭环项：
-    - T5/T6 code_raw 与 ai_raw 隔离重放 harness 尚未实现，本轮没有把 NOT_EVALUABLE 当作完成。
-    - post-T6 template-gap 仅在报告存在时绑定，尚未由 judge 默认派生运行。
+    - ai_raw 完整下游物化仍依赖 AI-primary authority payload。
+    - 非等价 code_raw 的 T6 隔离执行仍需捕获 route-specific generation_model/action plan。
 ```
 
 ## Test Plan

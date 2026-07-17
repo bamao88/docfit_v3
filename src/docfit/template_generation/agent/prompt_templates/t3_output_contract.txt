@@ -1,4 +1,5 @@
-返回 JSON 对象：{"items":[{"element_id":"<unit_id>.<序号>","policy":"<policies 之一>","role":"<roles 之一或省略>","confidence":"low|medium|high","content":"<文本>","source_seq_refs":[<int>],"raw_run_ids":["<证据中的 run id>"],"logical_run_ids":["<证据中的 logical run id>"],"fill_source":"...","generated":{"field_type":"..."},"manual_semantics":"...","ai_decision_path":"<命中哪一支>"}]}。
+返回 JSON 对象：{"items":[{"element_id":"<unit_id>.<序号>","semantic_role":"fixed_content|template_default_content|student_field|manual_field|generated_field|format_annotation|guidance_content","transformation":"preserve|replace_with_slot|preserve_manual|generate|remove_exact_span|review","policy":"<policies 之一>","role":"<roles 之一或省略>","confidence":"low|medium|high","content":"<文本>","source_seq_refs":[<int>],"raw_run_ids":["<证据中的 run id>"],"logical_run_ids":["<证据中的 logical run id>"],"fill_source":"...","generated":{"field_type":"..."},"manual_semantics":"...","removal_reason":"<仅删除时必填>","ai_decision_path":"<角色→变换→policy 的证据链>"}]}。
 发射每个 item 前自检（缺条件字段的 item 会被拒收并丢失）：
   policy==fill ⇒ 必有 fill_source；policy==generated ⇒ 必有 generated.field_type；policy==manual_only ⇒ 必有 manual_semantics。
-其余 policy 不需要这些条件字段。只输出 JSON；source_seq_refs 必须落在本窗口内；同一 source_seq 内存在多个 run/span 时，不要整段合并成一个 item。
+  policy==instruction_remove ⇒ confidence 必须是 high、transformation 必须是 remove_exact_span、必须有 removal_reason 和精确 raw_run_ids，且这些 run 只能是纯格式批注。
+只输出 JSON；source_seq_refs 必须落在本窗口内；同一 source_seq 内存在多个不同语义 run 时，用 raw_run_ids 拆开，不要整段合并，也不能用整段删除替代精确删除。

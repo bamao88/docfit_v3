@@ -2,7 +2,7 @@
 
 Last updated: 2026-06-28
 
-一句话结论：当前 real-core-v0 的三校模板生成阶段标准已经拆成 T1 到 T5 的阶段专用标准文件，并已接入 `template-generation-judge` gate。它们是阶段标准裁判口径，不是某一次运行产物，也不是代码里 `verification_report.json` 的替代品。
+一句话结论：当前 real-core-v0 的三校模板生成阶段标准已经拆成 T1 到 T5 的阶段专用标准文件，并已接入 `template-generation-judge` gate。它们是阶段标准裁判口径，不是某一次运行产物，也不是代码里 `07_verification_report.json` 的替代品。
 
 ## 当前版本
 
@@ -67,13 +67,13 @@ template_generation/
 
 | 标准 | 对应产物 | 后续使用者 | 用途 |
 | --- | --- | --- | --- |
-| `t1_document_facts.standard.yaml` | `document_facts.json` | T1 verifier、T2/T4 调试、人工 first_bad_stage 排查 | 判断源 DOCX 事实是否完整、可定位，并且没有混入 T2/T3 语义判断 |
-| `t2_unit_pagination.standard.yaml` | `unit_map.yaml` | T2 verifier、T3/T5、最终 gap 归因 | 判断单元识别、单元顺序、边界范围、source_seq 归属和分页口径 |
-| `t3_element_policy.standard.yaml` | `element_spec.yaml` | T3 verifier、T5/T6、人工策略排查 | 判断元素 policy、fill_source、manual_semantics、generated.field_type 和 source trace |
-| `t4_global_layout.standard.yaml` | `global_spec.yaml` | T4 verifier、T5/T6、页面规则排查 | 判断 section profile、page numbering、header/footer、numbering 和全局布局证据 |
-| `t5_template_spec.standard.yaml` | `template_spec.yaml` | T5 verifier、T6 builder、后续 placement/render 包装视图 | 判断 unit、element、global 三类信息是否正确合并，section 绑定和 review flags 是否保留 |
+| `t1_document_facts.standard.yaml` | `01_document_facts.json` | T1 verifier、T2/T4 调试、人工 first_bad_stage 排查 | 判断源 DOCX 事实是否完整、可定位，并且没有混入 T2/T3 语义判断 |
+| `t2_unit_pagination.standard.yaml` | `02_unit_map.yaml` | T2 verifier、T3/T5、最终 gap 归因 | 判断单元识别、单元顺序、边界范围、source_seq 归属和分页口径 |
+| `t3_element_policy.standard.yaml` | `03_element_spec.yaml` | T3 verifier、T5/T6、人工策略排查 | 判断元素 policy、fill_source、manual_semantics、generated.field_type 和 source trace |
+| `t4_global_layout.standard.yaml` | `04_global_spec.yaml` | T4 verifier、T5/T6、页面规则排查 | 判断 section profile、page numbering、header/footer、numbering 和全局布局证据 |
+| `t5_template_spec.standard.yaml` | `05_template_spec.yaml` | T5 verifier、T6 builder、后续 placement/render 包装视图 | 判断 unit、element、global 三类信息是否正确合并，section 绑定和 review flags 是否保留 |
 
-当前正常的 `template-generate` 业务流程不读取这些标准。业务流程只接受学校原始模板 Word，产出 `document_facts.json`、`unit_map.yaml`、`element_spec.yaml`、`global_spec.yaml`、`template_spec.yaml`、`fillable_template.docx` 和 `build_manifest.json`。
+当前正常的 `template-generate` 业务流程不读取这些标准。业务流程只接受学校原始模板 Word，产出 `01_document_facts.json`、`02_unit_map.yaml`、`03_element_spec.yaml`、`04_global_spec.yaml`、`05_template_spec.yaml`、`06.1_fillable_template.docx` 和 `06.2_build_manifest.json`。
 
 阶段化评测入口读取同一次 run 里的产物，再按 `target.standard.yaml` 找到对应标准。缺产物、缺标准、hash 对不上或 verifier 未配置时，都应该输出 `UNKNOWN`，不能自动重跑生成器补证据。
 
@@ -115,8 +115,8 @@ template_generation/
 
 | 报告 | 来源 | 判断对象 | 说明 |
 | --- | --- | --- | --- |
-| `verification_report.json` | `template-generate` 运行时生成 | 当前 run 的 T1-T6 产物 | 证明这次运行里哪些内置检查发现了问题；它不是学校签收标准 |
-| `template_gap_report.*` | `template-gap` 生成 | 被测 `generated_template.docx` 或 `fillable_template.docx` | 对照 `final_template.expected.yaml` 判断最终 Word 和学校标准差距 |
+| `07_verification_report.json` | `template-generate` 运行时生成 | 当前 run 的 T1-T6 产物 | 证明这次运行里哪些内置检查发现了问题；它不是学校签收标准 |
+| `template_gap_report.*` | `template-gap` 生成 | 被测 `generated_template.docx` 或 `06.1_fillable_template.docx` | 对照 `final_template.expected.yaml` 判断最终 Word 和学校标准差距 |
 
 verify 报告回答的是：
 
@@ -137,7 +137,7 @@ verify 报告回答的是：
 | 对比项 | 阶段标准质量衡量 | Verify 报告 |
 | --- | --- | --- |
 | 核心对象 | 标准文件本身 | 某一次运行产物 |
-| 典型文件 | `t1_document_facts.standard.yaml` 到 `t5_template_spec.standard.yaml` | `verification_report.json`、`template_gap_report.json` |
+| 典型文件 | `t1_document_facts.standard.yaml` 到 `t5_template_spec.standard.yaml` | `07_verification_report.json`、`template_gap_report.json` |
 | 产生方式 | 人工 review 后整理并提交到 `standards/` | 产品代码或评测代码运行后写到 `runs/` 或输出目录 |
 | 状态含义 | 标准是否可作为裁判 | 当前运行是否通过、失败或证据不足 |
 | 是否可自动更新 | 不可以 | 可以由运行重新生成 |
@@ -157,8 +157,8 @@ verify 报告回答的是：
 当前已完成：
 
 1. 阶段标准聚合清单：读取 `target.standard.yaml`，列出 T1-T5 标准路径、产物路径、hash 和 verifier 状态。
-2. T1 verifier：检查 `document_facts.json` 的事实完整性和禁用语义字段。
-3. T2 verifier：检查 `unit_map.yaml` 的单元顺序、边界和分页。
+2. T1 verifier：检查 `01_document_facts.json` 的事实完整性和禁用语义字段。
+3. T2 verifier：检查 `02_unit_map.yaml` 的单元顺序、边界和分页。
 4. T3/T4/T5 verifier：分别检查元素策略、全局版式和 `template_spec` 合并。
 5. real-core T1-T5 标准元数据已切换为 `configured/gate_enabled=true`。
 

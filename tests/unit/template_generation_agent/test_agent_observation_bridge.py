@@ -68,6 +68,46 @@ def test_observation_bridge_routes_t2_boundary_adjustment_to_boundary_collection
     assert proposals[0]["target_unit_id"] == "body_main"
 
 
+def test_observation_bridge_converts_page_only_t2_difference(tmp_path) -> None:
+    artifacts = round0_artifacts(tmp_path)
+    cover = next(
+        unit
+        for unit in artifacts["structure_candidates"]["units"]
+        if unit["unit_id"] == "cover"
+    )
+    bundle = _bundle(
+        artifacts["packet"]["source_render_hash"],
+        units=[
+            {
+                "unit_id": "cover",
+                "name": "封面",
+                "source_seq_refs": cover["source_seq_refs"],
+                "confidence": "high",
+                "page_break": "document_start",
+                "page_isolation": True,
+                "allow_multi_page": False,
+                "keep_together": True,
+                "evidence_refs": ["page:1"],
+            }
+        ],
+    )
+
+    bridge = build_observation_bridge(
+        observation_bundle=bundle,
+        packet=artifacts["packet"],
+        structure_candidates=artifacts["structure_candidates"],
+    )
+
+    t2_submission = bridge["transcript"]["rounds"][0]["submission"]
+    assert t2_submission["layers"]["t2"]["unit_candidates"] == []
+    assert t2_submission["layers"]["t2"]["boundary_adjustments"] == []
+    proposals = t2_submission["layers"]["t2"]["page_policy_candidates"]
+    assert bridge["summary"]["t2_proposals"] == 1
+    assert proposals[0]["kind"] == "page_policy_candidate"
+    assert proposals[0]["operation"] == "set_page_policy"
+    assert proposals[0]["page"]["page_isolation"] is True
+
+
 def test_observation_bridge_maps_instruction_remove_policy(tmp_path) -> None:
     artifacts = round0_artifacts(tmp_path)
     bundle = _bundle(

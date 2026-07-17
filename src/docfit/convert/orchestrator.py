@@ -1,43 +1,25 @@
 from __future__ import annotations
 
-from copy import deepcopy
-import shutil
 from pathlib import Path
 from typing import Any
 
-from docfit.core.io import read_json, sha256_file
+from docfit.core.io import now_iso, read_json, sha256_file, write_json, write_text
 from docfit.core.models import Finding, StageResult
-from docfit.core.status import StageRunState, Status, merge_statuses
-from docfit.harness.coverage import coverage_gate_findings
+from docfit.core.status import Status, merge_statuses
 from docfit.template_gap.gap import evaluate_generated_template_gap
 from docfit.harness.profiles import BOOTSTRAP_PROFILE, get_eval_profile
-from docfit.harness.product_quality import (
-    BUSINESS_ACCEPTANCE_STAGES,
-    audit_e2e_case,
-    business_acceptance_coverage,
-)
-from docfit.harness.real_core import (
-    case_id_for,
-    is_real_core_bundle,
-    student_id_for_docx,
-)
 from docfit.harness.reports import write_report_bundle
-from docfit.harness.standards import load_standard_bundle
-from docfit.stages.content_extract.runner import extract_student_content, write_content_outputs
-from docfit.stages.placement.runner import build_placement_plan, write_placement_outputs
-from docfit.stages.render.runner import render_docx, write_render_outputs
+from docfit.harness.standards import coverage_gate_findings, load_standard_bundle
 from docfit.template_generation.agent import AgentConfig
 from docfit.template_generation.runner import (
     generate_template,
     write_template_generation_outputs,
 )
-from docfit.stages.template_parse.runner import parse_template, write_template_outputs
+from docfit.template_generation.run_manifest import write_template_run_manifest
 
 
 def _artifact_refs(out_dir: Path, result: StageResult) -> dict[str, str]:
     refs = {key: str(path) for key, path in result.artifact_paths.items()}
-    for key in result.artifacts:
-        refs.setdefault(key, f"artifacts/{key}.json")
     if "final_docx" in result.artifact_paths:
         refs["final_docx"] = str(result.artifact_paths["final_docx"])
     return refs
@@ -54,37 +36,6 @@ def _write_stage_report(out_dir: Path, result: StageResult) -> dict[str, Any]:
         blocked_at=result.blocked_at,
         user_message=result.user_message,
     )
-
-
-def _bundle_root_from_output_dir(out_dir: Path) -> Path:
-    resolved = out_dir.resolve()
-    parts = resolved.parts
-    for marker in ("eval_runs", "human"):
-        if marker in parts:
-            index = parts.index(marker)
-            if index > 0:
-                return Path(*parts[:index])
-    return resolved
-
-
-def _template_generation_project_dir(
-    root: Path,
-    *,
-    template_docx: Path | None = None,
-    out_dir: Path | None = None,
-) -> Path:
-    if out_dir is not None:
-        return _bundle_root_from_output_dir(out_dir) / "human"
-    if template_docx is not None:
-        return (
-            root
-            / "test_outputs"
-            / "debug"
-            / "template_generation"
-            / template_docx.stem
-            / "human"
-        )
-    return root / "test_outputs" / "debug" / "template_generation" / "manual" / "human"
 
 
 def _required_capabilities(
@@ -131,169 +82,6 @@ def _renumber_findings(findings: list[Finding], *, start_index: int) -> list[Fin
     return findings
 
 
-def _merge_generated_template_gap(
-    template_result: StageResult,
-    gap_result: StageResult,
-) -> None:
-    gap_findings = _renumber_findings(
-        gap_result.findings,
-        start_index=len(template_result.findings) + 1,
-    )
-    template_result.findings.extend(gap_findings)
-    template_result.status = merge_statuses([template_result.status, gap_result.status])
-    template_result.artifacts.update(gap_result.artifacts)
-    template_result.artifact_paths.update(gap_result.artifact_paths)
-    template_result.coverage.update(gap_result.coverage)
-    if template_result.blocked_at is None and gap_result.blocked_at is not None:
-        template_result.blocked_at = gap_result.blocked_at
-
-
-def _run_template_generation_for_pipeline(
-    template_docx: Path,
-    out_dir: Path,
-    *,
-    debug_root: Path | None = None,
-    agent_config: AgentConfig | None = None,
-) -> StageResult:
-    generation_out_dir = out_dir / "template_generation"
-    result = generate_template(
-        template_docx,
-        generation_out_dir,
-        debug_root=debug_root,
-        agent_config=agent_config,
-    )
-    write_template_generation_outputs(generation_out_dir, result)
-    _write_stage_report(generation_out_dir, result)
-    return result
-
-
-def _merge_template_generation_result(
-    template_result: StageResult,
-    generation_result: StageResult,
-) -> None:
-    generation_findings = _renumber_findings(
-        generation_result.findings,
-        start_index=len(template_result.findings) + 1,
-    )
-    template_result.findings.extend(generation_findings)
-    template_result.status = merge_statuses(
-        [template_result.status, generation_result.status]
-    )
-    template_result.coverage.update(generation_result.coverage)
-    for key, path in generation_result.artifact_paths.items():
-        template_result.artifact_paths[f"template_generate.{key}"] = path
-    if template_result.blocked_at is None and generation_result.blocked_at is not None:
-        template_result.blocked_at = generation_result.blocked_at
-
-
-def _bind_fillable_template_to_artifact(
-    template_artifact: dict[str, Any],
-    fillable_template_docx: Path,
-    generation_result: StageResult,
-) -> dict[str, Any]:
-    bound = deepcopy(template_artifact)
-    provenance = bound.setdefault("provenance", {})
-    source_template_docx = provenance.get("template_docx")
-    if source_template_docx is not None:
-        provenance["source_template_docx"] = source_template_docx
-    provenance["template_docx"] = str(fillable_template_docx)
-    provenance["fillable_template_docx"] = str(fillable_template_docx)
-    provenance["generated_template_docx"] = str(fillable_template_docx)
-    manifest_path = generation_result.artifact_paths.get("build_manifest")
-    if manifest_path is not None:
-        provenance["build_manifest"] = str(manifest_path)
-    input_hashes = bound.setdefault("input_hashes", {})
-    if fillable_template_docx.exists():
-        input_hashes["fillable_template_docx"] = sha256_file(fillable_template_docx)
-    status_notes = bound.setdefault("status_notes", [])
-    status_notes.append(
-        "e2e/render use fillable_template.docx from the template generation stage"
-    )
-    return bound
-
-
-def _merge_findings_into_stage_statuses(
-    stage_statuses: dict[str, str],
-    findings: list[Finding],
-) -> None:
-    for stage in BUSINESS_ACCEPTANCE_STAGES:
-        stage_findings = [
-            finding
-            for finding in findings
-            if finding.stage == stage and finding.severity == "blocking"
-        ]
-        if not stage_findings:
-            continue
-        existing_status = stage_statuses.get(stage)
-        statuses = [finding.status for finding in stage_findings]
-        if existing_status is not None:
-            statuses.insert(0, Status(existing_status))
-        stage_statuses[stage] = merge_statuses(statuses).value
-
-
-def _first_non_pass_stage(stage_statuses: dict[str, str]) -> str | None:
-    for stage in BUSINESS_ACCEPTANCE_STAGES:
-        status = stage_statuses.get(stage)
-        if status is not None and Status(status) != Status.PASS:
-            return stage
-    return None
-
-
-def run_template_eval(root: Path, school_id: str, template_docx: Path, out_dir: Path) -> StageResult:
-    bundle, standard_findings = load_standard_bundle(root, school_id, finding_stage="template")
-    if bundle is None:
-        result = StageResult("template", Status.UNKNOWN, findings=standard_findings)
-    else:
-        result = parse_template(template_docx, bundle)
-        result.findings = standard_findings + result.findings
-        if standard_findings and result.status == Status.PASS:
-            result.status = Status.UNKNOWN
-        if is_real_core_bundle(bundle):
-            generation_result = _run_template_generation_for_pipeline(
-                template_docx,
-                out_dir,
-                debug_root=_template_generation_project_dir(
-                    root,
-                    template_docx=template_docx,
-                    out_dir=out_dir,
-                ),
-            )
-            _merge_template_generation_result(result, generation_result)
-            fillable_template_docx = generation_result.artifact_paths.get(
-                "fillable_template_docx"
-            )
-            if fillable_template_docx is not None and fillable_template_docx.exists():
-                result.artifacts["template_artifact"] = _bind_fillable_template_to_artifact(
-                    result.artifacts["template_artifact"],
-                    fillable_template_docx,
-                    generation_result,
-                )
-            gap_result = evaluate_generated_template_gap(
-                bundle,
-                fillable_template_docx
-                or root
-                / "inputs"
-                / "targets"
-                / school_id
-                / "fixtures"
-                / "template_gap"
-                / "generated_template.input.docx",
-                out_dir,
-            )
-            _merge_generated_template_gap(result, gap_result)
-        _apply_coverage_gate(
-            result,
-            _required_capabilities(
-                bundle,
-                "template_contract",
-                BOOTSTRAP_PROFILE.capabilities_for_stage("template"),
-            ),
-        )
-    write_template_outputs(out_dir, result)
-    _write_stage_report(out_dir, result)
-    return result
-
-
 def run_template_gap_eval(
     root: Path,
     school_id: str,
@@ -330,388 +118,816 @@ def run_template_generate_eval(
     out_dir: Path,
     *,
     agent_config: AgentConfig | None = None,
+    run_context: dict[str, Any] | None = None,
 ) -> StageResult:
     result = generate_template(
         template_docx,
         out_dir,
-        debug_root=_template_generation_project_dir(
-            root,
-            template_docx=template_docx,
-            out_dir=out_dir,
-        ),
         agent_config=agent_config,
     )
     write_template_generation_outputs(out_dir, result)
-    _write_stage_report(out_dir, result)
-    return result
-
-
-def run_content_eval(
-    student_docx: Path,
-    out_dir: Path,
-    *,
-    omit_content_id_for_test: str | None = None,
-) -> StageResult:
-    result = extract_student_content(
-        student_docx,
-        omit_content_id_for_test=omit_content_id_for_test,
-    )
-    _apply_coverage_gate(result, BOOTSTRAP_PROFILE.capabilities_for_stage("content"))
-    write_content_outputs(out_dir, result)
-    _write_stage_report(out_dir, result)
-    return result
-
-
-def run_placement_eval(
-    root: Path,
-    school_id: str,
-    template_artifact_path: Path,
-    content_artifact_path: Path,
-    out_dir: Path,
-    *,
-    drop_content_id_for_test: str | None = None,
-) -> StageResult:
-    bundle, standard_findings = load_standard_bundle(root, school_id, finding_stage="placement")
-    template_artifact = read_json(template_artifact_path)
-    content_artifact = read_json(content_artifact_path)
-    profile_id = (
-        bundle.signed_standard.get("coverage_requirements", {}).get("profile")
-        if bundle is not None
-        else None
-    )
-    student_id = content_artifact.get("student_id")
-    case_id = case_id_for(school_id, student_id)
-    result = build_placement_plan(
-        template_artifact,
-        content_artifact,
-        drop_content_id_for_test=drop_content_id_for_test,
-        root=root,
-        profile_id=profile_id,
-        case_id=case_id,
-        school_id=school_id,
-        student_id=student_id,
-    )
-    result.findings = standard_findings + result.findings
-    if standard_findings and result.status == Status.PASS:
-        result.status = Status.UNKNOWN
-    _apply_coverage_gate(
-        result,
-        _required_capabilities(
-            bundle,
-            "placement_contract",
-            BOOTSTRAP_PROFILE.capabilities_for_stage("placement"),
-        ),
-    )
-    write_placement_outputs(out_dir, result)
-    _write_stage_report(out_dir, result)
-    return result
-
-
-def run_render_eval(
-    root: Path,
-    school_id: str,
-    template_artifact_path: Path,
-    placement_plan_path: Path,
-    out_dir: Path,
-    *,
-    skip_action_id_for_test: str | None = None,
-) -> StageResult:
-    bundle, standard_findings = load_standard_bundle(root, school_id, finding_stage="render")
-    if bundle is None:
-        result = StageResult("render", Status.UNKNOWN, findings=standard_findings)
-    else:
-        template_artifact = read_json(template_artifact_path)
-        placement_plan = read_json(placement_plan_path)
-        result = render_docx(
-            template_artifact,
-            placement_plan,
-            bundle,
-            out_dir,
-            skip_action_id_for_test=skip_action_id_for_test,
-        )
-        result.findings = standard_findings + result.findings
-        if standard_findings and result.status == Status.PASS:
-            result.status = Status.UNKNOWN
-        _apply_coverage_gate(
-            result,
-            _required_capabilities(
-                bundle,
-                "render_contract",
-                BOOTSTRAP_PROFILE.capabilities_for_stage("render"),
-            ),
-        )
-    write_render_outputs(out_dir, result)
-    _write_stage_report(out_dir, result)
-    return result
-
-
-def run_e2e_eval(
-    root: Path,
-    school_id: str,
-    student_docx: Path,
-    out_dir: Path,
-    *,
-    final_copy: Path | None = None,
-) -> StageResult:
-    bundle, standard_findings = load_standard_bundle(root, school_id, finding_stage="e2e")
-    stage_statuses: dict[str, str] = {}
-    stage_run_states = {
-        "template": StageRunState.PENDING.value,
-        "content": StageRunState.PENDING.value,
-        "placement": StageRunState.PENDING.value,
-        "render": StageRunState.PENDING.value,
-    }
-    all_findings: list[Finding] = list(standard_findings)
-    artifacts: dict[str, Any] = {}
-    artifact_paths: dict[str, Path] = {}
-    coverage: dict[str, Any] = {}
-
-    if bundle is None:
-        final_status = Status.UNKNOWN
-        result = StageResult("e2e", final_status, findings=all_findings, blocked_at="standards")
-        write_report_bundle(
-            out_dir,
-            stage="e2e",
-            status=final_status,
-            findings=result.finding_dicts(),
-            artifacts={},
-            coverage={},
-            stage_statuses=stage_statuses,
-            stage_run_states=stage_run_states,
-            blocked_at="standards",
-        )
-        return result
-
-    real_core_run = is_real_core_bundle(bundle)
-    profile_id = (
-        bundle.signed_standard.get("coverage_requirements", {}).get("profile")
-        if real_core_run
-        else BOOTSTRAP_PROFILE.profile_id
-    )
-    student_id = student_id_for_docx(root, student_docx) if real_core_run else None
-    case_id = case_id_for(school_id, student_id) if real_core_run else None
-
-    template_result = parse_template(bundle.template_docx, bundle)
-    template_result.findings = standard_findings + template_result.findings
-    if standard_findings and template_result.status == Status.PASS:
-        template_result.status = Status.UNKNOWN
-    if real_core_run:
-        generation_result = _run_template_generation_for_pipeline(
-            bundle.template_docx,
-            out_dir,
-            debug_root=_template_generation_project_dir(
-                root,
-                template_docx=bundle.template_docx,
-                out_dir=out_dir,
-            ),
-        )
-        _merge_template_generation_result(template_result, generation_result)
-        fillable_template_docx = generation_result.artifact_paths.get(
-            "fillable_template_docx"
-        )
-        if fillable_template_docx is not None and fillable_template_docx.exists():
-            template_result.artifacts["template_artifact"] = (
-                _bind_fillable_template_to_artifact(
-                    template_result.artifacts["template_artifact"],
-                    fillable_template_docx,
-                    generation_result,
-                )
-            )
-        gap_result = evaluate_generated_template_gap(
-            bundle,
-            fillable_template_docx
-            or root
-            / "inputs"
-            / "targets"
-            / school_id
-            / "fixtures"
-            / "template_gap"
-            / "generated_template.input.docx",
-            out_dir,
-        )
-        _merge_generated_template_gap(template_result, gap_result)
-    _apply_coverage_gate(
-        template_result,
-        _required_capabilities(
-            bundle,
-            "template_contract",
-            BOOTSTRAP_PROFILE.capabilities_for_stage("template"),
-        ),
-    )
-    write_template_outputs(out_dir, template_result)
-    stage_statuses["template"] = template_result.status.value
-    stage_run_states["template"] = StageRunState.RAN.value
-    all_findings = template_result.findings
-    artifacts.update(template_result.artifacts)
-    artifact_paths.update(template_result.artifact_paths)
-    coverage.update(template_result.coverage)
-    if template_result.status != Status.PASS and not real_core_run:
-        return _finish_e2e(
-            out_dir,
-            stage_statuses,
-            stage_run_states,
-            all_findings,
-            artifacts,
-            artifact_paths,
-            coverage,
-            "template",
-        )
-
-    content_result = extract_student_content(
-        student_docx,
-        root=root,
-        profile_id=profile_id,
-        student_id=student_id,
-    )
-    _apply_coverage_gate(
-        content_result,
-        _required_capabilities(
-            bundle,
-            "student_content_contract",
-            BOOTSTRAP_PROFILE.capabilities_for_stage("content"),
-        ),
-    )
-    write_content_outputs(out_dir, content_result)
-    stage_statuses["content"] = content_result.status.value
-    stage_run_states["content"] = StageRunState.RAN.value
-    all_findings.extend(content_result.findings)
-    artifacts.update(content_result.artifacts)
-    artifact_paths.update(content_result.artifact_paths)
-    coverage.update(content_result.coverage)
-    if content_result.status != Status.PASS:
-        return _finish_e2e(
-            out_dir,
-            stage_statuses,
-            stage_run_states,
-            all_findings,
-            artifacts,
-            artifact_paths,
-            coverage,
-            "content",
-        )
-
-    placement_result = build_placement_plan(
-        template_result.artifacts["template_artifact"],
-        content_result.artifacts["student_content_artifact"],
-        root=root,
-        profile_id=profile_id,
-        case_id=case_id,
-        school_id=school_id,
-        student_id=student_id,
-    )
-    _apply_coverage_gate(
-        placement_result,
-        _required_capabilities(
-            bundle,
-            "placement_contract",
-            BOOTSTRAP_PROFILE.capabilities_for_stage("placement"),
-        ),
-    )
-    write_placement_outputs(out_dir, placement_result)
-    stage_statuses["placement"] = placement_result.status.value
-    stage_run_states["placement"] = StageRunState.RAN.value
-    all_findings.extend(placement_result.findings)
-    artifacts.update(placement_result.artifacts)
-    artifact_paths.update(placement_result.artifact_paths)
-    coverage.update(placement_result.coverage)
-    if placement_result.status != Status.PASS:
-        return _finish_e2e(
-            out_dir,
-            stage_statuses,
-            stage_run_states,
-            all_findings,
-            artifacts,
-            artifact_paths,
-            coverage,
-            "placement",
-        )
-
-    render_result = render_docx(
-        template_result.artifacts["template_artifact"],
-        placement_result.artifacts["placement_plan"],
-        bundle,
+    context = run_context or {}
+    write_template_run_manifest(
         out_dir,
+        result=result,
+        entrypoint=str(context.get("entrypoint") or "python.run_template_generate_eval"),
+        command=str(context.get("command") or "run_template_generate_eval"),
+        stage="template_generate",
+        agent_config=agent_config,
+        source_template_docx=template_docx,
     )
-    _apply_coverage_gate(
-        render_result,
-        _required_capabilities(
-            bundle,
-            "render_contract",
-            BOOTSTRAP_PROFILE.capabilities_for_stage("render"),
-        ),
-    )
-    write_render_outputs(out_dir, render_result)
-    stage_statuses["render"] = render_result.status.value
-    stage_run_states["render"] = StageRunState.RAN.value
-    all_findings.extend(render_result.findings)
-    artifacts.update(render_result.artifacts)
-    artifact_paths.update(render_result.artifact_paths)
-    coverage.update(render_result.coverage)
-
-    product_quality_findings: list[Finding] = []
-    if real_core_run:
-        product_quality_findings = _renumber_findings(
-            audit_e2e_case(out_dir),
-            start_index=len(all_findings) + 1,
-        )
-        all_findings.extend(product_quality_findings)
-        coverage.update(business_acceptance_coverage(product_quality_findings))
-        _merge_findings_into_stage_statuses(stage_statuses, product_quality_findings)
-
-    blocked_at = _first_non_pass_stage(stage_statuses)
-    if final_copy and blocked_at is None:
-        final_copy.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(render_result.artifact_paths["final_docx"], final_copy)
-    return _finish_e2e(
-        out_dir,
-        stage_statuses,
-        stage_run_states,
-        all_findings,
-        artifacts,
-        artifact_paths,
-        coverage,
-        blocked_at,
-    )
+    _write_stage_report(out_dir, result)
+    return result
 
 
-def _finish_e2e(
+def run_template_generation_full_eval(
+    root: Path,
+    school_id: str,
+    template_docx: Path,
     out_dir: Path,
-    stage_statuses: dict[str, str],
-    stage_run_states: dict[str, str],
-    findings: list[Finding],
-    artifacts: dict[str, Any],
-    artifact_paths: dict[str, Path],
-    coverage: dict[str, Any],
-    blocked_at: str | None,
+    *,
+    template_version: str = "v1",
+    agent_config: AgentConfig | None = None,
+    run_context: dict[str, Any] | None = None,
 ) -> StageResult:
-    completed_statuses = [Status(status) for status in stage_statuses.values()]
-    blocking_finding_statuses = [
-        finding.status
-        for finding in findings
-        if finding.severity == "blocking"
-    ]
-    final_status = merge_statuses(completed_statuses + blocking_finding_statuses)
+    from docfit.harness.template_generation_standard_judge import (
+        judge_template_generation_run,
+    )
+
+    eval_runs = out_dir / "eval_runs"
+    template_generate_dir = eval_runs / "template_generate"
+    template_gap_dir = eval_runs / "template_gap"
+    judge_dir = eval_runs / "template_generation_judge"
+
+    generate_result = run_template_generate_eval(
+        root,
+        template_docx,
+        template_generate_dir,
+        agent_config=agent_config,
+        run_context={
+            "entrypoint": "python.run_template_generation_full_eval.generate",
+            "command": "template generate (nested in verify)",
+        },
+    )
+    generated_template = _generated_template_from_result(
+        generate_result,
+        template_generate_dir,
+    )
+    gap_result = run_template_gap_eval(
+        root,
+        school_id,
+        generated_template,
+        template_gap_dir,
+    )
+    judge_result = judge_template_generation_run(
+        root,
+        school_id,
+        template_generate_dir,
+        judge_dir,
+        template_version=template_version,
+        derive_template_gap=True,
+    )
+
+    status = merge_statuses(
+        [generate_result.status, gap_result.status, judge_result.status]
+    )
+    full_summary = _build_template_generation_full_summary(
+        school_id=school_id,
+        template_version=template_version,
+        out_dir=out_dir,
+        template_generate_dir=template_generate_dir,
+        template_gap_dir=template_gap_dir,
+        judge_dir=judge_dir,
+        generate_result=generate_result,
+        gap_result=gap_result,
+        judge_result=judge_result,
+        status=status,
+    )
+    full_summary_json = out_dir / "full_summary.json"
+    full_summary_md = out_dir / "full_summary.md"
+    write_json(full_summary_json, full_summary)
+    write_text(full_summary_md, _render_template_generation_full_summary_markdown(full_summary))
+
     result = StageResult(
-        "e2e",
-        final_status,
-        findings=findings,
-        artifacts=artifacts,
-        artifact_paths=artifact_paths,
-        coverage=coverage,
-        blocked_at=blocked_at,
+        "template_generation_full",
+        status,
+        findings=[
+            *generate_result.findings,
+            *gap_result.findings,
+            *judge_result.findings,
+        ],
+        artifacts={
+            "template_generation_full_summary": full_summary,
+            **{
+                key: generate_result.artifacts[key]
+                for key in (
+                    "document_facts",
+                    "template_generation_l1_input_contract",
+                    "template_agent_render_packet",
+                    "ai_observation_bundle",
+                )
+                if key in generate_result.artifacts
+            },
+        },
+        artifact_paths={
+            "full_summary": full_summary_json,
+            "full_summary_md": full_summary_md,
+            "template_generate_dir": template_generate_dir,
+            "template_gap_dir": template_gap_dir,
+            "template_generation_judge_dir": judge_dir,
+        },
+        coverage={
+            "template_generate_status": generate_result.status.value,
+            "template_gap_status": gap_result.status.value,
+            "template_generation_judge_status": judge_result.status.value,
+            "first_bad_stage": full_summary.get("first_bad_stage"),
+            "route_eval_mismatch_count": full_summary.get("route_eval", {}).get(
+                "mismatch_count"
+            ),
+        },
+        blocked_at=full_summary.get("first_bad_stage") if status != Status.PASS else None,
     )
-    artifact_refs = {key: f"artifacts/{key}.json" for key in artifacts}
-    for key, path in artifact_paths.items():
-        artifact_refs[key] = str(path)
-    write_report_bundle(
+    context = run_context or {}
+    write_template_run_manifest(
         out_dir,
-        stage="e2e",
-        status=final_status,
-        findings=result.finding_dicts(),
-        artifacts=artifact_refs,
-        coverage=coverage,
-        stage_statuses=stage_statuses,
-        stage_run_states=stage_run_states,
-        blocked_at=blocked_at,
+        result=result,
+        entrypoint=str(
+            context.get("entrypoint") or "python.run_template_generation_full_eval"
+        ),
+        command=str(context.get("command") or "run_template_generation_full_eval"),
+        stage="template_generation_verify",
+        agent_config=agent_config,
+        source_template_docx=template_docx,
+        upstream_artifacts={
+            "template_generate_run_manifest": str(
+                template_generate_dir / "run_manifest.json"
+            ),
+            "template_gap_dir": str(template_gap_dir),
+            "template_generation_judge_dir": str(judge_dir),
+        },
+        extra={"school_id": school_id, "template_version": template_version},
     )
+    _write_stage_report(out_dir, result)
     return result
+
+
+def _generated_template_from_result(result: StageResult, run_dir: Path) -> Path:
+    for key in ("generated_template_docx", "fillable_template_docx"):
+        path = result.artifact_paths.get(key)
+        if path is not None:
+            return path
+    return run_dir / "06.1_fillable_template.docx"
+
+
+def _build_template_generation_full_summary(
+    *,
+    school_id: str,
+    template_version: str,
+    out_dir: Path,
+    template_generate_dir: Path,
+    template_gap_dir: Path,
+    judge_dir: Path,
+    generate_result: StageResult,
+    gap_result: StageResult,
+    judge_result: StageResult,
+    status: Status,
+) -> dict[str, Any]:
+    gap_report = gap_result.artifacts.get("template_gap_report") or _read_json_if_exists(
+        template_gap_dir / "artifacts" / "template_gap_report.json"
+    )
+    judge_report = judge_result.artifacts.get("template_generation_judge_report") or _read_json_if_exists(
+        judge_dir / "template_generation_judge_report.json"
+    )
+    route_eval = judge_result.artifacts.get("template_generation_route_eval_report") or _read_json_if_exists(
+        judge_dir / "template_generation_route_eval_report.json"
+    )
+    verification_report = _read_json_if_exists(
+        template_generate_dir / "07_verification_report.json"
+    )
+    route_stage_metrics = (route_eval or {}).get("stage_metrics", {})
+    route_mismatches = (route_eval or {}).get("mismatches", [])
+    first_bad_stage = (
+        (judge_report or {}).get("first_bad_stage")
+        or _first_non_pass_stage(
+            {
+                "template_generate": generate_result.status,
+                "template_gap": gap_result.status,
+                "template_generation_judge": judge_result.status,
+            }
+        )
+    )
+    quality_report = _build_template_generation_quality_report(
+        status=status,
+        first_bad_stage=first_bad_stage,
+        template_generate_dir=template_generate_dir,
+        template_gap_dir=template_gap_dir,
+        judge_dir=judge_dir,
+        judge_report=judge_report or {},
+        route_eval=route_eval or {},
+        gap_report=gap_report or {},
+        verification_report=verification_report,
+    )
+    return {
+        "artifact_type": "template_generation_full_summary",
+        "artifact_version": "1.0",
+        "created_at": now_iso(),
+        "school_id": school_id,
+        "template_version": template_version,
+        "status": status.value,
+        "run_root": str(out_dir),
+        "eval_runs": {
+            "template_generate": str(template_generate_dir),
+            "template_gap": str(template_gap_dir),
+            "template_generation_judge": str(judge_dir),
+        },
+        "stage_statuses": {
+            "template_generate": generate_result.status.value,
+            "template_gap": gap_result.status.value,
+            "template_generation_judge": judge_result.status.value,
+        },
+        "final_gap": (gap_report or {}).get("summary", {}),
+        "first_bad_stage": first_bad_stage,
+        "route_eval": {
+            "route_count": (route_eval or {}).get("cross_route_summary", {}).get(
+                "route_count"
+            ),
+            "mismatch_count": len(route_mismatches),
+            "mismatch_types": sorted(
+                {
+                    str(mismatch.get("type"))
+                    for mismatch in route_mismatches
+                    if mismatch.get("type")
+                }
+            ),
+        },
+        "owner_summary": (judge_report or {}).get("owner_summary", {}),
+        "top_blockers": quality_report.get("top_blockers", []),
+        "quality_report": quality_report,
+        "next_verification": _next_template_generation_verification(
+            first_bad_stage=first_bad_stage,
+            route_mismatches=route_mismatches,
+            status=status,
+        ),
+        "gates": {
+            "render_l1": (route_stage_metrics.get("L1") or {}).get("coverage", {}),
+            "t3_residual": (route_stage_metrics.get("T3") or {}).get(
+                "residual_gate", {}
+            ),
+            "t4_hint_consumption": (route_stage_metrics.get("T4") or {}).get(
+                "hint_consumption", {}
+            ),
+            "ai_primary": (route_eval or {}).get("ai_primary_gate_decision", {}),
+        },
+        "artifacts": {
+            "template_gap_report": str(
+                template_gap_dir / "artifacts" / "template_gap_report.json"
+            ),
+            "template_generation_judge_report": str(
+                judge_dir / "template_generation_judge_report.json"
+            ),
+            "template_generation_route_eval_report": str(
+                judge_dir / "template_generation_route_eval_report.json"
+            ),
+        },
+    }
+
+
+def _build_template_generation_quality_report(
+    *,
+    status: Status,
+    first_bad_stage: str | None,
+    template_generate_dir: Path,
+    template_gap_dir: Path,
+    judge_dir: Path,
+    judge_report: dict[str, Any],
+    route_eval: dict[str, Any],
+    gap_report: dict[str, Any],
+    verification_report: dict[str, Any],
+) -> dict[str, Any]:
+    route_mismatches = _list_of_dicts(route_eval.get("mismatches"))
+    root_causes = _list_of_dicts(judge_report.get("root_causes"))
+    owner_assignments = _list_of_dicts(judge_report.get("owner_assignments"))
+    fix_plan = _list_of_dicts(judge_report.get("fix_plan"))
+    stage_checks = {
+        str(check.get("stage_id") or _stage_id_from_key(check.get("stage_key"))): check
+        for check in _list_of_dicts(judge_report.get("stage_checks"))
+    }
+    verification_stages = {
+        str(stage.get("stage")): stage
+        for stage in _list_of_dicts(verification_report.get("stages"))
+    }
+    stage_cards = [
+        _template_generation_stage_card(
+            stage_id=stage_id,
+            stage_key=stage_key,
+            artifact_paths=artifact_paths,
+            stage_check=stage_checks.get(stage_id),
+            route_metrics=(route_eval.get("stage_metrics") or {}).get(stage_id, {}),
+            route_mismatches=route_mismatches,
+            root_causes=root_causes,
+            owner_assignments=owner_assignments,
+            fix_plan=fix_plan,
+            verification_stage=verification_stages.get(stage_id),
+            gap_report=gap_report if stage_id == "POST_T6" else {},
+            evidence_refs=_template_generation_quality_evidence_refs(
+                stage_id,
+                template_generate_dir=template_generate_dir,
+                template_gap_dir=template_gap_dir,
+                judge_dir=judge_dir,
+                artifact_paths=artifact_paths,
+            ),
+        )
+        for stage_id, stage_key, artifact_paths in [
+            ("T1", "t1_document_facts", ["01_document_facts.json"]),
+            ("L1", "l1_input_contract", ["01.5_l1_input_contract.json"]),
+            ("T2", "t2_unit_pagination", ["02.3_t2_merged_unit_map.yaml", "02_unit_map.yaml"]),
+            ("T3", "t3_element_policy", ["03.2_t3_merged_element_spec.yaml", "03_element_spec.yaml"]),
+            ("T4", "t4_global_layout", ["04.2_t4_merged_global_spec.yaml", "04_global_spec.yaml"]),
+            ("T5", "t5_template_spec", ["05_template_spec.yaml"]),
+            ("T6", "t6_fillable_template", ["06.1_fillable_template.docx", "06.2_build_manifest.json"]),
+            ("T7", "t7_verification_report", ["07_verification_report.json"]),
+            ("POST_T6", "post_t6_template_gap", ["artifacts/template_gap_report.json"]),
+        ]
+    ]
+    top_blockers = _compact_items(judge_report.get("top_blockers"), limit=10)
+    if not top_blockers:
+        top_blockers = _top_quality_blockers_from_stage_cards(stage_cards)
+    return {
+        "artifact_type": "template_generation_full_quality_report",
+        "artifact_version": "1.0",
+        "overall_status": status.value,
+        "first_bad_stage": first_bad_stage,
+        "stage_cards": stage_cards,
+        "top_blockers": top_blockers,
+        "owner_summary": judge_report.get("owner_summary", {}),
+        "next_optimization_targets": _next_optimization_targets(stage_cards),
+        "evidence_refs": {
+            "template_generation_judge_report": str(
+                judge_dir / "template_generation_judge_report.json"
+            ),
+            "template_generation_route_eval_report": str(
+                judge_dir / "template_generation_route_eval_report.json"
+            ),
+            "template_gap_report": str(
+                template_gap_dir / "artifacts" / "template_gap_report.json"
+            ),
+        },
+    }
+
+
+def _template_generation_stage_card(
+    *,
+    stage_id: str,
+    stage_key: str,
+    artifact_paths: list[str],
+    stage_check: dict[str, Any] | None,
+    route_metrics: dict[str, Any],
+    route_mismatches: list[dict[str, Any]],
+    root_causes: list[dict[str, Any]],
+    owner_assignments: list[dict[str, Any]],
+    fix_plan: list[dict[str, Any]],
+    verification_stage: dict[str, Any] | None,
+    gap_report: dict[str, Any],
+    evidence_refs: dict[str, str],
+) -> dict[str, Any]:
+    stage_mismatches = [
+        mismatch for mismatch in route_mismatches if mismatch.get("stage_id") == stage_id
+    ]
+    stage_roots = _items_for_stage(root_causes, stage_id)
+    stage_owners = _items_for_stage(owner_assignments, stage_id)
+    stage_fixes = _items_for_stage(fix_plan, stage_id)
+    stage_status = _stage_card_status(
+        stage_id=stage_id,
+        stage_check=stage_check,
+        route_metrics=route_metrics,
+        route_mismatches=stage_mismatches,
+        verification_stage=verification_stage,
+        gap_report=gap_report,
+    )
+    return {
+        "stage_id": stage_id,
+        "stage_key": stage_key,
+        "status": stage_status,
+        "artifact_status": (
+            (stage_check or {}).get("status")
+            or (verification_stage or {}).get("status")
+            or _post_t6_gap_status(gap_report)
+        ),
+        "audit_status": (stage_check or {}).get("audit_status"),
+        "route_status": "FAIL" if stage_mismatches else "PASS",
+        "artifact_paths": artifact_paths,
+        "standard_path": (stage_check or {}).get("standard_path"),
+        "quality_checks": _quality_checks_for_stage(
+            stage_check=stage_check,
+            route_metrics=route_metrics,
+            route_mismatches=stage_mismatches,
+            verification_stage=verification_stage,
+            gap_report=gap_report,
+        ),
+        "mismatches": _compact_items(stage_mismatches, limit=10),
+        "root_causes": _compact_items(stage_roots, limit=10),
+        "owner_assignments": _compact_items(stage_owners, limit=10),
+        "fix_plan": _compact_items(stage_fixes, limit=10),
+        "route_availability": route_metrics.get("route_availability", {}),
+        "route_reasons": route_metrics.get("route_reasons", {}),
+        "evidence_refs": evidence_refs,
+    }
+
+
+def _stage_card_status(
+    *,
+    stage_id: str,
+    stage_check: dict[str, Any] | None,
+    route_metrics: dict[str, Any],
+    route_mismatches: list[dict[str, Any]],
+    verification_stage: dict[str, Any] | None,
+    gap_report: dict[str, Any],
+) -> str:
+    statuses: list[str] = []
+    if stage_check and stage_check.get("status"):
+        statuses.append(str(stage_check["status"]))
+    if verification_stage and verification_stage.get("status"):
+        statuses.append(str(verification_stage["status"]))
+    if stage_id == "POST_T6":
+        statuses.append(_post_t6_gap_status(gap_report))
+    if route_metrics and not statuses:
+        statuses.append("PASS")
+    if route_mismatches:
+        statuses.append("FAIL")
+    return _merge_status_values(statuses)
+
+
+def _merge_status_values(statuses: list[str]) -> str:
+    normalized = [status for status in statuses if status]
+    if not normalized:
+        return "UNKNOWN"
+    if "FAIL" in normalized:
+        return "FAIL"
+    if "UNKNOWN" in normalized:
+        return "UNKNOWN"
+    return "PASS"
+
+
+def _post_t6_gap_status(gap_report: dict[str, Any]) -> str:
+    summary = gap_report.get("summary") if isinstance(gap_report.get("summary"), dict) else {}
+    status = summary.get("blocking_status") or summary.get("known_status")
+    return str(status or "UNKNOWN")
+
+
+def _quality_checks_for_stage(
+    *,
+    stage_check: dict[str, Any] | None,
+    route_metrics: dict[str, Any],
+    route_mismatches: list[dict[str, Any]],
+    verification_stage: dict[str, Any] | None,
+    gap_report: dict[str, Any],
+) -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    if route_metrics:
+        checks.append(
+            {
+                "kind": "route_evaluation",
+                "status": "FAIL" if route_mismatches else "PASS",
+                "route_availability": route_metrics.get("route_availability", {}),
+                "route_reasons": route_metrics.get("route_reasons", {}),
+                "ai_availability": route_metrics.get("ai_availability"),
+                "changed_from_code": route_metrics.get("changed_from_code"),
+                "coverage": _compact_value(route_metrics.get("coverage", {})),
+                "mismatch_count": len(route_mismatches),
+            }
+        )
+    if stage_check:
+        checks.append(
+            {
+                "kind": "stage_standard_audit",
+                "status": stage_check.get("status"),
+                "audit_status": stage_check.get("audit_status"),
+                "verifier_state": stage_check.get("verifier_state"),
+                "gate_enabled": stage_check.get("gate_enabled"),
+                "finding_count": len(_list_of_dicts(stage_check.get("findings"))),
+            }
+        )
+    if verification_stage:
+        checks.append(
+            {
+                "kind": "runtime_verification",
+                "status": verification_stage.get("status"),
+                "artifact_type": verification_stage.get("artifact_type"),
+                "output_hash": verification_stage.get("output_hash"),
+            }
+        )
+    if gap_report:
+        summary = gap_report.get("summary") if isinstance(gap_report.get("summary"), dict) else {}
+        checks.append(
+            {
+                "kind": "final_template_gap",
+                "status": _post_t6_gap_status(gap_report),
+                "display_status": summary.get("display_status"),
+                "failed_count": summary.get("failed_count"),
+                "unknown_count": summary.get("unknown_count"),
+                "passed_count": summary.get("passed_count"),
+            }
+        )
+    return checks
+
+
+def _template_generation_quality_evidence_refs(
+    stage_id: str,
+    *,
+    template_generate_dir: Path,
+    template_gap_dir: Path,
+    judge_dir: Path,
+    artifact_paths: list[str],
+) -> dict[str, Any]:
+    artifact_root = template_gap_dir if stage_id == "POST_T6" else template_generate_dir
+    refs = {
+        "artifacts": str(artifact_root),
+        "stage_artifacts": [
+            str(artifact_root / path) for path in artifact_paths
+        ],
+        "route_eval_report": str(
+            judge_dir / "template_generation_route_eval_report.json"
+        ),
+    }
+    if stage_id in {"T1", "T2", "T3", "T4", "T5"}:
+        refs["stage_standard_diff_report"] = str(
+            judge_dir / f"{_stage_output_prefix(stage_id)}_standard_diff_report.json"
+        )
+        refs["stage_standard_quality_report"] = str(
+            judge_dir / f"{_stage_output_prefix(stage_id)}_standard_quality_report.json"
+        )
+    if stage_id == "POST_T6":
+        refs["template_gap_report"] = str(
+            template_gap_dir / "artifacts" / "template_gap_report.json"
+        )
+    return refs
+
+
+def _stage_output_prefix(stage_id: str) -> str:
+    return {
+        "T1": "01_document_facts",
+        "T2": "02_unit_map",
+        "T3": "03_element_spec",
+        "T4": "04_global_spec",
+        "T5": "05_template_spec",
+    }.get(stage_id, stage_id)
+
+
+def _stage_id_from_key(stage_key: Any) -> str:
+    return {
+        "t1_document_facts": "T1",
+        "t2_unit_pagination": "T2",
+        "t3_element_policy": "T3",
+        "t4_global_layout": "T4",
+        "t5_template_spec": "T5",
+        "l1_input_contract": "L1",
+        "t6_fillable_template": "T6",
+        "t7_verification_report": "T7",
+        "post_t6_template_gap": "POST_T6",
+    }.get(str(stage_key), str(stage_key))
+
+
+def _items_for_stage(items: list[dict[str, Any]], stage_id: str) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in items
+        if item.get("stage_id") == stage_id
+        or _stage_id_from_key(item.get("stage_key")) == stage_id
+        or str(item.get("id", "")).startswith(f"{stage_id}-")
+    ]
+
+
+def _top_quality_blockers_from_stage_cards(stage_cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    blockers: list[dict[str, Any]] = []
+    for card in stage_cards:
+        if card.get("status") == "PASS":
+            continue
+        first_mismatch = (card.get("mismatches") or [{}])[0]
+        blockers.append(
+            {
+                "stage_id": card.get("stage_id"),
+                "stage_key": card.get("stage_key"),
+                "status": card.get("status"),
+                "reason": (
+                    first_mismatch.get("type")
+                    or first_mismatch.get("reason")
+                    or "stage quality check is not PASS"
+                ),
+            }
+        )
+    return blockers[:10]
+
+
+def _next_optimization_targets(stage_cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    targets: list[dict[str, Any]] = []
+    for card in stage_cards:
+        if card.get("status") == "PASS":
+            continue
+        fix_plan = card.get("fix_plan") or []
+        first_fix = fix_plan[0] if fix_plan else {}
+        targets.append(
+            {
+                "stage_id": card.get("stage_id"),
+                "stage_key": card.get("stage_key"),
+                "status": card.get("status"),
+                "owner": _owner_for_card(card),
+                "action": (
+                    first_fix.get("action")
+                    or f"resolve {card.get('stage_id')} quality report blockers"
+                ),
+                "evidence_refs": card.get("evidence_refs", {}),
+            }
+        )
+    return targets[:10]
+
+
+def _owner_for_card(card: dict[str, Any]) -> str:
+    root_cause = (card.get("root_causes") or [{}])[0]
+    owner_assignment = (card.get("owner_assignments") or [{}])[0]
+    return str(
+        root_cause.get("owner")
+        or owner_assignment.get("primary")
+        or "template-generation"
+    )
+
+
+def _list_of_dicts(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _compact_items(value: Any, *, limit: int) -> list[dict[str, Any]]:
+    return [_compact_dict(item) for item in _list_of_dicts(value)[:limit]]
+
+
+def _compact_dict(item: dict[str, Any]) -> dict[str, Any]:
+    keep_keys = [
+        "id",
+        "stage_id",
+        "stage_key",
+        "status",
+        "type",
+        "finding_type",
+        "category",
+        "owner",
+        "primary",
+        "secondary",
+        "reason",
+        "expected",
+        "observed",
+        "actual",
+        "next_action",
+        "action",
+        "acceptance",
+        "evidence_refs",
+        "report_ref",
+        "mismatch_id",
+        "root_cause_id",
+        "route_ids",
+    ]
+    compact: dict[str, Any] = {}
+    for key in keep_keys:
+        if key in item:
+            compact[key] = _compact_value(item[key])
+    return compact
+
+
+def _compact_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return value if len(value) <= 300 else value[:297] + "..."
+    if isinstance(value, list):
+        return [_compact_value(item) for item in value[:10]]
+    if isinstance(value, dict):
+        return {
+            str(key): _compact_value(nested)
+            for key, nested in list(value.items())[:10]
+        }
+    return value
+
+
+def _read_json_if_exists(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        value = read_json(path)
+    except Exception:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _first_non_pass_stage(stage_statuses: dict[str, Status]) -> str | None:
+    for stage, status in stage_statuses.items():
+        if status != Status.PASS:
+            return stage
+    return None
+
+
+def _next_template_generation_verification(
+    *,
+    first_bad_stage: str | None,
+    route_mismatches: list[dict[str, Any]],
+    status: Status,
+) -> list[dict[str, Any]]:
+    if status == Status.PASS and not route_mismatches:
+        return [
+            {
+                "owner": "template-generation",
+                "action": "rerun three-school template-generation-full regression before closing the issue",
+            }
+        ]
+    actions = []
+    if first_bad_stage:
+        actions.append(
+            {
+                "owner": "template-generation",
+                "action": f"fix first failing stage: {first_bad_stage}",
+            }
+        )
+    for mismatch in route_mismatches[:10]:
+        actions.append(
+            {
+                "owner": "template-generation",
+                "stage_id": mismatch.get("stage_id"),
+                "type": mismatch.get("type"),
+                "action": "resolve route-eval mismatch and rerun template-generation-full",
+            }
+        )
+    return actions
+
+
+def _render_template_generation_full_summary_markdown(summary: dict[str, Any]) -> str:
+    quality_report = summary.get("quality_report") or {}
+    lines = [
+        "# Template Generation Full Summary",
+        "",
+        f"- School: {summary.get('school_id')}",
+        f"- Status: {summary.get('status')}",
+        f"- First bad stage: {summary.get('first_bad_stage') or 'none'}",
+        f"- Quality report: {quality_report.get('overall_status') or summary.get('status')}",
+        "",
+        "## Stage Statuses",
+    ]
+    for stage, status in (summary.get("stage_statuses") or {}).items():
+        lines.append(f"- {stage}: {status}")
+    lines.extend(["", "## Quality Stage Cards"])
+    for card in quality_report.get("stage_cards") or []:
+        lines.append(
+            "- "
+            f"{card.get('stage_id')} {card.get('stage_key')}: "
+            f"status={card.get('status')}, route={card.get('route_status')}"
+        )
+        mismatches = card.get("mismatches") or []
+        if mismatches:
+            first = mismatches[0]
+            lines.append(
+                f"  - first issue: {first.get('type') or first.get('reason') or first.get('id')}"
+            )
+        fixes = card.get("fix_plan") or []
+        if fixes:
+            lines.append(f"  - next: {fixes[0].get('action')}")
+    top_blockers = quality_report.get("top_blockers") or []
+    if top_blockers:
+        lines.extend(["", "## Top Blockers"])
+        for blocker in top_blockers[:10]:
+            lines.append(
+                "- "
+                f"{blocker.get('stage_id') or blocker.get('stage_key')}: "
+                f"{blocker.get('finding_type') or blocker.get('type') or blocker.get('reason')}"
+                f" owner={blocker.get('owner') or blocker.get('primary') or 'unknown'}"
+            )
+    owner_summary = quality_report.get("owner_summary") or {}
+    if owner_summary:
+        lines.extend(["", "## Owner Summary"])
+        for owner, count in owner_summary.items():
+            lines.append(f"- {owner}: {count}")
+    next_targets = quality_report.get("next_optimization_targets") or []
+    if next_targets:
+        lines.extend(["", "## Next Optimization Targets"])
+        for target in next_targets[:10]:
+            lines.append(
+                "- "
+                f"{target.get('stage_id')}: "
+                f"{target.get('action')} "
+                f"(owner={target.get('owner')})"
+            )
+    route_eval = summary.get("route_eval") or {}
+    lines.extend(
+        [
+            "",
+            "## Route Eval",
+            f"- Routes: {route_eval.get('route_count')}",
+            f"- Mismatches: {route_eval.get('mismatch_count')}",
+        ]
+    )
+    for mismatch_type in route_eval.get("mismatch_types") or []:
+        lines.append(f"- {mismatch_type}")
+    lines.extend(["", "## Next Verification"])
+    for item in summary.get("next_verification") or []:
+        lines.append(
+            "- "
+            f"{item.get('stage_id') or item.get('owner')}: "
+            f"{item.get('action')}"
+        )
+    lines.append("")
+    return "\n".join(lines)

@@ -23,7 +23,7 @@ from typing import Any, Protocol
 
 from docfit.core.io import now_iso, sha256_json
 
-from .evidence import build_t2_evidence, build_t3_evidence, build_t4_evidence
+from .evidence import build_t2_evidence, build_t4_evidence
 from .observation_config import ObservationConfig, ObservationConfigError
 from .observation_materialize import (
     materialize_element_observation,
@@ -42,10 +42,15 @@ from .observation_windows import build_observation_windows
 from .packet import packet_source_seq_set
 from .t3_input import (
     build_t3_local_evidence,
-    build_t3_object_plan_evidence,
-    build_t3_object_tasks,
-    sanitize_object_plan,
+    build_t3_local_tasks,
+    build_t3_unit_plan_evidence,
+    sanitize_unit_plan,
     task_summary,
+)
+from .t3_safety import (
+    guard_t3_payload,
+    preservation_fallback_items,
+    restrict_tasks_to_unit_plan,
 )
 
 
@@ -55,6 +60,8 @@ class ObservationResponder(Protocol):
     def fetch_units(self, *, evidence: dict[str, Any], n_samples: int) -> list[dict[str, Any]]: ...
 
     def fetch_elements(self, *, evidence: dict[str, Any], window: dict[str, Any]) -> dict[str, Any]: ...
+
+    def fetch_unit_plan(self, *, evidence: dict[str, Any], window: dict[str, Any]) -> dict[str, Any]: ...
 
     def fetch_layout(self, *, evidence: dict[str, Any]) -> dict[str, Any]: ...
 
@@ -73,6 +80,28 @@ class ReplayResponder:
         del evidence
         unit_id = str(window.get("unit_id") or "")
         return dict((self._transcript.get("t3", {}) or {}).get(unit_id, {}) or {})
+
+    def fetch_unit_plan(self, *, evidence: dict[str, Any], window: dict[str, Any]) -> dict[str, Any]:
+        """Replay follows the canonical unit router without retaining a flat T3 path.
+
+        Older transcripts contain only final T3 items.  They are replayed through
+        ``full_local_analysis`` so the current routing and safety gates remain in
+        force; newer fixtures may provide a per-unit plan explicitly.
+        """
+
+        del evidence
+        unit_id = str(window.get("unit_id") or "")
+        plans = self._transcript.get("t3_unit", {}) or {}
+        recorded = plans.get(unit_id) if isinstance(plans, dict) else None
+        if isinstance(recorded, dict):
+            return dict(recorded)
+        return {
+            "route": "full_local_analysis",
+            "default_preservation_policy": "fixed",
+            "inspect_source_seq_refs": list(window.get("source_seq_refs", []) or []),
+            "confidence": "medium",
+            "rationale": "legacy transcript replayed through canonical unit route",
+        }
 
     def fetch_layout(self, *, evidence: dict[str, Any]) -> dict[str, Any]:
         del evidence
@@ -100,28 +129,25 @@ def run_observation_pipeline(
     if responder is None:
         responder = ReplayResponder(transcript or {})
 
-    valid_seq = packet_source_seq_set(packet)
     timing: dict[str, float] = {}
     pipeline_start = time.monotonic()
 
     # --- Pass-T2：全文压缩 → 自一致性投票 → 物化 ---
     t2_start = time.monotonic()
-    t2_evidence = build_t2_evidence(packet)  # firewall asserted inside
-    samples = responder.fetch_units(evidence=t2_evidence, n_samples=config.self_consistency_samples)
-    unit_observation, t2_consistency = _run_t2(
-        samples=samples, packet=packet, valid_seq=valid_seq, model=config.model
+    unit_observation, t2_consistency, t2_evidence = run_t2_observation(
+        packet=packet,
+        responder=responder,
+        config=config,
     )
     timing["t2_seconds"] = round(time.monotonic() - t2_start, 2)
 
     # --- Pass-T3：按 AI 自己的 T2 单元切窗口 → 物化 ---
     t3_start = time.monotonic()
-    unit_windows = build_observation_windows(ai_unit_observation=unit_observation, packet=packet)
-    element_observation = _run_t3(
+    element_observation, unit_windows = run_t3_observation(
+        ai_unit_observation=unit_observation,
         responder=responder,
-        unit_windows=unit_windows,
         packet=packet,
-        valid_seq=valid_seq,
-        model=config.model,
+        config=config,
         concurrency=t3_concurrency,
     )
     timing["t3_seconds"] = round(time.monotonic() - t3_start, 2)
@@ -129,22 +155,16 @@ def run_observation_pipeline(
     # --- Pass-T4：Track A 确定性版式(T1 分节事实) + 渲染 per-seq page_no
     # + Track B 视觉逐页读图(MiniMax M3, 有 vision_responder 且有页图时) ---
     t4_start = time.monotonic()
-    t4_evidence = build_t4_evidence(packet)
-    render_available = bool(t4_evidence.get("render_available"))
-    page_observations: list[dict[str, Any]] = []
-    if vision_responder is not None and render_available:
-        page_images = (packet.get("render_artifacts", {}) or {}).get("clean_page_images", []) or []
-        page_images = _attach_layout_context_to_page_images(
-            page_images,
-            global_layout_facts=t4_evidence.get("global_layout_facts", {}),
-        )
-        page_observations = vision_responder.observe_pages(page_images)
-    layout_observation = materialize_layout_observation(
-        {"section_profiles": []},
+    replay_layout_payload = (
+        responder.fetch_layout(evidence=build_t4_evidence(packet))
+        if isinstance(responder, ReplayResponder)
+        else None
+    )
+    layout_observation, t4_evidence = run_t4_observation(
         packet=packet,
-        render_available=render_available,
-        model=config.model,
-        page_observations=page_observations,
+        config=config,
+        vision_responder=vision_responder,
+        raw_payload=replay_layout_payload,
     )
     timing["t4_seconds"] = round(time.monotonic() - t4_start, 2)
     timing["total_seconds"] = round(time.monotonic() - pipeline_start, 2)
@@ -155,6 +175,7 @@ def run_observation_pipeline(
         "prompt_contract_version": PROMPT_CONTRACT_VERSION,
         "created_at": now_iso(),
         "source_render_hash": packet.get("source_render_hash"),
+        "input_contract_hash": packet.get("input_contract_hash"),
         "model": config.model,
         "self_consistency_samples": config.self_consistency_samples,
         "ai_unit_observation": unit_observation,
@@ -170,6 +191,90 @@ def run_observation_pipeline(
             unit_observation, element_observation, layout_observation, t2_consistency
         ),
     }
+
+
+def run_t2_observation(
+    *,
+    packet: dict[str, Any],
+    responder: ObservationResponder,
+    config: ObservationConfig,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Run only the T2 live/replay observation pass."""
+
+    if config.self_consistency_samples < 1:
+        raise ObservationConfigError("observation self_consistency_samples must be >= 1")
+    evidence = build_t2_evidence(packet)
+    samples = responder.fetch_units(
+        evidence=evidence,
+        n_samples=config.self_consistency_samples,
+    )
+    observation, consistency = _run_t2(
+        samples=samples,
+        packet=packet,
+        valid_seq=packet_source_seq_set(packet),
+        model=config.model,
+    )
+    observation["input_contract_hash"] = packet.get("input_contract_hash")
+    return observation, consistency, evidence
+
+
+def run_t3_observation(
+    *,
+    packet: dict[str, Any],
+    ai_unit_observation: dict[str, Any],
+    responder: ObservationResponder,
+    config: ObservationConfig,
+    concurrency: int = 1,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Run only T3, using an AI-produced T2 observation as its window source."""
+
+    unit_windows = build_observation_windows(
+        ai_unit_observation=ai_unit_observation,
+        packet=packet,
+    )
+    observation = _run_t3(
+        responder=responder,
+        unit_windows=unit_windows,
+        packet=packet,
+        valid_seq=packet_source_seq_set(packet),
+        model=config.model,
+        concurrency=concurrency,
+    )
+    observation["input_contract_hash"] = packet.get("input_contract_hash")
+    unit_windows["input_contract_hash"] = packet.get("input_contract_hash")
+    return observation, unit_windows
+
+
+def run_t4_observation(
+    *,
+    packet: dict[str, Any],
+    config: ObservationConfig,
+    vision_responder: Any = None,
+    raw_payload: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Run only T4; a live vision responder consumes the rendered page images."""
+
+    evidence = build_t4_evidence(packet)
+    render_available = bool(evidence.get("render_available"))
+    page_observations: list[dict[str, Any]] = []
+    if vision_responder is not None and render_available:
+        page_images = (packet.get("render_artifacts", {}) or {}).get(
+            "clean_page_images", []
+        ) or []
+        page_images = _attach_layout_context_to_page_images(
+            page_images,
+            global_layout_facts=evidence.get("global_layout_facts", {}),
+        )
+        page_observations = vision_responder.observe_pages(page_images)
+    observation = materialize_layout_observation(
+        raw_payload or {"section_profiles": []},
+        packet=packet,
+        render_available=render_available,
+        model=config.model,
+        page_observations=page_observations,
+    )
+    observation["input_contract_hash"] = packet.get("input_contract_hash")
+    return observation, evidence
 
 
 def _attach_layout_context_to_page_images(
@@ -296,86 +401,150 @@ def _run_t3(
     concurrency: int = 1,
 ) -> dict[str, Any]:
     windows = [w for w in unit_windows.get("windows", []) if isinstance(w, dict)]
+    return _run_t3_unit_routed(
+        responder=responder,
+        windows=windows,
+        unit_windows=unit_windows,
+        packet=packet,
+        valid_seq=valid_seq,
+        model=model,
+        concurrency=concurrency,
+    )
 
-    fetch_plan = getattr(responder, "fetch_element_plan", None)
-    if not callable(fetch_plan):
-        # 旧 replay / 自定义 responder 没有对象级调用能力时维持原协议，避免历史录制失效。
-        return _run_t3_flat(
-            responder=responder,
-            windows=windows,
-            unit_windows=unit_windows,
-            packet=packet,
-            valid_seq=valid_seq,
-            model=model,
-            concurrency=concurrency,
+
+def _run_t3_unit_routed(
+    *,
+    responder: ObservationResponder,
+    windows: list[dict[str, Any]],
+    unit_windows: dict[str, Any],
+    packet: dict[str, Any],
+    valid_seq: set[int],
+    model: str,
+    concurrency: int,
+) -> dict[str, Any]:
+    """整单元先看图和对象清单，再按 route 条件下钻。"""
+
+    tasks = build_t3_local_tasks(packet, unit_windows=windows)
+    unit_windows["local_tasks"] = [task_summary(task) for task in tasks]
+    tasks_by_window: dict[str, list[dict[str, Any]]] = {}
+    for task in tasks:
+        tasks_by_window.setdefault(str(task.get("parent_window_id") or ""), []).append(task)
+
+    def observe_unit(window: dict[str, Any]) -> dict[str, Any]:
+        unit_tasks = tasks_by_window.get(str(window.get("window_id") or ""), [])
+        plan_evidence = build_t3_unit_plan_evidence(
+            packet,
+            unit_window=window,
+            tasks=unit_tasks,
         )
-
-    tasks = build_t3_object_tasks(packet, unit_windows=windows)
-    unit_windows["object_windows"] = [task_summary(task) for task in tasks]
-
-    def observe_task(task: dict[str, Any]) -> dict[str, Any]:
-        plan_evidence = build_t3_object_plan_evidence(packet, task=task)
-        object_plan = sanitize_object_plan(fetch_plan(evidence=plan_evidence, task=task))
+        raw_plan = responder.fetch_unit_plan(evidence=plan_evidence, window=window)
+        unit_plan = sanitize_unit_plan(raw_plan, unit_window=window)
+        routed_tasks = restrict_tasks_to_unit_plan(unit_tasks, unit_plan)
         observations: list[dict[str, Any]] = []
-        executed_windows: list[dict[str, Any]] = []
+        guard_demotions: list[dict[str, Any]] = []
+        local_task_analysis: list[dict[str, Any]] = []
 
-        def observe_local(local_window: dict[str, Any], *, retry_depth: int = 0) -> None:
-            evidence = build_t3_local_evidence(
-                packet,
-                task=task,
-                local_window=local_window,
-                object_plan=object_plan,
+        for task in routed_tasks:
+            executed_windows: list[dict[str, Any]] = []
+
+            def observe_local(local_window: dict[str, Any], *, retry_depth: int = 0) -> None:
+                evidence = build_t3_local_evidence(
+                    packet,
+                    task=task,
+                    local_window=local_window,
+                    unit_plan=unit_plan,
+                )
+                payload = responder.fetch_elements(evidence=evidence, window=local_window)
+                refs = list(local_window.get("source_seq_refs", []) or [])
+                if payload.get("_observation_error") and len(refs) > 1 and retry_depth < 3:
+                    for split_window in _split_failed_t3_window(local_window):
+                        observe_local(split_window, retry_depth=retry_depth + 1)
+                    return
+                payload, blocked = guard_t3_payload(
+                    payload,
+                    evidence=evidence,
+                    unit_plan=unit_plan,
+                )
+                guard_demotions.extend(blocked)
+                executed_windows.append(local_window)
+                observations.append(
+                    materialize_element_observation(
+                        list(payload.get("items", []) or []),
+                        packet=packet,
+                        window=local_window,
+                        model=model,
+                    )
+                )
+
+            for local_window in task.get("local_windows", []):
+                observe_local(local_window)
+            local_task_analysis.append(
+                {
+                    **task_summary(task),
+                    "executed_local_windows": [
+                        {
+                            "window_id": local.get("window_id"),
+                            "source_seq_refs": local.get("source_seq_refs", []),
+                            "context_source_seq_refs": local.get("context_source_seq_refs", []),
+                        }
+                        for local in executed_windows
+                    ],
+                }
             )
-            payload = responder.fetch_elements(evidence=evidence, window=local_window)
-            refs = list(local_window.get("source_seq_refs", []) or [])
-            if payload.get("_observation_error") and len(refs) > 1 and retry_depth < 3:
-                for split_window in _split_failed_t3_window(local_window):
-                    observe_local(split_window, retry_depth=retry_depth + 1)
-                return
-            executed_windows.append(local_window)
+
+        existing_items = [
+            item
+            for observation in observations
+            for item in observation.get("items", [])
+        ]
+        fallback = preservation_fallback_items(
+            packet,
+            unit_window=window,
+            unit_plan=unit_plan,
+            existing_items=existing_items,
+        )
+        if fallback:
             observations.append(
                 materialize_element_observation(
-                    list(payload.get("items", []) or []),
+                    fallback,
                     packet=packet,
-                    window=local_window,
+                    window=window,
                     model=model,
                 )
             )
-
-        for local_window in task.get("local_windows", []):
-            observe_local(local_window)
         return {
-            "task": task_summary(task),
-            "object_plan": object_plan,
+            "unit_analysis": {
+                "window_id": window.get("window_id"),
+                "unit_id": window.get("unit_id"),
+                "source_seq_refs": window.get("source_seq_refs", []),
+                "unit_plan": unit_plan,
+                "local_task_count": len(unit_tasks),
+                "routed_local_task_count": len(routed_tasks),
+                "executed_local_window_count": sum(
+                    len(item.get("executed_local_windows", [])) for item in local_task_analysis
+                ),
+                "fallback_item_count": len(fallback),
+            },
+            "local_task_analysis": local_task_analysis,
             "observations": observations,
-            "executed_windows": executed_windows,
+            "guard_demotions": guard_demotions,
         }
 
-    if concurrency > 1 and len(tasks) > 1:
+    if concurrency > 1 and len(windows) > 1:
         with ThreadPoolExecutor(max_workers=concurrency) as pool:
-            task_results = list(pool.map(observe_task, tasks))
+            results = list(pool.map(observe_unit, windows))
     else:
-        task_results = [observe_task(task) for task in tasks]
+        results = [observe_unit(window) for window in windows]
 
     items: list[dict[str, Any]] = []
     unknown_items: list[dict[str, Any]] = []
     demotions: list[dict[str, Any]] = []
-    object_analysis: list[dict[str, Any]] = []
-    for result in task_results:
-        object_analysis.append(
-            {
-                **result["task"],
-                "object_plan": result["object_plan"],
-                "executed_local_windows": [
-                    {
-                        "window_id": window.get("window_id"),
-                        "source_seq_refs": window.get("source_seq_refs", []),
-                        "context_source_seq_refs": window.get("context_source_seq_refs", []),
-                    }
-                    for window in result["executed_windows"]
-                ],
-            }
-        )
+    local_task_analysis: list[dict[str, Any]] = []
+    unit_analysis: list[dict[str, Any]] = []
+    for result in results:
+        unit_analysis.append(result["unit_analysis"])
+        local_task_analysis.extend(result["local_task_analysis"])
+        demotions.extend(result["guard_demotions"])
         for observation in result["observations"]:
             items.extend(observation.get("items", []))
             unknown_items.extend(observation.get("unknown_items", []))
@@ -385,12 +554,13 @@ def _run_t3(
         items=items,
         unknown_items=unknown_items,
         demotions=demotions,
-        object_analysis=object_analysis,
+        local_task_analysis=local_task_analysis,
+        unit_analysis=unit_analysis,
         unit_windows=unit_windows,
         packet=packet,
         valid_seq=valid_seq,
         model=model,
-        input_mode="object_plan_then_local",
+        input_mode="unit_route_then_conditional_local",
     )
 
 
@@ -422,61 +592,13 @@ def _split_failed_t3_window(window: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-def _run_t3_flat(
-    *,
-    responder: ObservationResponder,
-    windows: list[dict[str, Any]],
-    unit_windows: dict[str, Any],
-    packet: dict[str, Any],
-    valid_seq: set[int],
-    model: str,
-    concurrency: int,
-) -> dict[str, Any]:
-    """兼容旧 transcript 的单元级平铺调用。"""
-
-    def observe(window: dict[str, Any]) -> dict[str, Any]:
-        # 第一相同样独立：T3 看的是按 AI 单元裁出的窗口证据（firewall asserted）。
-        t3_evidence = build_t3_evidence(packet, window=window)
-        payload = responder.fetch_elements(evidence=t3_evidence, window=window)
-        raw_items = list(payload.get("items", []) or [])
-        return materialize_element_observation(
-            raw_items, packet=packet, window=window, model=model
-        )
-
-    if concurrency > 1 and len(windows) > 1:
-        # 各单元窗口互相独立 → 可并发；保持输入顺序聚合，结果确定。
-        with ThreadPoolExecutor(max_workers=concurrency) as pool:
-            observations = list(pool.map(observe, windows))
-    else:
-        observations = [observe(window) for window in windows]
-
-    items: list[dict[str, Any]] = []
-    unknown_items: list[dict[str, Any]] = []
-    demotions: list[dict[str, Any]] = []
-    for observation in observations:
-        items.extend(observation.get("items", []))
-        unknown_items.extend(observation.get("unknown_items", []))
-        demotions.extend(observation.get("quality_report", {}).get("demotions", []))
-
-    return _finalize_t3_observation(
-        items=items,
-        unknown_items=unknown_items,
-        demotions=demotions,
-        object_analysis=[],
-        unit_windows=unit_windows,
-        packet=packet,
-        valid_seq=valid_seq,
-        model=model,
-        input_mode="legacy_unit_flat",
-    )
-
-
 def _finalize_t3_observation(
     *,
     items: list[dict[str, Any]],
     unknown_items: list[dict[str, Any]],
     demotions: list[dict[str, Any]],
-    object_analysis: list[dict[str, Any]],
+    local_task_analysis: list[dict[str, Any]],
+    unit_analysis: list[dict[str, Any]],
     unit_windows: dict[str, Any],
     packet: dict[str, Any],
     valid_seq: set[int],
@@ -498,7 +620,8 @@ def _finalize_t3_observation(
         "open_questions": open_questions_from(demotions=demotions, coverage=coverage),
         "abstain": not items,
         "self_consistency": None,
-        "object_analysis": object_analysis,
+        "local_task_analysis": local_task_analysis,
+        "unit_analysis": unit_analysis,
         "quality_report": {
             "demotions": demotions,
             "owned_count": len(coverage.get("owned_source_seq", [])),
@@ -506,7 +629,22 @@ def _finalize_t3_observation(
             "window_source": unit_windows.get("window_source"),
             "post_t2_observation_hash": unit_windows.get("post_t2_observation_hash"),
             "input_mode": input_mode,
-            "object_count": len(object_analysis),
+            "local_task_count": len(local_task_analysis),
+            "unit_count": len(unit_analysis),
+            "route_counts": {
+                route: sum(
+                    1
+                    for analysis in unit_analysis
+                    if analysis.get("unit_plan", {}).get("route") == route
+                )
+                for route in sorted(
+                    {
+                        str(analysis.get("unit_plan", {}).get("route"))
+                        for analysis in unit_analysis
+                        if analysis.get("unit_plan", {}).get("route")
+                    }
+                )
+            },
         },
     }
 

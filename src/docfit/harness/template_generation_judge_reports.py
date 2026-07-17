@@ -26,6 +26,7 @@ from docfit.harness.template_generation_standard_quality import (
     TemplateGenerationStandardQualityReport,
     TemplateGenerationStandardSet,
 )
+from docfit.template_generation.page_policy import PAGE_POLICY_FIELDS, normalize_page_policy
 
 @dataclass
 class TemplateGenerationJudgeReport:
@@ -2657,7 +2658,7 @@ def _evaluate_ai_unit_accuracy(
     precision = len(hits) / len(observed_set) if observed_set else 0.0
     recall = len(hits) / len(gold_set) if gold_set else 0.0
     f1 = 2 * precision * recall / (precision + recall) if precision + recall else 0.0
-    return {
+    result = {
         "gold_units": len(gold_set),
         "observed_units": len(observed_set),
         "precision": round(precision, 4),
@@ -2667,6 +2668,106 @@ def _evaluate_ai_unit_accuracy(
         "missing_units": sorted(gold_set - observed_set),
         "extra_units": sorted(observed_set - gold_set),
     }
+    result["page_policy_accuracy"] = _evaluate_ai_unit_page_policy_accuracy(
+        observation,
+        expected,
+    )
+    return result
+
+
+def _evaluate_ai_unit_page_policy_accuracy(
+    observation: dict[str, Any],
+    expected: dict[str, Any],
+) -> dict[str, Any]:
+    expected_pages: dict[str, dict[str, Any]] = {}
+    for unit in expected.get("units", []) or []:
+        if not isinstance(unit, dict) or not isinstance(unit.get("page"), dict):
+            continue
+        unit_id = str(unit.get("unit_id") or "")
+        if unit_id:
+            expected_pages[unit_id] = normalize_page_policy(unit.get("page") or {})
+    if not expected_pages:
+        return {
+            "page_policy_evaluable": False,
+            "page_policy_owner": "T2",
+            "reason": "T2 standard does not provide expected.units[].page",
+        }
+
+    observed_by_unit: dict[str, dict[str, Any]] = {}
+    for item in observation.get("items", []) or []:
+        if not isinstance(item, dict):
+            continue
+        unit_id = str(item.get("unit_id") or "")
+        if not unit_id or unit_id == "unknown_unit" or unit_id in observed_by_unit:
+            continue
+        observed_by_unit[unit_id] = item
+
+    covered_units = 0
+    exact_matches = 0
+    field_total = len(expected_pages) * len(PAGE_POLICY_FIELDS)
+    field_matches = 0
+    missing: list[dict[str, Any]] = []
+    mismatches: list[dict[str, Any]] = []
+    for unit_id, expected_page in expected_pages.items():
+        item = observed_by_unit.get(unit_id)
+        observed_page = _observation_item_page(item)
+        if observed_page is None:
+            missing.append({"unit_id": unit_id, "expected": _page_fields(expected_page)})
+            continue
+        covered_units += 1
+        unit_mismatches = []
+        for field in PAGE_POLICY_FIELDS:
+            if observed_page.get(field) == expected_page.get(field):
+                field_matches += 1
+            else:
+                unit_mismatches.append(
+                    {
+                        "field": field,
+                        "expected": expected_page.get(field),
+                        "actual": observed_page.get(field),
+                    }
+                )
+        if unit_mismatches:
+            mismatches.append({"unit_id": unit_id, "mismatches": unit_mismatches})
+        else:
+            exact_matches += 1
+    return {
+        "page_policy_evaluable": True,
+        "page_policy_owner": "T2",
+        "expected_units": len(expected_pages),
+        "observed_units": covered_units,
+        "coverage": round(covered_units / len(expected_pages), 4)
+        if expected_pages
+        else 0.0,
+        "field_accuracy": round(field_matches / field_total, 4)
+        if field_total
+        else 0.0,
+        "exact_match_count": exact_matches,
+        "missing_count": len(missing),
+        "mismatch_count": len(mismatches),
+        "missing_samples": missing[:10],
+        "mismatch_samples": mismatches[:10],
+    }
+
+
+def _observation_item_page(item: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    if isinstance(item.get("page"), dict):
+        return normalize_page_policy(item.get("page") or {})
+    if not any(field in item for field in PAGE_POLICY_FIELDS):
+        return None
+    return normalize_page_policy(
+        {
+            field: item.get(field)
+            for field in PAGE_POLICY_FIELDS
+            if field in item
+        }
+    )
+
+
+def _page_fields(page: dict[str, Any]) -> dict[str, Any]:
+    return {field: page.get(field) for field in PAGE_POLICY_FIELDS}
 
 
 def _evaluate_ai_element_accuracy(

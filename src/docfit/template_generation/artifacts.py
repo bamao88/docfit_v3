@@ -6,7 +6,10 @@ from typing import Any
 
 from docfit.core.io import now_iso, sha256_json
 
+from .stage_inputs import l1_artifact_hash
+
 from .constants import FILLABLE_LABELS, FILLABLE_MARKERS, MANUAL_ONLY_MARKERS
+from .page_policy import normalize_page_policy, page_start_projection
 from .refs import _paragraph_index, _part_name
 
 
@@ -42,6 +45,8 @@ def source_tree_from_document_facts(document_facts: dict[str, Any]) -> dict[str,
 def build_unit_map(
     document_facts: dict[str, Any],
     structure_candidates: dict[str, Any],
+    *,
+    l1_hash: str | None = None,
 ) -> dict[str, Any]:
     section_profiles = _section_profiles_from_facts(document_facts)
     units: list[dict[str, Any]] = []
@@ -49,6 +54,10 @@ def build_unit_map(
         source_seq_refs = list(unit.get("source_seq_refs", []))
         confidence = _unit_confidence(unit)
         flags = _unit_flags(unit, confidence=confidence)
+        page = normalize_page_policy(
+            unit.get("page", {}),
+            document_start=int(unit.get("order") or 0) <= 10,
+        )
         mapped_unit = {
             "unit_id": unit.get("unit_id"),
             "name": unit.get("name"),
@@ -63,8 +72,8 @@ def build_unit_map(
             "source_seq_range": unit.get("source_seq_range", {}),
             "source_refs": unit.get("source_refs", []),
             "source_seq_refs": source_seq_refs,
-            "page": unit.get("page", {}),
-            "page_start": _page_start_for_unit(unit),
+            "page": page,
+            "page_start": _page_start_for_unit({**unit, "page": page}),
             "section_profile": _section_profile_for_unit(
                 section_profiles,
                 source_seq_refs,
@@ -94,6 +103,7 @@ def build_unit_map(
         "input_hashes": {
             "document_facts": sha256_json(document_facts),
             "template_structure_candidates": sha256_json(structure_candidates),
+            **({"l1": l1_hash} if l1_hash else {}),
         },
         "units": units,
         "flags": flags,
@@ -165,6 +175,11 @@ def build_element_spec(generation_model: dict[str, Any]) -> dict[str, Any]:
         "created_at": now_iso(),
         "input_hashes": {
             "template_generation_model": sha256_json(generation_model),
+            **(
+                {"l1": generation_model.get("input_hashes", {}).get("l1")}
+                if generation_model.get("input_hashes", {}).get("l1")
+                else {}
+            ),
         },
         "ontology_ref": "src/docfit/template_generation/ontology.yaml",
         "elements": elements,
@@ -173,7 +188,11 @@ def build_element_spec(generation_model: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_global_spec(document_facts: dict[str, Any]) -> dict[str, Any]:
+def build_global_spec(
+    document_facts: dict[str, Any],
+    *,
+    l1_hash: str | None = None,
+) -> dict[str, Any]:
     data = document_facts.get("data", {})
     section_profiles = _section_profiles_from_facts(document_facts)
     return {
@@ -181,7 +200,10 @@ def build_global_spec(document_facts: dict[str, Any]) -> dict[str, Any]:
         "artifact_version": "1.1",
         "producer": {"name": "docfit-template-generate", "version": "0.3.0"},
         "created_at": now_iso(),
-        "input_hashes": {"document_facts": sha256_json(document_facts)},
+        "input_hashes": {
+            "document_facts": sha256_json(document_facts),
+            **({"l1": l1_hash} if l1_hash else {}),
+        },
         "section_profiles": section_profiles,
         "default_font": _default_font_from_facts(document_facts),
         "page_numbering": _page_numbering_from_profiles(section_profiles),
@@ -195,7 +217,7 @@ def build_global_spec(document_facts: dict[str, Any]) -> dict[str, Any]:
 
 
 def build_template_spec(
-    document_facts: dict[str, Any],
+    l1_input_contract: dict[str, Any],
     unit_map: dict[str, Any],
     element_spec: dict[str, Any],
     global_spec: dict[str, Any],
@@ -216,6 +238,10 @@ def build_template_spec(
         units.append(
             {
                 **unit,
+                "page": normalize_page_policy(
+                    unit.get("page", {}),
+                    document_start=int(unit.get("order") or 0) <= 10,
+                ),
                 "section_profile": primary_section_profile,
                 "section_profile_refs": section_profile_refs,
                 "elements": sorted(
@@ -235,12 +261,12 @@ def build_template_spec(
         "artifact_version": "1.1",
         "producer": {"name": "docfit-template-generate", "version": "0.3.0"},
         "created_at": now_iso(),
-        "document_facts_ref": {
-            "artifact": "document_facts.json",
-            "hash": sha256_json(document_facts),
+        "l1_input_contract_ref": {
+            "artifact": "01.5_l1_input_contract.json",
+            "hash": l1_artifact_hash(l1_input_contract),
         },
         "input_hashes": {
-            "document_facts": sha256_json(document_facts),
+            "l1": l1_artifact_hash(l1_input_contract),
             "unit_map": sha256_json(unit_map),
             "element_spec": sha256_json(element_spec),
             "global_spec": sha256_json(global_spec),
@@ -252,129 +278,11 @@ def build_template_spec(
     }
 
 
-def template_artifact_view_from_template_spec(
-    request: dict[str, Any],
-    template_spec: dict[str, Any],
-    *,
-    fillable_template_docx: str | None = None,
-    build_manifest: str | None = None,
-) -> dict[str, Any]:
-    slots = []
-    regions = []
-    protected_zones = []
-    required_fields = []
-    for unit in template_spec.get("units", []):
-        region_id = str(unit.get("unit_id"))
-        anchors = []
-        for element in unit.get("elements", []):
-            policy = element.get("policy")
-            stable_id = str(element.get("stable_id") or f"{region_id}.{element.get('element_id')}")
-            if policy == "fill":
-                slot = {
-                    "slot_id": stable_id,
-                    "unit_id": region_id,
-                    "element_id": element.get("element_id"),
-                    "kind": "body_content",
-                    "writable": True,
-                    "required": True,
-                    "accepted_content_kinds": ["heading", "paragraph", "table", "image"],
-                    "source_refs": element.get("source_refs", []),
-                    "source_seq_refs": element.get("source_seq_refs", []),
-                    "policy": policy,
-                    "sdt_tag": stable_id,
-                }
-                slots.append(slot)
-                anchors.append(stable_id)
-            elif policy == "manual_only":
-                protected_zones.append(
-                    {
-                        "zone_id": stable_id,
-                        "unit_id": region_id,
-                        "element_id": element.get("element_id"),
-                        "policy": policy,
-                        "source_refs": element.get("source_refs", []),
-                    }
-                )
-            elif policy == "generated":
-                required_fields.append(
-                    {
-                        "field_id": stable_id,
-                        "unit_id": region_id,
-                        "element_id": element.get("element_id"),
-                        "field_type": element.get("generated", {}).get("field_type"),
-                        "source_refs": element.get("source_refs", []),
-                    }
-                )
-        if anchors or region_id == "body_main":
-            regions.append(
-                {
-                    "region_id": region_id,
-                    "kind": "body",
-                    "required": unit.get("status") == "required",
-                    "anchors": anchors or ["slot_body_start"],
-                    "source_refs": unit.get("source_refs", []),
-                }
-            )
-    if not any(slot.get("slot_id") == "slot_body_start" for slot in slots):
-        slots.append(
-            {
-                "slot_id": "slot_body_start",
-                "unit_id": "body_main",
-                "element_id": "slot_body_start",
-                "kind": "body_content",
-                "writable": True,
-                "required": True,
-                "accepted_content_kinds": ["heading", "paragraph", "table", "image"],
-                "source_ref": "template-spec:body-slot",
-                "source_seq_refs": [],
-                "policy": "fill",
-                "sdt_tag": "slot_body_start",
-            }
-        )
-    return {
-        "artifact_type": "template_artifact",
-        "artifact_version": "template-spec-view-1.0",
-        "producer": {"name": "docfit-template-generate", "version": "0.3.0"},
-        "created_at": now_iso(),
-        "input_hashes": {
-            "template_spec": sha256_json(template_spec),
-            "template_docx": request.get("source_template_hash"),
-        },
-        "provenance": {
-            "source_template_docx": request.get("source_template_docx"),
-            "template_docx": fillable_template_docx or request.get("source_template_docx"),
-            "fillable_template_docx": fillable_template_docx,
-            "build_manifest": build_manifest,
-            "template_spec": "template_spec.yaml",
-        },
-        "status_notes": [
-            "template_artifact is a compatibility view over template_spec.yaml",
-        ],
-        "unsupported": template_spec.get("global", {}).get("flags", []),
-        "data": {
-            "page_setup": {"sections": template_spec.get("global", {}).get("section_profiles", [])},
-            "styles": [],
-            "paragraphs": [],
-            "units": template_spec.get("units", []),
-            "regions": regions,
-            "slots": slots,
-            "protected_zones": protected_zones,
-            "numbering": template_spec.get("global", {}).get("numbering_rules", {}),
-            "headers_footers": template_spec.get("global", {}).get("header_footer", []),
-            "required_fields": required_fields,
-            "unsupported": template_spec.get("review_flags", []),
-        },
-    }
-
-
 def _page_start_for_unit(unit: dict[str, Any]) -> str:
-    page = unit.get("page") or {}
-    explicit = page.get("page_break") or page.get("section_isolation")
-    if explicit:
-        return str(explicit)
-    if int(unit.get("order") or 0) <= 10:
-        return "document_start"
-    return "preserve_source_flow"
+    return page_start_projection(
+        unit.get("page") or {},
+        unit_order=int(unit.get("order") or 0),
+    )
 
 
 def _section_profile_for_unit(

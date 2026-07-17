@@ -324,7 +324,7 @@ def _compare_t2(
             deterministic={**deterministic, "target_unit_id": target_id},
         )
 
-    if operation in {"relabel_unit", "replace_unit_elements"}:
+    if operation in {"relabel_unit", "replace_unit_elements", "set_page_policy"}:
         target_unit = _target_unit(structure_candidates, proposal)
         if target_unit is None:
             return _item(
@@ -348,6 +348,7 @@ def _compare_t2(
             deterministic={
                 **deterministic,
                 "target_unit_id": target_unit.get("unit_id"),
+                "current_page": target_unit.get("page") if operation == "set_page_policy" else None,
             },
         )
 
@@ -669,6 +670,7 @@ def _t2_operation(proposal: dict[str, Any], collection: str) -> str:
         "unit_candidates": "add_unit",
         "block_candidates": "replace_unit_elements",
         "boundary_adjustments": "adjust_unit_range",
+        "page_policy_candidates": "set_page_policy",
     }.get(collection, "")
 
 

@@ -27,7 +27,6 @@ def write_report_bundle(
     user_message: str | None = None,
 ) -> dict[str, Any]:
     ensure_dir(out_dir)
-    ensure_dir(out_dir / "artifacts")
     ensure_dir(out_dir / "ai")
 
     blocking_findings = [

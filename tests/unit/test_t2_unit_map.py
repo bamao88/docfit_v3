@@ -288,7 +288,10 @@ def test_t2_translates_page_break_before_to_unit_page_policy() -> None:
 
     toc = _units_by_id(candidates)["toc"]
 
-    assert toc["page"]["page_break"] == "是"
+    assert toc["page"]["page_break"] is True
+    assert toc["page"]["page_isolation"] == "unknown"
+    assert toc["page"]["allow_multi_page"] == "unknown"
+    assert toc["page"]["keep_together"] == "unknown"
     assert toc["page"]["page_policy"]["generation_policy"] == {
         "requires_new_page": True,
         "source": "mechanical_fact",
@@ -323,7 +326,7 @@ def test_t2_translates_previous_paragraph_page_break_to_next_unit() -> None:
     toc = _units_by_id(candidates)["toc"]
     mapped_toc = next(unit for unit in unit_map["units"] if unit["unit_id"] == "toc")
 
-    assert toc["page"]["page_break"] == "是"
+    assert toc["page"]["page_break"] is True
     assert toc["page"]["page_policy"]["mechanical"]["page_break_evidence_refs"] == [
         "word/document.xml:p[2]/br[1]"
     ]
@@ -361,7 +364,7 @@ def test_t2_translates_section_break_to_section_isolation_policy() -> None:
     toc = _units_by_id(candidates)["toc"]
 
     assert toc["page"]["section_isolation"] == "是"
-    assert "page_break" not in toc["page"]
+    assert toc["page"]["page_break"] is True
     assert toc["page"]["page_policy"]["generation_policy"]["enforcement_hint"] == (
         "section_break"
     )
@@ -371,6 +374,175 @@ def test_t2_translates_section_break_to_section_isolation_policy() -> None:
         and action["source_ref"] == "word/document.xml:p[2]"
         for action in plan["actions"]
     )
+
+
+def test_t6_pagination_reads_template_spec_not_generation_model() -> None:
+    generation_model = {
+        "data": {
+            "units": [
+                {
+                    "unit_id": "cover",
+                    "source_refs": ["word/document.xml:p[1]"],
+                    "source_seq_refs": [1],
+                    "page": {
+                        "page_break": False,
+                        "page_isolation": False,
+                        "allow_multi_page": True,
+                        "keep_together": False,
+                        "decision": {
+                            "origin": "fixture",
+                            "confidence": "high",
+                            "evidence_refs": [],
+                            "conflict_status": "none",
+                            "proposal_ids": [],
+                        },
+                    },
+                },
+                {
+                    "unit_id": "toc",
+                    "source_refs": ["word/document.xml:p[2]"],
+                    "source_seq_refs": [2],
+                    "page": {
+                        "page_break": False,
+                        "page_isolation": False,
+                        "allow_multi_page": True,
+                        "keep_together": False,
+                        "decision": {
+                            "origin": "fixture",
+                            "confidence": "high",
+                            "evidence_refs": [],
+                            "conflict_status": "none",
+                            "proposal_ids": [],
+                        },
+                    },
+                },
+            ]
+        },
+        "unit_strategies": [],
+    }
+    template_spec = {
+        "units": [
+            {
+                "unit_id": "cover",
+                "source_refs": ["word/document.xml:p[1]"],
+                "source_seq_refs": [1],
+                "page": {
+                    "page_break": "document_start",
+                    "page_isolation": True,
+                    "allow_multi_page": True,
+                    "keep_together": False,
+                    "decision": {
+                        "origin": "ai_observation",
+                        "confidence": "high",
+                        "evidence_refs": ["page:1"],
+                        "conflict_status": "none",
+                        "proposal_ids": ["p_page_cover"],
+                    },
+                },
+            },
+            {
+                "unit_id": "toc",
+                "source_refs": ["word/document.xml:p[2]"],
+                "source_seq_refs": [2],
+                "page": {
+                    "page_break": False,
+                    "page_isolation": False,
+                    "allow_multi_page": True,
+                    "keep_together": False,
+                    "decision": {
+                        "origin": "fixture",
+                        "confidence": "high",
+                        "evidence_refs": [],
+                        "conflict_status": "none",
+                        "proposal_ids": [],
+                    },
+                },
+            },
+        ]
+    }
+
+    plan = build_template_generation_plan(
+        {},
+        generation_model=generation_model,
+        template_spec=template_spec,
+    )
+
+    page_actions = [
+        action for action in plan["actions"]
+        if action["action_type"] == "insert_page_break_before_unit"
+    ]
+    assert len(page_actions) == 1
+    assert page_actions[0]["unit_id"] == "toc"
+    assert page_actions[0]["page_policy_unit_id"] == "cover"
+    assert page_actions[0]["page_policy_proposal_ids"] == ["p_page_cover"]
+
+
+def test_t6_plans_keep_together_from_template_spec_page_policy() -> None:
+    template_spec = {
+        "units": [
+            {
+                "unit_id": "cover",
+                "source_refs": ["word/document.xml:p[1]"],
+                "source_seq_refs": [1],
+                "page": {
+                    "page_break": "document_start",
+                    "page_isolation": False,
+                    "allow_multi_page": False,
+                    "keep_together": True,
+                    "decision": {
+                        "origin": "ai_observation",
+                        "confidence": "high",
+                        "evidence_refs": ["page:1"],
+                        "conflict_status": "none",
+                        "proposal_ids": ["p_keep_cover"],
+                    },
+                },
+            }
+        ]
+    }
+
+    plan = build_template_generation_plan(
+        {},
+        generation_model={"data": {"units": []}, "unit_strategies": []},
+        template_spec=template_spec,
+    )
+
+    assert any(
+        action["action_type"] == "set_keep_together_unit"
+        and action["unit_id"] == "cover"
+        and action["page_policy_proposal_ids"] == ["p_keep_cover"]
+        for action in plan["actions"]
+    )
+
+
+def test_t2_emits_unknown_page_policy_without_mechanical_evidence() -> None:
+    candidates = build_template_structure_candidates(
+        _source_tree(
+            [
+                _entry(1, "封面"),
+                _entry(2, "目录", style="Heading 1"),
+                _entry(3, "正文", style="Heading 1"),
+            ]
+        )
+    )
+
+    units = _units_by_id(candidates)
+
+    assert units["cover"]["page"] == {
+        "page_break": "document_start",
+        "page_isolation": "unknown",
+        "allow_multi_page": "unknown",
+        "keep_together": "unknown",
+        "decision": {
+            "origin": "unknown",
+            "confidence": "low",
+            "evidence_refs": [],
+            "conflict_status": "none",
+            "proposal_ids": [],
+        },
+    }
+    assert units["toc"]["page"]["page_break"] == "unknown"
+    assert units["toc"]["page"]["decision"]["origin"] == "unknown"
 
 
 def test_t2_subheading_alone_is_not_top_level_unit() -> None:
