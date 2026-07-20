@@ -22,6 +22,8 @@ from docfit.core.io import sha256_json
 from .api_config import (
     LiveProviderConfig,
     LiveProviderConfigError,
+    LiveProviderUsageLimitState,
+    is_provider_usage_limit_error,
     resolve_live_provider_config,
 )
 from .observation_prompts import (
@@ -96,6 +98,8 @@ class LiveResponder:
         cache_dir: Path | None = None,
         refresh: bool = False,
         prompt_templates: ObservationPromptTemplates | None = None,
+        record_metadata: dict[str, Any] | None = None,
+        usage_limit_state: LiveProviderUsageLimitState | None = None,
     ) -> None:
         self._client = client
         self._model = model
@@ -113,6 +117,8 @@ class LiveResponder:
         self._cache_dir = cache_dir
         self._refresh = refresh
         self._prompt_templates = prompt_templates
+        self._record_metadata = dict(record_metadata or {})
+        self._usage_limit_state = usage_limit_state or LiveProviderUsageLimitState()
         if cache_dir is not None:
             cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -171,8 +177,17 @@ class LiveResponder:
                 print(f"  [ cache] {tag:28s} raw={n}", file=sys.stderr, flush=True)
             if self._record is not None:
                 self._record.append(
-                    {"stage": stage, "label": label, "sample_index": sample_index,
-                     "from_cache": True, "payload": payload, "error": None}
+                    {
+                        "stage": stage,
+                        "label": label,
+                        "sample_index": sample_index,
+                        "from_cache": True,
+                        "provider": "kimi",
+                        "model": self._model,
+                        "payload": payload,
+                        "error": None,
+                        **self._record_metadata,
+                    }
                 )
             return payload
 
@@ -183,33 +198,43 @@ class LiveResponder:
         finish_reason: str | None = None
         error: str | None = None
         attempt_tokens = self._max_tokens
-        for attempt in range(1, self._max_attempts + 1):
-            try:
-                completion = self._client.chat.completions.create(
-                    model=self._model,
-                    messages=[
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": user_content},
-                    ],
-                    temperature=self._temperature,
-                    max_tokens=attempt_tokens,
-                    response_format={"type": "json_object"},
-                    extra_body=self._extra_body,
-                )
-                choice = completion.choices[0]
-                finish_reason = choice.finish_reason
-                content = strip_think(choice.message.content or "")
-                error = None
-                # 截断（大表单 JSON 超出预算）→ 加倍预算重试，挽回被砍掉的元素。
-                if finish_reason == "length" and attempt < self._max_attempts:
-                    attempt_tokens = min(attempt_tokens * 2, self._max_tokens_cap)
-                    error = f"truncated (finish=length); escalating max_tokens to {attempt_tokens}"
-                    continue
-                break
-            except Exception as exc:  # APITimeout/Connection/RateLimit/APIError 等
-                error = f"{type(exc).__name__}: {exc}"
-                if attempt < self._max_attempts:
-                    time.sleep(self._retry_backoff * attempt)
+        skipped_due_usage_limit = self._usage_limit_state.is_exhausted("kimi")
+        if skipped_due_usage_limit:
+            error = "kimi usage limit already exhausted"
+        else:
+            for attempt in range(1, self._max_attempts + 1):
+                try:
+                    completion = self._client.chat.completions.create(
+                        model=self._model,
+                        messages=[
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": user_content},
+                        ],
+                        temperature=self._temperature,
+                        max_tokens=attempt_tokens,
+                        response_format={"type": "json_object"},
+                        extra_body=self._extra_body,
+                    )
+                    choice = completion.choices[0]
+                    finish_reason = choice.finish_reason
+                    content = strip_think(choice.message.content or "")
+                    error = None
+                    # 截断（大表单 JSON 超出预算）→ 加倍预算重试，挽回被砍掉的元素。
+                    if finish_reason == "length" and attempt < self._max_attempts:
+                        attempt_tokens = min(attempt_tokens * 2, self._max_tokens_cap)
+                        error = (
+                            "truncated (finish=length); escalating max_tokens "
+                            f"to {attempt_tokens}"
+                        )
+                        continue
+                    break
+                except Exception as exc:  # APITimeout/Connection/RateLimit/APIError 等
+                    error = f"{type(exc).__name__}: {exc}"
+                    if is_provider_usage_limit_error(exc):
+                        self._usage_limit_state.mark_exhausted("kimi")
+                        break
+                    if attempt < self._max_attempts:
+                        time.sleep(self._retry_backoff * attempt)
 
         if error is not None:
             payload: dict[str, Any] = (
@@ -248,10 +273,14 @@ class LiveResponder:
                     "stage": stage,
                     "label": label,
                     "sample_index": sample_index,
+                    "provider": "kimi",
+                    "model": self._model,
                     "finish_reason": finish_reason,
                     "raw_content": content,
                     "payload": payload,
                     "error": error,
+                    "skipped_due_usage_limit": skipped_due_usage_limit,
+                    **self._record_metadata,
                 }
             )
         return payload

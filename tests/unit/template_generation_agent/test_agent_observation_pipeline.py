@@ -5,8 +5,9 @@ from typing import Any
 import pytest
 
 from docfit.core.io import read_json, write_json, write_yaml
+from docfit.template_generation.agent.api_config import LiveProviderUsageLimitState
 from docfit.template_generation.agent.config import AgentConfig, AgentConfigError
-from docfit.template_generation.agent import observation_orchestrate
+from docfit.template_generation.agent import observation_orchestrate, observation_vision
 from docfit.template_generation.agent.observation_config import ObservationConfig
 from docfit.template_generation.agent.observation_loop import (
     run_observation_pipeline,
@@ -336,16 +337,25 @@ def test_full_live_observation_wires_text_and_vision_apis(monkeypatch) -> None:
     text_responder = object()
     vision_responder = object()
     captured = {}
+    provider_states = {}
+
+    def fake_build_text(**kwargs):
+        provider_states["text"] = kwargs["usage_limit_state"]
+        return text_responder, "minimax-text-test"
+
+    def fake_build_vision(**kwargs):
+        provider_states["vision"] = kwargs["usage_limit_state"]
+        return vision_responder, "minimax-test"
 
     monkeypatch.setattr(
         observation_orchestrate,
         "_build_live_text_responder",
-        lambda **_kwargs: (text_responder, "kimi-test"),
+        fake_build_text,
     )
     monkeypatch.setattr(
         observation_orchestrate,
         "_build_live_vision_responder",
-        lambda **_kwargs: (vision_responder, "minimax-test"),
+        fake_build_vision,
     )
 
     def fake_run_observation_pipeline(**kwargs):
@@ -365,13 +375,272 @@ def test_full_live_observation_wires_text_and_vision_apis(monkeypatch) -> None:
 
     assert result["artifact_type"] == "ai_observation_bundle"
     assert result["api_trace_summary"]["mode"] == "live"
-    assert result["api_trace_summary"]["providers"] == ["kimi", "minimax"]
+    assert result["api_trace_summary"]["providers"] == ["minimax"]
     assert result["api_trace_summary"]["models"] == {
-        "text": "kimi-test",
+        "text": "minimax-text-test",
         "vision": "minimax-test",
     }
     assert captured["responder"] is text_responder
     assert captured["vision_responder"] is vision_responder
+    assert provider_states["text"] is provider_states["vision"]
+
+
+def test_minimax_usage_limit_falls_back_to_kimi_for_t3() -> None:
+    calls: list[tuple[str, str]] = []
+
+    class Primary:
+        def fetch_elements(self, *, evidence, window):
+            del evidence, window
+            calls.append(("minimax", "t3"))
+            return {
+                "items": [],
+                "_observation_error": (
+                    "MinimaxVisionError: minimax 403: usage limit exhausted"
+                ),
+            }
+
+        def fetch_unit_plan(self, *, evidence, window):
+            del evidence, window
+            calls.append(("minimax", "t3_unit"))
+            return {
+                "_observation_error": "minimax quota exceeded for billing cycle"
+            }
+
+    class Fallback:
+        def fetch_elements(self, *, evidence, window):
+            del evidence, window
+            calls.append(("kimi", "t3"))
+            return {"items": [{"policy": "fixed"}]}
+
+        def fetch_unit_plan(self, *, evidence, window):
+            del evidence, window
+            calls.append(("kimi", "t3_unit"))
+            return {"route": "preserve_whole"}
+
+    responder = observation_orchestrate._UsageLimitFallbackTextResponder(
+        Primary(),
+        Fallback(),
+    )
+
+    assert responder.fetch_unit_plan(evidence={}, window={}) == {
+        "route": "preserve_whole"
+    }
+    assert responder.fetch_elements(evidence={}, window={}) == {
+        "items": [{"policy": "fixed"}]
+    }
+    assert calls == [
+        ("minimax", "t3_unit"),
+        ("kimi", "t3_unit"),
+        ("minimax", "t3"),
+        ("kimi", "t3"),
+    ]
+
+
+def test_non_quota_minimax_error_does_not_switch_provider() -> None:
+    calls: list[str] = []
+
+    class Primary:
+        def fetch_elements(self, *, evidence, window):
+            del evidence, window
+            calls.append("minimax")
+            return {
+                "items": [],
+                "_observation_error": "JSONDecodeError: invalid response",
+            }
+
+    class Fallback:
+        def fetch_elements(self, *, evidence, window):
+            del evidence, window
+            calls.append("kimi")
+            return {"items": [{"policy": "fixed"}]}
+
+    responder = observation_orchestrate._UsageLimitFallbackTextResponder(
+        Primary(),
+        Fallback(),
+    )
+
+    payload = responder.fetch_elements(evidence={}, window={})
+
+    assert payload["_observation_error"].startswith("JSONDecodeError")
+    assert calls == ["minimax"]
+
+
+def test_minimax_usage_limit_stops_internal_retries(monkeypatch) -> None:
+    calls = 0
+    record: list[dict[str, Any]] = []
+
+    def fail_with_quota(**_kwargs):
+        nonlocal calls
+        calls += 1
+        raise observation_vision.MinimaxVisionError(
+            "minimax 403: usage limit exhausted for billing cycle"
+        )
+
+    monkeypatch.setattr(
+        observation_vision,
+        "post_anthropic_messages",
+        fail_with_quota,
+    )
+    responder = observation_vision.MinimaxTextResponder(
+        api_key="test",
+        base_url="https://example.invalid",
+        model="MiniMax-M3",
+        max_attempts=3,
+        retry_backoff=0,
+        record=record,
+        progress=False,
+    )
+
+    payload = responder.fetch_elements(
+        evidence={},
+        window={"window_id": "unit:toc"},
+    )
+    second_payload = responder.fetch_elements(
+        evidence={},
+        window={"window_id": "unit:body_main"},
+    )
+
+    assert calls == 1
+    assert "usage limit exhausted" in payload["_observation_error"]
+    assert second_payload["_observation_error"] == (
+        "minimax usage limit already exhausted"
+    )
+    assert record[0]["provider"] == "minimax"
+
+
+def test_t4_usage_limit_opens_circuit_and_returns_unknown_pages(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    calls = 0
+    record: list[dict[str, Any]] = []
+    page_1 = tmp_path / "page-1.png"
+    page_2 = tmp_path / "page-2.png"
+    page_1.write_bytes(b"page-1")
+    page_2.write_bytes(b"page-2")
+
+    def fail_with_quota(_prompt, _img_b64):
+        nonlocal calls
+        calls += 1
+        raise observation_vision.MinimaxVisionError(
+            "minimax quota exceeded for billing cycle"
+        )
+
+    responder = observation_vision.MinimaxVisionResponder(
+        api_key="test",
+        base_url="https://example.invalid",
+        model="MiniMax-M3",
+        concurrency=1,
+        max_attempts=3,
+        retry_backoff=0,
+        record=record,
+        progress=False,
+    )
+    monkeypatch.setattr(responder, "_call", fail_with_quota)
+
+    observations = responder.observe_pages(
+        [
+            {"page_no": 1, "path": str(page_1), "sha256": "sha256:1"},
+            {"page_no": 2, "path": str(page_2), "sha256": "sha256:2"},
+        ]
+    )
+
+    assert calls == 1
+    assert observations[0]["has_header"] is None
+    assert observations[1]["has_header"] is None
+    assert "quota exceeded" in observations[0]["error"]
+    assert observations[1]["error"] == "minimax usage limit already exhausted"
+    assert record[1]["skipped_due_usage_limit"] is True
+
+
+def test_t4_uses_cache_before_shared_minimax_circuit(monkeypatch, tmp_path) -> None:
+    cache_dir = tmp_path / "cache"
+    state = LiveProviderUsageLimitState()
+    page = tmp_path / "page.png"
+    page.write_bytes(b"page")
+    page_input = {"page_no": 1, "path": str(page), "sha256": "sha256:page"}
+
+    warm_responder = observation_vision.MinimaxVisionResponder(
+        api_key="test",
+        base_url="https://example.invalid",
+        model="MiniMax-M3",
+        concurrency=1,
+        cache_dir=cache_dir,
+        usage_limit_state=state,
+        progress=False,
+    )
+    monkeypatch.setattr(
+        warm_responder,
+        "_call",
+        lambda _prompt, _img_b64: '{"has_header": true}',
+    )
+    assert warm_responder.observe_pages([page_input])[0]["has_header"] is True
+    state.mark_exhausted("minimax")
+
+    cached_responder = observation_vision.MinimaxVisionResponder(
+        api_key="test",
+        base_url="https://example.invalid",
+        model="MiniMax-M3",
+        concurrency=1,
+        cache_dir=cache_dir,
+        usage_limit_state=state,
+        progress=False,
+    )
+    monkeypatch.setattr(
+        cached_responder,
+        "_call",
+        lambda _prompt, _img_b64: pytest.fail("cached page must not call API"),
+    )
+
+    assert cached_responder.observe_pages([page_input])[0]["has_header"] is True
+
+
+def test_api_trace_reports_usage_limit_fallback() -> None:
+    summary = observation_orchestrate._api_trace_summary(
+        mode="live",
+        text_record=[
+            {
+                "stage": "t3",
+                "provider": "minimax",
+                "error": "usage limit exhausted",
+            },
+            {
+                "stage": "t3",
+                "provider": "kimi",
+                "fallback_from": "minimax",
+                "error": None,
+            },
+        ],
+        providers=["minimax"],
+    )
+
+    assert summary["providers"] == ["minimax", "kimi"]
+    assert summary["fallback_used"] is True
+    assert summary["failures"][0]["provider"] == "minimax"
+    assert summary["request_count"] == 2
+    assert summary["api_call_count"] == 2
+
+
+def test_api_trace_does_not_count_cache_or_circuit_skip_as_network_call() -> None:
+    summary = observation_orchestrate._api_trace_summary(
+        mode="live",
+        text_record=[
+            {"stage": "t3", "provider": "minimax", "from_cache": True},
+            {
+                "stage": "t3",
+                "provider": "minimax",
+                "skipped_due_usage_limit": True,
+                "error": "minimax usage limit already exhausted",
+            },
+            {"stage": "t3", "provider": "kimi", "error": None},
+        ],
+        providers=["minimax"],
+    )
+
+    assert summary["request_count"] == 3
+    assert summary["api_call_count"] == 1
+    assert summary["cache_hit_count"] == 1
+    assert summary["skipped_usage_limit_count"] == 1
 
 
 def test_standalone_t3_auto_runs_live_t2_before_t3(monkeypatch, tmp_path) -> None:

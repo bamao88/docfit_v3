@@ -17,8 +17,13 @@ from docfit.template_generation.input_contract import build_l1_input_contract
 from docfit.template_generation.stage_inputs import build_agent_stage_packet
 
 from .api_config import (
+    LiveProviderConfig,
     LiveProviderConfigError,
+    LiveProviderUsageLimitState,
+    is_provider_usage_limit_error,
+    live_provider_policy_summary,
     resolve_live_provider_config,
+    resolve_live_provider_policy,
 )
 from .config import (
     AgentConfig,
@@ -88,6 +93,7 @@ def run_module1_observation_for_template_generate(
         try:
             text_record: list[dict[str, Any]] = []
             vision_record: list[dict[str, Any]] = []
+            usage_limit_state = LiveProviderUsageLimitState()
             responder, text_model = _build_live_text_responder(
                 provider=effective_text_provider(agent_config),
                 model_override=agent_config.model,
@@ -95,12 +101,14 @@ def run_module1_observation_for_template_generate(
                 record=text_record,
                 max_tokens=agent_config.max_tokens,
                 temperature=agent_config.temperature,
+                usage_limit_state=usage_limit_state,
             )
             vision_responder, vision_model = _build_live_vision_responder(
                 provider=effective_vision_provider(agent_config),
                 model_override=agent_config.vision_model,
                 cache_dir=agent_config.observation_cache_dir,
                 record=vision_record,
+                usage_limit_state=usage_limit_state,
             )
             bundle = run_observation_pipeline(
                 packet=packet,
@@ -115,6 +123,10 @@ def run_module1_observation_for_template_generate(
                 vision_record=vision_record,
                 providers=live_provider_summary(agent_config),
                 models={"text": text_model, "vision": vision_model},
+                provider_policy=live_provider_policy_summary(
+                    text_primary_override=effective_text_provider(agent_config),
+                    vision_primary_override=effective_vision_provider(agent_config),
+                ),
             )
             return bundle
         except (LiveObservationError, MinimaxVisionError, LiveProviderConfigError) as exc:
@@ -207,6 +219,7 @@ def run_template_observation_stage(
         "l1_input_contract": _artifact_ref(packet_source or packet_path),
     }
     api_record: list[dict[str, Any]] = []
+    usage_limit_state = LiveProviderUsageLimitState()
     ran_upstream_t2 = False
     providers: list[str] = []
     models: dict[str, str] = {}
@@ -252,6 +265,7 @@ def run_template_observation_stage(
                 temperature=temperature,
                 text_provider=stage_text_provider,
                 model_override=stage_text_model,
+                usage_limit_state=usage_limit_state,
             )
         try:
             if normalized_stage == "t2":
@@ -318,6 +332,7 @@ def run_template_observation_stage(
                         model_override=stage_vision_model,
                         cache_dir=cache_dir,
                         record=api_record,
+                        usage_limit_state=usage_limit_state,
                     )
                     config = ObservationConfig(enabled=True, model=vision_model)
                     providers = [stage_vision_provider]
@@ -351,6 +366,14 @@ def run_template_observation_stage(
         vision_record=api_record if normalized_stage == "t4" else [],
         providers=providers,
         models=models,
+        provider_policy=live_provider_policy_summary(
+            text_primary_override=(
+                stage_text_provider if normalized_stage in {"t2", "t3"} else None
+            ),
+            vision_primary_override=(
+                stage_vision_provider if normalized_stage == "t4" else None
+            ),
+        ),
     )
     summary = {
         "artifact_type": "template_observation_stage_run",
@@ -360,8 +383,10 @@ def run_template_observation_stage(
         "stage": normalized_stage.upper(),
         "ai_mode": normalized_mode,
         "llm_mode": "live_api" if normalized_mode == "live" else normalized_mode,
-        "providers": providers,
-        "models": models,
+        "providers": trace["providers"],
+        "models": trace["models"],
+        "provider_policy": trace["provider_policy"],
+        "fallback_used": trace["fallback_used"],
         "ran_upstream_t2": ran_upstream_t2,
         "auto_ran_t2": ran_upstream_t2,
         "source_kind": "run" if resolved_run_dir is not None else "template",
@@ -373,7 +398,9 @@ def run_template_observation_stage(
         "source_render_hash": packet.get("source_render_hash"),
         "upstream_artifacts": upstream_artifacts,
         "api_call_count": trace["api_call_count"],
+        "api_request_count": trace["request_count"],
         "api_cache_hit_count": trace["cache_hit_count"],
+        "api_skipped_usage_limit_count": trace["skipped_usage_limit_count"],
         "api_failures": trace["failures"],
         "artifacts": {name: str(path) for name, path in artifacts.items()},
     }
@@ -460,12 +487,62 @@ def _build_live_text_responder(
     record: list[dict[str, Any]],
     max_tokens: int,
     temperature: float,
+    usage_limit_state: LiveProviderUsageLimitState | None = None,
 ) -> tuple[Any, str]:
+    usage_limit_state = usage_limit_state or LiveProviderUsageLimitState()
+    provider_policy = resolve_live_provider_policy(
+        role="text",
+        primary_override=provider,
+    )
     provider_config = resolve_live_provider_config(
         role="text",
-        provider=provider,
+        provider=provider_policy.primary,
         model_override=model_override,
     )
+    primary, model = _build_single_live_text_responder(
+        provider_config=provider_config,
+        cache_dir=cache_dir,
+        record=record,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        usage_limit_state=usage_limit_state,
+    )
+    if not provider_policy.usage_limit_fallbacks:
+        return primary, model
+    for fallback_provider in provider_policy.usage_limit_fallbacks:
+        try:
+            fallback_config = resolve_live_provider_config(
+                role="text",
+                provider=fallback_provider,
+            )
+            fallback, _fallback_model = _build_single_live_text_responder(
+                provider_config=fallback_config,
+                cache_dir=cache_dir,
+                record=record,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                usage_limit_state=usage_limit_state,
+                record_metadata={
+                    "fallback_from": provider_policy.primary,
+                    "fallback_trigger": "usage_limit",
+                },
+            )
+        except (LiveObservationError, LiveProviderConfigError):
+            continue
+        return _UsageLimitFallbackTextResponder(primary, fallback), model
+    return primary, model
+
+
+def _build_single_live_text_responder(
+    *,
+    provider_config: LiveProviderConfig,
+    cache_dir: Path | None,
+    record: list[dict[str, Any]],
+    max_tokens: int,
+    temperature: float,
+    record_metadata: dict[str, Any] | None = None,
+    usage_limit_state: LiveProviderUsageLimitState,
+) -> tuple[Any, str]:
     if provider_config.provider == "kimi":
         client, model = build_openai_chat_client(provider_config)
         return (
@@ -476,6 +553,8 @@ def _build_live_text_responder(
                 max_tokens=max_tokens,
                 cache_dir=cache_dir,
                 record=record,
+                record_metadata=record_metadata,
+                usage_limit_state=usage_limit_state,
             ),
             model,
         )
@@ -488,9 +567,66 @@ def _build_live_text_responder(
             temperature=temperature,
             cache_dir=cache_dir,
             record=record,
+            usage_limit_state=usage_limit_state,
         ),
         provider_config.model,
     )
+
+
+class _UsageLimitFallbackTextResponder:
+    """Use the fallback responder only when MiniMax reports exhausted quota."""
+
+    def __init__(self, primary: Any, fallback: Any) -> None:
+        self._primary = primary
+        self._fallback = fallback
+
+    def fetch_units(
+        self,
+        *,
+        evidence: dict[str, Any],
+        n_samples: int,
+    ) -> list[dict[str, Any]]:
+        payloads = self._primary.fetch_units(
+            evidence=evidence,
+            n_samples=n_samples,
+        )
+        if any(_is_usage_limit_payload(payload) for payload in payloads):
+            return self._fallback.fetch_units(
+                evidence=evidence,
+                n_samples=n_samples,
+            )
+        return payloads
+
+    def fetch_elements(
+        self,
+        *,
+        evidence: dict[str, Any],
+        window: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = self._primary.fetch_elements(evidence=evidence, window=window)
+        if _is_usage_limit_payload(payload):
+            return self._fallback.fetch_elements(evidence=evidence, window=window)
+        return payload
+
+    def fetch_unit_plan(
+        self,
+        *,
+        evidence: dict[str, Any],
+        window: dict[str, Any],
+    ) -> dict[str, Any]:
+        payload = self._primary.fetch_unit_plan(evidence=evidence, window=window)
+        if _is_usage_limit_payload(payload):
+            return self._fallback.fetch_unit_plan(evidence=evidence, window=window)
+        return payload
+
+    def fetch_layout(self, *, evidence: dict[str, Any]) -> dict[str, Any]:
+        return self._primary.fetch_layout(evidence=evidence)
+
+
+def _is_usage_limit_payload(payload: object) -> bool:
+    if not isinstance(payload, dict):
+        return False
+    return is_provider_usage_limit_error(payload.get("_observation_error"))
 
 
 def _build_live_vision_responder(
@@ -499,10 +635,16 @@ def _build_live_vision_responder(
     model_override: str | None,
     cache_dir: Path | None,
     record: list[dict[str, Any]],
+    usage_limit_state: LiveProviderUsageLimitState | None = None,
 ) -> tuple[Any, str]:
+    usage_limit_state = usage_limit_state or LiveProviderUsageLimitState()
+    provider_policy = resolve_live_provider_policy(
+        role="vision",
+        primary_override=provider,
+    )
     provider_config = resolve_live_provider_config(
         role="vision",
-        provider=provider,
+        provider=provider_policy.primary,
         model_override=model_override,
     )
     return (
@@ -512,6 +654,7 @@ def _build_live_vision_responder(
             model=provider_config.model,
             cache_dir=cache_dir,
             record=record,
+            usage_limit_state=usage_limit_state,
         ),
         provider_config.model,
     )
@@ -527,6 +670,7 @@ def _stage_text_runtime(
     temperature: float,
     text_provider: str,
     model_override: str | None,
+    usage_limit_state: LiveProviderUsageLimitState | None = None,
 ) -> tuple[Any, ObservationConfig, list[str], dict[str, str]]:
     if mode == "live":
         try:
@@ -537,6 +681,7 @@ def _stage_text_runtime(
                 record=api_record,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                usage_limit_state=usage_limit_state,
             )
         except (LiveObservationError, LiveProviderConfigError) as exc:
             raise AgentConfigError(str(exc)) from exc
@@ -721,20 +866,30 @@ def _api_trace_summary(
     vision_record: list[dict[str, Any]] | None = None,
     providers: list[str] | None = None,
     models: dict[str, str] | None = None,
+    provider_policy: dict[str, dict[str, object]] | None = None,
 ) -> dict[str, Any]:
     text_record = text_record or []
     vision_record = vision_record or []
     records = [*text_record, *vision_record]
     if providers is None:
         providers = ["kimi", "minimax"] if mode == "live" else [mode] if mode != "off" else []
+    actual_providers = [str(item.get("provider")) for item in records if item.get("provider")]
+    providers = list(dict.fromkeys([*providers, *actual_providers]))
+    cache_hit_count = sum(1 for item in records if item.get("from_cache"))
+    skipped_usage_limit_count = sum(
+        1 for item in records if item.get("skipped_due_usage_limit")
+    )
     return {
         "mode": mode,
-        "api_call_count": len(records),
-        "cache_hit_count": sum(1 for item in records if item.get("from_cache")),
+        "request_count": len(records),
+        "api_call_count": len(records) - cache_hit_count - skipped_usage_limit_count,
+        "cache_hit_count": cache_hit_count,
+        "skipped_usage_limit_count": skipped_usage_limit_count,
         "failures": [
             {
                 "stage": item.get("stage") or "t4",
                 "page_no": item.get("page_no"),
+                "provider": item.get("provider"),
                 "error": str(item.get("error")),
             }
             for item in records
@@ -742,4 +897,6 @@ def _api_trace_summary(
         ],
         "providers": providers,
         "models": models or {},
+        "provider_policy": provider_policy or live_provider_policy_summary(),
+        "fallback_used": any(item.get("fallback_from") for item in text_record),
     }

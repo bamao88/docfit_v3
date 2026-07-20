@@ -24,9 +24,9 @@ import httpx
 from docfit.core.io import sha256_json
 
 from .api_config import (
-    MINIMAX_DEFAULT_BASE_URL,
-    MINIMAX_DEFAULT_MODEL,
     LiveProviderConfigError,
+    LiveProviderUsageLimitState,
+    is_provider_usage_limit_error,
     resolve_live_provider_config,
 )
 from .observation_multimodal import anthropic_user_content, attachment_refs
@@ -121,6 +121,7 @@ class MinimaxVisionResponder:
         record: list[dict[str, Any]] | None = None,
         progress: bool = True,
         prompt_templates: ObservationPromptTemplates | None = None,
+        usage_limit_state: LiveProviderUsageLimitState | None = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url
@@ -134,6 +135,7 @@ class MinimaxVisionResponder:
         self._refresh = refresh
         self._record = record
         self._progress = progress
+        self._usage_limit_state = usage_limit_state or LiveProviderUsageLimitState()
         if prompt_templates is None:
             from .observation_prompts import default_observation_prompt_templates
 
@@ -184,11 +186,20 @@ class MinimaxVisionResponder:
                     {
                         "page_no": page_no,
                         "from_cache": True,
+                        "provider": "minimax",
+                        "model": self._model,
                         "payload": observation,
                         "error": None,
                     }
                 )
             return observation
+
+        if self._usage_limit_state.is_exhausted("minimax"):
+            return self._usage_limit_observation(
+                page_no=page_no,
+                error="minimax usage limit already exhausted",
+                skipped=True,
+            )
 
         img_b64 = base64.b64encode(path.read_bytes()).decode()
         error: str | None = None
@@ -201,6 +212,9 @@ class MinimaxVisionResponder:
                 break
             except Exception as exc:  # 网络/超时/解析
                 error = f"{type(exc).__name__}: {exc}"
+                if is_provider_usage_limit_error(exc):
+                    self._usage_limit_state.mark_exhausted("minimax")
+                    break
                 if attempt < self._max_attempts:
                     time.sleep(self._retry_backoff * attempt)
 
@@ -221,7 +235,36 @@ class MinimaxVisionResponder:
                 flush=True,
             )
         if self._record is not None:
-            self._record.append({"page_no": page_no, "payload": observation, "error": error})
+            self._record.append(
+                {
+                    "page_no": page_no,
+                    "provider": "minimax",
+                    "model": self._model,
+                    "payload": observation,
+                    "error": error,
+                }
+            )
+        return observation
+
+    def _usage_limit_observation(
+        self,
+        *,
+        page_no: int,
+        error: str,
+        skipped: bool,
+    ) -> dict[str, Any]:
+        observation = {**_EMPTY_PAGE, "page_no": page_no, "error": error}
+        if self._record is not None:
+            self._record.append(
+                {
+                    "page_no": page_no,
+                    "provider": "minimax",
+                    "model": self._model,
+                    "payload": observation,
+                    "error": error,
+                    "skipped_due_usage_limit": skipped,
+                }
+            )
         return observation
 
     def _call(self, prompt: str, img_b64: str) -> str:
@@ -280,6 +323,7 @@ class MinimaxTextResponder:
         record: list[dict[str, Any]] | None = None,
         progress: bool = True,
         prompt_templates: ObservationPromptTemplates | None = None,
+        usage_limit_state: LiveProviderUsageLimitState | None = None,
     ) -> None:
         self._api_key = api_key
         self._base_url = base_url
@@ -294,6 +338,7 @@ class MinimaxTextResponder:
         self._record = record
         self._progress = progress
         self._prompt_templates = prompt_templates
+        self._usage_limit_state = usage_limit_state or LiveProviderUsageLimitState()
         if cache_dir is not None:
             cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -346,31 +391,51 @@ class MinimaxTextResponder:
         if cached is not None:
             if self._progress:
                 print(f"  [ cache] {tag}", file=sys.stderr, flush=True)
+            if self._record is not None:
+                self._record.append(
+                    {
+                        "stage": stage,
+                        "label": label,
+                        "sample_index": sample_index,
+                        "from_cache": True,
+                        "provider": "minimax",
+                        "model": self._model,
+                        "payload": cached,
+                        "error": None,
+                    }
+                )
             return cached
 
         empty: dict[str, Any] = {} if stage == "t3_unit" else {"items": []}
         error: str | None = None
         payload = empty
-        for attempt in range(1, self._max_attempts + 1):
-            try:
-                content = post_anthropic_messages(
-                    base_url=self._base_url,
-                    api_key=self._api_key,
-                    model=self._model,
-                    content=user_content,
-                    system=system,
-                    max_tokens=self._max_tokens,
-                    timeout=self._timeout,
-                    temperature=self._temperature,
-                )
-                payload = _parse_json_object(content)
-                error = None
-                break
-            except Exception as exc:
-                error = f"{type(exc).__name__}: {exc}"
-                payload = empty
-                if attempt < self._max_attempts:
-                    time.sleep(self._retry_backoff * attempt)
+        skipped_due_usage_limit = self._usage_limit_state.is_exhausted("minimax")
+        if skipped_due_usage_limit:
+            error = "minimax usage limit already exhausted"
+        else:
+            for attempt in range(1, self._max_attempts + 1):
+                try:
+                    content = post_anthropic_messages(
+                        base_url=self._base_url,
+                        api_key=self._api_key,
+                        model=self._model,
+                        content=user_content,
+                        system=system,
+                        max_tokens=self._max_tokens,
+                        timeout=self._timeout,
+                        temperature=self._temperature,
+                    )
+                    payload = _parse_json_object(content)
+                    error = None
+                    break
+                except Exception as exc:
+                    error = f"{type(exc).__name__}: {exc}"
+                    payload = empty
+                    if is_provider_usage_limit_error(exc):
+                        self._usage_limit_state.mark_exhausted("minimax")
+                        break
+                    if attempt < self._max_attempts:
+                        time.sleep(self._retry_backoff * attempt)
 
         if error is None:
             self._cache_store(cache_key, payload)
@@ -381,7 +446,18 @@ class MinimaxTextResponder:
             flag = f" ERROR={error}" if error else ""
             print(f"  [{time.monotonic() - started:5.1f}s] {tag:26s} raw={n}{flag}", file=sys.stderr, flush=True)
         if self._record is not None:
-            self._record.append({"stage": stage, "label": label, "sample_index": sample_index, "payload": payload, "error": error})
+            self._record.append(
+                {
+                    "stage": stage,
+                    "label": label,
+                    "sample_index": sample_index,
+                    "provider": "minimax",
+                    "model": self._model,
+                    "payload": payload,
+                    "error": error,
+                    "skipped_due_usage_limit": skipped_due_usage_limit,
+                }
+            )
         return payload
 
     def _cache_path(self, cache_key: str) -> Path | None:

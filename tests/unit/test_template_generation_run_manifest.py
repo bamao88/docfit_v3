@@ -39,7 +39,7 @@ def test_run_manifest_preserves_live_api_trace_and_l1_hash(tmp_path) -> None:
 
     manifest = read_json(path)
     assert manifest["ai_mode"] == "live"
-    assert manifest["provider"] == ["kimi", "minimax"]
+    assert manifest["provider"] == ["minimax"]
     assert manifest["source_render_hash"] == "sha256:render"
     assert manifest["l1_contract_hash"]
     assert manifest["api_call_count"] == 7

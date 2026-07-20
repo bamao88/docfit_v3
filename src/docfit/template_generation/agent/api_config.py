@@ -2,12 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+from threading import Lock
 from typing import Literal, Mapping
 
 
 LiveProviderRole = Literal["text", "vision"]
 LiveProviderName = Literal["kimi", "minimax"]
 LiveEndpointFamily = Literal["openai_chat", "anthropic_messages"]
+LiveTerminalFailureAction = Literal["unknown"]
 
 TEXT_PROVIDERS: set[str] = {"kimi", "minimax"}
 VISION_PROVIDERS: set[str] = {"minimax"}
@@ -22,9 +24,123 @@ KIMI_DEFAULT_HEADERS = {
 MINIMAX_DEFAULT_BASE_URL = "https://api.minimaxi.com/anthropic"
 MINIMAX_DEFAULT_MODEL = "MiniMax-M3"
 
+_USAGE_LIMIT_MARKERS = (
+    "usage limit",
+    "quota exceeded",
+    "quota exhausted",
+    "insufficient quota",
+    "insufficient balance",
+    "billing cycle",
+    "access_terminated_error",
+    "额度不足",
+    "额度耗尽",
+    "余额不足",
+)
+
 
 class LiveProviderConfigError(ValueError):
     pass
+
+
+class LiveProviderUsageLimitState:
+    """Thread-safe usage-limit circuit shared by text and vision responders."""
+
+    def __init__(self) -> None:
+        self._providers: set[LiveProviderName] = set()
+        self._lock = Lock()
+
+    def mark_exhausted(self, provider: LiveProviderName) -> None:
+        with self._lock:
+            self._providers.add(provider)
+
+    def is_exhausted(self, provider: LiveProviderName) -> bool:
+        with self._lock:
+            return provider in self._providers
+
+
+def is_provider_usage_limit_error(error: object) -> bool:
+    """Return whether a provider error means the account quota is exhausted."""
+
+    message = str(error).strip().lower()
+    return any(marker in message for marker in _USAGE_LIMIT_MARKERS)
+
+
+@dataclass(frozen=True)
+class LiveProviderPolicy:
+    role: LiveProviderRole
+    primary: LiveProviderName
+    usage_limit_fallbacks: tuple[LiveProviderName, ...] = ()
+    terminal_failure_action: LiveTerminalFailureAction = "unknown"
+
+
+_DEFAULT_PROVIDER_POLICIES: dict[LiveProviderRole, LiveProviderPolicy] = {
+    "text": LiveProviderPolicy(
+        role="text",
+        primary="minimax",
+        usage_limit_fallbacks=("kimi",),
+    ),
+    "vision": LiveProviderPolicy(
+        role="vision",
+        primary="minimax",
+        usage_limit_fallbacks=(),
+    ),
+}
+
+
+def resolve_live_provider_policy(
+    *,
+    role: LiveProviderRole,
+    primary_override: str | None = None,
+) -> LiveProviderPolicy:
+    """Return the provider order and terminal failure behavior for one role."""
+
+    base = _DEFAULT_PROVIDER_POLICIES[role]
+    if not primary_override:
+        return base
+    normalized = primary_override.strip().lower()
+    supported = TEXT_PROVIDERS if role == "text" else VISION_PROVIDERS
+    if normalized not in supported:
+        allowed = ", ".join(sorted(supported))
+        raise LiveProviderConfigError(
+            f"unsupported {role} live provider: {primary_override}; expected {allowed}"
+        )
+    if normalized == base.primary:
+        return base
+    return LiveProviderPolicy(
+        role=role,
+        primary=normalized,  # type: ignore[arg-type]
+        usage_limit_fallbacks=(),
+        terminal_failure_action=base.terminal_failure_action,
+    )
+
+
+def default_live_provider(role: LiveProviderRole) -> LiveProviderName:
+    return _DEFAULT_PROVIDER_POLICIES[role].primary
+
+
+def live_provider_policy_summary(
+    *,
+    text_primary_override: str | None = None,
+    vision_primary_override: str | None = None,
+) -> dict[str, dict[str, object]]:
+    policies = {
+        "text": resolve_live_provider_policy(
+            role="text",
+            primary_override=text_primary_override,
+        ),
+        "vision": resolve_live_provider_policy(
+            role="vision",
+            primary_override=vision_primary_override,
+        ),
+    }
+    return {
+        role: {
+            "primary": policy.primary,
+            "usage_limit_fallbacks": list(policy.usage_limit_fallbacks),
+            "terminal_failure_action": policy.terminal_failure_action,
+        }
+        for role, policy in policies.items()
+    }
 
 
 @dataclass(frozen=True)

@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 from typing import Literal, Mapping
 
+from .api_config import default_live_provider
+
 
 AgentTransportName = Literal["replay"]
 AgentTextProviderName = Literal["kimi", "minimax"]
@@ -198,13 +200,13 @@ def agent_config_from_env(env: Mapping[str, str] | None = None) -> AgentConfig |
 def effective_text_provider(config: AgentConfig) -> str:
     if config.text_provider:
         return str(config.text_provider).strip().lower()
-    return "kimi"
+    return default_live_provider("text")
 
 
 def effective_vision_provider(config: AgentConfig) -> str:
     if config.vision_provider:
         return str(config.vision_provider).strip().lower()
-    return "minimax"
+    return default_live_provider("vision")
 
 
 def live_provider_summary(config: AgentConfig | None) -> list[str]:

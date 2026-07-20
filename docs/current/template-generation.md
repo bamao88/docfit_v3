@@ -185,8 +185,14 @@ uv run docfit template verify \
 bundle 用 `--bundle <observation_bundle.json>`。旧 `--agent-*` 只保留在兼容 alias 中。
 live API 配置统一读取 `DOCFIT_TEMPLATE_AGENT_TEXT_PROVIDER`、
 `DOCFIT_TEMPLATE_AGENT_VISION_PROVIDER` 和对应 provider 的 `<PROVIDER>_API_KEY` /
-`<PROVIDER>_BASE_URL` / `<PROVIDER>_MODEL`。默认编排是 T2/T3 文本用 Kimi，
-T4 视觉用 MiniMax；单阶段 `template stage` 和 `generate/verify --ai live` 使用同一套配置。
+`<PROVIDER>_BASE_URL` / `<PROVIDER>_MODEL`。所有 live API 调用共用一份按能力角色定义的
+provider 策略：文本（T2/T3）为 `MiniMax -> 额度耗尽时 Kimi -> UNKNOWN`，视觉（T4）为
+`MiniMax -> UNKNOWN`。Kimi 当前只配置了文本端点，不能接管 T4 图片输入；若以后增加兼容
+视觉 provider，应在同一策略中增加 fallback。单阶段 `template stage` 和
+`generate/verify --ai live` 使用同一套策略。显式把文本 provider 设为 Kimi 时仍只使用
+Kimi，不启用反向回退。同一次全流程共享 provider 额度熔断状态：MiniMax 在文本阶段确认
+额度耗尽后，后续文本直接回退 Kimi，T4 则先复用可用缓存、未命中缓存的页面输出 UNKNOWN。
+API trace 分开记录真实网络调用、缓存命中、额度熔断跳过和 `fallback_used`。
 
 固定输出结构：
 
@@ -211,23 +217,24 @@ uv run docfit template generate \
 ```
 
 单独调试 AI 观察阶段使用 `template stage t2|t3|t4`。默认为 `--ai live`：
-T2/T3 调 Kimi 文本 API，T4 调 MiniMax 视觉 API。首选 `--run`复用同一次
+T2/T3 优先调 MiniMax 文本 API，额度耗尽时回退 Kimi；T4 调 MiniMax 视觉 API，额度耗尽
+时熔断后续视觉调用并输出带失败原因的 UNKNOWN，不会错误转交给文本模型。首选 `--run`复用同一次
 template-generate 留下的 sealed L1 和上游 hash；`--template` 只是显式 bootstrap 路线，并会先构建 T1/render facts 再封存 L1。
 
 ```bash
 # T2：复用已有 run 的 sealed L1，新调 live API
-KIMI_API_KEY=... uv run docfit template stage t2 \
+MINIMAX_API_KEY=... KIMI_API_KEY=... uv run docfit template stage t2 \
   --run "$RUN_ROOT/eval_runs/template_generate" \
   --out /private/tmp/docfit_stage_t2
 
 # T3：默认固定 run 中 ai_raw T2；缺失时明确失败
-KIMI_API_KEY=... uv run docfit template stage t3 \
+MINIMAX_API_KEY=... KIMI_API_KEY=... uv run docfit template stage t3 \
   --run "$RUN_ROOT/eval_runs/template_generate" \
   --t2-route ai_raw \
   --out /private/tmp/docfit_stage_t3
 
 # 只有显式授权时才先补跑 T2
-KIMI_API_KEY=... uv run docfit template stage t3 \
+MINIMAX_API_KEY=... KIMI_API_KEY=... uv run docfit template stage t3 \
   --run "$RUN_ROOT/eval_runs/template_generate" \
   --with-upstream \
   --out /private/tmp/docfit_stage_t3_with_upstream

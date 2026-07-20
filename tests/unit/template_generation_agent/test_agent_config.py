@@ -3,9 +3,14 @@ from __future__ import annotations
 import pytest
 
 from docfit.core.io import write_json
+from docfit.template_generation.agent.api_config import (
+    live_provider_policy_summary,
+    resolve_live_provider_policy,
+)
 from docfit.template_generation.agent.config import (
     AgentConfig,
     agent_config_from_env,
+    effective_text_provider,
     live_provider_summary,
     validate_agent_config,
 )
@@ -16,6 +21,32 @@ from .helpers import round0_artifacts
 
 def test_agent_config_default_disabled_passes() -> None:
     assert validate_agent_config(AgentConfig()) == []
+
+
+def test_default_text_provider_prefers_minimax() -> None:
+    assert effective_text_provider(AgentConfig()) == "minimax"
+    assert effective_text_provider(AgentConfig(text_provider="kimi")) == "kimi"
+
+
+def test_live_provider_policy_is_capability_aware() -> None:
+    summary = live_provider_policy_summary()
+
+    assert summary == {
+        "text": {
+            "primary": "minimax",
+            "usage_limit_fallbacks": ["kimi"],
+            "terminal_failure_action": "unknown",
+        },
+        "vision": {
+            "primary": "minimax",
+            "usage_limit_fallbacks": [],
+            "terminal_failure_action": "unknown",
+        },
+    }
+    assert resolve_live_provider_policy(
+        role="text",
+        primary_override="kimi",
+    ).usage_limit_fallbacks == ()
 
 
 def test_legacy_live_transport_is_rejected() -> None:
