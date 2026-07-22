@@ -1,11 +1,11 @@
-"""Module 1 prompt 装配：taxonomy/枚举接地 + 分解式决策树 + 防火墙复核。
+"""Module 1 prompt 装配：阶段任务说明 + 必要枚举接地 + 防火墙复核。
 
-把 clean evidence 视图与**领域词典**（单元名+别名、policy 定义、决策树）拼成 payload，
-帮模型在干净事实上做分割与策略判断（领域先验，非 gold）。装配后对 evidence 子树
-再跑一次 ``assert_firewall_clean``——确保送进模型的证据没有代码结论字段。
+把 clean evidence 视图与阶段 prompt 拼成 payload，帮模型在干净事实上做分割与
+策略判断。装配后对 evidence 子树再跑一次 ``assert_firewall_clean``——确保送进
+模型的证据没有代码结论字段。
 
-接地材料全部来自既有单一真相：``UNIT_DEFINITIONS`` 的中文名+别名、``constants`` 的
-标记元组、``ontology.yaml`` 的枚举与定义。T3 决策树的必填规则与
+T2 不注入单元别名字典，避免退化成关键词分类；只保留输出枚举。T3 接地材料来自
+既有单一真相：``constants`` 的标记元组、``ontology.yaml`` 的枚举与定义。T3 主提示词的必填规则与
 ``observation_materialize._required_field_error`` 逐字对齐，prompt 与闸门同口径。
 """
 
@@ -23,9 +23,7 @@ from ..constants import (
     FILLABLE_LABELS,
     FILLABLE_MARKERS,
     GENERATED_MARKERS,
-    INSTRUCTION_MARKERS,
-    MANUAL_ONLY_MARKERS,
-    UNIT_DEFINITIONS,
+    KEEP_ONLY_MARKERS,
 )
 from .evidence import assert_firewall_clean
 from .observation_schema import (
@@ -45,13 +43,42 @@ from .t3_exemplars import (
     select_t3_unit_exemplars,
 )
 
+PROMPT_OUTPUT_POLICIES = frozenset(ALLOWED_POLICIES) - {"unknown"}
+
 ALLOWED_LABELS = {
     "unit_ids": sorted(ALLOWED_UNIT_IDS),
-    "policies": sorted(ALLOWED_POLICIES),
+    "core_actions": ["keep", "fill", "delete"],
+    # unknown 是 Gold/审计层标签，不是模型输出策略。模型不确定时应选 fixed，
+    # 也就是一级动作 keep。
+    "policies": sorted(PROMPT_OUTPUT_POLICIES),
     "generated_field_types": sorted(ALLOWED_FIELD_TYPES),
 }
 _PROMPT_TEMPLATE_DIR = "prompt_templates"
 _STAGES = ("t2", "t3_unit", "t3", "t4")
+
+
+def _allowed_labels_for_stage(stage: str) -> dict[str, list[str]]:
+    """只向各阶段暴露它实际需要输出的标签，避免无关 unknown 干扰 T3。"""
+
+    if stage == "t2":
+        return {"unit_ids": list(ALLOWED_LABELS["unit_ids"])}
+    if stage == "t3_unit":
+        return {
+            "routes": [
+                "preserve_whole",
+                "preserve_structure_classify_fields",
+                "inspect_suspected_regions",
+                "full_local_analysis",
+            ],
+            "default_preservation_policies": ["fixed", "generated"],
+        }
+    if stage == "t3":
+        return {
+            "core_actions": list(ALLOWED_LABELS["core_actions"]),
+            "policies": list(ALLOWED_LABELS["policies"]),
+            "generated_field_types": list(ALLOWED_LABELS["generated_field_types"]),
+        }
+    return {}
 
 
 @dataclass(frozen=True)
@@ -59,29 +86,34 @@ class ObservationPromptTemplates:
     system: str
     rubrics: Mapping[str, str]
     output_contracts: Mapping[str, str]
-    policy_decision_tree: str
     t4_page_vision: str
+    # 兼容旧的自定义模板调用；默认 T3 已改为从 t3_prompt.txt 读取，不再消费此字段。
+    policy_decision_tree: str | None = None
     blocks: Mapping[str, str] = field(default_factory=dict)
 
 
 @lru_cache(maxsize=1)
 def default_observation_prompt_templates() -> ObservationPromptTemplates:
     base = resources.files(__package__).joinpath(_PROMPT_TEMPLATE_DIR)
+    t3_prompt = _read_sectioned_prompt_resource(
+        base,
+        "t3_prompt.txt",
+        sections=("rubric", "output_contract"),
+    )
     return ObservationPromptTemplates(
         system=_read_prompt_resource(base, "system.txt"),
         rubrics={
             "t2": _read_prompt_resource(base, "t2_rubric.txt"),
             "t3_unit": _read_prompt_resource(base, "t3_unit_rubric.txt"),
-            "t3": _read_prompt_resource(base, "t3_rubric.txt"),
+            "t3": t3_prompt["rubric"],
             "t4": _read_prompt_resource(base, "t4_rubric.txt"),
         },
         output_contracts={
             "t2": _read_prompt_resource(base, "t2_output_contract.txt"),
             "t3_unit": _read_prompt_resource(base, "t3_unit_output_contract.txt"),
-            "t3": _read_prompt_resource(base, "t3_output_contract.txt"),
+            "t3": t3_prompt["output_contract"],
             "t4": _read_prompt_resource(base, "t4_output_contract.txt"),
         },
-        policy_decision_tree=_read_prompt_resource(base, "t3_policy_decision_tree.txt"),
         t4_page_vision=_read_prompt_resource(base, "t4_page_vision_prompt.txt"),
         blocks={
             "quality": _read_prompt_resource(base, "quality_block.txt"),
@@ -95,20 +127,14 @@ def _markers(markers: tuple[str, ...], limit: int = 6) -> str:
     return "、".join(markers[:limit])
 
 
-def _unit_glossary() -> str:
-    """C1：每个单元的中文名 + 别名关键词，给 T2 做分割接地。"""
-
-    return "\n".join(
-        f"- {unit_id} ({name}): {' | '.join(aliases)}"
-        for unit_id, name, aliases in UNIT_DEFINITIONS
-    )
-
-
 def _policy_glossary() -> str:
     """C3：policy / field_type / fill_source 的一行定义，给 T3 做策略接地。"""
 
     lines = ["policy 含义："]
-    lines += [f"- {p}: {POLICY_DEFINITIONS.get(p, '')}" for p in sorted(ALLOWED_POLICIES)]
+    lines += [
+        f"- {p}: {POLICY_DEFINITIONS.get(p, '')}"
+        for p in sorted(PROMPT_OUTPUT_POLICIES)
+    ]
     lines.append(
         "fill_source ∈ " + " / ".join(f"{k}({v})" for k, v in FILL_SOURCE_DEFINITIONS.items())
     )
@@ -124,27 +150,41 @@ def _read_prompt_resource(base: resources.abc.Traversable, filename: str) -> str
     return base.joinpath(filename).read_text(encoding="utf-8").strip()
 
 
-def _policy_decision_tree(templates: ObservationPromptTemplates) -> str:
-    """C2：按顺序的 cue→policy 决策树，必填规则放在每个叶子（与闸门同口径）。"""
+def _read_sectioned_prompt_resource(
+    base: resources.abc.Traversable,
+    filename: str,
+    *,
+    sections: tuple[str, ...],
+) -> dict[str, str]:
+    """从一个可直接审阅的主 prompt 文件中读取具名片段。"""
 
-    return _render_prompt_template(
-        templates.policy_decision_tree,
-        {
-            "instruction_markers": _markers(INSTRUCTION_MARKERS),
-            "fillable_markers": _markers(FILLABLE_MARKERS),
-            "fillable_labels": _markers(FILLABLE_LABELS),
-            "generated_markers": _markers(GENERATED_MARKERS),
-            "manual_only_markers": _markers(MANUAL_ONLY_MARKERS),
-        },
-    )
+    text = _read_prompt_resource(base, filename)
+    result: dict[str, str] = {}
+    for section in sections:
+        begin = f"--- BEGIN {section} ---"
+        end = f"--- END {section} ---"
+        if text.count(begin) != 1 or text.count(end) != 1:
+            raise ValueError(
+                f"prompt resource {filename!r} must contain exactly one {section!r} section"
+            )
+        before, _, remainder = text.partition(begin)
+        content, separator, after = remainder.partition(end)
+        if before.strip() and section == sections[0]:
+            raise ValueError(f"prompt resource {filename!r} has text before first section")
+        if not separator or not content.strip():
+            raise ValueError(f"prompt resource {filename!r} has empty {section!r} section")
+        if section == sections[-1] and after.strip():
+            raise ValueError(f"prompt resource {filename!r} has text after last section")
+        result[section] = content.strip()
+    return result
 
 
 # 模型必须严格返回的 JSON 形状（live 路径解析依据）。
 OUTPUT_CONTRACT = dict(default_observation_prompt_templates().output_contracts)
 
-# 每阶段注入的词典（C1 单元词典给 t2；C3 policy 词典给 t3）。
+# 每阶段注入的词典。T2 明确不注入单元词典；T3 保留 policy 词典。
 _GLOSSARY_BY_STAGE = {
-    "t2": _unit_glossary,
+    "t2": lambda: "",
     "t3_unit": _policy_glossary,
     "t3": _policy_glossary,
     "t4": lambda: "",
@@ -180,15 +220,18 @@ def build_observation_prompt(
             templates.rubrics[stage],
             {
                 "quality_goal": T3_QUALITY_GOAL,
-                "policy_decision_tree": _policy_decision_tree(templates),
+                "fillable_markers": _markers(FILLABLE_MARKERS),
+                "fillable_labels": _markers(FILLABLE_LABELS),
+                "generated_markers": _markers(GENERATED_MARKERS),
+                "keep_only_markers": _markers(KEEP_ONLY_MARKERS),
             },
         ),
         "glossary": _GLOSSARY_BY_STAGE[stage](),
         "quality_goal": quality_goal,
         "exemplars": exemplars,
-        "allowed_labels": ALLOWED_LABELS,
+        "allowed_labels": _allowed_labels_for_stage(stage),
         "output_contract": templates.output_contracts[stage],
-        "abstain_is_valid": True,
+        "abstain_is_valid": stage != "t3",
         "evidence": _strip_private_fields(evidence_view),
     }
 
@@ -224,10 +267,20 @@ def assemble_observation_messages(
             "exemplar_block": exemplar_block,
             "allowed_labels_json": json.dumps(prompt["allowed_labels"], ensure_ascii=False),
             "output_contract": str(prompt["output_contract"]),
+            "abstain_instruction": _abstain_instruction(stage),
         },
     )
     user = json.dumps(prompt["evidence"], ensure_ascii=False)
     return system, user
+
+
+def _abstain_instruction(stage: str) -> str:
+    if stage == "t3":
+        return (
+            "T3 对当前窗口内已经绑定的 run 不得弃权：不确定或混合时按 rubric 输出 "
+            "core_action=keep、policy=fixed，不输出 unknown。"
+        )
+    return "弃权是合法输出：没有证据支撑就少认领。"
 
 
 def _render_prompt_template(template: str, values: Mapping[str, Any]) -> str:

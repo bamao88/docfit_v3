@@ -25,7 +25,7 @@ from docfit.core.io import now_iso, read_yaml
 from ..constants import UNIT_DEFINITIONS
 
 OBSERVATION_SCHEMA_VERSION = "ai-observation-1.0"
-PROMPT_CONTRACT_VERSION = "ai-observation-prompt-1.3"
+PROMPT_CONTRACT_VERSION = "ai-observation-prompt-1.5"
 
 UNKNOWN_UNIT_ID = "unknown_unit"
 CONFIDENCE_LEVELS = ("low", "medium", "high")

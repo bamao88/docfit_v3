@@ -1,0 +1,51 @@
+--- BEGIN rubric ---
+$quality_goal
+
+你在做 T3 run 级动作标注。run 是最小判断单位；元素如何分组、合并或统一执行不属于本次判断，不得用分组结果代替逐 run 标注。
+
+每个已绑定到当前窗口的 run，都必须先在以下三个一级动作中选择一个：
+- keep：该 run 的内容必须保留；
+- fill：该 run 是待学生填写或待系统生成的内容；
+- delete：该 run 是最终模板中应删除的纯格式批注。
+
+`core_action` 是当前 T3 的主判断。`policy` 只是为了兼容现有执行链而填写的二级子类型，不能改变一级动作：
+- keep → fixed 或 template_default；
+- fill → fill 或 generated；
+- delete → instruction_remove。
+
+先服从 unit_plan 对整体内容的保护和下钻范围，再阅读 object_overview 理解当前表格或文本块的结构；只判断当前 claimable 范围，context_only 只能帮助理解，不能正式认领。参考同类型优秀示例和错误反例，但必须依据当前 Word 事实独立判断。
+
+在本单元窗口内，先按 Word 中已有 raw_run_ids 判断是否存在真实的语义边界；不要自由创造文本 span。然后按下面顺序判断。
+
+第一步：直接判断一级动作 core_action
+1) keep：校名、正式声明/条款、固定标题、栏目标签、有价值的填写指导、签名、盖章、手写意见、人工日期（如 $keep_only_markers），以及任何无法安全单选的混合/不确定 run。源 DOCX 已整包复制，这些人工区域保持不动，不创建填写槽。
+2) fill：学生姓名、学号、论文题目、正文等待填内容（如 $fillable_markers 或 $fillable_labels）；目录、页码、自动编号（如 $generated_markers）。
+3) delete：只描述字体、字号、粗细、行距、缩进或对齐，删除后不损失任何学校要求或正文含义的独立纯格式批注。
+
+第二步：补充 semantic_role、transformation 和兼容 policy
+- fixed_content/template_default_content/guidance_content → preserve → core_action=keep → fixed 或 template_default。
+- student_field → replace_with_slot → core_action=fill → fill，必给 fill_source。
+- generated_field → generate → core_action=fill → generated，必给 generated.field_type。
+- format_annotation 只有同时满足以下全部条件才可 remove_exact_span → core_action=delete → instruction_remove：
+  a) confidence=high；b) 给出证据中精确 raw_run_ids；c) 被选 run 是独立纯格式批注；d) unit_plan 未保护该 source_seq；e) 写 removal_reason。
+
+保留优先规则：
+- 出现“说明、要求、格式”等词不等于可以删除，它也可能是学校模板中必须保留的指导内容。
+- 单个 raw run 同时含固定文字与待填/待删内容时，run 内部不能拆分；整个 run 按 mixed_or_uncertain → preserve → core_action=keep → policy=fixed 处理，并设 confidence=low。
+- 证据不足、语义混合或无法在 keep/fill/delete 中安全单选时，也按上一条输出 keep；不得输出 unknown，不得猜测为 delete，不得扩大为整段或整单元删除。
+- 回报 ai_decision_path，写清“证据 → core_action → 兼容 policy”；混合 run 必须注明“混合语义，无法在 raw run 内拆分，依保留优先原则按 keep 处理”。
+--- END rubric ---
+
+--- BEGIN output_contract ---
+返回 JSON 对象：{"items":[{"element_id":"<unit_id>.<序号>","semantic_role":"fixed_content|template_default_content|student_field|generated_field|format_annotation|guidance_content|mixed_or_uncertain","transformation":"preserve|replace_with_slot|generate|remove_exact_span|review","core_action":"keep|fill|delete","policy":"<policies 之一>","role":"<roles 之一或省略>","confidence":"low|medium|high","content":"<文本>","source_seq_refs":[<int>],"raw_run_ids":["<证据中的 run id>"],"logical_run_ids":["<证据中的 logical run id>"],"fill_source":"...","generated":{"field_type":"..."},"removal_reason":"<仅删除时必填>","ai_decision_path":"<证据→core_action→兼容 policy 的判断链>"}]}。
+
+发射每个 item 前自检（缺条件字段的 item 会被拒收并丢失）：
+1. core_action 只能是 keep、fill、delete；不得输出 unknown。
+2. core_action 与 policy 必须一致：fixed/template_default ⇒ keep；fill/generated ⇒ fill；instruction_remove ⇒ delete。
+3. policy==fill ⇒ 必有 fill_source；policy==generated ⇒ 必有 generated.field_type。
+4. policy==instruction_remove ⇒ confidence 必须是 high、transformation 必须是 remove_exact_span、必须有 removal_reason 和精确 raw_run_ids，且这些 run 只能是独立纯格式批注。
+
+只输出 JSON；source_seq_refs 必须落在本窗口内；同一 source_seq 内存在多个不同语义 run 时，用已有 raw_run_ids 分别标注，不要整段合并，也不能用整段删除替代精确删除。
+
+若单个 raw run 同时包含应保留文字和应填写/删除内容，或证据不足以在 keep/fill/delete 中安全单选，必须输出 semantic_role=mixed_or_uncertain、transformation=preserve、core_action=keep、policy=fixed、confidence=low。不得输出 unknown，也不得猜测为 instruction_remove。
+--- END output_contract ---

@@ -36,6 +36,11 @@ def restrict_tasks_to_unit_plan(
     if route == "preserve_whole":
         return []
     inspect = {int(value) for value in unit_plan.get("inspect_source_seq_refs", [])}
+    inspect_object_refs = {
+        str(value)
+        for value in unit_plan.get("inspect_source_ref_refs", []) or []
+        if str(value or "").strip()
+    }
     if route != "inspect_suspected_regions":
         return deepcopy(tasks)
     selected: list[dict[str, Any]] = []
@@ -48,9 +53,20 @@ def restrict_tasks_to_unit_plan(
                 for value in window.get("source_seq_refs", [])
                 if int(value) in inspect
             ]
-            if not claimable:
+            claimable_object_refs = [
+                str(value)
+                for value in window.get("source_ref_refs", []) or []
+                if str(value) in inspect_object_refs
+            ]
+            if not claimable and not claimable_object_refs:
                 continue
-            windows.append({**window, "source_seq_refs": claimable})
+            windows.append(
+                {
+                    **window,
+                    "source_seq_refs": claimable,
+                    "source_ref_refs": claimable_object_refs,
+                }
+            )
         copied["local_windows"] = windows
         if windows:
             selected.append(copied)
@@ -189,7 +205,7 @@ def preservation_fallback_items(
 
 def _safe_item(item: dict[str, Any], *, unit_plan: dict[str, Any]) -> dict[str, Any]:
     policy = str(unit_plan.get("default_preservation_policy") or "fixed")
-    if policy not in {"fixed", "template_default", "manual_only", "generated"}:
+    if policy not in {"fixed", "template_default", "fixed", "generated"}:
         policy = "fixed"
     safe = {
         **item,
@@ -203,10 +219,6 @@ def _safe_item(item: dict[str, Any], *, unit_plan: dict[str, Any]) -> dict[str, 
     elif policy == "template_default":
         safe.setdefault("role", "template_fixed")
         safe.setdefault("semantic_role", "template_default_content")
-    elif policy == "manual_only":
-        safe.setdefault("role", "manual_field")
-        safe.setdefault("semantic_role", "manual_field")
-        safe.setdefault("manual_semantics", "保留原有人工填写或签署区域")
     else:
         safe.setdefault("role", "generated_field")
         safe.setdefault("semantic_role", "generated_field")

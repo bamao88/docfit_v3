@@ -3,11 +3,11 @@ $quality_goal
 
 先回答“这个单元整体是不是有价值、哪些结构必须完整保留、是否真的需要逐元素分析”，再选择成本最低且安全的 route：
 - preserve_whole：整个单元都是有价值且同一保留语义，不再下钻；
-- preserve_structure_classify_fields：正文/标签/表格骨架全部保护，只继续识别 fill/manual/generated；
-- inspect_suspected_regions：只深入明确列出的 source_seq，其余按默认策略保留；
+- preserve_structure_classify_fields：正文/标签/表格骨架全部保护，只继续识别 fill/generated；
+- inspect_suspected_regions：只深入明确列出的 source_seq 或 source_ref 对象，其余按默认策略保留；
 - full_local_analysis：确有多种语义/变换交错时才完整下钻。
 
-学校任务书、开题表、过程记录、答辩记录、成绩表、课题变更审批等行政表单，如果整体都是后续人工填写/签署/评审的工作区，应使用 preserve_whole + default_preservation_policy=manual_only；不要因为其中存在固定栏目文字就把整张表默认成 fixed。只有确实需要自动填充或生成的局部才继续下钻。正式声明若正文与签署共同构成需人工确认的完整页面，也优先 default=manual_only，并仅检查独立纯格式批注。
+学校任务书、开题表、过程记录、答辩记录、成绩表、课题变更审批等行政表单，如果整体都是后续人工填写/签署/评审的工作区，应使用 preserve_whole + default_preservation_policy=fixed；源 DOCX 已整包复制，这些区域保持不动，不创建填写槽。只有确实需要自动填充或生成的局部才继续下钻。正式声明若正文与签署共同构成需人工确认的完整页面，也优先 default=fixed，并仅检查独立纯格式批注。
 
 目录单元的标题层级、引导点和示例页码是自动目录的整体生成骨架，不应作为 fixed 示例文字保留；优先 default_preservation_policy=generated，只下钻检查独立的字体字号/空行批注。最终模板需要根据真实正文标题重建目录。
 

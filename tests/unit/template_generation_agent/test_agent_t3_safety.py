@@ -114,3 +114,24 @@ def test_inspect_route_calls_only_selected_regions_and_fallback_preserves_rest()
     )
     assert {item["source_seq_refs"][0] for item in fallback} == set(range(1, 8))
     assert all(item["policy"] == "fixed" for item in fallback)
+
+
+def test_inspect_route_selects_claimable_source_ref_object_window() -> None:
+    from .test_agent_t3_input import toc_object_packet, toc_object_window
+
+    packet = toc_object_packet()
+    window = toc_object_window()
+    tasks = build_t3_local_tasks(packet, unit_windows=[window])
+    routed = restrict_tasks_to_unit_plan(
+        tasks,
+        {
+            "route": "inspect_suspected_regions",
+            "inspect_source_seq_refs": [],
+            "inspect_source_ref_refs": window["source_ref_refs"],
+        },
+    )
+
+    assert len(routed) == 1
+    assert routed[0]["local_windows"][0]["source_ref_refs"] == window[
+        "source_ref_refs"
+    ]

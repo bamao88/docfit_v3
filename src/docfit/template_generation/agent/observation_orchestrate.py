@@ -52,6 +52,11 @@ from .observation_vision import (
     MinimaxVisionResponder,
 )
 from .packet import build_template_agent_render_packet
+from .t3_eval import (
+    T3GoldUpstreamError,
+    build_t3_gold_upstream,
+    evaluate_t3_gold_accuracy,
+)
 
 
 def run_module1_observation_for_template_generate(
@@ -171,6 +176,8 @@ def run_template_observation_stage(
     bundle_path: Path | None = None,
     t2_route: str = "ai_raw",
     t2_artifact_path: Path | None = None,
+    t2_gold_standard_path: Path | None = None,
+    t3_gold_standard_path: Path | None = None,
     with_upstream: bool = False,
     max_tokens: int = 8000,
     temperature: float = 0.4,
@@ -198,6 +205,22 @@ def run_template_observation_stage(
         raise AgentConfigError("--ai bundle requires --bundle")
     if t2_artifact_path is not None and normalized_stage != "t3":
         raise AgentConfigError("--t2-artifact is only valid for T3")
+    if t2_gold_standard_path is not None and normalized_stage != "t3":
+        raise AgentConfigError("--t2-gold-standard is only valid for T3")
+    if t3_gold_standard_path is not None and normalized_stage != "t3":
+        raise AgentConfigError("--t3-gold-standard is only valid for T3")
+    if t2_gold_standard_path is not None and t2_artifact_path is not None:
+        raise AgentConfigError(
+            "--t2-gold-standard cannot be combined with --t2-artifact"
+        )
+    if t2_gold_standard_path is not None and with_upstream:
+        raise AgentConfigError(
+            "--t2-gold-standard cannot be combined with --with-upstream"
+        )
+    if t3_gold_standard_path is not None and t2_gold_standard_path is None:
+        raise AgentConfigError(
+            "--t3-gold-standard requires --t2-gold-standard"
+        )
 
     ensure_dir(out_dir)
     cache_dir = ensure_dir(out_dir / "cache")
@@ -218,6 +241,33 @@ def run_template_observation_stage(
     upstream_artifacts: dict[str, Any] = {
         "l1_input_contract": _artifact_ref(packet_source or packet_path),
     }
+    gold_t2_observation: dict[str, Any] | None = None
+    gold_t2_observation_path: Path | None = None
+    t3_gold_input_audit: dict[str, Any] | None = None
+    t3_gold_accuracy_report: dict[str, Any] | None = None
+    if t2_gold_standard_path is not None:
+        try:
+            gold_t2_observation, t3_gold_input_audit = build_t3_gold_upstream(
+                _read_mapping(t2_gold_standard_path),
+                packet=packet,
+                gold_source=str(t2_gold_standard_path),
+                source_template_hash=source_template_hash,
+            )
+        except T3GoldUpstreamError as exc:
+            raise AgentConfigError(str(exc)) from exc
+        gold_t2_observation_path = out_dir / "02.gold_t2_unit_observation.yaml"
+        write_yaml(gold_t2_observation_path, gold_t2_observation)
+        audit_path = out_dir / "03.0_t3_gold_input_audit.json"
+        write_json(audit_path, t3_gold_input_audit)
+        artifacts["t3_gold_unit_observation"] = gold_t2_observation_path
+        artifacts["t3_gold_input_audit"] = audit_path
+        upstream_artifacts["t2_gold_standard"] = _artifact_ref(
+            t2_gold_standard_path
+        )
+    if t3_gold_standard_path is not None:
+        upstream_artifacts["t3_gold_standard"] = _artifact_ref(
+            t3_gold_standard_path
+        )
     api_record: list[dict[str, Any]] = []
     usage_limit_state = LiveProviderUsageLimitState()
     ran_upstream_t2 = False
@@ -280,12 +330,16 @@ def run_template_observation_stage(
                     observation,
                 )
             elif normalized_stage == "t3":
-                t2_observation, t2_source = _resolve_t2_upstream(
-                    packet=packet,
-                    run_dir=resolved_run_dir,
-                    route=t2_route,
-                    explicit_path=t2_artifact_path,
-                )
+                if gold_t2_observation is not None:
+                    t2_observation = gold_t2_observation
+                    t2_source = gold_t2_observation_path
+                else:
+                    t2_observation, t2_source = _resolve_t2_upstream(
+                        packet=packet,
+                        run_dir=resolved_run_dir,
+                        route=t2_route,
+                        explicit_path=t2_artifact_path,
+                    )
                 if t2_observation is None:
                     if not with_upstream:
                         raise AgentConfigError(
@@ -360,6 +414,24 @@ def run_template_observation_stage(
             stage=normalized_stage,
             api_record=api_record,
         )
+
+    if t3_gold_standard_path is not None:
+        assert gold_t2_observation is not None
+        assert t3_gold_input_audit is not None
+        try:
+            t3_gold_accuracy_report = evaluate_t3_gold_accuracy(
+                observation,
+                t3_standard=_read_mapping(t3_gold_standard_path),
+                packet=packet,
+                gold_unit_observation=gold_t2_observation,
+                gold_input_audit=t3_gold_input_audit,
+                source_template_hash=source_template_hash,
+            )
+        except T3GoldUpstreamError as exc:
+            raise AgentConfigError(str(exc)) from exc
+        accuracy_path = out_dir / "03.3_t3_gold_accuracy_report.json"
+        write_json(accuracy_path, t3_gold_accuracy_report)
+        artifacts["t3_gold_accuracy_report"] = accuracy_path
     trace = _api_trace_summary(
         mode=normalized_mode,
         text_record=api_record if normalized_stage in {"t2", "t3"} else [],
@@ -396,6 +468,18 @@ def run_template_observation_stage(
         ),
         "source_template_hash": source_template_hash,
         "source_render_hash": packet.get("source_render_hash"),
+        "t3_input_eligible": bool(
+            normalized_stage == "t3"
+            and t3_gold_input_audit
+            and t3_gold_input_audit.get("status") == "PASS"
+        ),
+        "t3_accuracy_eligible": t3_gold_accuracy_report is not None,
+        "t3_gold_input_audit": t3_gold_input_audit,
+        "t3_gold_accuracy": (
+            t3_gold_accuracy_report.get("metrics")
+            if t3_gold_accuracy_report is not None
+            else None
+        ),
         "upstream_artifacts": upstream_artifacts,
         "api_call_count": trace["api_call_count"],
         "api_request_count": trace["request_count"],

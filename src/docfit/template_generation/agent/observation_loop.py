@@ -486,6 +486,10 @@ def _run_t3_unit_routed(
                             "window_id": local.get("window_id"),
                             "source_seq_refs": local.get("source_seq_refs", []),
                             "context_source_seq_refs": local.get("context_source_seq_refs", []),
+                            "source_ref_refs": local.get("source_ref_refs", []),
+                            "context_source_ref_refs": local.get(
+                                "context_source_ref_refs", []
+                            ),
                         }
                         for local in executed_windows
                     ],
@@ -517,6 +521,7 @@ def _run_t3_unit_routed(
                 "window_id": window.get("window_id"),
                 "unit_id": window.get("unit_id"),
                 "source_seq_refs": window.get("source_seq_refs", []),
+                "source_ref_refs": window.get("source_ref_refs", []),
                 "unit_plan": unit_plan,
                 "local_task_count": len(unit_tasks),
                 "routed_local_task_count": len(routed_tasks),

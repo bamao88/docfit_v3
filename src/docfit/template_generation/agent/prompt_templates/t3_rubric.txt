@@ -1,3 +1,0 @@
-$quality_goal
-先服从 unit_plan 对整体内容的保护和下钻范围，再阅读 object_overview 理解当前表格或文本块的结构；只判断当前 claimable 范围，context_only 只能帮助理解，不能正式认领。先判断内容的 semantic_role，再选择 transformation，最后映射兼容 policy。参考同类型优秀示例和错误反例，但必须依据当前 Word 事实独立判断。
-$policy_decision_tree

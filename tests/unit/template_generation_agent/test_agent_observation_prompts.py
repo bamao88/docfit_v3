@@ -11,34 +11,43 @@ from docfit.template_generation.agent.observation_prompts import (
     assemble_observation_messages,
     build_observation_prompt,
 )
+from docfit.template_generation.agent.observation_multimodal import attachment_refs
 from docfit.template_generation.agent.observation_schema import open_questions_from
-from docfit.template_generation.constants import UNIT_DEFINITIONS
 
 
 def clean_evidence(stage: str) -> dict[str, Any]:
     return {"scope": stage, "source_render_hash": "sha256:x", "rows": []}
 
 
-def test_t2_glossary_carries_unit_names_and_aliases() -> None:
-    # C1：欠分割的根因是 prompt 只给裸 unit_id；glossary 必须带名+别名。
-    glossary = build_observation_prompt(stage="t2", evidence_view=clean_evidence("t2"))["glossary"]
-    # 之前 thinking-off 漏掉的单元，其别名关键词必须出现在词典里。
-    for unit_id in ("abstract_cn", "references", "acknowledgement", "appendix", "body_title_block"):
-        assert unit_id in glossary, unit_id
-    names = {definition[1] for definition in UNIT_DEFINITIONS}
-    assert "中文摘要" in names and "中文摘要" in glossary
-    # 别名样例
-    assert "参考文献" in glossary
+def test_t2_prompt_does_not_inject_unit_dictionary() -> None:
+    prompt = build_observation_prompt(stage="t2", evidence_view=clean_evidence("t2"))
+    system, _ = assemble_observation_messages("t2", clean_evidence("t2"))
+
+    assert prompt["glossary"] == ""
+    assert "词典（领域先验" not in system
+    assert "参考下方单元词典" not in system
+    assert "- cover (封面)" not in system
+    assert "你在做 T2" not in system
+    assert "不要把任务做成关键词分类" not in system
+    assert "T2 的目标" in system
+    assert "执行流程" in system
+    assert "不需要输出 order" in system
+    assert "拆分/合并工作流" in system
+    assert "典型正确标准" in system
+    assert "典型错误标准" in system
+    assert "目录条目" in system
+    assert "格式说明" in system
+    assert "允许标签集" in system
 
 
 def test_t3_rubric_is_decision_tree_with_required_fields_at_leaf() -> None:
-    # C2：决策树必须把 6 个 policy 和必填规则都写到叶子。
+    # C2：决策树必须把可执行 policy 和必填规则都写到叶子。
     rubric = build_observation_prompt(stage="t3", evidence_view=clean_evidence("t3"))["rubric"]
-    for policy in ("instruction_remove", "fixed", "template_default", "fill", "generated", "manual_only"):
+    for policy in ("instruction_remove", "fixed", "template_default", "fill", "generated"):
         assert policy in rubric, policy
     assert "fill_source" in rubric
     assert "field_type" in rubric
-    assert "manual_semantics" in rubric
+    assert "manual_only" not in rubric
 
 
 def test_t3_prompt_required_fields_mirror_the_gate() -> None:
@@ -46,7 +55,7 @@ def test_t3_prompt_required_fields_mirror_the_gate() -> None:
     # 必须在 prompt（rubric+contract）里成对出现，否则模型被要求做闸门会拒的事。
     prompt = build_observation_prompt(stage="t3", evidence_view=clean_evidence("t3"))
     text = prompt["rubric"] + OUTPUT_CONTRACT["t3"]
-    for policy, field in (("fill", "fill_source"), ("generated", "field_type"), ("manual_only", "manual_semantics")):
+    for policy, field in (("fill", "fill_source"), ("generated", "field_type")):
         assert policy in text and field in text, (policy, field)
     assert "raw_run_ids" in text
     assert "logical_run_ids" in text
@@ -67,7 +76,6 @@ def test_prompt_templates_are_explicit_parameters() -> None:
         system="SYSTEM $rubric :: $output_contract :: $allowed_labels_json",
         rubrics={"t2": "CUSTOM T2 RUBRIC"},
         output_contracts={"t2": "CUSTOM T2 CONTRACT"},
-        policy_decision_tree="CUSTOM TREE",
         t4_page_vision="PAGE $page_no $layout_context",
     )
     prompt = build_observation_prompt(
@@ -89,9 +97,42 @@ def test_prompt_templates_are_explicit_parameters() -> None:
 
 
 def test_t3_glossary_defines_policies() -> None:
-    glossary = build_observation_prompt(stage="t3", evidence_view=clean_evidence("t3"))["glossary"]
-    assert "manual_only" in glossary
+    prompt = build_observation_prompt(stage="t3", evidence_view=clean_evidence("t3"))
+    glossary = prompt["glossary"]
+    assert "manual_only" not in glossary
     assert "fill_source" in glossary
+    assert "unknown" not in prompt["allowed_labels"]["policies"]
+    assert "- unknown:" not in glossary
+
+
+def test_t3_prompt_maps_mixed_or_uncertain_run_to_keep_not_unknown() -> None:
+    evidence = clean_evidence("t3")
+    prompt = build_observation_prompt(stage="t3", evidence_view=evidence)
+    system, _ = assemble_observation_messages("t3", evidence)
+
+    assert prompt["allowed_labels"]["core_actions"] == ["keep", "fill", "delete"]
+    assert "unit_ids" not in prompt["allowed_labels"]
+    assert "unknown_unit" not in system
+    assert prompt["abstain_is_valid"] is False
+    assert "run 是最小判断单位" in prompt["rubric"]
+    assert "元素如何分组、合并或统一执行不属于本次判断" in prompt["rubric"]
+    assert "core_action=keep、policy=fixed" in prompt["output_contract"]
+    assert "不得输出 unknown" in prompt["output_contract"]
+    assert "preserve → core_action=keep → policy=fixed" in prompt["rubric"]
+    assert "T3 对当前窗口内已经绑定的 run 不得弃权" in system
+
+
+def test_t3_specific_prompt_has_one_source_file() -> None:
+    from importlib import resources
+
+    prompt_dir = resources.files(
+        "docfit.template_generation.agent"
+    ).joinpath("prompt_templates")
+
+    assert prompt_dir.joinpath("t3_prompt.txt").is_file()
+    assert not prompt_dir.joinpath("t3_rubric.txt").is_file()
+    assert not prompt_dir.joinpath("t3_policy_decision_tree.txt").is_file()
+    assert not prompt_dir.joinpath("t3_output_contract.txt").is_file()
 
 
 def test_t3_prompt_teaches_quality_with_selected_positive_and_negative_examples() -> None:
@@ -108,7 +149,9 @@ def test_t3_prompt_teaches_quality_with_selected_positive_and_negative_examples(
     assert "高质量学校模板" in prompt["quality_goal"]
     assert 1 <= len(prompt["exemplars"]) <= 3
     assert any(item["exemplar_id"] == "two_column_field_table" for item in prompt["exemplars"])
+    assert any(item["exemplar_id"] == "indivisible_mixed_run_keep" for item in prompt["exemplars"])
     assert "bad_result" in system and "excellent_result" in system
+    assert '"core_action": "keep"' in system
     assert "不要把标签和值合并" in system or "固定标签" in system
 def test_t3_unit_prompt_routes_whole_unit_before_local_policy() -> None:
     evidence = {
@@ -144,6 +187,36 @@ def test_prompt_hides_private_visual_attachment_paths() -> None:
     assert "page:1" in user
     assert "_attachment_path" not in user
     assert "/private/tmp/page.png" not in user
+
+
+def test_t2_prompt_hides_visual_attachment_paths_and_keeps_refs() -> None:
+    evidence = {
+        "scope": "t2_full_document",
+        "source_render_hash": "sha256:x",
+        "_visual_attachment_limit": 2,
+        "visual_evidence": [
+            {
+                "visual_ref": "page:1",
+                "page_no": 1,
+                "sha256": "sha256:page-1",
+                "_attachment_path": "/private/tmp/page-01.png",
+            },
+            {
+                "visual_ref": "page:2",
+                "page_no": 2,
+                "sha256": "sha256:page-2",
+                "_attachment_path": "/private/tmp/page-02.png",
+            },
+        ],
+    }
+
+    _, user = assemble_observation_messages("t2", evidence)
+
+    assert "page:1" in user and "page:2" in user
+    assert "_attachment_path" not in user
+    assert "_visual_attachment_limit" not in user
+    assert "/private/tmp" not in user
+    assert attachment_refs(evidence) == ["page:1", "page:2"]
 
 
 def test_assemble_messages_shared_by_providers() -> None:

@@ -6,6 +6,9 @@ from docfit.template_generation.agent.t3_input import (
     build_t3_unit_plan_evidence,
     sanitize_unit_plan,
 )
+from docfit.template_generation.agent.observation_windows import (
+    build_observation_windows,
+)
 
 
 def table_packet() -> dict:
@@ -69,6 +72,49 @@ def unit_window() -> dict:
         "source_seq_refs": list(range(1, 8)),
         "neighbor_context": {"previous_unit_id": None, "next_unit_id": "body_main"},
     }
+
+
+def toc_object_packet() -> dict:
+    packet = table_packet()
+    packet["object_fact_index"] = [
+        {
+            "object_id": "field:word/document.xml:p[65]/field[39]",
+            "object_type": "field",
+            "source_ref": "word/document.xml:p[65]/field[39]",
+            "part_name": "word/document.xml",
+            "kind": "complexField",
+            "field_type": "TOC",
+            "instruction": "TOC \\o \"3-3\" \\h \\z",
+            "paragraph_index": 65,
+            "end_paragraph_index": 102,
+            "end_source_ref": "word/document.xml:p[102]",
+        }
+    ]
+    return packet
+
+
+def toc_object_window() -> dict:
+    packet = toc_object_packet()
+    windows = build_observation_windows(
+        ai_unit_observation={
+            "artifact_type": "t3_gold_unit_observation",
+            "items": [
+                {
+                    "unit_id": "toc",
+                    "source_seq_refs": [],
+                    "source_ref_refs": [
+                        "word/document.xml:p[65]/field[39]"
+                    ],
+                    "source_ref_range": {
+                        "start": "word/document.xml:p[65]/field[39]",
+                        "end": "word/document.xml:p[65]/field[39]",
+                    },
+                }
+            ],
+        },
+        packet=packet,
+    )
+    return windows["windows"][0]
 
 
 def test_t3_table_input_keeps_object_and_row_structure_before_local_split() -> None:
@@ -149,3 +195,44 @@ def test_t3_unit_plan_defaults_to_protected_preservation_when_model_output_is_in
     assert plan["default_preservation_policy"] == "fixed"
     assert plan["protected_source_seq_refs"] == list(range(1, 8))
     assert plan["inspect_source_seq_refs"] == list(range(1, 8))
+
+
+def test_t3_source_ref_object_becomes_claimable_field_task_and_evidence() -> None:
+    packet = toc_object_packet()
+    window = toc_object_window()
+    tasks = build_t3_local_tasks(packet, unit_windows=[window])
+
+    assert window["source_seq_refs"] == []
+    assert window["source_ref_refs"] == [
+        "word/document.xml:p[65]/field[39]"
+    ]
+    assert len(tasks) == 1
+    task = tasks[0]
+    assert task["object_type"] == "field"
+    assert task["source_ref_refs"] == window["source_ref_refs"]
+
+    overview = build_t3_unit_plan_evidence(
+        packet,
+        unit_window=window,
+        tasks=tasks,
+    )
+    assert overview["unit_overview"]["source_object_count"] == 1
+    assert overview["unit_overview"]["objects"][0]["overview"]["facts"][
+        "field_type"
+    ] == "TOC"
+
+    plan = sanitize_unit_plan(
+        {"route": "preserve_structure_classify_fields"},
+        unit_window=window,
+    )
+    assert plan["inspect_source_ref_refs"] == window["source_ref_refs"]
+    evidence = build_t3_local_evidence(
+        packet,
+        task=task,
+        local_window=task["local_windows"][0],
+        unit_plan=plan,
+    )
+    assert evidence["rows"] == []
+    assert evidence["claimable_source_ref_refs"] == window["source_ref_refs"]
+    assert evidence["object_facts"][0]["evidence_role"] == "claimable"
+    assert evidence["object_facts"][0]["instruction"].startswith("TOC")

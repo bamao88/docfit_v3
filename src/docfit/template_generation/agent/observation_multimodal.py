@@ -80,7 +80,25 @@ def _attachment_entries(evidence: dict[str, Any]) -> list[dict[str, Any]]:
     visual = evidence.get("visual_evidence") or []
     if not isinstance(visual, list):
         return []
-    return [item for item in visual[:4] if isinstance(item, dict) and item.get("_attachment_path")]
+    limit = _attachment_limit(evidence)
+    if limit <= 0:
+        return []
+    return [
+        item
+        for item in visual[:limit]
+        if isinstance(item, dict) and item.get("_attachment_path")
+    ]
+
+
+def _attachment_limit(evidence: dict[str, Any]) -> int:
+    value = evidence.get("_visual_attachment_limit")
+    if isinstance(value, bool):
+        return 4
+    if isinstance(value, int):
+        return max(0, min(value, 64))
+    if isinstance(value, str) and value.strip().isdigit():
+        return max(0, min(int(value), 64))
+    return 4
 
 
 def _media_type(path: Path) -> str:

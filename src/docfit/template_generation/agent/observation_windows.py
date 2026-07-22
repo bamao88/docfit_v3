@@ -34,7 +34,9 @@ def build_observation_windows(
         "artifact_type": "ai_observation_unit_windows",
         "artifact_version": "1.0",
         "created_at": now_iso(),
-        "window_source": "ai_unit_observation",
+        "window_source": str(
+            ai_unit_observation.get("artifact_type") or "ai_unit_observation"
+        ),
         "post_t2_observation_hash": sha256_json(ai_unit_observation.get("items", [])),
         "windows": windows,
     }
@@ -62,6 +64,7 @@ def _window_for_item(
 ) -> dict[str, Any]:
     unit_id = str(item.get("unit_id") or "")
     source_seq_refs = _ints(item.get("source_seq_refs", []))
+    source_ref_refs = _source_ref_refs(item)
     page_nos = sorted(
         {page_by_seq[seq] for seq in source_seq_refs if seq in page_by_seq}
     )
@@ -69,6 +72,8 @@ def _window_for_item(
         "window_id": f"unit:{unit_id}",
         "unit_id": unit_id,
         "source_seq_refs": source_seq_refs,
+        "source_ref_refs": source_ref_refs,
+        "source_ref_range": item.get("source_ref_range"),
         "page_nos": page_nos,
         "render_target_refs": [
             target_by_seq[seq] for seq in source_seq_refs if seq in target_by_seq
@@ -110,6 +115,22 @@ def _ints(values: Any) -> list[int]:
     if not isinstance(values, list):
         return []
     return [v for v in (_int_or_none(x) for x in values) if v is not None]
+
+
+def _source_ref_refs(item: dict[str, Any]) -> list[str]:
+    explicit = [
+        str(value)
+        for value in item.get("source_ref_refs", []) or []
+        if str(value or "").strip()
+    ]
+    if explicit:
+        return list(dict.fromkeys(explicit))
+    source_ref_range = item.get("source_ref_range")
+    if not isinstance(source_ref_range, dict):
+        return []
+    start = str(source_ref_range.get("start") or "").strip()
+    end = str(source_ref_range.get("end") or "").strip()
+    return list(dict.fromkeys(value for value in (start, end) if value))
 
 
 def _int_or_none(value: Any) -> int | None:

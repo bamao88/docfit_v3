@@ -854,3 +854,61 @@ def test_t3_with_upstream_makes_bootstrap_explicit_in_manifest(tmp_path) -> None
     manifest = read_json(out_dir / "run_manifest.json")
     assert manifest["ran_upstream_t2"] is True
     assert manifest["upstream_artifacts"]["t2"]["sha256"]
+
+
+def test_t3_gold_mode_blocks_before_model_when_atomic_input_is_incomplete(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    packet = clean_packet()
+    run_dir = tmp_path / "template-run"
+    run_dir.mkdir()
+    write_l1_stage_input(run_dir, packet)
+    write_json(
+        run_dir / "01_document_facts.json",
+        {"metadata": {"source_template_hash": "sha256:test-template"}},
+    )
+    standard_path = tmp_path / "t2.standard.yaml"
+    write_yaml(
+        standard_path,
+        {
+            "stage_id": "T2",
+            "standard_id": "fixture-t2",
+            "standard_state": "signed_active",
+            "accepted_source_facts": {
+                "template_docx_sha256": "sha256:test-template"
+            },
+            "expected": {
+                "unit_order": ["cover", "body_main"],
+                "units": [
+                    {
+                        "unit_id": "cover",
+                        "boundary": {
+                            "source_seq_range": {"start": 1, "end": 1}
+                        },
+                    },
+                    {
+                        "unit_id": "body_main",
+                        "boundary": {
+                            "source_seq_range": {"start": 2, "end": 4}
+                        },
+                    },
+                ],
+            },
+        },
+    )
+    monkeypatch.setattr(
+        observation_orchestrate,
+        "_stage_text_runtime",
+        lambda **_kwargs: pytest.fail("gold input gate must run before the model"),
+    )
+
+    with pytest.raises(AgentConfigError, match="complete atomic run facts"):
+        observation_orchestrate.run_template_observation_stage(
+            source_run_dir=run_dir,
+            out_dir=tmp_path / "t3-gold",
+            stage="t3",
+            ai_mode="replay",
+            replay_path=tmp_path / "unused-replay.json",
+            t2_gold_standard_path=standard_path,
+        )

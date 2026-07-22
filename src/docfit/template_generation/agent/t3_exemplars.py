@@ -13,7 +13,7 @@ from typing import Any
 T3_QUALITY_GOAL = (
     "目标是形成可实际复用的高质量学校模板：固定标题/标签/正式声明完整保留；"
     "学生姓名、学号、论文题目等个性化示例值变成准确填写字段；只有能精确绑定 run 的纯格式批注才删除；"
-    "空白填写区不遗漏；签名、手写意见和人工勾选保留为 manual_only；"
+    "空白填写区不遗漏；签名、手写意见和人工勾选保留为 fixed；"
     "标签和值的关系、完整声明及表格结构不被破坏；不确定时宁可保留并复核，避免误删正式内容；"
     "所有判断都能追溯到输入中的 Word 事实。"
 )
@@ -36,12 +36,14 @@ _ELEMENT_EXEMPLARS: dict[str, dict[str, Any]] = {
         },
         "excellent_result": [
             {
+                "core_action": "keep",
                 "policy": "fixed",
                 "role": "template_fixed",
                 "content": "学生姓名",
                 "source_seq_refs": [21],
             },
             {
+                "core_action": "keep",
                 "policy": "fill",
                 "role": "student_content",
                 "content": "张三",
@@ -67,6 +69,7 @@ _ELEMENT_EXEMPLARS: dict[str, dict[str, Any]] = {
         },
         "excellent_result": [
             {
+                "core_action": "fill",
                 "policy": "fill",
                 "role": "student_content",
                 "content": "论文题目",
@@ -74,6 +77,7 @@ _ELEMENT_EXEMPLARS: dict[str, dict[str, Any]] = {
                 "fill_source": "student_content",
             },
             {
+                "core_action": "delete",
                 "policy": "instruction_remove",
                 "role": "template_instruction",
                 "semantic_role": "format_annotation",
@@ -85,6 +89,37 @@ _ELEMENT_EXEMPLARS: dict[str, dict[str, Any]] = {
             },
         ],
         "quality_reason": "填写内容与只用于指导排版的说明必须形成两个元素",
+    },
+    "indivisible_mixed_run_keep": {
+        "name": "单个 run 混合固定文字与选择项：保留优先",
+        "applies_to": ["text_flow", "table", "declaration", "choice"],
+        "input": {
+            "runs": [
+                {
+                    "raw_run_id": "p_0042.r_001",
+                    "text": "授权期限：□一年  □两年  □三年",
+                }
+            ]
+        },
+        "bad_result": {
+            "core_action": "fill",
+            "policy": "fill",
+            "raw_run_ids": ["p_0042.r_001"],
+            "why_bad": "同一 raw run 还包含必须保留的固定标签；把整个 run 标成 fill 会覆盖固定文字",
+        },
+        "excellent_result": [
+            {
+                "core_action": "keep",
+                "policy": "fixed",
+                "semantic_role": "mixed_or_uncertain",
+                "transformation": "preserve",
+                "confidence": "low",
+                "content": "授权期限：□一年  □两年  □三年",
+                "raw_run_ids": ["p_0042.r_001"],
+                "ai_decision_path": "同一 raw run 混合固定文字与待选内容，无法安全拆分，依保留优先原则按 keep 处理",
+            }
+        ],
+        "quality_reason": "run 是最小单位；无法拆分时保留整个 run，禁止输出 unknown 或 delete",
     },
     "manual_signature": {
         "name": "签名与人工意见区域",
@@ -102,17 +137,18 @@ _ELEMENT_EXEMPLARS: dict[str, dict[str, Any]] = {
         },
         "excellent_result": [
             {
+                "core_action": "keep",
                 "policy": "fixed",
                 "role": "template_fixed",
                 "content": "指导教师签字",
                 "source_seq_refs": [41],
             },
             {
-                "policy": "manual_only",
-                "role": "manual_field",
+                "core_action": "fill",
+                "policy": "fixed",
+                "role": "template_fixed",
                 "content": "________",
                 "source_seq_refs": [42],
-                "manual_semantics": "指导教师签字",
             },
         ],
         "quality_reason": "固定标签保留，签字区域明确留给人工完成",
@@ -133,12 +169,14 @@ _ELEMENT_EXEMPLARS: dict[str, dict[str, Any]] = {
         },
         "excellent_result": [
             {
+                "core_action": "keep",
                 "policy": "fixed",
                 "role": "template_fixed",
                 "content": "本科毕业论文",
                 "source_seq_refs": [5],
             },
             {
+                "core_action": "fill",
                 "policy": "fill",
                 "role": "student_content",
                 "content": "人工智能在农业中的应用",
@@ -164,7 +202,7 @@ _UNIT_EXEMPLARS: dict[str, dict[str, Any]] = {
         },
         "excellent_plan": {
             "route": "inspect_suspected_regions",
-            "default_preservation_policy": "manual_only",
+            "default_preservation_policy": "fixed",
             "protected_source_seq_refs": [101, 102, 103, 104, 105],
             "inspect_source_seq_refs": [106],
             "confidence": "high",
@@ -184,7 +222,7 @@ _UNIT_EXEMPLARS: dict[str, dict[str, Any]] = {
         },
         "excellent_plan": {
             "route": "preserve_whole",
-            "default_preservation_policy": "manual_only",
+            "default_preservation_policy": "fixed",
             "protected_source_seq_refs": [201, 202, 203, 204, 205, 206],
             "inspect_source_seq_refs": [],
             "confidence": "high",
@@ -241,6 +279,10 @@ def select_t3_element_exemplars(evidence: dict[str, Any], *, limit: int = 3) -> 
         score = sum(1 for cue in exemplar.get("applies_to", []) if cue.lower() in haystack)
         if exemplar_id == "format_instruction_split":
             score += 1  # 混合 run 是所有 T3 对象都必须掌握的基础能力。
+        if exemplar_id == "indivisible_mixed_run_keep":
+            score += 2  # 保留优先是一级动作判断的硬规则，每个 T3 窗口都应看到。
+        if exemplar_id == "two_column_field_table" and "table" in haystack:
+            score += 1  # 表格窗口优先展示固定标签与待填值的一级动作差异。
         scores.append((score, exemplar_id))
     selected = sorted(scores, key=lambda item: (-item[0], item[1]))[: max(1, limit)]
     return [

@@ -3,9 +3,9 @@
 逐 item 跑 5 道确定性闸门，越界即降级 unknown 并写 ``quality_report.demotions``
 （也是 Module 2 的冲突种子）：
 
-  ② 标签闭合：unit_id∈taxonomy、policy∈6、confidence∈3、field_type∈4；越界 → 降级
+  ② 标签闭合：unit_id∈taxonomy、policy∈7（含 unknown）、confidence∈3、field_type∈4；越界 → 降级
   ③ 证据绑定：source_seq_refs 必须存在于 render packet；未绑定 → 降级
-  ④ 必填规则（镜像 ontology）：fill→fill_source、generated→field_type、manual_only→manual_semantics
+  ④ 必填规则（镜像 ontology）：fill→fill_source、generated→field_type
   ⑤ 覆盖/不重叠：owned=∪存活 item.refs；同一 seq 被争用时高 confidence 留、平票判 contested→unknown
 
 ① schema 形状校验 + source_render_hash 对齐由 observation_schema / loop 负责。
@@ -17,8 +17,6 @@ from __future__ import annotations
 from typing import Any
 
 from docfit.core.io import now_iso
-from docfit.template_generation.page_policy import PAGE_POLICY_FIELDS, normalize_page_policy
-
 from .observation_schema import (
     ALLOWED_FIELD_TYPES,
     ALLOWED_FILL_SOURCES,
@@ -35,6 +33,23 @@ from .observation_schema import (
 from .packet import packet_source_seq_set
 
 _CONFIDENCE_RANK = {"high": 3, "medium": 2, "low": 1}
+_UNIT_PAGE_START_VALUES = {"document_start", "new_page", "same_page_allowed", "unknown"}
+_UNIT_PAGE_SCOPE_VALUES = {
+    "single_page_exclusive",
+    "page_range_exclusive",
+    "shareable_flow",
+    "unknown",
+}
+_POLICY_TO_CORE_ACTION = {
+    "fixed": "keep",
+    "template_default": "keep",
+    "fill": "fill",
+    "generated": "fill",
+    "instruction_remove": "delete",
+    # 防御性兼容：Prompt 不允许模型输出 unknown，但外部/历史产物进入时
+    # 仍必须只能对应保守 keep。
+    "unknown": "keep",
+}
 
 
 def materialize_unit_observation(
@@ -84,7 +99,9 @@ def materialize_unit_observation(
         )
 
     # ⑤ 覆盖/不重叠
-    items = _resolve_overlap(survivors, unknown_items, demotions)
+    items = _sort_unit_items_by_source_seq(
+        _resolve_overlap(survivors, unknown_items, demotions)
+    )
     coverage = compute_coverage(items, all_source_seq=valid_seq)
     return _envelope(
         "ai_unit_observation",
@@ -99,22 +116,16 @@ def materialize_unit_observation(
 
 
 def _unit_page_fields(raw: dict[str, Any]) -> dict[str, Any]:
-    if not any(field in raw for field in PAGE_POLICY_FIELDS):
-        return {"page_start": raw.get("page_start")}
-    page = normalize_page_policy(
-        {
-            field: raw.get(field)
-            for field in PAGE_POLICY_FIELDS
-            if field in raw
-        },
-        default_origin="ai_observation",
-        default_confidence=_normalize_confidence(raw.get("confidence")),
-        default_evidence_refs=list(raw.get("evidence_refs") or []),
-    )
+    page_policy = raw.get("page_policy")
+    if not isinstance(page_policy, dict):
+        return {"page_policy": {"start": "unknown", "scope": "unknown"}}
+    start = page_policy.get("start")
+    scope = page_policy.get("scope")
     return {
-        "page": page,
-        **{field: page[field] for field in PAGE_POLICY_FIELDS},
-        "page_start": raw.get("page_start"),
+        "page_policy": {
+            "start": str(start) if start in _UNIT_PAGE_START_VALUES else "unknown",
+            "scope": str(scope) if scope in _UNIT_PAGE_SCOPE_VALUES else "unknown",
+        }
     }
 
 
@@ -164,6 +175,7 @@ def materialize_element_observation(
                 "unit_id": unit_id,
                 "order": raw.get("order", index),
                 "policy": policy,
+                "core_action": raw.get("core_action"),
                 "role": role,
                 "content": raw.get("content"),
                 "source_seq_refs": sorted(bound),
@@ -173,7 +185,6 @@ def materialize_element_observation(
                 "evidence_refs": raw.get("evidence_refs", []),
                 "fill_source": raw.get("fill_source"),
                 "generated": raw.get("generated"),
-                "manual_semantics": raw.get("manual_semantics"),
                 "semantic_role": raw.get("semantic_role"),
                 "transformation": raw.get("transformation"),
                 "removal_reason": raw.get("removal_reason"),
@@ -462,6 +473,22 @@ def _resolve_overlap(
     return result
 
 
+def _sort_unit_items_by_source_seq(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    sorted_items = sorted(
+        items,
+        key=lambda item: (
+            _min_source_seq(item),
+            str(item.get("unit_id") or ""),
+        ),
+    )
+    return [{**item, "order": index} for index, item in enumerate(sorted_items)]
+
+
+def _min_source_seq(item: dict[str, Any]) -> int:
+    refs = _ints(item.get("source_seq_refs"))
+    return min(refs) if refs else 10**12
+
+
 def _run_claims_are_disjoint(items: list[dict[str, Any]]) -> bool:
     use_raw = all(item.get("raw_run_ids") for item in items)
     use_logical = all(item.get("logical_run_ids") for item in items)
@@ -484,6 +511,13 @@ def _run_claims_are_disjoint(items: list[dict[str, Any]]) -> bool:
 
 
 def _required_field_error(policy: str, raw: dict[str, Any]) -> str | None:
+    core_action = raw.get("core_action")
+    expected_core_action = _POLICY_TO_CORE_ACTION.get(policy)
+    if core_action is not None and core_action != expected_core_action:
+        return (
+            f"policy {policy} requires core_action={expected_core_action}, "
+            f"got {core_action}"
+        )
     if policy == "fill":
         source = raw.get("fill_source")
         if source not in ALLOWED_FILL_SOURCES:
@@ -492,9 +526,6 @@ def _required_field_error(policy: str, raw: dict[str, Any]) -> str | None:
         generated = raw.get("generated") or {}
         if generated.get("field_type") not in ALLOWED_FIELD_TYPES:
             return f"generated policy requires generated.field_type in {sorted(ALLOWED_FIELD_TYPES)}"
-    if policy == "manual_only":
-        if not raw.get("manual_semantics"):
-            return "manual_only policy requires manual_semantics"
     return None
 
 

@@ -2,18 +2,16 @@ policies:
   - fixed
   - template_default
   - fill
-  - manual_only
   - generated
   - instruction_remove
+  - unknown
 roles:
   - template_fixed
   - template_instruction
   - student_content
-  - manual_field
   - generated_field
 fill_sources:
   - student_content
-  - manual
   - generated_field
 generated_field_types:
   - TOC
@@ -24,17 +22,16 @@ generated_field_types:
 # 一行人话定义，注入 prompt 帮模型接地（领域先验，非 gold）。新增 policy/role 等
 # 必须同时在上面的枚举和这里补定义，保持 ontology 单一真相。
 policy_definitions:
-  fixed: 原样保留的模板固定文字，学生不改（如校名、声明标题）
+  fixed: 原样保留的模板内容与人工填写区域（如校名、声明标题、签名、日期、意见、成绩）
   template_default: 模板自带的标题/标签等默认内容，随模板保留
   fill: 留给学生/作者填写的空位（题名、姓名、学号、摘要正文等）
-  manual_only: 只能人工手写、不能预填的位置（签名、日期、意见、成绩）
   generated: 由系统自动生成的内容（目录、页码、图表编号）
   instruction_remove: 格式说明/排版要求等模板批注，成稿时应删除
+  unknown: 当前 raw run 语义混合或证据不足，判断层保留不确定；执行层必须按 keep 处理
 role_definitions:
   template_fixed: 模板固定文字
   template_instruction: 模板里的格式说明/排版要求
   student_content: 学生填写内容
-  manual_field: 人工手写字段
   generated_field: 自动生成字段
 field_type_definitions:
   TOC: 目录（自动生成）

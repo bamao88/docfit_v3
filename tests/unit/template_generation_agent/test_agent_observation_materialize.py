@@ -61,7 +61,7 @@ def test_unit_coverage_invariant_holds_after_materialize() -> None:
     assert owned & unknown == set()
 
 
-def test_unit_materialize_preserves_page_policy_fields() -> None:
+def test_unit_materialize_does_not_revive_legacy_page_policy_fields() -> None:
     packet = clean_packet()
     seq = sorted(packet_source_seq_set(packet))[0]
     obs = materialize_unit_observation(
@@ -80,13 +80,63 @@ def test_unit_materialize_preserves_page_policy_fields() -> None:
         packet=packet,
     )
 
-    page = obs["items"][0]["page"]
-    assert page["page_break"] == "document_start"
-    assert page["page_isolation"] is True
-    assert page["allow_multi_page"] is False
-    assert page["keep_together"] is True
-    assert page["decision"]["origin"] == "ai_observation"
-    assert page["decision"]["evidence_refs"] == ["page:1"]
+    assert obs["items"][0]["page_policy"] == {
+        "start": "unknown",
+        "scope": "unknown",
+    }
+    assert "page" not in obs["items"][0]
+    assert "page_break" not in obs["items"][0]
+
+
+def test_unit_materialize_preserves_unit_page_policy_without_legacy_page() -> None:
+    packet = clean_packet()
+    seq = sorted(packet_source_seq_set(packet))[0]
+    obs = materialize_unit_observation(
+        [
+            {
+                "unit_id": "cover",
+                "source_seq_refs": [seq],
+                "confidence": "high",
+                "page_policy": {
+                    "start": "document_start",
+                    "scope": "single_page_exclusive",
+                },
+            }
+        ],
+        packet=packet,
+    )
+
+    assert obs["items"][0]["page_policy"] == {
+        "start": "document_start",
+        "scope": "single_page_exclusive",
+    }
+    assert "page" not in obs["items"][0]
+    assert "page_break" not in obs["items"][0]
+
+
+def test_unit_materialize_orders_units_by_source_seq_not_ai_order() -> None:
+    packet = clean_packet()
+    seqs = sorted(packet_source_seq_set(packet))
+    obs = materialize_unit_observation(
+        [
+            {
+                "unit_id": "body_main",
+                "source_seq_refs": [seqs[1]],
+                "confidence": "high",
+                "order": 99,
+            },
+            {
+                "unit_id": "cover",
+                "source_seq_refs": [seqs[0]],
+                "confidence": "high",
+                "order": 99,
+            },
+        ],
+        packet=packet,
+    )
+
+    assert [item["unit_id"] for item in obs["items"]] == ["cover", "body_main"]
+    assert [item["order"] for item in obs["items"]] == [0, 1]
 
 
 def test_unit_overlap_higher_confidence_wins() -> None:
@@ -127,6 +177,7 @@ def test_element_accepts_valid_fill_with_source() -> None:
             {
                 "element_id": "cover.001",
                 "policy": "fill",
+                "core_action": "fill",
                 "fill_source": "student_content",
                 "source_seq_refs": seqs[:1],
             }
@@ -136,6 +187,53 @@ def test_element_accepts_valid_fill_with_source() -> None:
     )
     assert len(obs["items"]) == 1
     assert obs["items"][0]["policy"] == "fill"
+    assert obs["items"][0]["core_action"] == "fill"
+
+
+def test_element_demotes_policy_and_core_action_mismatch() -> None:
+    packet = clean_packet()
+    seq = sorted(packet_source_seq_set(packet))[0]
+    window = {"window_id": "unit:cover", "unit_id": "cover", "source_seq_refs": [seq]}
+    obs = materialize_element_observation(
+        [
+            {
+                "element_id": "cover.001",
+                "policy": "fixed",
+                "core_action": "delete",
+                "source_seq_refs": [seq],
+            }
+        ],
+        packet=packet,
+        window=window,
+    )
+
+    assert obs["items"] == []
+    assert "C-REQUIRED-FIELD" in demotion_checks(obs)
+
+
+def test_element_preserves_explicit_unknown_as_a_bound_decision() -> None:
+    packet = clean_packet()
+    seq = sorted(packet_source_seq_set(packet))[0]
+    window = {"window_id": "unit:cover", "unit_id": "cover", "source_seq_refs": [seq]}
+    obs = materialize_element_observation(
+        [
+            {
+                "element_id": "cover.001",
+                "policy": "unknown",
+                "semantic_role": "mixed_or_uncertain",
+                "transformation": "review",
+                "source_seq_refs": [seq],
+                "raw_run_ids": ["p_0001.r_001"],
+                "confidence": "low",
+            }
+        ],
+        packet=packet,
+        window=window,
+    )
+
+    assert obs["items"][0]["policy"] == "unknown"
+    assert obs["items"][0]["transformation"] == "review"
+    assert obs["unknown_items"] == []
 
 
 def test_element_keeps_disjoint_run_claims_inside_same_source_seq() -> None:

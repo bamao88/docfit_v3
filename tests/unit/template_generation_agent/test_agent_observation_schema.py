@@ -53,7 +53,7 @@ def test_allowed_label_sets_track_runtime_taxonomy() -> None:
     assert "cover" in ALLOWED_UNIT_IDS
     assert UNKNOWN_UNIT_ID in ALLOWED_UNIT_IDS
     assert len(ALLOWED_UNIT_IDS) >= 24
-    assert {"fixed", "fill", "manual_only", "generated"} <= ALLOWED_POLICIES
+    assert {"fixed", "fill", "fixed", "generated", "unknown"} <= ALLOWED_POLICIES
 
 
 def test_empty_observation_is_schema_valid_and_abstains() -> None:

@@ -2,4 +2,4 @@
 任务：$rubric
 $quality_block$glossary_block$exemplar_block允许标签集：$allowed_labels_json
 输出契约：$output_contract
-弃权是合法输出：没有证据支撑就少认领、留 unknown。
+$abstain_instruction

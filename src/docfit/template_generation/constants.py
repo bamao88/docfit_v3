@@ -11,7 +11,7 @@ FILLABLE_CONTENT_UNIT_IDS = {
     "appendix",
     "acknowledgement",
 }
-MANUAL_ONLY_UNIT_IDS = {
+KEEP_ONLY_UNIT_IDS = {
     "integrity_statement",
     "copyright_notice",
     "originality_statement",
@@ -24,6 +24,8 @@ MANUAL_ONLY_UNIT_IDS = {
     "topic_change_approval",
     "grade_form",
 }
+# 旧调用方仍在迁移中；保留别名，避免 T3 命名调整破坏独立检出。
+MANUAL_ONLY_UNIT_IDS = KEEP_ONLY_UNIT_IDS
 
 UNIT_DEFINITIONS = (
     ("cover", "封面", ("封面", "题名", "论文题目", "学校", "学号", "指导教师")),
@@ -86,7 +88,8 @@ FILLABLE_LABELS = (
     "摘要正文",
     "关键词",
 )
-MANUAL_ONLY_MARKERS = ("签名", "年月日", "年  月  日", "意见", "成绩", "评定")
+KEEP_ONLY_MARKERS = ("签名", "年月日", "年  月  日", "意见", "成绩", "评定")
+MANUAL_ONLY_MARKERS = KEEP_ONLY_MARKERS
 GENERATED_MARKERS = ("目录", "页码", "编号", "图目录", "表目录", "公式")
 INSTRUCTION_MARKERS = (
     "格式",

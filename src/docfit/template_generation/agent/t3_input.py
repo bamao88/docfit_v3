@@ -22,7 +22,7 @@ _UNIT_ROUTES = {
     "inspect_suspected_regions",
     "full_local_analysis",
 }
-_SAFE_DEFAULT_POLICIES = {"fixed", "manual_only", "generated"}
+_SAFE_DEFAULT_POLICIES = {"fixed", "generated"}
 
 
 def build_t3_local_tasks(
@@ -41,6 +41,7 @@ def build_t3_local_tasks(
         for row in packet_rows
         if (seq := _as_int(row.get("source_seq"))) is not None
     }
+    objects_by_ref = _objects_by_source_ref(packet)
     tasks: list[dict[str, Any]] = []
     for unit_window in unit_windows:
         refs = [seq for seq in _ints(unit_window.get("source_seq_refs")) if seq in by_seq]
@@ -84,6 +85,16 @@ def build_t3_local_tasks(
                     "local_windows": local_windows,
                 }
             )
+        for source_ref in _strings(unit_window.get("source_ref_refs")):
+            object_fact = objects_by_ref.get(source_ref)
+            if object_fact is None:
+                continue
+            tasks.append(
+                _source_object_task(
+                    object_fact=object_fact,
+                    parent_window=unit_window,
+                )
+            )
     return tasks
 
 
@@ -96,6 +107,7 @@ def build_t3_unit_plan_evidence(
     """先给模型完整单元截图和对象清单，由它决定是否需要继续下钻。"""
 
     wanted = set(_ints(unit_window.get("source_seq_refs")))
+    wanted_object_refs = set(_strings(unit_window.get("source_ref_refs")))
     rows = [
         row
         for row in packet.get("page_text_index", [])
@@ -112,11 +124,13 @@ def build_t3_unit_plan_evidence(
             # 来自已确认 T2 的弱上下文标签，只限定本次观察范围，不作为 T3 policy 结论。
             "t2_scope_label": unit_window.get("unit_id"),
             "source_seq_refs": sorted(wanted),
+            "source_ref_refs": sorted(wanted_object_refs),
             "page_nos": pages,
             "neighbor_context": deepcopy(unit_window.get("neighbor_context") or {}),
         },
         "unit_overview": {
             "source_item_count": len(rows),
+            "source_object_count": len(wanted_object_refs),
             "local_task_count": len(tasks),
             "object_type_counts": dict(Counter(str(task.get("object_type") or "unknown") for task in tasks)),
             "objects": [
@@ -124,6 +138,7 @@ def build_t3_unit_plan_evidence(
                     "object_id": task.get("object_id"),
                     "object_type": task.get("object_type"),
                     "source_seq_refs": task.get("source_seq_refs", []),
+                    "source_ref_refs": task.get("source_ref_refs", []),
                     "overview": deepcopy(task.get("object_overview") or {}),
                 }
                 for task in tasks
@@ -162,6 +177,7 @@ def sanitize_unit_plan(
 
     raw = plan if isinstance(plan, dict) else {}
     allowed_refs = set(_ints(unit_window.get("source_seq_refs")))
+    allowed_object_refs = set(_strings(unit_window.get("source_ref_refs")))
     route = str(raw.get("route") or "")
     if route not in _UNIT_ROUTES:
         route = "preserve_structure_classify_fields"
@@ -170,16 +186,28 @@ def sanitize_unit_plan(
         default_policy = "fixed"
     protected = set(_ints(raw.get("protected_source_seq_refs"))) & allowed_refs
     inspect = set(_ints(raw.get("inspect_source_seq_refs"))) & allowed_refs
+    protected_objects = (
+        set(_strings(raw.get("protected_source_ref_refs"))) & allowed_object_refs
+    )
+    inspect_objects = (
+        set(_strings(raw.get("inspect_source_ref_refs"))) & allowed_object_refs
+    )
     if route == "preserve_whole":
         protected = set(allowed_refs)
         inspect = set()
+        protected_objects = set(allowed_object_refs)
+        inspect_objects = set()
     elif route == "preserve_structure_classify_fields":
         protected = set(allowed_refs)
         inspect = set(allowed_refs)
+        protected_objects = set(allowed_object_refs)
+        inspect_objects = set(allowed_object_refs)
     elif route == "inspect_suspected_regions":
         protected |= allowed_refs - inspect
+        protected_objects |= allowed_object_refs - inspect_objects
     else:
         inspect = set(allowed_refs)
+        inspect_objects = set(allowed_object_refs)
     confidence = str(raw.get("confidence") or "low")
     if confidence not in {"low", "medium", "high"}:
         confidence = "low"
@@ -188,6 +216,8 @@ def sanitize_unit_plan(
         "default_preservation_policy": default_policy,
         "protected_source_seq_refs": sorted(protected),
         "inspect_source_seq_refs": sorted(inspect),
+        "protected_source_ref_refs": sorted(protected_objects),
+        "inspect_source_ref_refs": sorted(inspect_objects),
         "rationale": str(raw.get("rationale") or "")[:1200],
         "confidence": confidence,
         "quality_risks": [str(value)[:500] for value in (raw.get("quality_risks") or [])[:20]],
@@ -203,6 +233,11 @@ def build_t3_local_evidence(
 ) -> dict[str, Any]:
     claimable = set(_ints(local_window.get("source_seq_refs")))
     context_only = set(_ints(local_window.get("context_source_seq_refs"))) - claimable
+    claimable_object_refs = set(_strings(local_window.get("source_ref_refs")))
+    context_object_refs = (
+        set(_strings(local_window.get("context_source_ref_refs")))
+        - claimable_object_refs
+    )
     wanted = claimable | context_only
     rows = [
         _local_row(row, claimable=claimable)
@@ -214,6 +249,19 @@ def build_t3_local_evidence(
         for row in packet.get("page_text_index", [])
         if isinstance(row, dict) and _as_int(row.get("source_seq")) in claimable
     ]
+    objects_by_ref = _objects_by_source_ref(packet)
+    object_facts = [
+        {
+            **deepcopy(objects_by_ref[source_ref]),
+            "evidence_role": (
+                "claimable"
+                if source_ref in claimable_object_refs
+                else "context_only"
+            ),
+        }
+        for source_ref in sorted(claimable_object_refs | context_object_refs)
+        if source_ref in objects_by_ref
+    ]
     view = {
         "scope": "t3_local_window",
         "source_render_hash": packet.get("source_render_hash"),
@@ -223,7 +271,10 @@ def build_t3_local_evidence(
         "unit_plan": deepcopy(unit_plan or {}),
         "claimable_source_seq_refs": sorted(claimable),
         "context_only_source_seq_refs": sorted(context_only),
+        "claimable_source_ref_refs": sorted(claimable_object_refs),
+        "context_only_source_ref_refs": sorted(context_object_refs),
         "rows": rows,
+        "object_facts": object_facts,
         "visual_evidence": _visual_evidence(packet, rows=visual_rows, limit=2),
     }
     assert_firewall_clean(view)
@@ -240,14 +291,64 @@ def task_summary(task: dict[str, Any]) -> dict[str, Any]:
         "unit_id": task.get("unit_id"),
         "parent_window_id": task.get("parent_window_id"),
         "source_seq_refs": task.get("source_seq_refs", []),
+        "source_ref_refs": task.get("source_ref_refs", []),
         "local_windows": [
             {
                 "window_id": window.get("window_id"),
                 "source_seq_refs": window.get("source_seq_refs", []),
                 "context_source_seq_refs": window.get("context_source_seq_refs", []),
+                "source_ref_refs": window.get("source_ref_refs", []),
+                "context_source_ref_refs": window.get(
+                    "context_source_ref_refs", []
+                ),
             }
             for window in task.get("local_windows", [])
         ],
+    }
+
+
+def _source_object_task(
+    *,
+    object_fact: dict[str, Any],
+    parent_window: dict[str, Any],
+) -> dict[str, Any]:
+    source_ref = str(object_fact.get("source_ref") or "")
+    object_id = str(object_fact.get("object_id") or source_ref)
+    object_type = str(object_fact.get("object_type") or "source_object")
+    task_id = f"{parent_window.get('window_id')}:object:{object_id}"
+    local_window = {
+        "window_id": f"{task_id}:part_001",
+        "unit_id": parent_window.get("unit_id"),
+        "source_seq_refs": [],
+        "context_source_seq_refs": [],
+        "source_ref_refs": [source_ref],
+        "context_source_ref_refs": [],
+        "neighbor_context": parent_window.get("neighbor_context"),
+    }
+    return {
+        "task_id": task_id,
+        "object_id": object_id,
+        "object_type": object_type,
+        "unit_id": parent_window.get("unit_id"),
+        "parent_window_id": parent_window.get("window_id"),
+        "source_seq_refs": [],
+        "source_ref_refs": [source_ref],
+        "object_overview": {
+            "object_id": object_id,
+            "object_type": object_type,
+            "source_ref": source_ref,
+            "facts": deepcopy(object_fact),
+        },
+        "visual_evidence": [],
+        "local_windows": [local_window],
+    }
+
+
+def _objects_by_source_ref(packet: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        str(item.get("source_ref") or ""): item
+        for item in packet.get("object_fact_index", []) or []
+        if isinstance(item, dict) and item.get("source_ref")
     }
 
 
@@ -528,17 +629,31 @@ def _local_row(row: dict[str, Any], *, claimable: set[int]) -> dict[str, Any]:
     logical_ids = [str(value) for value in (row.get("logical_run_ids") or [])]
     run_facts: list[dict[str, Any]] = []
     for index, run in enumerate(style_runs):
+        effective_style = run.get("effective_style") or {
+            key: run.get(key)
+            for key in (
+                "font_names",
+                "font_size_pt",
+                "bold",
+                "italic",
+                "underline",
+                "color",
+            )
+            if run.get(key) is not None
+        }
         run_facts.append(
             {
-                "raw_run_id": raw_ids[index] if index < len(raw_ids) else None,
-                "logical_run_id": logical_ids[min(index, len(logical_ids) - 1)] if logical_ids else None,
+                "raw_run_id": run.get("raw_run_id")
+                or (raw_ids[index] if index < len(raw_ids) else None),
+                "logical_run_id": run.get("logical_run_id")
+                or (
+                    logical_ids[min(index, len(logical_ids) - 1)]
+                    if logical_ids
+                    else None
+                ),
                 "text": run.get("text"),
                 "source_ref": run.get("source_ref"),
-                "effective_style": {
-                    key: run.get(key)
-                    for key in ("font_names", "font_size_pt", "bold", "italic", "underline", "color")
-                    if run.get(key) is not None
-                },
+                "effective_style": deepcopy(effective_style),
             }
         )
     return {
@@ -659,6 +774,12 @@ def _ints(values: Any) -> list[int]:
     if not isinstance(values, list):
         return []
     return [value for value in (_as_int(item) for item in values) if value is not None]
+
+
+def _strings(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return [str(value) for value in values if str(value or "").strip()]
 
 
 def _as_int(value: Any) -> int | None:
