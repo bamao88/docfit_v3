@@ -224,6 +224,9 @@ def build_observation_prompt(
                 "fillable_labels": _markers(FILLABLE_LABELS),
                 "generated_markers": _markers(GENERATED_MARKERS),
                 "keep_only_markers": _markers(KEEP_ONLY_MARKERS),
+                "action_refinement_instruction": _action_refinement_instruction(
+                    evidence_view
+                ),
             },
         ),
         "glossary": _GLOSSARY_BY_STAGE[stage](),
@@ -281,6 +284,22 @@ def _abstain_instruction(stage: str) -> str:
             "core_action=keep、policy=fixed，不输出 unknown。"
         )
     return "弃权是合法输出：没有证据支撑就少认领。"
+
+
+def _action_refinement_instruction(evidence: dict[str, Any]) -> str:
+    action = str(evidence.get("refinement_action") or "").strip()
+    if action not in {"fill", "delete"}:
+        return ""
+    if action == "delete":
+        return (
+            "\n这是 Delete 候选的第二层复核。只复核 candidate_items：通过删除测试后保留 "
+            "delete；若它其实是内容要求、混合 run、定位不足或无法判断空间效果，必须降级为 "
+            "keep。不要因为进入 Delete 分支就强行确认删除。\n"
+        )
+    return (
+        "\n这是 Fill 候选的第二层复核。只复核 candidate_items：确认真正需要替换的最小范围，"
+        "不得吞掉固定标签、前后缀、单位或标点；无法精确定位时降级为 keep。\n"
+    )
 
 
 def _render_prompt_template(template: str, values: Mapping[str, Any]) -> str:

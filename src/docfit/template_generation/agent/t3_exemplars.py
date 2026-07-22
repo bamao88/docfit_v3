@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import json
+from functools import lru_cache
+from importlib import resources
 from typing import Any
 
 
@@ -273,6 +275,10 @@ _UNIT_EXEMPLARS: dict[str, dict[str, Any]] = {
 def select_t3_element_exemplars(evidence: dict[str, Any], *, limit: int = 3) -> list[dict[str, Any]]:
     """按当前局部事实选择少量正反例。"""
 
+    refinement_action = str(evidence.get("refinement_action") or "").strip()
+    if refinement_action:
+        return select_t3_action_exemplars(refinement_action, limit=limit)
+
     haystack = _evidence_text(evidence)
     scores: list[tuple[int, str]] = []
     for exemplar_id, exemplar in _ELEMENT_EXEMPLARS.items():
@@ -289,6 +295,29 @@ def select_t3_element_exemplars(evidence: dict[str, Any], *, limit: int = 3) -> 
         {"exemplar_id": exemplar_id, **_ELEMENT_EXEMPLARS[exemplar_id]}
         for _, exemplar_id in selected
     ]
+
+
+def select_t3_action_exemplars(action: str, *, limit: int = 4) -> list[dict[str, Any]]:
+    """动作首判后只加载对应示例包；包内保留 near-miss 反例避免确认偏差。"""
+
+    examples = _action_exemplar_library().get(str(action or "").strip(), [])
+    return [dict(item) for item in examples[: max(1, limit)]]
+
+
+@lru_cache(maxsize=1)
+def _action_exemplar_library() -> dict[str, list[dict[str, Any]]]:
+    resource = resources.files(__package__).joinpath(
+        "prompt_templates", "t3_action_examples.json"
+    )
+    raw = json.loads(resource.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError("t3 action exemplar resource must be an object")
+    result: dict[str, list[dict[str, Any]]] = {}
+    for action, items in raw.items():
+        if action not in {"fill", "delete"} or not isinstance(items, list):
+            raise ValueError(f"invalid t3 action exemplar group: {action!r}")
+        result[action] = [dict(item) for item in items if isinstance(item, dict)]
+    return result
 
 
 def select_t3_unit_exemplars(evidence: dict[str, Any], *, limit: int = 4) -> list[dict[str, Any]]:

@@ -1,0 +1,61 @@
+{
+  "fill": [
+    {
+      "example_id": "fill.placeholder_minimum_span",
+      "name": "只替换真正的占位范围",
+      "input": {"raw_run_id": "p_0018.r_001", "text": "提交日期：20××年××月"},
+      "bad_result": {"core_action": "fill", "content": "提交日期：20××年××月", "why_bad": "会把固定标签、年份前缀和年月单位一起替换"},
+      "excellent_result": [
+        {"core_action": "keep", "content": "提交日期：20"},
+        {"core_action": "fill", "policy": "fill", "content": "××", "fill_source": "student_content"},
+        {"core_action": "keep", "content": "年"},
+        {"core_action": "fill", "policy": "fill", "content": "××", "fill_source": "student_content"},
+        {"core_action": "keep", "content": "月"}
+      ],
+      "boundary_rule": "当前输入不支持字符 span 时不得自由拆分 raw run，应降级为保守 keep/unknown"
+    },
+    {
+      "example_id": "fill.manual_area_near_miss",
+      "name": "后续人工填写区域不是当前电子填充字段",
+      "input": {"cells": [{"cell_id": "r4c1", "text": "指导教师签名："}, {"cell_id": "r4c2", "text": ""}]},
+      "bad_result": {"core_action": "fill", "target": "r4c1+r4c2", "why_bad": "会覆盖固定栏目标签"},
+      "excellent_result": [
+        {"core_action": "keep", "policy": "fixed", "target": "r4c1"},
+        {"core_action": "keep", "policy": "fixed", "target": "r4c2"}
+      ],
+      "boundary_rule": "没有真实空白 cell/paragraph/object 引用时不得凭空创建填写位置"
+    }
+  ],
+  "delete": [
+    {
+      "example_id": "delete.inline_format_annotation",
+      "name": "独立纯格式批注可以删除",
+      "input": {"raw_run_id": "p_0007.r_004", "text": "（小二号黑体加粗）"},
+      "excellent_result": {"core_action": "delete", "policy": "instruction_remove", "transformation": "remove_exact_span", "raw_run_ids": ["p_0007.r_004"], "removal_reason": "独立 run 只描述字体字号"},
+      "boundary_rule": "必须是独立、可精确绑定且删除后不损失学校内容要求的 run"
+    },
+    {
+      "example_id": "delete.preserve_layout_space",
+      "name": "删除说明文字但保留版式占位",
+      "input": {"raw_run_id": "p_0012.r_001", "text": "（空一行）", "layout_role": "独占段落"},
+      "excellent_result": {"core_action": "delete", "policy": "instruction_remove", "transformation": "remove_exact_span", "raw_run_ids": ["p_0012.r_001"], "removal_reason": "删除说明文字；下游需保留该段原有版式空间"},
+      "boundary_rule": "当前 T3 只确认精确删除；独占段落高度或行首横向占位由下游执行契约保护"
+    },
+    {
+      "example_id": "delete.near_miss_content_guidance",
+      "name": "括号内的内容要求不能删除",
+      "input": {"raw_run_id": "p_0020.r_002", "text": "（学院名用全称）"},
+      "bad_result": {"core_action": "delete", "why_bad": "删除后填写者不知道应写全称还是简称"},
+      "excellent_result": {"core_action": "keep"},
+      "boundary_rule": "括号、说明、要求、格式等表面词形都不是删除依据"
+    },
+    {
+      "example_id": "delete.indivisible_mixed_run",
+      "name": "混合 run 不得猜成删除",
+      "input": {"raw_run_id": "p_0021.r_001", "text": "论文题目（小二黑体）"},
+      "bad_result": {"core_action": "delete", "why_bad": "同一 run 还包含必须保留或填写的业务文字"},
+      "excellent_result": {"core_action": "keep", "semantic_role": "mixed_or_uncertain"},
+      "boundary_rule": "没有可校验字符 span 时保守保留；不能扩大为整 run 删除"
+    }
+  ]
+}

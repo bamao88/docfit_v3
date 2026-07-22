@@ -82,6 +82,8 @@ def build_kimi_client(*, timeout: int = 300) -> tuple[Any, str]:
 class LiveResponder:
     """真实模型驱动的三阶段 responder。"""
 
+    supports_action_refinement = True
+
     def __init__(
         self,
         *,

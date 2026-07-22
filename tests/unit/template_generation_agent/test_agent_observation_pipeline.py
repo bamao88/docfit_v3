@@ -8,6 +8,7 @@ from docfit.core.io import read_json, write_json, write_yaml
 from docfit.template_generation.agent.api_config import LiveProviderUsageLimitState
 from docfit.template_generation.agent.config import AgentConfig, AgentConfigError
 from docfit.template_generation.agent import observation_orchestrate, observation_vision
+from docfit.template_generation.agent.observation_loop import _refine_t3_action_candidates
 from docfit.template_generation.agent.observation_config import ObservationConfig
 from docfit.template_generation.agent.observation_loop import (
     run_observation_pipeline,
@@ -912,3 +913,49 @@ def test_t3_gold_mode_blocks_before_model_when_atomic_input_is_incomplete(
             replay_path=tmp_path / "unused-replay.json",
             t2_gold_standard_path=standard_path,
         )
+
+
+def test_t3_action_refinement_batches_by_action_and_preserves_unreturned_items() -> None:
+    class RefiningResponder:
+        supports_action_refinement = True
+
+        def __init__(self) -> None:
+            self.actions: list[str] = []
+
+        def fetch_elements(self, *, evidence, window):
+            action = evidence["refinement_action"]
+            self.actions.append(action)
+            candidates = evidence["candidate_items"]
+            if action == "delete":
+                return {
+                    "items": [
+                        {
+                            **candidates[0],
+                            "core_action": "keep",
+                            "policy": "fixed",
+                        }
+                    ]
+                }
+            return {"items": candidates}
+
+    responder = RefiningResponder()
+    payload = {
+        "items": [
+            {"element_id": "u.1", "core_action": "keep", "policy": "fixed"},
+            {"element_id": "u.2", "core_action": "fill", "policy": "fill"},
+            {"element_id": "u.3", "core_action": "delete", "policy": "instruction_remove"},
+        ]
+    }
+
+    result = _refine_t3_action_candidates(
+        responder,
+        payload=payload,
+        evidence={"scope": "t3_local_window"},
+        window={"window_id": "unit:u", "unit_id": "u"},
+    )
+
+    assert responder.actions == ["fill", "delete"]
+    by_id = {item["element_id"]: item for item in result["items"]}
+    assert by_id["u.1"]["core_action"] == "keep"
+    assert by_id["u.2"]["core_action"] == "fill"
+    assert by_id["u.3"]["core_action"] == "keep"

@@ -71,6 +71,7 @@ class ReplayResponder:
 
     def __init__(self, transcript: dict[str, Any]) -> None:
         self._transcript = transcript or {}
+        self.supports_action_refinement = False
 
     def fetch_units(self, *, evidence: dict[str, Any], n_samples: int) -> list[dict[str, Any]]:
         del evidence
@@ -460,6 +461,12 @@ def _run_t3_unit_routed(
                     for split_window in _split_failed_t3_window(local_window):
                         observe_local(split_window, retry_depth=retry_depth + 1)
                     return
+                payload = _refine_t3_action_candidates(
+                    responder,
+                    payload=payload,
+                    evidence=evidence,
+                    window=local_window,
+                )
                 payload, blocked = guard_t3_payload(
                     payload,
                     evidence=evidence,
@@ -652,6 +659,54 @@ def _finalize_t3_observation(
             },
         },
     }
+
+
+def _refine_t3_action_candidates(
+    responder: ObservationResponder,
+    *,
+    payload: dict[str, Any],
+    evidence: dict[str, Any],
+    window: dict[str, Any],
+) -> dict[str, Any]:
+    """Live 路径按动作批量复核；replay 保持一次调用与旧 transcript 兼容。"""
+
+    if not getattr(responder, "supports_action_refinement", False):
+        return payload
+    items = [item for item in payload.get("items", []) or [] if isinstance(item, dict)]
+    resolved = list(items)
+    for action in ("fill", "delete"):
+        candidates = [item for item in resolved if item.get("core_action") == action]
+        if not candidates:
+            continue
+        refinement_evidence = {
+            **evidence,
+            "scope": "t3_action_refinement",
+            "refinement_action": action,
+            "candidate_items": candidates,
+        }
+        refined = responder.fetch_elements(
+            evidence=refinement_evidence,
+            window={**window, "window_id": f"{window.get('window_id')}:{action}:refine"},
+        )
+        refined_items = [
+            item for item in refined.get("items", []) or [] if isinstance(item, dict)
+        ]
+        if not refined_items:
+            continue
+        by_id = {
+            str(item.get("element_id")): item
+            for item in refined_items
+            if item.get("element_id")
+        }
+        if not by_id:
+            continue
+        resolved = [
+            by_id.get(str(item.get("element_id")), item)
+            if item.get("core_action") == action
+            else item
+            for item in resolved
+        ]
+    return {**payload, "items": resolved}
 
 
 def _quality_report(

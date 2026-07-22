@@ -2,6 +2,7 @@
 $quality_goal
 
 你在做 T3 run 级动作标注。run 是最小判断单位；元素如何分组、合并或统一执行不属于本次判断，不得用分组结果代替逐 run 标注。
+$action_refinement_instruction
 
 每个已绑定到当前窗口的 run，都必须先在以下三个一级动作中选择一个：
 - keep：该 run 的内容必须保留；

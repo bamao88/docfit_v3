@@ -153,6 +153,39 @@ def test_t3_prompt_teaches_quality_with_selected_positive_and_negative_examples(
     assert "bad_result" in system and "excellent_result" in system
     assert '"core_action": "keep"' in system
     assert "不要把标签和值合并" in system or "固定标签" in system
+
+
+def test_t3_delete_refinement_loads_only_delete_examples_with_near_miss() -> None:
+    evidence = {
+        **clean_evidence("t3"),
+        "scope": "t3_action_refinement",
+        "refinement_action": "delete",
+        "candidate_items": [{"element_id": "cover.1", "core_action": "delete"}],
+    }
+    prompt = build_observation_prompt(stage="t3", evidence_view=evidence)
+    system, _ = assemble_observation_messages("t3", evidence)
+
+    assert prompt["exemplars"]
+    assert all(item["example_id"].startswith("delete.") for item in prompt["exemplars"])
+    assert any(item["example_id"] == "delete.near_miss_content_guidance" for item in prompt["exemplars"])
+    assert "不要因为进入 Delete 分支就强行确认删除" in system
+    assert "fill.placeholder_minimum_span" not in system
+
+
+def test_t3_fill_refinement_loads_only_fill_examples() -> None:
+    evidence = {
+        **clean_evidence("t3"),
+        "scope": "t3_action_refinement",
+        "refinement_action": "fill",
+        "candidate_items": [{"element_id": "cover.1", "core_action": "fill"}],
+    }
+    prompt = build_observation_prompt(stage="t3", evidence_view=evidence)
+    system, _ = assemble_observation_messages("t3", evidence)
+
+    assert prompt["exemplars"]
+    assert all(item["example_id"].startswith("fill.") for item in prompt["exemplars"])
+    assert "真正需要替换的最小范围" in system
+    assert "delete.inline_format_annotation" not in system
 def test_t3_unit_prompt_routes_whole_unit_before_local_policy() -> None:
     evidence = {
         "scope": "t3_unit_overview",
