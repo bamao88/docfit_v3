@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+from pathlib import Path
+import re
 from threading import Lock
 from typing import Literal, Mapping
 
@@ -164,7 +166,7 @@ def resolve_live_provider_config(
     model_override: str | None = None,
     env: Mapping[str, str] | None = None,
 ) -> LiveProviderConfig:
-    values = env or os.environ
+    values = env if env is not None else _runtime_provider_environment()
     normalized_role = role.strip().lower()
     normalized_provider = provider.strip().lower()
     if normalized_role not in {"text", "vision"}:
@@ -187,6 +189,54 @@ def resolve_live_provider_config(
         model_override=model_override,
         env=values,
     )
+
+
+def _runtime_provider_environment() -> dict[str, str]:
+    """Read exported variables first, then fill missing values from project .env.
+
+    The parser treats .env as data and never executes shell syntax. Installed
+    packages outside a project checkout simply keep using the process env.
+    """
+
+    values = dict(os.environ)
+    dotenv_path = _find_project_dotenv(Path.cwd())
+    if dotenv_path is None:
+        return values
+    for key, value in _read_dotenv(dotenv_path).items():
+        values.setdefault(key, value)
+    return values
+
+
+def _find_project_dotenv(start: Path) -> Path | None:
+    for directory in (start, *start.parents):
+        if not (directory / "pyproject.toml").is_file():
+            continue
+        candidate = directory / ".env"
+        return candidate if candidate.is_file() else None
+    return None
+
+
+def _read_dotenv(path: Path) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[7:].lstrip()
+        if "=" not in line:
+            continue
+        key, raw_value = line.split("=", 1)
+        key = key.strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            continue
+        value = raw_value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        else:
+            value = value.split(" #", 1)[0].rstrip()
+        result[key] = value
+    return result
 
 
 def _resolve_kimi(

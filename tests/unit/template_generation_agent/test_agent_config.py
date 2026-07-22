@@ -5,6 +5,7 @@ import pytest
 from docfit.core.io import write_json
 from docfit.template_generation.agent.api_config import (
     live_provider_policy_summary,
+    resolve_live_provider_config,
     resolve_live_provider_policy,
 )
 from docfit.template_generation.agent.config import (
@@ -47,6 +48,42 @@ def test_live_provider_policy_is_capability_aware() -> None:
         role="text",
         primary_override="kimi",
     ).usage_limit_fallbacks == ()
+
+
+def test_live_provider_config_loads_project_dotenv_without_shell_export(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='fixture'\n", encoding="utf-8")
+    (tmp_path / ".env").write_text(
+        "MINIMAX_API_KEY=fixture-secret\n"
+        "MINIMAX_MODEL=Fixture-MiniMax\n",
+        encoding="utf-8",
+    )
+    child = tmp_path / "nested"
+    child.mkdir()
+    monkeypatch.chdir(child)
+    monkeypatch.delenv("MINIMAX_API_KEY", raising=False)
+    monkeypatch.delenv("MINIMAX_MODEL", raising=False)
+
+    config = resolve_live_provider_config(role="text", provider="minimax")
+
+    assert config.api_key == "fixture-secret"
+    assert config.model == "Fixture-MiniMax"
+
+
+def test_explicit_environment_overrides_project_dotenv(tmp_path, monkeypatch) -> None:
+    (tmp_path / "pyproject.toml").write_text("[project]\nname='fixture'\n", encoding="utf-8")
+    (tmp_path / ".env").write_text(
+        "MINIMAX_API_KEY=file-secret\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("MINIMAX_API_KEY", "exported-secret")
+
+    config = resolve_live_provider_config(role="text", provider="minimax")
+
+    assert config.api_key == "exported-secret"
 
 
 def test_legacy_live_transport_is_rejected() -> None:
