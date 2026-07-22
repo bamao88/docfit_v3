@@ -104,6 +104,35 @@ def atomic_packet() -> dict:
     }
 
 
+def test_t3_gold_atomic_audit_reads_canonical_l1_run_index() -> None:
+    source = atomic_packet()
+    raw_runs = [
+        run
+        for row in source["page_text_index"][:2]
+        for run in row["style_details"]["runs"]
+    ]
+    for row in source["page_text_index"]:
+        row.pop("style_details", None)
+    source["run_index"] = {"raw_runs": raw_runs}
+
+    result = validate_t3_gold_upstream(
+        {
+            "items": [
+                {"unit_id": "cover", "source_seq_refs": [1]},
+                {"unit_id": "body_main", "source_seq_refs": [2]},
+            ]
+        },
+        packet=source,
+        human_confirmed=True,
+        gold_source="signed/t2.standard.yaml",
+        owned_structure_layers={"body_flow"},
+        require_atomic_run_facts=True,
+    )
+
+    assert result["atomic_run_fact_count"] == 2
+    assert result["atomic_run_facts_complete"] is True
+
+
 def signed_t2_standard() -> dict:
     return {
         "stage_id": "T2",

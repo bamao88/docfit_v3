@@ -701,6 +701,11 @@ def _atomic_run_fact_audit(
     packet: dict[str, Any],
     expected_source_seq: set[int],
 ) -> dict[str, Any]:
+    indexed_run_facts = {
+        str(item.get("raw_run_id") or ""): item
+        for item in (packet.get("run_index", {}) or {}).get("raw_runs", []) or []
+        if isinstance(item, dict) and item.get("raw_run_id")
+    }
     rows = {
         int(item["source_seq"]): item
         for item in packet.get("page_text_index", []) or []
@@ -731,6 +736,9 @@ def _atomic_run_fact_audit(
             for item in run_facts
             if item.get("raw_run_id")
         }
+        for raw_id in expected_raw_ids:
+            if raw_id not in by_raw_id and raw_id in indexed_run_facts:
+                by_raw_id[raw_id] = indexed_run_facts[raw_id]
         run_fact_ids.update(by_raw_id)
         missing_raw_ids = [raw_id for raw_id in expected_raw_ids if raw_id not in by_raw_id]
         if missing_raw_ids:
