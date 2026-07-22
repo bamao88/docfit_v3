@@ -307,6 +307,8 @@ class MinimaxTextResponder:
     （T4 用视觉/确定性），fetch_layout 返回空。单次失败重试后降级为该阶段弃权。
     """
 
+    supports_action_refinement = True
+
     def __init__(
         self,
         *,

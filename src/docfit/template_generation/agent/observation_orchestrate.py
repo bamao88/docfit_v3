@@ -663,6 +663,10 @@ class _UsageLimitFallbackTextResponder:
     def __init__(self, primary: Any, fallback: Any) -> None:
         self._primary = primary
         self._fallback = fallback
+        self.supports_action_refinement = bool(
+            getattr(primary, "supports_action_refinement", False)
+            or getattr(fallback, "supports_action_refinement", False)
+        )
 
     def fetch_units(
         self,

@@ -959,3 +959,16 @@ def test_t3_action_refinement_batches_by_action_and_preserves_unreturned_items()
     assert by_id["u.1"]["core_action"] == "keep"
     assert by_id["u.2"]["core_action"] == "fill"
     assert by_id["u.3"]["core_action"] == "keep"
+
+
+def test_usage_limit_fallback_exposes_action_refinement_capability() -> None:
+    class Responder:
+        def __init__(self, supports_action_refinement: bool) -> None:
+            self.supports_action_refinement = supports_action_refinement
+
+    responder = observation_orchestrate._UsageLimitFallbackTextResponder(
+        Responder(False),
+        Responder(True),
+    )
+
+    assert responder.supports_action_refinement is True
