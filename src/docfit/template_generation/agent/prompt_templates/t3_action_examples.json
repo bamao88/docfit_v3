@@ -3,16 +3,16 @@
     {
       "example_id": "fill.placeholder_minimum_span",
       "name": "只替换真正的占位范围",
-      "input": {"raw_run_id": "p_0018.r_001", "text": "提交日期：20××年××月"},
-      "bad_result": {"core_action": "fill", "content": "提交日期：20××年××月", "why_bad": "会把固定标签、年份前缀和年月单位一起替换"},
+      "input": {"raw_runs": [{"raw_run_id": "p_0018.r_001", "text": "提交日期：20"}, {"raw_run_id": "p_0018.r_002", "text": "××"}, {"raw_run_id": "p_0018.r_003", "text": "年"}, {"raw_run_id": "p_0018.r_004", "text": "××"}, {"raw_run_id": "p_0018.r_005", "text": "月"}]},
+      "bad_result": {"core_action": "fill", "raw_run_ids": ["p_0018.r_001", "p_0018.r_002", "p_0018.r_003", "p_0018.r_004", "p_0018.r_005"], "why_bad": "会把固定标签、年份前缀和年月单位一起替换"},
       "excellent_result": [
-        {"core_action": "keep", "content": "提交日期：20"},
-        {"core_action": "fill", "policy": "fill", "content": "××", "fill_source": "student_content"},
-        {"core_action": "keep", "content": "年"},
-        {"core_action": "fill", "policy": "fill", "content": "××", "fill_source": "student_content"},
-        {"core_action": "keep", "content": "月"}
+        {"core_action": "keep", "raw_run_ids": ["p_0018.r_001"], "content": "提交日期：20"},
+        {"core_action": "fill", "policy": "fill", "raw_run_ids": ["p_0018.r_002"], "content": "××", "fill_source": "student_content"},
+        {"core_action": "keep", "raw_run_ids": ["p_0018.r_003"], "content": "年"},
+        {"core_action": "fill", "policy": "fill", "raw_run_ids": ["p_0018.r_004"], "content": "××", "fill_source": "student_content"},
+        {"core_action": "keep", "raw_run_ids": ["p_0018.r_005"], "content": "月"}
       ],
-      "boundary_rule": "当前输入不支持字符 span 时不得自由拆分 raw run，应降级为保守 keep/unknown"
+      "boundary_rule": "只利用输入中已经存在的 raw-run 边界；若整句实际只有一个 raw run，则不得按本示例自由拆分，应保守 keep"
     },
     {
       "example_id": "fill.manual_area_near_miss",

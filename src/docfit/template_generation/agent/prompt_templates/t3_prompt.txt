@@ -18,10 +18,15 @@ $action_refinement_instruction
 
 在本单元窗口内，先按 Word 中已有 raw_run_ids 判断是否存在真实的语义边界；不要自由创造文本 span。然后按下面顺序判断。
 
-第一步：直接判断一级动作 core_action
-1) keep：校名、正式声明/条款、固定标题、栏目标签、有价值的填写指导、签名、盖章、手写意见、人工日期（如 $keep_only_markers），以及任何无法安全单选的混合/不确定 run。源 DOCX 已整包复制，这些人工区域保持不动，不创建填写槽。
-2) fill：学生姓名、学号、论文题目、正文等待填内容（如 $fillable_markers 或 $fillable_labels）；目录、页码、自动编号（如 $generated_markers）。
-3) delete：只描述字体、字号、粗细、行距、缩进或对齐，删除后不损失任何学校要求或正文含义的独立纯格式批注。
+第一步：直接判断一级动作 core_action。先看当前 raw run 自己承担的功能，不要用整段、整行或整单元的多数语义覆盖它。
+1) fill：当前 raw run 本身就是学生内容占位、示例值、空白字段值或系统生成值（如 $fillable_markers、$fillable_labels、$generated_markers），并且替换它不会吞掉固定标签、单位、标点或指导文字。固定标签和相邻占位属于不同 raw run 时，标签 keep、占位 fill；不能因为它们位于同一表格行而全部 keep。
+2) delete：当前 raw run 只描述字体、字号、粗细、行距、缩进或对齐，删除后不损失任何学校要求或正文含义的独立纯格式批注。
+3) keep：校名、正式声明/条款、固定标题、栏目标签、有价值的填写指导、签名/盖章标签，以及任何无法安全单选的混合或不确定 run。源 DOCX 已整包复制；只有当前 run 是可独立替换的电子字段时才标 fill。
+
+动作排除测试：
+- 能指出“这个 run 将由哪类学生内容或系统值替换”，且边界独立 → fill；不要因为它现在已有示例文字就 keep。
+- 能指出“这个 run 删除后只消失版式描述，不消失业务要求”，且边界独立 → delete。
+- 上述任一问题不能肯定回答 → keep。keep 是不确定时的安全回退，不是对整类表单一律保留的捷径。
 
 第二步：补充 semantic_role、transformation 和兼容 policy
 - fixed_content/template_default_content/guidance_content → preserve → core_action=keep → fixed 或 template_default。
@@ -35,6 +40,7 @@ $action_refinement_instruction
 - 单个 raw run 同时含固定文字与待填/待删内容时，run 内部不能拆分；整个 run 按 mixed_or_uncertain → preserve → core_action=keep → policy=fixed 处理，并设 confidence=low。
 - 证据不足、语义混合或无法在 keep/fill/delete 中安全单选时，也按上一条输出 keep；不得输出 unknown，不得猜测为 delete，不得扩大为整段或整单元删除。
 - 回报 ai_decision_path，写清“证据 → core_action → 兼容 policy”；混合 run 必须注明“混合语义，无法在 raw run 内拆分，依保留优先原则按 keep 处理”。
+- unit_plan 的 default_preservation_policy 只覆盖未下钻范围；candidate_items 或 inspect 范围中的每个 raw run 仍必须独立执行上述动作排除测试，不能机械复制默认 policy。
 --- END rubric ---
 
 --- BEGIN output_contract ---

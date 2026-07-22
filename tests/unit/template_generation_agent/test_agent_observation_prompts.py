@@ -122,6 +122,23 @@ def test_t3_prompt_maps_mixed_or_uncertain_run_to_keep_not_unknown() -> None:
     assert "T3 对当前窗口内已经绑定的 run 不得弃权" in system
 
 
+def test_t3_prompt_classifies_independent_fill_runs_inside_protected_structure() -> None:
+    prompt = build_observation_prompt(stage="t3", evidence_view=clean_evidence("t3"))
+
+    assert "固定标签和相邻占位属于不同 raw run 时，标签 keep、占位 fill" in prompt["rubric"]
+    assert "不能机械复制默认 policy" in prompt["rubric"]
+
+
+def test_t3_unit_prompt_descends_when_form_contains_electronic_fields() -> None:
+    prompt = build_observation_prompt(
+        stage="t3_unit",
+        evidence_view=clean_evidence("t3_unit"),
+    )
+
+    assert "必须使用 preserve_structure_classify_fields" in prompt["rubric"]
+    assert "没有任何需要电子替换或系统生成的独立 raw run" in prompt["rubric"]
+
+
 def test_t3_specific_prompt_has_one_source_file() -> None:
     from importlib import resources
 
