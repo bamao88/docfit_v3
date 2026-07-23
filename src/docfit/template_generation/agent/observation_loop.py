@@ -47,6 +47,12 @@ from .t3_input import (
     sanitize_unit_plan,
     task_summary,
 )
+from .t3_hierarchical_input import (
+    build_t3_hierarchical_stage_input,
+    validate_t3_hierarchical_stage_input,
+)
+from .t3_sparse_decisions import run_t3_sparse_traversal
+from .t3_sparse_materialize import materialize_sparse_t3_observation
 from .t3_safety import (
     guard_t3_payload,
     preservation_fallback_items,
@@ -62,6 +68,14 @@ class ObservationResponder(Protocol):
     def fetch_elements(self, *, evidence: dict[str, Any], window: dict[str, Any]) -> dict[str, Any]: ...
 
     def fetch_unit_plan(self, *, evidence: dict[str, Any], window: dict[str, Any]) -> dict[str, Any]: ...
+
+    def fetch_t3_decision(
+        self,
+        *,
+        evidence: dict[str, Any],
+        node: dict[str, Any],
+        unit_id: str,
+    ) -> dict[str, Any]: ...
 
     def fetch_layout(self, *, evidence: dict[str, Any]) -> dict[str, Any]: ...
 
@@ -103,6 +117,25 @@ class ReplayResponder:
             "confidence": "medium",
             "rationale": "legacy transcript replayed through canonical unit route",
         }
+
+    def fetch_t3_decision(
+        self,
+        *,
+        evidence: dict[str, Any],
+        node: dict[str, Any],
+        unit_id: str,
+    ) -> dict[str, Any]:
+        del evidence
+        recorded = self._transcript.get("t3_sparse") or {}
+        if isinstance(recorded, dict):
+            decision = recorded.get(str(node.get("ref") or ""))
+            if isinstance(decision, dict):
+                return dict(decision)
+        return _legacy_replay_sparse_decision(
+            self._transcript,
+            node=node,
+            unit_id=unit_id,
+        )
 
     def fetch_layout(self, *, evidence: dict[str, Any]) -> dict[str, Any]:
         del evidence
@@ -401,16 +434,175 @@ def _run_t3(
     model: str,
     concurrency: int = 1,
 ) -> dict[str, Any]:
-    windows = [w for w in unit_windows.get("windows", []) if isinstance(w, dict)]
-    return _run_t3_unit_routed(
-        responder=responder,
-        windows=windows,
+    del valid_seq, concurrency
+    stage_input = build_t3_hierarchical_stage_input(
+        packet,
         unit_windows=unit_windows,
-        packet=packet,
-        valid_seq=valid_seq,
-        model=model,
-        concurrency=concurrency,
     )
+    validation = validate_t3_hierarchical_stage_input(stage_input)
+    if not validation["valid"]:
+        messages = "; ".join(
+            str(error.get("message") or error)
+            for error in validation["errors"][:12]
+        )
+        raise ObservationConfigError(
+            f"T3 hierarchical Stage Input validation failed: {messages}"
+        )
+    trace = run_t3_sparse_traversal(
+        stage_input,
+        decide=lambda evidence, node, unit_id: _fetch_t3_sparse_decision(
+            responder,
+            evidence=evidence,
+            node=node,
+            unit_id=unit_id,
+        ),
+    )
+    unit_windows["hierarchical_stage_input"] = stage_input
+    unit_windows["hierarchical_stage_input_validation"] = validation
+    return materialize_sparse_t3_observation(
+        trace,
+        packet=packet,
+        model=model,
+        unit_windows=unit_windows,
+    )
+
+
+def _fetch_t3_sparse_decision(
+    responder: ObservationResponder,
+    *,
+    evidence: dict[str, Any],
+    node: dict[str, Any],
+    unit_id: str,
+) -> dict[str, Any]:
+    method = getattr(responder, "fetch_t3_decision", None)
+    if callable(method):
+        return method(evidence=evidence, node=node, unit_id=unit_id)
+    # Temporary adapter for custom responders written against the former flat
+    # protocol.  They still traverse the new tree; the adapter is explicitly
+    # recorded through the sparse trace instead of restoring the old pipeline.
+    if node.get("child_refs"):
+        return {
+            "target_ref": node.get("ref"),
+            "result": "split",
+            "default_child_result": "keep",
+            "inspect_child_refs": list(node.get("child_refs") or []),
+            "confidence": "medium",
+            "reason": "legacy responder adapter descends to existing atomic identities",
+        }
+    payload = responder.fetch_elements(
+        evidence=evidence,
+        window={
+            "window_id": f"hierarchy:{node.get('ref')}",
+            "unit_id": unit_id,
+            "source_seq_refs": list(node.get("source_seq_refs") or []),
+            "source_ref_refs": list(node.get("source_refs") or []),
+        },
+    )
+    if payload.get("_observation_error"):
+        return {"_observation_error": payload.get("_observation_error")}
+    return _legacy_items_to_leaf_decision(
+        list(payload.get("items") or []),
+        node=node,
+    )
+
+
+def _legacy_replay_sparse_decision(
+    transcript: dict[str, Any],
+    *,
+    node: dict[str, Any],
+    unit_id: str,
+) -> dict[str, Any]:
+    if node.get("child_refs"):
+        if node.get("source_kind") == "unit":
+            plans = transcript.get("t3_unit") or {}
+            plan = plans.get(unit_id) if isinstance(plans, dict) else None
+            if isinstance(plan, dict) and plan.get("route") == "preserve_whole":
+                return {
+                    "target_ref": node.get("ref"),
+                    "result": "keep",
+                    "confidence": plan.get("confidence") or "medium",
+                    "reason": plan.get("rationale") or "legacy preserve_whole replay",
+                }
+        return {
+            "target_ref": node.get("ref"),
+            "result": "split",
+            "default_child_result": "keep",
+            "inspect_child_refs": list(node.get("child_refs") or []),
+            "confidence": "medium",
+            "reason": "legacy flat replay adapted by descending to atomic identities",
+        }
+    per_unit = transcript.get("t3") or {}
+    payload = per_unit.get(unit_id) if isinstance(per_unit, dict) else None
+    if not isinstance(payload, dict):
+        return _keep_leaf(node, reason="legacy replay has no decision for this member")
+    return _legacy_items_to_leaf_decision(
+        list(payload.get("items") or []),
+        node=node,
+    )
+
+
+def _legacy_items_to_leaf_decision(
+    items: list[dict[str, Any]],
+    *,
+    node: dict[str, Any],
+) -> dict[str, Any]:
+    facts = node.get("facts") or {}
+    raw_run_id = str(facts.get("raw_run_id") or "")
+    source_seqs = set(_ints(node.get("source_seq_refs")))
+    matches = [
+        item
+        for item in items
+        if isinstance(item, dict)
+        and (
+            (raw_run_id and raw_run_id in {str(value) for value in item.get("raw_run_ids", []) or []})
+            or (
+                not raw_run_id
+                and source_seqs.intersection(_ints(item.get("source_seq_refs")))
+            )
+        )
+    ]
+    if not matches:
+        return _keep_leaf(node, reason="legacy replay left this atomic member unclaimed")
+    item = matches[0]
+    action = str(item.get("core_action") or "")
+    if action not in {"keep", "fill", "delete"}:
+        action = {
+            "fixed": "keep",
+            "template_default": "keep",
+            "fill": "fill",
+            "generated": "fill",
+            "instruction_remove": "delete",
+        }.get(str(item.get("policy") or ""), "keep")
+    decision: dict[str, Any] = {
+        "target_ref": node.get("ref"),
+        "result": action,
+        "confidence": item.get("confidence") or "medium",
+        "reason": item.get("ai_decision_path") or item.get("ai_rationale") or "legacy flat replay adapter",
+    }
+    if action == "fill":
+        policy = str(item.get("policy") or "")
+        decision["fill"] = {
+            "source": (
+                "generated_field"
+                if policy == "generated"
+                else str(item.get("fill_source") or "student_content")
+            ),
+            "field": ((item.get("generated") or {}).get("field_type")),
+        }
+    if action == "delete":
+        decision["delete"] = {
+            "reason": item.get("removal_reason") or "legacy exact run deletion"
+        }
+    return decision
+
+
+def _keep_leaf(node: dict[str, Any], *, reason: str) -> dict[str, Any]:
+    return {
+        "target_ref": node.get("ref"),
+        "result": "keep",
+        "confidence": "low",
+        "reason": reason,
+    }
 
 
 def _run_t3_unit_routed(

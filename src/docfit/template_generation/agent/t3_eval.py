@@ -174,6 +174,10 @@ def build_t3_gold_upstream(
             {
                 "unit_id": unit.get("unit_id"),
                 "order": order,
+                "name": unit.get("name"),
+                "status": unit.get("status"),
+                "policy": unit.get("policy"),
+                "page_policy": deepcopy(unit.get("page_policy")),
                 "source_seq_refs": refs,
                 "source_ref_refs": source_ref_refs,
                 "source_ref_range": deepcopy(boundary.get("source_ref_range")),
@@ -357,6 +361,7 @@ def evaluate_t3_gold_accuracy(
     covered_unknown_count = 0
     correct_action_count = 0
     conflict_count = 0
+    mixed_span_raw_run_ids: list[str] = []
     predicted_unknown_count = 0
     expected_action_counts: Counter[str] = Counter()
     predicted_action_counts: Counter[str] = Counter()
@@ -399,6 +404,7 @@ def evaluate_t3_gold_accuracy(
             unit_metrics["covered"] += 1
         if len(actions) > 1:
             conflict_count += 1
+            mixed_span_raw_run_ids.append(raw_run_id)
             unit_metrics["conflicted"] += 1
         predicted_action = next(iter(actions)) if len(actions) == 1 else ""
         if predicted_action in allowed_actions:
@@ -473,7 +479,7 @@ def evaluate_t3_gold_accuracy(
     predicted_delete_count = true_delete_count + len(false_delete_raw_ids)
     return {
         "artifact_type": "t3_gold_accuracy_report",
-        "artifact_version": "2.1",
+        "artifact_version": "2.2",
         "standard_id": t3_standard.get("standard_id"),
         "primary_metric": "exact_action_accuracy",
         "source_template_hash": source_template_hash,
@@ -489,6 +495,7 @@ def evaluate_t3_gold_accuracy(
             "unknown_execution_fallback": unknown_execution_fallback,
             "uncertain_delete_forbidden": True,
             "grouping_invariant": True,
+            "prediction_projection": "span_preferred_raw_run",
             "owned_structure_layers": ["body_flow"],
             "excluded_non_body_raw_run_count": len(
                 {
@@ -510,6 +517,8 @@ def evaluate_t3_gold_accuracy(
             "covered_run_count": covered_count,
             "coverage": round(_safe_ratio(covered_count, expected_count), 4),
             "conflicted_run_count": conflict_count,
+            "mixed_span_run_count": len(mixed_span_raw_run_ids),
+            "mixed_span_raw_run_ids": mixed_span_raw_run_ids[:100],
             "predicted_unknown_run_count": predicted_unknown_count,
             "exact_action_accuracy": round(
                 _safe_ratio(correct_action_count, expected_count),
@@ -556,10 +565,17 @@ def _t3_prediction_claims(
             if not isinstance(span, dict):
                 continue
             span_policy = _canonical_t3_policy(span.get("policy"))
-            for raw_run_id_value in span.get("raw_run_ids", []) or []:
-                raw_run_id = str(raw_run_id_value or "")
-                if not raw_run_id:
-                    continue
+            raw_run_ids = {
+                str(raw_run_id)
+                for raw_run_id in span.get("raw_run_ids", []) or []
+                if raw_run_id
+            }
+            raw_run_ids.update(
+                str(char_range.get("raw_run_id") or "")
+                for char_range in span.get("char_ranges", []) or []
+                if isinstance(char_range, dict) and char_range.get("raw_run_id")
+            )
+            for raw_run_id in raw_run_ids:
                 span_raw_ids.add(raw_run_id)
                 claims.setdefault(raw_run_id, []).append(
                     {"policy": span_policy, "unit_id": unit_id}

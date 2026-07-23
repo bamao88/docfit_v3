@@ -5,15 +5,15 @@ from typing import Any
 
 from docfit.core.io import now_iso, sha256_json
 
-from .overlay import bind_t3_target
+from .overlay import bind_t3_target, t3_execution_policy
 from .packet import packet_page_set, packet_render_target_set, packet_source_seq_set
+from docfit.template_generation.constants import KEEP_ONLY_UNIT_IDS
 
 
 AUTO_STATUSES = {"compatible", "missing"}
 EXECUTABLE_T3_POLICIES = {
-    "fixed",
     "fill",
-    "manual_only",
+    "fixed",
     "generated",
     "remove_instruction",
 }
@@ -348,7 +348,7 @@ def _compare_t2(
             deterministic={
                 **deterministic,
                 "target_unit_id": target_unit.get("unit_id"),
-                "current_page": target_unit.get("page") if operation == "set_page_policy" else None,
+                "current_page_policy": target_unit.get("page_policy") if operation == "set_page_policy" else None,
             },
         )
 
@@ -371,7 +371,15 @@ def _compare_t3(
     collection: str,
     affected_refs: dict[str, Any],
 ) -> dict[str, Any]:
-    policy = str(proposal.get("policy") or proposal.get("candidate_policy") or "").strip()
+    observed_policy = str(
+        proposal.get("observed_policy")
+        or proposal.get("policy")
+        or proposal.get("candidate_policy")
+        or ""
+    ).strip()
+    policy = t3_execution_policy(
+        proposal.get("policy") or proposal.get("candidate_policy")
+    )
     target = bind_t3_target(structure_candidates, proposal)
     deterministic: dict[str, Any] = {}
     if target is not None:
@@ -380,6 +388,8 @@ def _compare_t3(
             "target_candidate_id": f"{unit.get('unit_id')}.{element.get('element_id')}",
             "current_policy": element.get("candidate_policy"),
             "source_seq_refs": element.get("source_seq_refs", []),
+            "raw_run_ids": element.get("raw_run_ids", []),
+            "logical_run_ids": element.get("logical_run_ids", []),
         }
     if policy not in EXECUTABLE_T3_POLICIES:
         return _item(
@@ -416,7 +426,22 @@ def _compare_t3(
             risk_level="high",
         )
     current_policy = str(deterministic.get("current_policy") or "")
-    downgrade_reason = _t3_policy_downgrade_reason(current_policy, policy)
+    if policy == "fill" and target is not None and str(target[0].get("unit_id") or "") in KEEP_ONLY_UNIT_IDS:
+        return _item(
+            proposal,
+            layer="t3",
+            collection=collection,
+            status="conflict",
+            check_id="C-POLICY-DOWNGRADE",
+            reason="T3 fill policy is not executable for a keep-only unit",
+            affected_refs=affected_refs,
+            deterministic=deterministic,
+        )
+    downgrade_reason = (
+        None
+        if observed_policy == "unknown"
+        else _t3_policy_downgrade_reason(current_policy, policy)
+    )
     if downgrade_reason is not None:
         return _item(
             proposal,
@@ -434,7 +459,11 @@ def _compare_t3(
         collection=collection,
         status="compatible",
         check_id="C-COMPARISON-COMPATIBLE",
-        reason="T3 policy proposal is bound to one deterministic candidate",
+        reason=(
+            "T3 unknown decision is bound and will execute as keep/fixed"
+            if observed_policy == "unknown"
+            else "T3 policy proposal is bound to one deterministic candidate"
+        ),
         affected_refs=affected_refs,
         deterministic=deterministic,
     )
@@ -448,9 +477,7 @@ def _t3_policy_downgrade_reason(current_policy: str, proposed_policy: str) -> st
         ("fill", "remove_instruction"),
         ("generated", "fixed"),
         ("generated", "fill"),
-        ("manual_only", "fixed"),
-        ("manual_only", "fill"),
-        ("manual_only", "generated"),
+        ("fixed", "generated"),
     }
     if (current_policy, proposed_policy) in downgrades:
         return (
@@ -571,6 +598,15 @@ def _binding_error(packet: dict[str, Any], proposal: dict[str, Any]) -> str | No
 def _affected_refs(proposal: dict[str, Any]) -> dict[str, Any]:
     return {
         "source_seq_refs": _proposal_source_seq_refs(proposal),
+        "source_refs": _strings(proposal.get("source_refs", [])),
+        "raw_run_ids": _strings(proposal.get("raw_run_ids", [])),
+        "logical_run_ids": _strings(proposal.get("logical_run_ids", [])),
+        "member_refs": _strings(
+            [proposal.get("member_ref")] if proposal.get("member_ref") else []
+        ),
+        "decision_refs": _strings(
+            [proposal.get("decision_ref")] if proposal.get("decision_ref") else []
+        ),
         "page_nos": _proposal_page_nos(proposal),
         "render_target_refs": [
             str(target)
@@ -578,6 +614,18 @@ def _affected_refs(proposal: dict[str, Any]) -> dict[str, Any]:
             if target not in (None, "")
         ],
     }
+
+
+def _strings(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return list(
+        dict.fromkeys(
+            str(value)
+            for value in values
+            if value not in (None, "") and str(value).strip()
+        )
+    )
 
 
 def _proposal_source_seq_refs(proposal: dict[str, Any]) -> list[int]:

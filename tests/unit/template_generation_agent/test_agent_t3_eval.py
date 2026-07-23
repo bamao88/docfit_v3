@@ -484,6 +484,90 @@ def test_t3_gold_accuracy_excludes_unknown_but_treats_delete_as_unsafe() -> None
     assert report["scope"]["unknown_execution_fallback"] == "keep"
 
 
+def test_t3_gold_accuracy_reports_mixed_span_actions_as_run_conflict() -> None:
+    gold_units, audit = build_t3_gold_upstream(
+        signed_t2_standard(),
+        packet=atomic_packet(),
+        gold_source="standards/school/t2.standard.yaml",
+        source_template_hash="sha256:template",
+    )
+    report = evaluate_t3_gold_accuracy(
+        {
+            "source_render_hash": "sha256:render",
+            "input_contract_hash": "sha256:l1",
+            "items": [
+                {
+                    "unit_id": "cover",
+                    "policy": "fixed",
+                    "raw_run_ids": ["p_0001.r_001"],
+                    "spans": [
+                        {
+                            "policy": "fixed",
+                            "char_ranges": [
+                                {
+                                    "raw_run_id": "p_0001.r_001",
+                                    "start": 0,
+                                    "end": 1,
+                                }
+                            ],
+                        },
+                        {
+                            "policy": "fill",
+                            "char_ranges": [
+                                {
+                                    "raw_run_id": "p_0001.r_001",
+                                    "start": 1,
+                                    "end": 2,
+                                }
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "unit_id": "body_main",
+                    "policy": "fill",
+                    "raw_run_ids": ["p_0002.r_001"],
+                },
+            ],
+        },
+        t3_standard={
+            "stage_id": "T3",
+            "standard_id": "school-v1-t3",
+            "standard_state": "signed_active",
+            "accepted_source_facts": {
+                "template_docx_sha256": "sha256:template",
+            },
+            "expected": {
+                "core_action_contract": core_action_contract(),
+                "run_span_ledger": [
+                    {
+                        "raw_run_id": "p_0001.r_001",
+                        "source_seq": 1,
+                        "unit_id": "cover",
+                        "expected_action": "keep",
+                    },
+                    {
+                        "raw_run_id": "p_0002.r_001",
+                        "source_seq": 2,
+                        "unit_id": "body_main",
+                        "expected_action": "fill",
+                    },
+                ],
+            },
+        },
+        packet=atomic_packet(),
+        gold_unit_observation=gold_units,
+        gold_input_audit=audit,
+        source_template_hash="sha256:template",
+    )
+
+    assert report["scope"]["prediction_projection"] == "span_preferred_raw_run"
+    assert report["metrics"]["exact_action_accuracy"] == 0.5
+    assert report["metrics"]["conflicted_run_count"] == 1
+    assert report["metrics"]["mixed_span_run_count"] == 1
+    assert report["metrics"]["mixed_span_raw_run_ids"] == ["p_0001.r_001"]
+
+
 def test_t3_gold_accuracy_rejects_without_passing_input_audit() -> None:
     with pytest.raises(T3GoldUpstreamError, match="passing gold input audit"):
         evaluate_t3_gold_accuracy(

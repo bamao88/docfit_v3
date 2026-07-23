@@ -126,15 +126,30 @@ def write_template_generation_outputs(out_dir: Path, result: StageResult) -> Non
         "t3_code_element_spec",
         "T3/code_raw：agent 合并前由确定性代码直接生成的元素策略。",
     )
+    write_step_json(
+        "03.0.5_t3_hierarchical_stage_input.json",
+        "t3_hierarchical_stage_input",
+        "T3 分层输入：基于 sealed L1 与对应 T2 route 的可校验节点树。",
+    )
     write_step_yaml(
         "03.1_t3_ai_element_observation.yaml",
         "t3_ai_element_observation",
         "T3/ai_raw：Module 1 AI 独立生成的元素观察；未提供 AI 时标记 NOT_AVAILABLE。",
     )
+    write_step_json(
+        "03.1.5_t3_sparse_decision_trace.json",
+        "t3_sparse_decision_trace",
+        "T3 稀疏决策：保留停止层级、递归调用和完整 atomic coverage ledger。",
+    )
     write_step_yaml(
         "03.2_t3_merged_element_spec.yaml",
         "t3_merged_element_spec",
         "T3/merged：AI/code bridge 与 reconciler 后进入 T5/T6 的最终元素策略。",
+    )
+    write_step_json(
+        "03.2.5_t3_atomic_route_comparison.json",
+        "t3_atomic_route_comparison",
+        "T3 三路原子对账：code_raw、ai_raw、merged 在同一 member_ref 上比较。",
     )
     write_step_yaml(
         "03_element_spec.yaml",

@@ -5,9 +5,8 @@ from typing import Any
 
 from docfit.core.io import now_iso, sha256_json
 from docfit.template_generation.page_policy import (
-    PAGE_POLICY_FIELDS,
-    normalize_page_policy,
-    pages_equivalent,
+    normalize_unit_page_policy,
+    unit_page_policies_equivalent,
 )
 
 from .schema import empty_layered_submission
@@ -19,9 +18,11 @@ POLICY_TO_EXECUTABLE = {
     "fixed": "fixed",
     "template_default": "fixed",
     "fill": "fill",
-    "manual_only": "manual_only",
     "generated": "generated",
     "instruction_remove": "remove_instruction",
+    # unknown 是判断结果，不是可执行的删除/填充策略。保留这个标签进入
+    # comparison/overlay，由执行边界统一降级为 fixed（core action=keep）。
+    "unknown": "unknown",
 }
 COLLECTION_BY_KIND = {
     "t2": {
@@ -45,6 +46,7 @@ def build_observation_bridge(
     observation_bundle: dict[str, Any],
     packet: dict[str, Any],
     structure_candidates: dict[str, Any],
+    t3_authority_mode: str = "merge",
 ) -> dict[str, Any]:
     """Convert Module 1 observation artifacts into existing agent proposals.
 
@@ -88,6 +90,7 @@ def build_observation_bridge(
             proposals=proposals,
             manual_items=manual_items,
             proposal_map=proposal_map,
+            include_keep=t3_authority_mode == "ai_primary",
         )
         _bridge_t4(
             observation_bundle.get("ai_layout_observation") or {},
@@ -220,31 +223,43 @@ def _bridge_t2(
         }
         proposals["t2"].append(proposal)
         proposal_map.append(_map_item(item_id, "t2", proposal_id, "proposal", "converted to T2 proposal"))
+        page_proposal = _t2_page_policy_proposal(
+            item,
+            existing=existing,
+            index=index,
+            item_id=item_id,
+        )
+        if page_proposal is not None:
+            proposals["t2"].append(page_proposal)
+            proposal_map.append(
+                _map_item(
+                    item_id,
+                    "t2",
+                    page_proposal["proposal_id"],
+                    "proposal",
+                    "converted to T2 page policy proposal after boundary materialization",
+                )
+            )
     _demotions_to_manual(observation, manual_items, layer="t2")
 
 
 def _t2_page_policy_proposal(
     item: dict[str, Any],
     *,
-    existing: dict[str, Any],
+    existing: dict[str, Any] | None,
     index: int,
     item_id: str,
 ) -> dict[str, Any] | None:
-    if not any(field in item for field in PAGE_POLICY_FIELDS):
+    if not isinstance(item.get("page_policy"), dict):
         return None
     unit_id = str(item.get("unit_id") or "")
-    observed_page = normalize_page_policy(
-        {
-            field: item.get(field)
-            for field in PAGE_POLICY_FIELDS
-            if field in item
-        },
-        default_origin="ai_observation",
-        default_confidence=_confidence(item),
-        default_evidence_refs=list(item.get("evidence_refs") or []),
+    observed_page_policy = normalize_unit_page_policy(item.get("page_policy"))
+    existing_page_policy = normalize_unit_page_policy(
+        existing.get("page_policy") if isinstance(existing, dict) else None
     )
-    existing_page = normalize_page_policy(existing.get("page") or {})
-    if pages_equivalent(existing_page, observed_page):
+    if existing is not None and unit_page_policies_equivalent(
+        existing_page_policy, observed_page_policy
+    ):
         return None
     proposal_id = f"obs_t2_page_{_slug(unit_id)}_{index:03d}"
     return {
@@ -254,7 +269,7 @@ def _t2_page_policy_proposal(
         "unit_id": unit_id,
         "target_unit_id": unit_id,
         "source_seq_refs": _ints(item.get("source_seq_refs")),
-        "page": observed_page,
+        "page_policy": observed_page_policy,
         "rationale": item.get("ai_rationale"),
         "evidence": item.get("evidence_refs", []),
         "origin": "ai_observation",
@@ -268,10 +283,49 @@ def _bridge_t3(
     proposals: dict[str, list[dict[str, Any]]],
     manual_items: list[dict[str, Any]],
     proposal_map: list[dict[str, Any]],
+    include_keep: bool = False,
 ) -> None:
+    sparse_mode = bool(
+        observation.get("sparse_decisions")
+        or observation.get("atomic_coverage")
+        or any(
+            isinstance(item, dict) and item.get("decision_status") is not None
+            for item in observation.get("items", []) or []
+        )
+    )
     for index, item in enumerate(_dict_items(observation.get("items")), start=1):
         item_id = _item_id(item, fallback=f"t3_{index:03d}", key="element_id")
+        if (
+            sparse_mode
+            and not _sparse_item_mergeable(item)
+            and not _ai_primary_safe_keep(item, include_keep=include_keep)
+        ):
+            _reject_observation_item(
+                item,
+                manual_items,
+                layer="t3",
+                reason_code="OBSERVATION-T3-SPARSE-NOT-MERGEABLE",
+                summary=(
+                    "Sparse T3 coverage row is fallback, contested, or otherwise "
+                    "not eligible for merged execution"
+                ),
+            )
+            proposal_map.append(
+                _map_item(item_id, "t3", None, "manual_review", "sparse result is not mergeable")
+            )
+            continue
+        if (
+            sparse_mode
+            and not include_keep
+            and str(item.get("core_action") or "").lower() == "keep"
+        ):
+            proposal_map.append(
+                _map_item(item_id, "t3", None, "no_op", "accepted Keep needs no overlay")
+            )
+            continue
         refs = _ints(item.get("source_seq_refs"))
+        raw_run_ids = _strings(item.get("raw_run_ids"))
+        logical_run_ids = _strings(item.get("logical_run_ids"))
         raw_policy = str(item.get("policy") or "")
         executable_policy = POLICY_TO_EXECUTABLE.get(raw_policy)
         if executable_policy is None:
@@ -293,7 +347,7 @@ def _bridge_t3(
                 summary="AI element observation confidence is not recognized",
             )
             continue
-        if not refs:
+        if not refs and not raw_run_ids:
             _reject_observation_item(
                 item,
                 manual_items,
@@ -308,21 +362,86 @@ def _bridge_t3(
             "proposal_id": proposal_id,
             "kind": "element_policy_candidate",
             "policy": executable_policy,
+            "core_action": item.get("core_action"),
+            "observed_policy": raw_policy,
+            "execution_fallback_action": "keep" if raw_policy == "unknown" else None,
+            "execution_fallback_policy": "fixed" if raw_policy == "unknown" else None,
             "unit_id": unit_id,
             "source_seq_refs": refs,
-            "target_candidate_id": _target_candidate_id(unit_id, str(item.get("element_id") or "")),
+            "source_refs": _strings(item.get("source_refs")),
+            "raw_run_ids": raw_run_ids,
+            "logical_run_ids": logical_run_ids,
+            "span_refs": _strings(item.get("span_refs")),
+            "char_ranges": deepcopy(item.get("char_ranges") or []),
+            "spans": deepcopy(item.get("spans") or []),
+            "projection_status": item.get("projection_status"),
+            "target_candidate_id": (
+                None
+                if sparse_mode
+                else _target_candidate_id(unit_id, str(item.get("element_id") or ""))
+            ),
             "rationale": item.get("ai_rationale"),
             "evidence": item.get("evidence_refs", []),
             "origin": "ai_observation",
             "observation_item_id": item_id,
             "observation_confidence": confidence,
             "fill_source": item.get("fill_source"),
+            "fill_field": item.get("fill_field"),
             "generated": item.get("generated"),
-            "manual_semantics": item.get("manual_semantics"),
+            "removal_reason": item.get("removal_reason"),
+            "transformation": item.get("transformation"),
+            "decision_ref": item.get("decision_ref"),
+            "decision_target_ref": item.get("decision_target_ref"),
+            "decision_status": item.get("decision_status"),
+            "resolution": item.get("resolution"),
+            "inherited_from": item.get("inherited_from"),
+            "member_ref": item.get("member_ref"),
+            "member_refs": deepcopy(item.get("member_refs") or []),
+            "merge_eligible": item.get("merge_eligible"),
         }
         proposals["t3"].append(proposal)
         proposal_map.append(_map_item(item_id, "t3", proposal_id, "proposal", "converted to T3 policy proposal"))
+    for index, item in enumerate(_dict_items(observation.get("object_items")), start=1):
+        item_id = _item_id(item, fallback=f"t3_object_{index:03d}", key="element_id")
+        _reject_observation_item(
+            item,
+            manual_items,
+            layer="t3",
+            reason_code="OBSERVATION-T3-OBJECT-NOT-MATERIALIZABLE",
+            summary="T3 source object has no precise executable generation-model binding",
+        )
+        proposal_map.append(
+            _map_item(item_id, "t3", None, "manual_review", "source object is not materializable")
+        )
     _demotions_to_manual(observation, manual_items, layer="t3")
+
+
+def _sparse_item_mergeable(item: dict[str, Any]) -> bool:
+    return bool(
+        item.get("merge_eligible") is True
+        and str(item.get("decision_status") or "") == "accepted"
+        and str(item.get("resolution") or "") in {"direct", "inherited"}
+    )
+
+
+def _ai_primary_safe_keep(
+    item: dict[str, Any],
+    *,
+    include_keep: bool,
+) -> bool:
+    """Materialize conservative sparse fallback as AI-route Keep.
+
+    Merge mode must reject fallback/contested decisions so they cannot mutate
+    Code.  An independent AI-primary route has no Code authority to fall back
+    to: its safe failure result is explicitly Keep/fixed, so that result must be
+    executed to prevent deterministic T3 policy from leaking into the route.
+    """
+
+    return bool(
+        include_keep
+        and str(item.get("core_action") or "").lower() == "keep"
+        and str(item.get("resolution") or "") in {"fallback", "contested"}
+    )
 
 
 def _bridge_t4(
@@ -582,6 +701,18 @@ def _ints(values: Any) -> list[int]:
         if parsed is not None:
             result.append(parsed)
     return sorted(dict.fromkeys(result))
+
+
+def _strings(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return list(
+        dict.fromkeys(
+            str(value)
+            for value in values
+            if value not in (None, "") and str(value).strip()
+        )
+    )
 
 
 def _int_or_none(value: Any) -> int | None:

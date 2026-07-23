@@ -357,6 +357,20 @@ class MinimaxTextResponder:
             label=str(window.get("window_id") or window.get("unit_id") or "t3_unit"),
         )
 
+    def fetch_t3_decision(
+        self,
+        *,
+        evidence: dict[str, Any],
+        node: dict[str, Any],
+        unit_id: str,
+    ) -> dict[str, Any]:
+        del unit_id
+        return self._complete(
+            "t3_hierarchy",
+            evidence,
+            label=str(node.get("ref") or "t3_hierarchy"),
+        )
+
     def fetch_layout(self, *, evidence: dict[str, Any]) -> dict[str, Any]:
         del evidence
         return {"section_profiles": []}
@@ -385,6 +399,8 @@ class MinimaxTextResponder:
                 "system": system,
                 "user": user,
                 "model": self._model,
+                "temperature": self._temperature,
+                "max_tokens": self._max_tokens,
                 "sample_index": sample_index,
                 "visual_refs": attachment_refs(evidence),
             }
@@ -408,7 +424,9 @@ class MinimaxTextResponder:
                 )
             return cached
 
-        empty: dict[str, Any] = {} if stage == "t3_unit" else {"items": []}
+        empty: dict[str, Any] = (
+            {} if stage in {"t3_unit", "t3_hierarchy"} else {"items": []}
+        )
         error: str | None = None
         payload = empty
         skipped_due_usage_limit = self._usage_limit_state.is_exhausted("minimax")

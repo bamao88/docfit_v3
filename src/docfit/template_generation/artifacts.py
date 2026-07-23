@@ -128,6 +128,8 @@ def build_element_spec(generation_model: dict[str, Any]) -> dict[str, Any]:
                 "policy": policy,
                 "role": _role_for_element(element, policy),
                 "fill_source": _fill_source_for_policy(policy, element),
+                "fill_field": element.get("fill_field"),
+                "removal_reason": element.get("removal_reason"),
                 "source_refs": element.get("source_refs", []),
                 "source_seq_refs": element.get("source_seq_refs", []),
                 "raw_run_ids": element.get("raw_run_ids", []),
@@ -141,6 +143,7 @@ def build_element_spec(generation_model: dict[str, Any]) -> dict[str, Any]:
                     str(element.get("role_hint") or ""),
                 ),
                 "evidence": element.get("evidence", []),
+                "agent_traces": list(element.get("agent_traces", []) or []),
                 "flags": list(element.get("review_notes", [])),
             }
             confidence_flag = _confidence_flag(
@@ -183,7 +186,16 @@ def build_element_spec(generation_model: dict[str, Any]) -> dict[str, Any]:
         },
         "ontology_ref": "src/docfit/template_generation/ontology.yaml",
         "elements": elements,
-        "ai_traces": [],
+        "ai_traces": [
+            {
+                "unit_id": element.get("unit_id"),
+                "element_id": element.get("element_id"),
+                **trace,
+            }
+            for element in elements
+            for trace in element.get("agent_traces", []) or []
+            if isinstance(trace, dict)
+        ],
         "flags": flags,
     }
 
@@ -1097,6 +1109,9 @@ def _canonical_policy(policy: str) -> str:
         "manual_only": "manual_only",
         "remove_instruction": "instruction_remove",
         "template_default": "template_default",
+        # unknown 只属于 T3 判断层；生成 element_spec 时已进入执行层，
+        # 因此必须保守降级为 fixed（keep）。
+        "unknown": "fixed",
     }.get(policy, "fixed")
 
 

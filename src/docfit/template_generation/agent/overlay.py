@@ -4,8 +4,8 @@ from copy import deepcopy
 from typing import Any
 
 from docfit.core.io import sha256_json
-from docfit.template_generation.page_policy import normalize_page_policy
-from docfit.template_generation.constants import MANUAL_ONLY_UNIT_IDS, UNIT_DEFINITION_NAMES
+from docfit.template_generation.page_policy import normalize_unit_page_policy
+from docfit.template_generation.constants import KEEP_ONLY_UNIT_IDS, UNIT_DEFINITION_NAMES
 from docfit.template_generation.structure_candidates import (
     _element_name,
     _element_policy,
@@ -21,7 +21,19 @@ T2_OPERATIONS = {
     "replace_unit_elements",
     "set_page_policy",
 }
-T3_POLICIES = {"fixed", "fill", "manual_only", "generated", "remove_instruction"}
+T3_POLICIES = {"fixed", "fill", "generated", "remove_instruction"}
+
+
+def t3_execution_policy(value: Any) -> str:
+    """Map a semantic T3 decision to its safe executable policy.
+
+    ``unknown`` must remain observable in the judgment artifact, but execution
+    is deliberately asymmetric: uncertainty may preserve content and may never
+    authorize replacement or deletion.
+    """
+
+    policy = str(value or "").strip()
+    return "fixed" if policy == "unknown" else policy
 
 
 def apply_t2_proposal(
@@ -135,27 +147,7 @@ def apply_t2_proposal(
         target = _resolve_target_unit(units, proposal)
         if target is None:
             return None, None, "set_page_policy target is ambiguous or missing"
-        page = proposal.get("page")
-        if not isinstance(page, dict):
-            page = {
-                field: proposal.get(field)
-                for field in (
-                    "page_break",
-                    "page_isolation",
-                    "allow_multi_page",
-                    "keep_together",
-                )
-                if field in proposal
-            }
-        existing_page = target.get("page") if isinstance(target.get("page"), dict) else {}
-        merged_page = normalize_page_policy(
-            {**existing_page, **page},
-            default_origin=str(proposal.get("origin") or "ai_observation"),
-            default_confidence=str(proposal.get("confidence") or "medium"),
-            default_evidence_refs=list(proposal.get("evidence") or []),
-            default_proposal_ids=[str(proposal.get("proposal_id") or "")],
-        )
-        target["page"] = merged_page
+        target["page_policy"] = normalize_unit_page_policy(proposal.get("page_policy"))
         target.setdefault("agent_traces", []).append(_trace(proposal))
         patched["units"] = _sorted_units(units)
 
@@ -274,8 +266,16 @@ def apply_t3_proposal(
     structure_candidates: dict[str, Any],
     proposal: dict[str, Any],
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str]:
-    policy = str(proposal.get("policy") or proposal.get("candidate_policy") or "").strip()
-    if policy == "remove":
+    observed_policy = str(
+        proposal.get("observed_policy")
+        or proposal.get("policy")
+        or proposal.get("candidate_policy")
+        or ""
+    ).strip()
+    policy = t3_execution_policy(
+        proposal.get("policy") or proposal.get("candidate_policy")
+    )
+    if observed_policy == "remove":
         return None, None, "policy remove is not executable in current generation code"
     if policy not in T3_POLICIES:
         return None, None, f"unsupported T3 policy: {policy}"
@@ -285,22 +285,51 @@ def apply_t3_proposal(
     if target is None:
         return None, None, "T3 target is ambiguous or missing"
     unit, element = target
-    unit_policy = _unit_policy(unit)
-    if policy == "fill" and unit_policy == "manual_only":
-        unit_id = str(unit.get("unit_id") or "")
+    unit_id = str(unit.get("unit_id") or "")
+    if policy == "fill" and unit_id in KEEP_ONLY_UNIT_IDS:
         return (
             None,
             None,
-            f"T3 fill policy is not executable for manual_only unit: {unit_id}",
+            f"T3 fill policy is not executable for keep-only unit: {unit_id}",
         )
-    element["candidate_policy"] = policy
-    element.setdefault("agent_traces", []).append(_trace(proposal))
+    proposal_raw_run_ids = _strings(proposal.get("raw_run_ids", []))
+    element_raw_run_ids = _strings(element.get("raw_run_ids", []))
+    targets = [element]
+    if proposal_raw_run_ids and set(proposal_raw_run_ids) != set(element_raw_run_ids):
+        targets, split_error = _split_t3_element_for_raw_runs(
+            patched,
+            unit=unit,
+            element=element,
+            selected_raw_run_ids=proposal_raw_run_ids,
+        )
+        if split_error:
+            return None, None, split_error
+    for target in targets:
+        _apply_t3_policy(target, policy=policy, proposal=proposal)
+    target_ids = [
+        f"{unit.get('unit_id')}.{target.get('element_id')}"
+        for target in targets
+    ]
     operation_payload = {
         "proposal_id": proposal.get("proposal_id"),
         "operation": "set_candidate_policy",
-        "target_candidate_id": f"{unit.get('unit_id')}.{element.get('element_id')}",
+        "target_candidate_id": target_ids[0] if len(target_ids) == 1 else None,
+        "target_candidate_ids": target_ids,
         "policy": policy,
+        "observed_policy": observed_policy,
+        "execution_fallback_action": (
+            "keep" if observed_policy == "unknown" else None
+        ),
         "source_seq_refs": _proposal_source_seq_refs(proposal),
+        "raw_run_ids": proposal_raw_run_ids,
+        "logical_run_ids": _strings(proposal.get("logical_run_ids", [])),
+        "span_refs": _strings(proposal.get("span_refs", [])),
+        "char_ranges": deepcopy(proposal.get("char_ranges") or []),
+        "decision_ref": proposal.get("decision_ref"),
+        "decision_target_ref": proposal.get("decision_target_ref"),
+        "member_ref": proposal.get("member_ref"),
+        "member_refs": _strings(proposal.get("member_refs", [])),
+        "resolution": proposal.get("resolution"),
         "before_hash": before_hash,
         "after_hash": sha256_json(patched),
     }
@@ -312,13 +341,22 @@ def bind_t3_target(
     proposal: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]] | None:
     explicit = str(proposal.get("target_candidate_id") or "").strip()
+    proposal_unit_id = str(proposal.get("unit_id") or "").strip()
     source_seq_refs = set(_proposal_source_seq_refs(proposal))
+    raw_run_ids = set(_strings(proposal.get("raw_run_ids", [])))
     matches: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for unit in structure_candidates.get("units", []):
         unit_id = str(unit.get("unit_id") or "")
+        if proposal_unit_id and proposal_unit_id != unit_id:
+            continue
         for element in unit.get("elements", []):
             element_id = str(element.get("element_id") or "")
             target_id = f"{unit_id}.{element_id}"
+            if raw_run_ids:
+                element_raw_run_ids = set(_strings(element.get("raw_run_ids", [])))
+                if raw_run_ids.issubset(element_raw_run_ids):
+                    matches.append((unit, element))
+                continue
             if explicit and explicit == target_id:
                 matches.append((unit, element))
                 continue
@@ -335,13 +373,101 @@ def bind_t3_target(
     return next(iter(unique.values()))
 
 
+def _apply_t3_policy(
+    element: dict[str, Any],
+    *,
+    policy: str,
+    proposal: dict[str, Any],
+) -> None:
+    element["candidate_policy"] = policy
+    if proposal.get("fill_source") not in (None, ""):
+        element["fill_source"] = proposal.get("fill_source")
+    if proposal.get("fill_field") not in (None, ""):
+        element["fill_field"] = proposal.get("fill_field")
+    if proposal.get("generated") is not None:
+        element["generated"] = deepcopy(proposal.get("generated"))
+    if proposal.get("removal_reason") not in (None, ""):
+        element["removal_reason"] = proposal.get("removal_reason")
+    element.setdefault("agent_traces", []).append(_trace(proposal))
+
+
+def _split_t3_element_for_raw_runs(
+    structure_candidates: dict[str, Any],
+    *,
+    unit: dict[str, Any],
+    element: dict[str, Any],
+    selected_raw_run_ids: list[str],
+) -> tuple[list[dict[str, Any]], str]:
+    original_raw_ids = _strings(element.get("raw_run_ids", []))
+    selected = set(selected_raw_run_ids)
+    if not original_raw_ids or not selected.issubset(set(original_raw_ids)):
+        return [], "T3 raw_run_ids are not contained by the bound element"
+    runs_by_raw = (
+        structure_candidates.get("source_context", {}).get("runs_by_raw_run_id", {})
+        or {}
+    )
+    missing = [raw_run_id for raw_run_id in original_raw_ids if raw_run_id not in runs_by_raw]
+    if missing:
+        return [], f"T3 run-level split lacks source run facts: {missing}"
+
+    groups: list[tuple[bool, list[str]]] = []
+    for raw_run_id in original_raw_ids:
+        is_selected = raw_run_id in selected
+        if groups and groups[-1][0] == is_selected:
+            groups[-1][1].append(raw_run_id)
+        else:
+            groups.append((is_selected, [raw_run_id]))
+
+    original_id = str(element.get("element_id") or "element")
+    replacements: list[dict[str, Any]] = []
+    selected_elements: list[dict[str, Any]] = []
+    for index, (is_selected, raw_ids) in enumerate(groups, start=1):
+        replacement = deepcopy(element)
+        replacement["element_id"] = (
+            original_id if index == 1 else f"{original_id}.agent_split_{index:03d}"
+        )
+        replacement["raw_run_ids"] = raw_ids
+        replacement["logical_run_ids"] = _dedupe_strings(
+            (runs_by_raw.get(raw_run_id) or {}).get("logical_run_id")
+            for raw_run_id in raw_ids
+        )
+        replacement["run_source_refs"] = _dedupe_strings(
+            (runs_by_raw.get(raw_run_id) or {}).get("source_ref")
+            for raw_run_id in raw_ids
+        )
+        replacement["content"] = "".join(
+            str((runs_by_raw.get(raw_run_id) or {}).get("text") or "")
+            for raw_run_id in raw_ids
+        )
+        replacement["normalized_content"] = str(replacement["content"]).strip()
+        replacement["merge"] = {
+            "type": "agent_exact_raw_run_split",
+            "source_element_id": original_id,
+            "selected": is_selected,
+        }
+        replacements.append(replacement)
+        if is_selected:
+            selected_elements.append(replacement)
+
+    elements = list(unit.get("elements", []))
+    try:
+        position = next(index for index, candidate in enumerate(elements) if candidate is element)
+    except StopIteration:
+        return [], "T3 bound element disappeared before run-level split"
+    elements[position : position + 1] = replacements
+    for order, candidate in enumerate(elements, start=1):
+        candidate["order"] = order
+    unit["elements"] = elements
+    return selected_elements, ""
+
+
 def _unit_policy(unit: dict[str, Any]) -> str:
     policy = str(unit.get("candidate_policy") or unit.get("policy") or "").strip()
     if policy:
         return policy
     unit_id = str(unit.get("unit_id") or "")
-    if unit_id in MANUAL_ONLY_UNIT_IDS:
-        return "manual_only"
+    if unit_id in KEEP_ONLY_UNIT_IDS:
+        return "fixed"
     return ""
 
 
@@ -700,7 +826,32 @@ def _trace(proposal: dict[str, Any]) -> dict[str, Any]:
         "round_id": proposal.get("round_id"),
         "rationale": proposal.get("rationale"),
         "evidence": proposal.get("evidence"),
+        "decision_ref": proposal.get("decision_ref"),
+        "decision_target_ref": proposal.get("decision_target_ref"),
+        "decision_status": proposal.get("decision_status"),
+        "resolution": proposal.get("resolution"),
+        "inherited_from": proposal.get("inherited_from"),
+        "member_ref": proposal.get("member_ref"),
+        "raw_run_ids": _strings(proposal.get("raw_run_ids", [])),
+        "logical_run_ids": _strings(proposal.get("logical_run_ids", [])),
+        "span_refs": _strings(proposal.get("span_refs", [])),
+        "char_ranges": deepcopy(proposal.get("char_ranges") or []),
     }
+
+
+def _strings(values: Any) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return _dedupe_strings(values)
+
+
+def _dedupe_strings(values: Any) -> list[str]:
+    result: list[str] = []
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in result:
+            result.append(text)
+    return result
 
 
 def _ints(values: Any) -> list[int]:

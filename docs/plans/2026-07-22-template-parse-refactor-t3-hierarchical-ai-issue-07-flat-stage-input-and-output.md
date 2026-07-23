@@ -1,5 +1,5 @@
 ---
-status: draft
+status: implemented_in_part
 owner: template-generation
 stage: T3
 topic: hierarchical-ai
@@ -7,7 +7,7 @@ doc_type: issue
 issue_id: T3-HIERARCHICAL-AI-ISSUE-07
 issue_sequence: 07
 created: 2026-07-22
-last_updated: 2026-07-22
+last_updated: 2026-07-23
 previous_issue:
   id: T3-ELEMENT-ISSUE-06
   doc: docs/plans/2026-07-02-template-parse-refactor-t3-element-policy-issue-06-placeholder-span-granularity.md
@@ -79,6 +79,18 @@ Observed：
 
 本轮根因不是缺少某一句 prompt，而是输入、输出和编排粒度不一致：输入以单元摘要和局部窗口为主，输出以 run item 为主，缺少共同的层级身份、递归停止条件、完整性和继承覆盖契约。
 
+## 2026-07-22 实施后事实
+
+已落地的能力包括：分层节点树与 validator、稀疏 stop-or-descend 决策、direct/inherited/fallback/contested atomic ledger、正式 live/replay provider 接线、共同 atomic identity 三路对账，以及 run→预生成 exact span 原子层。完整且同质的 span 动作可安全投影到兼容 raw-run 接口；同一 run 内的混合 span 动作保留精确字符范围、显式记为冲突并进入人工复核，不由执行层任意折叠。
+
+真实三校结构检查已证明树和 atomic coverage 可以闭合，但同时确认两类未解决根因：
+
+- sealed L1 的当前表格投影没有 `gridSpan/vMerge`、嵌套表和完整空 cell/多段落 cell 事实；重复 run 身份只能安全标记为 merge alias + manual review，不能宣称合并单元格已完整建模；
+- TOC field 对象与其展开 paragraph 仍是并列成员，没有 field→paragraph 所有权，live 模型会在目录单元过度下钻。
+- 三校已签 gold 的评分粒度仍是一条 raw run 一个动作，无法表达同一 run 内的混合 span 动作；当前兼容评分将其记为 run conflict，span 级准确率仍需要独立人审 gold 才能闭环。
+
+因此本 issue 保持 `implemented_in_part`；Accuracy Promotion Gate 未运行出合规三校 candidate，不关闭问题，也不迁移 canonical 文档。
+
 ## 验收门禁
 
 1. 输入节点树身份和父子关系可从 sealed L1 与对应 T2 route 确定性重建并校验。
@@ -87,4 +99,3 @@ Observed：
 4. 子调用失败、截断或越界时为显式 fallback/manual review，不伪装成正常 inherited Keep。
 5. 三校固定输入 A/B 达到 Plan 07 定义的显著提升阈值，且 false delete 不恶化。
 6. 未达到质量阈值时保持 discussion/status，不迁入 `docs/current/`，也不宣称正式能力完成。
-

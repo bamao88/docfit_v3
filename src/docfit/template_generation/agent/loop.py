@@ -16,6 +16,7 @@ from .attribution import (
     build_agent_t3_overlay,
     build_agent_t4_hints,
 )
+from .ai_primary import materialize_ai_primary_t3_structure
 from .comparison import (
     blocking_open_questions_by_layer,
     build_submission_comparison,
@@ -129,6 +130,7 @@ def run_template_agent(
             observation_bundle=observation_bundle,
             packet=packet,
             structure_candidates=structure_candidates,
+            t3_authority_mode=agent_config.t3_authority_mode,
         )
         ai_unit_observation = observation_bundle.get("ai_unit_observation")
         ai_element_observation = observation_bundle.get("ai_element_observation")
@@ -246,6 +248,23 @@ def run_template_agent(
                         )
                     )
                     continue
+                if agent_config.t3_authority_mode == "ai_primary":
+                    decisions.append(
+                        {
+                            "proposal_id": proposal.get("proposal_id"),
+                            "layer": "t3",
+                            "collection": collection,
+                            "decision": "accepted",
+                            "reason": (
+                                "AI-primary route defers this atomic policy to direct "
+                                "authority materialization without Code comparison"
+                            ),
+                            "authority": "ai_primary",
+                            "merge_enabled": False,
+                            **pass_context,
+                        }
+                    )
+                    continue
             comparison_item = compare_proposal(
                 structure_candidates=current_structure,
                 packet=packet,
@@ -294,12 +313,25 @@ def run_template_agent(
             packet=packet,
         )
 
+    if (
+        agent_config.t3_authority_mode == "ai_primary"
+        and isinstance(ai_element_observation, dict)
+    ):
+        current_structure, ai_primary_operation = materialize_ai_primary_t3_structure(
+            current_structure,
+            ai_element_observation,
+        )
+        t3_operations = [ai_primary_operation]
+
     changed = bool(t2_operations or t3_operations)
     regenerated = (
         regenerate_from_structure_candidates(
             request=request,
             document_facts=document_facts,
             structure_candidates=current_structure,
+            include_source_instruction_heuristics=(
+                agent_config.t3_authority_mode != "ai_primary"
+            ),
         )
         if changed
         else {

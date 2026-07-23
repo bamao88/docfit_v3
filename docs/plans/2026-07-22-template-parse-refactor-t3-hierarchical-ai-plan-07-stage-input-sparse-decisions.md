@@ -1,5 +1,5 @@
 ---
-status: draft
+status: implemented_in_part
 owner: template-generation
 stage: T3
 topic: hierarchical-ai
@@ -15,7 +15,7 @@ discussion_sources:
   input: docs/human/t3-stage-input-hierarchical-structure-discussion.md
   output: docs/human/t3-ai-hierarchical-output-principles-discussion.md
 created: 2026-07-22
-last_updated: 2026-07-22
+last_updated: 2026-07-23
 ---
 
 # T3 Plan 07：分层 Stage Input 与稀疏递归 AI 决策
@@ -134,63 +134,120 @@ sealed L1 + corresponding T2 route
 
 ## Implementation Checklist
 
+## Implementation Ledger（2026-07-22）
+
+### 已落地
+
+- 正式 T3 路径已切到 versioned hierarchical Stage Input、节点事实防火墙、tree validator 和 sparse traversal；旧 flat local router 仅保留为无正式调用方的兼容代码。
+- 决策支持最粗终局 Keep/Fill/Delete、Split、直接叶子批量决策、深度/调用预算和失败回退；程序确定性展开唯一 atomic coverage。
+- replay、Kimi、MiniMax 共用 `t3_hierarchy` prompt/response 契约；缓存键包含 assembled prompt、模型参数和 visual refs。
+- bridge 只允许 `accepted` 的非 Keep sparse mutation 进入 merged；fallback/contested/source object 进入人工复核。
+- overlay 优先按 `raw_run_ids` 绑定；命中多 run element 时先按源 run 事实拆分，不把单 run 动作扩大到整段。
+- run 现在确定性展开为带精确 `raw_run_id + start/end` 的预生成 span 原子叶；AI 只能引用这些 span，不能自造字符范围。完整且同质的 span 动作才可安全投影回旧 raw-run 接口；同一 run 内混合动作显式标记冲突并进入人工复核。
+- `element_spec.ai_traces` 和 element 级 trace 保留 decision/member/resolution/raw/logical identity；新增 code_raw/ai_raw/merged common atomic comparison artifact。
+- ordered outputs 新增 `03.0.5_t3_hierarchical_stage_input.json`、`03.1.5_t3_sparse_decision_trace.json`、`03.2.5_t3_atomic_route_comparison.json`。
+
+### 基线与验证边界
+
+- 实施基准 commit：`337bfa934bfecd6b142f7c1c5f85df8bf5f64ccf`。工作区在本轮开始前已有大量未提交的 T1-T7、标准和文档改动，本轮没有回滚或提交这些外部改动。
+- 没有找到满足 Plan 07 同 commit、同 prompt、同三校输入的实施前 baseline。仅有的三校参考是 `/private/tmp/docfit_t3_gold_current_20260720_v1_minimax`（MiniMax-M3、旧 prompt 1.4）：三校 exact 分别 `0.5876 / 0.3717 / 0.2898`，pooled exact `0.3843`、pooled macro-F1 `0.3363`、false delete `0`。它不是可用于晋升的严格 A/B baseline。
+- 参考输入 SHA-256（L1 packet / gold T2）：hunannongye `bb880465… / bf9924e6…`，nannong-undergraduate `dad2e1c5… / 0e34c341…`，pku-graduate `d8606c36… / e0b257a0…`；完整值保留在原 run artifact。
+- 两次湖南农大 live candidate 均主动中止：第一次逐 run 下钻；加入直接叶子批量决策后封面由十余次调用降为一次，但 TOC field 与展开段落并列导致目录仍逐段下钻。中止产物不计准确率、不用于通过门禁。
+- 2026-07-23 按用户最新口径跳过 accuracy baseline，完成湖南农大独立 Word 视觉 A/B：两条路线共同消费 signed T2 standard 物化的准确模拟输入，T2 unit semantic hash 相同且标准审计均 PASS；T3 分别由 `code_raw` 与 `ai_raw` 单独主权执行，`merge_enabled=false`。产物位于 `test_outputs/debug/template_generation/20260723_t3_gold_t2_code_vs_ai_ab/hunannongye/`。
+- 本次 AI live 为 MiniMax-M3，96 次调用覆盖 812 个 atomic member；direct 122、inherited 281、fallback 409、contested 0，coverage validator 通过。409 个无效/不完整判断在 AI-primary 路线中直接物化为 safe Keep，不回退到 Code policy；4 个仅含空白字符的 raw run 未进入 generation structural shell，因而没有执行目标，也未扩大动作。
+- 两份 DOCX 均通过包校验并由 LibreOffice 渲染为 19 页 A4。视觉抽查发现 Code 封面清理过度；AI-primary 保留更多封面内容，但有封面顶部页码、目录后移和空白页。该运行未传 T3 gold、未生成 accuracy artifact，只作为产品视觉预览，不改变 Accuracy Promotion Gate。
+
+### 真实结构证据
+
+2026-07-22 首次 run-leaf 实施快照（补入 span 原子层之前）经 builder/validator：
+
+| 学校 | tree valid | pre-span run-leaf members | deterministic fixture calls | accepted members | fallback/manual members | 主要残留 |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| hunannongye | true | 812 | 263 | 708 | 104 | 缺 merge facts 的重复 cell alias |
+| nannong-undergraduate | true | 566 | 11 | 566 | 0 | 当前投影未暴露主要别名 |
+| pku-graduate | true | 1470 | 161 | 1452 | 18 | merge alias；2 个对象成员为 direct |
+
+当时所有 run-leaf member 在 fixture traversal 中唯一覆盖，无 silent gap 或 overlap。该表保留历史实施证据，不代表补入 span 后的当前 atomic member 数，也不证明动作准确率。
+
+2026-07-23 补做 run→span 原子层检查。三校的 Stage Input tree validator 均通过，所有 T3 自有 `body_flow` gold run 都能落到对应 span 分区；南京农业大学和北京大学标准中额外的 9 / 12 条 gold 均属于明确排除在 T3 动作评分之外的 `header_footer`，不是 Stage Input 漏 run。
+
+| 学校 | run nodes | span atomic leaves | multi-span runs | T3-owned gold missing |
+| --- | ---: | ---: | ---: | ---: |
+| hunannongye | 708 | 836 | 76 | 0 |
+| nannong-undergraduate | 565 | 663 | 50 | 0 |
+| pku-graduate | 1449 | 1496 | 37 | 0 |
+
+### 当前结论与 remaining gaps
+
+状态为 `implemented_in_part`，不更新 `docs/current/` canonical 契约。remaining gaps：
+
+1. L1/T3 projection 补齐 `gridSpan/vMerge`、嵌套表、空 cell、多段落 cell 和 field/object 覆盖关系；当前 alias 是安全降级，不是完整 merge 模型。
+2. visual evidence 目前发送带 target bbox/hash 的真实整页附件，尚未生成 unit/object/row/cell/paragraph 实体 crop。
+3. 统一 prompt 资源尚未按 node kind 拆成独立可审阅模板；provider 有网络重试，但 invalid semantic decision 没有独立重试策略。
+4. TOC field→paragraph ownership 未建模；本次湖南农大虽降到 96 次 live 调用，但仍有 409 个 atomic member 因完整性/动作契约进入 safe Keep，三校成本与动作质量门禁均未闭环。
+5. 缺合规三校 baseline/candidate A/B，Accuracy Promotion Gate 未验证；canonical 晋升禁止。
+6. 已签学校 gold 仍为“一条 raw run 对应一个动作”，不能表达同一 raw run 内多个 span 的混合动作；当前兼容评测会把这种结果显式记为 run conflict。要验证 span 级动作准确率，仍需独立的人审 span gold，不能把旧 run gold 自动细分成伪 gold。
+
 ### Phase 0：冻结 baseline 与批准首版选择
 
 - [ ] 记录 baseline commit、三校 L1/T2/T3 gold hash、模型参数、缓存和当前准确率。
-- [ ] 固定逐动作 precision/recall 最低门槛，禁止 candidate 出结果后修改。
-- [ ] 从输入讨论稿批准首版节点树、visual completeness 和大表策略。
-- [ ] 从输出讨论稿批准首版动作矩阵、Split 默认、失败状态和 atomic leaf。
-- [ ] 确认 Plan 06 与本计划的职责：本计划接管分层输入输出，Plan 06 保留已完成证据和未覆盖的 T6 精确执行项。
+- [x] 固定逐动作 precision/recall 最低门槛，禁止 candidate 出结果后修改。
+- [x] 从输入讨论稿批准首版节点树、visual completeness 和大表策略。
+- [x] 从输出讨论稿批准首版动作矩阵、Split 默认、失败状态和 atomic leaf。
+- [x] 确认 Plan 06 与本计划的职责：本计划接管分层输入输出，Plan 06 保留已完成证据和未覆盖的 T6 精确执行项。
 
 ### Phase 1：Hierarchical Stage Input
 
-- [ ] 定义 versioned node/envelope/completeness/visual schema。
-- [ ] 从 sealed L1 + 对应 T2 route 构建 unit 根和直接子节点。
-- [ ] 建立 table→row→cell→paragraph→run 与普通 paragraph→run 关系。
+- [x] 定义 versioned node/envelope/completeness/visual schema。
+- [x] 从 sealed L1 + 对应 T2 route 构建 unit 根和直接子节点。
+- [x] 建立 table→row→cell→paragraph→run 与普通 paragraph→run 关系。
 - [ ] 接入 source_object、跨页、合并单元格、嵌套表格和多段落 cell。
-- [ ] 为每层生成完整文字、必要样式/结构和 direct-child 摘要。
+- [x] 为每层生成完整文字、必要样式/结构和 direct-child 摘要。
 - [ ] 生成 unit/page/object/row/cell/paragraph crop，并绑定 visual_ref、bbox、hash 和 coverage。
-- [ ] 增加完整性、截断、未绑定成员和树 validator。
+- [x] 增加完整性、截断、未绑定成员和树 validator。
 
 ### Phase 2：Sparse Decision Contract 与递归编排
 
-- [ ] 定义 terminal Keep/Fill/Delete 与 Split schema、节点动作矩阵和条件字段。
-- [ ] 定义 accepted/fallback/manual_review/failed/contested 状态，不与动作枚举混用。
-- [ ] 编排从 unit 根开始，只沿合法 inspect_child_refs 递归。
+- [x] 定义 terminal Keep/Fill/Delete 与 Split schema、节点动作矩阵和条件字段。
+- [x] 定义 accepted/fallback/manual_review/failed/contested 状态，不与动作枚举混用。
+- [x] 编排从 unit 根开始，只沿合法 inspect_child_refs 递归。
 - [ ] 实现终局停止、最大深度/预算、重试、部分结果和失败回退。
-- [ ] cache/replay key 绑定 input tree、visual、prompt、model 和 contract version。
+- [x] cache/replay key 绑定 input tree、visual、prompt、model 和 contract version。
 
 ### Phase 3：正式 Prompt 与 Provider 接线
 
 - [ ] 将 unit/object/row/cell/paragraph/run prompt 分离为可审阅资源。
-- [ ] 每层 prompt 明确当前 target、直接 children、context-only 和允许动作。
-- [ ] 删除“所有内容默认逐 run 标注”的旧正式假设。
-- [ ] Kimi/MiniMax 使用同一 assembled prompt 和真实视觉附件契约。
-- [ ] text-only 路径显式记录 visual unavailable，不伪装多模态。
+- [x] 每层 prompt 明确当前 target、直接 children、context-only 和允许动作。
+- [x] 删除“所有内容默认逐 run 标注”的旧正式假设。
+- [x] Kimi/MiniMax 使用同一 assembled prompt 和真实视觉附件契约。
+- [x] text-only 路径显式记录 visual unavailable，不伪装多模态。
 
 ### Phase 4：继承、覆盖、比较和 Merged
 
-- [ ] 展开 direct/inherited/fallback/contested atomic coverage ledger。
-- [ ] 校验每个 atomic member 唯一 resolved action，无 silent gap 或重叠覆盖。
-- [ ] code route 生成可比较 sparse decision 或同一 atomic ledger。
-- [ ] code/AI 跨层结果在共同 identity 上比较并保留原始停止层级。
-- [ ] merged 消费完整动作、条件语义、identity、evidence 和 trace。
-- [ ] materializer 按语义组合 element，不把整体 Keep 强制膨胀为无意义 element。
+- [x] 展开 direct/inherited/fallback/contested atomic coverage ledger。
+- [x] 校验每个 atomic member 唯一 resolved action，无 silent gap 或重叠覆盖。
+- [x] code route 生成可比较 sparse decision 或同一 atomic ledger。
+- [x] code/AI 跨层结果在共同 identity 上比较并保留原始停止层级。
+- [x] run 确定性展开为 exact span 原子叶；atomic comparison 优先按字符范围解析，兼容 run gold 只接受可无损投影的同质 span 动作。
+- [x] merged 消费完整动作、条件语义、identity、evidence 和 trace。
+- [x] materializer 按语义组合 element，不把整体 Keep 强制膨胀为无意义 element。
+- [x] 增加从同一 gold-simulated T2 出发的 Code 与 AI-primary 独立 T3 authority；AI-primary 不经过 Code comparison/merge，失败只回退到本路线 safe Keep。
 
 ### Phase 5：测试与真实 A/B
 
-- [ ] 单元、对象、表格、row/cell、paragraph、run/span 和 source object fixtures。
+- [x] 单元、对象、表格、row/cell、paragraph、run/span 和 source object fixtures。
 - [ ] 整体 Keep、正确 Split、错误提前 Keep、过度下钻和结构保留反例。
 - [ ] 跨页、大表、合并/嵌套表格、图片缺失、截断、非法 ref 和失败注入。
-- [ ] 运行聚焦单测、agent contract、template-generate/replay 和 route evaluator。
+- [x] 运行聚焦单测、agent contract、template-generate/replay 和 route evaluator。
+- [x] 运行湖南农大 Code vs AI-primary 独立 Word 视觉 A/B；校验共同 T2、DOCX 可打开和 19 页 A4 渲染。该项不替代 accuracy A/B。
 - [ ] 用三校固定输入跑 baseline/candidate；报告 exact accuracy、macro-F1、各动作 precision/recall、false delete、coverage、调用数和层级指标。
-- [ ] 对结果做 mismatch/root cause/owner/fix plan，不用总 PASS 掩盖单校或动作退化。
+- [x] 对结果做 mismatch/root cause/owner/fix plan，不用总 PASS 掩盖单校或动作退化。
 
 ### Phase 6：晋升或残留
 
 - [ ] Accuracy Promotion Gate 通过后由用户确认讨论结论。
 - [ ] 通过后更新 canonical T3 架构和测试契约，并同步 status/issue/plan/index。
-- [ ] 未通过则保持讨论稿和 `implemented_in_part`，记录下一轮改进，不更新长期文档。
+- [x] 未通过则保持讨论稿和 `implemented_in_part`，记录下一轮改进，不更新长期文档。
 
 ## Commit Strategy
 
@@ -203,4 +260,3 @@ sealed L1 + corresponding T2 route
 5. inheritance/comparison/merged + tests；
 6. 三校 A/B evidence 与状态；
 7. 仅在门禁通过并经用户确认后提交 canonical 文档迁移。
-

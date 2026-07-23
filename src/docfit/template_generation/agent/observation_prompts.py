@@ -42,6 +42,7 @@ from .t3_exemplars import (
     select_t3_element_exemplars,
     select_t3_unit_exemplars,
 )
+from .t3_hierarchical_input import assert_t3_stage_input_clean
 
 PROMPT_OUTPUT_POLICIES = frozenset(ALLOWED_POLICIES) - {"unknown"}
 
@@ -54,7 +55,7 @@ ALLOWED_LABELS = {
     "generated_field_types": sorted(ALLOWED_FIELD_TYPES),
 }
 _PROMPT_TEMPLATE_DIR = "prompt_templates"
-_STAGES = ("t2", "t3_unit", "t3", "t4")
+_STAGES = ("t2", "t3_unit", "t3", "t3_hierarchy", "t4")
 
 
 def _allowed_labels_for_stage(stage: str) -> dict[str, list[str]]:
@@ -78,6 +79,12 @@ def _allowed_labels_for_stage(stage: str) -> dict[str, list[str]]:
             "policies": list(ALLOWED_LABELS["policies"]),
             "generated_field_types": list(ALLOWED_LABELS["generated_field_types"]),
         }
+    if stage == "t3_hierarchy":
+        return {
+            "results": ["keep", "fill", "delete", "split"],
+            "default_child_results": ["keep"],
+            "fill_sources": ["student_content", "generated_field"],
+        }
     return {}
 
 
@@ -100,18 +107,25 @@ def default_observation_prompt_templates() -> ObservationPromptTemplates:
         "t3_prompt.txt",
         sections=("rubric", "output_contract"),
     )
+    t3_hierarchical_prompt = _read_sectioned_prompt_resource(
+        base,
+        "t3_hierarchical_prompt.txt",
+        sections=("rubric", "output_contract"),
+    )
     return ObservationPromptTemplates(
         system=_read_prompt_resource(base, "system.txt"),
         rubrics={
             "t2": _read_prompt_resource(base, "t2_rubric.txt"),
             "t3_unit": _read_prompt_resource(base, "t3_unit_rubric.txt"),
             "t3": t3_prompt["rubric"],
+            "t3_hierarchy": t3_hierarchical_prompt["rubric"],
             "t4": _read_prompt_resource(base, "t4_rubric.txt"),
         },
         output_contracts={
             "t2": _read_prompt_resource(base, "t2_output_contract.txt"),
             "t3_unit": _read_prompt_resource(base, "t3_unit_output_contract.txt"),
             "t3": t3_prompt["output_contract"],
+            "t3_hierarchy": t3_hierarchical_prompt["output_contract"],
             "t4": _read_prompt_resource(base, "t4_output_contract.txt"),
         },
         t4_page_vision=_read_prompt_resource(base, "t4_page_vision_prompt.txt"),
@@ -187,6 +201,7 @@ _GLOSSARY_BY_STAGE = {
     "t2": lambda: "",
     "t3_unit": _policy_glossary,
     "t3": _policy_glossary,
+    "t3_hierarchy": lambda: "",
     "t4": lambda: "",
 }
 
@@ -202,7 +217,10 @@ def build_observation_prompt(
     templates = prompt_templates or default_observation_prompt_templates()
     if stage not in _STAGES:
         raise ValueError(f"unknown observation stage: {stage!r}")
-    assert_firewall_clean(evidence_view)
+    if stage == "t3_hierarchy":
+        assert_t3_stage_input_clean(evidence_view)
+    else:
+        assert_firewall_clean(evidence_view)
     if stage not in templates.rubrics or stage not in templates.output_contracts:
         raise ValueError(f"prompt templates missing stage: {stage!r}")
     exemplars: list[dict[str, Any]] = []
@@ -278,6 +296,11 @@ def assemble_observation_messages(
 
 
 def _abstain_instruction(stage: str) -> str:
+    if stage == "t3_hierarchy":
+        return (
+            "T3 分层决策不输出 unknown：证据不足但能安全下钻时输出 split；"
+            "不能安全下钻时输出低置信 keep 并在 reason 中说明人工复核原因。"
+        )
     if stage == "t3":
         return (
             "T3 对当前窗口内已经绑定的 run 不得弃权：不确定或混合时按 rubric 输出 "

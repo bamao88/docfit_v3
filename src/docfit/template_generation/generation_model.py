@@ -17,6 +17,8 @@ from .text_utils import _dedupe_by_key, _normalize_for_match
 def build_template_generation_model(
     request: dict[str, Any],
     structure_candidates: dict[str, Any],
+    *,
+    include_source_instruction_heuristics: bool = True,
 ) -> dict[str, Any]:
     source_context = structure_candidates.get("source_context", {})
     source_entries_by_seq = _source_entries_by_seq(source_context)
@@ -30,9 +32,13 @@ def build_template_generation_model(
     instruction_paragraphs = _dedupe_by_key(
         [
             *_instruction_paragraphs_from_units(units),
-            *_instruction_paragraphs_from_source_context(
-                source_context,
-                excluded_source_refs=copy_only_source_refs,
+            *(
+                _instruction_paragraphs_from_source_context(
+                    source_context,
+                    excluded_source_refs=copy_only_source_refs,
+                )
+                if include_source_instruction_heuristics
+                else []
             ),
         ],
         "source_ref",

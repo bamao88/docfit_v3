@@ -62,6 +62,47 @@ def test_t3_prompt_required_fields_mirror_the_gate() -> None:
     assert "不要整段合并" in text
 
 
+def test_t3_hierarchy_prompt_uses_sparse_stop_or_descend_contract() -> None:
+    evidence = {
+        "scope": "t3_hierarchical_node",
+        "target": {"ref": "unit:cover", "source_kind": "unit"},
+        "completeness": {
+            "children_complete": True,
+            "content_complete": True,
+        },
+        "facts": {"unit_id": "cover"},
+        "children": [{"ref": "unit:cover/paragraph:p_0001", "source_kind": "paragraph"}],
+        "context": {},
+        "visual_evidence": [],
+    }
+
+    prompt = build_observation_prompt(stage="t3_hierarchy", evidence_view=evidence)
+    system, user = assemble_observation_messages("t3_hierarchy", evidence)
+
+    assert prompt["allowed_labels"]["results"] == ["keep", "fill", "delete", "split"]
+    assert "inspect_child_refs" in system
+    assert "必须在 child_decisions 中直接给出" in system
+    assert "不得只把它列入 inspect_child_refs" in system
+    assert "unit/table 只允许 keep 或 split" in system
+    assert "run 是最小判断单位" not in system
+    assert '"unit_id": "cover"' in user
+
+
+def test_t3_hierarchy_prompt_rejects_policy_leak_but_allows_t2_unit_identity() -> None:
+    evidence = {
+        "scope": "t3_hierarchical_node",
+        "target": {"ref": "unit:cover", "source_kind": "unit"},
+        "completeness": {},
+        "facts": {"unit_id": "cover", "policy": "fixed"},
+        "children": [],
+        "context": {},
+        "visual_evidence": [],
+    }
+
+    with pytest.raises(ValueError, match="leaked semantic field 'policy'"):
+        build_observation_prompt(stage="t3_hierarchy", evidence_view=evidence)
+
+
 def test_build_prompt_still_firewalls_evidence() -> None:
     # 注入 glossary 不能放松 evidence 子树的防火墙。
     with pytest.raises(EvidenceFirewallError):

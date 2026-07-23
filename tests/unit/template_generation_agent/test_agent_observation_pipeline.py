@@ -154,7 +154,7 @@ def test_pipeline_t3_windows_come_from_ai_units() -> None:
     assert element_units <= {"cover", "body_main", "integrity_statement"}
 
 
-def test_live_capable_t3_responder_routes_unit_before_local_elements() -> None:
+def test_live_capable_t3_responder_routes_from_unit_to_direct_children() -> None:
     packet = clean_packet()
     calls = []
 
@@ -163,26 +163,22 @@ def test_live_capable_t3_responder_routes_unit_before_local_elements() -> None:
             del evidence, n_samples
             return [{"items": [{"unit_id": "cover", "source_seq_refs": [1, 2, 3, 4]}]}]
 
-        def fetch_unit_plan(self, *, evidence, window):
-            calls.append(("unit", evidence["scope"], window["unit_id"]))
+        def fetch_t3_decision(self, *, evidence, node, unit_id):
+            calls.append((node["source_kind"], evidence["scope"], unit_id))
+            if node["child_refs"]:
+                return {
+                    "target_ref": node["ref"],
+                    "result": "split",
+                    "default_child_result": "keep",
+                    "inspect_child_refs": node["child_refs"],
+                    "confidence": "high",
+                    "reason": "inspect every direct child in this fixture",
+                }
             return {
-                "route": "full_local_analysis",
-                "default_preservation_policy": "fixed",
-                "inspect_source_seq_refs": [1, 2, 3, 4],
+                "target_ref": node["ref"],
+                "result": "keep",
                 "confidence": "high",
-            }
-
-        def fetch_elements(self, *, evidence, window):
-            calls.append(("elements", evidence["scope"], evidence["unit_plan"]["route"]))
-            return {
-                "items": [
-                    {
-                        "element_id": "cover.001",
-                        "policy": "fixed",
-                        "source_seq_refs": window["source_seq_refs"],
-                        "confidence": "high",
-                    }
-                ]
+                "reason": "atomic fixed content",
             }
 
         def fetch_layout(self, *, evidence):
@@ -195,15 +191,15 @@ def test_live_capable_t3_responder_routes_unit_before_local_elements() -> None:
         config=ObservationConfig(enabled=True, self_consistency_samples=1),
     )
 
-    assert calls[0] == ("unit", "t3_unit_overview", "cover")
-    assert calls[1] == ("elements", "t3_local_window", "full_local_analysis")
+    assert calls[0] == ("unit", "t3_hierarchical_node", "cover")
+    assert calls[1][0] == "paragraph"
     t3 = bundle["ai_element_observation"]
-    assert t3["quality_report"]["input_mode"] == "unit_route_then_conditional_local"
-    assert t3["quality_report"]["local_task_count"] == 1
-    assert t3["local_task_analysis"][0]["object_type"] == "text_flow"
+    assert t3["quality_report"]["input_mode"] == "hierarchical_sparse_stop_or_descend"
+    assert t3["quality_report"]["decision_call_count"] == len(calls)
+    assert t3["quality_report"]["resolution_counts"]["direct"] == 4
 
 
-def test_hierarchical_t3_splits_failed_json_window_and_retries_smaller_scopes() -> None:
+def test_hierarchical_t3_records_failed_node_as_fallback_without_descending() -> None:
     packet = clean_packet()
     attempted = []
 
@@ -212,28 +208,20 @@ def test_hierarchical_t3_splits_failed_json_window_and_retries_smaller_scopes() 
             del evidence, n_samples
             return [{"items": [{"unit_id": "cover", "source_seq_refs": [1, 2, 3, 4]}]}]
 
-        def fetch_unit_plan(self, *, evidence, window):
-            del evidence, window
+        def fetch_t3_decision(self, *, evidence, node, unit_id):
+            del evidence, unit_id
+            attempted.append(node["ref"])
+            if node["source_kind"] == "unit":
+                return {
+                    "target_ref": node["ref"],
+                    "result": "split",
+                    "default_child_result": "keep",
+                    "inspect_child_refs": node["child_refs"],
+                    "confidence": "high",
+                    "reason": "inspect paragraph children",
+                }
             return {
-                "route": "full_local_analysis",
-                "default_preservation_policy": "fixed",
-                "confidence": "high",
-            }
-
-        def fetch_elements(self, *, evidence, window):
-            del evidence
-            attempted.append((window["window_id"], list(window["source_seq_refs"])))
-            if ":retry_" not in window["window_id"]:
-                return {"items": [], "_observation_error": "invalid JSON"}
-            return {
-                "items": [
-                    {
-                        "element_id": window["window_id"],
-                        "policy": "fixed",
-                        "source_seq_refs": window["source_seq_refs"],
-                        "confidence": "high",
-                    }
-                ]
+                "_observation_error": "invalid JSON",
             }
 
         def fetch_layout(self, *, evidence):
@@ -246,11 +234,16 @@ def test_hierarchical_t3_splits_failed_json_window_and_retries_smaller_scopes() 
         config=ObservationConfig(enabled=True, self_consistency_samples=1),
     )
 
-    assert attempted[0][1] == [1, 2, 3, 4]
-    assert attempted[1][1] == [1, 2]
-    assert attempted[2][1] == [3, 4]
-    analysis = bundle["ai_element_observation"]["local_task_analysis"][0]
-    assert len(analysis["executed_local_windows"]) == 2
+    assert attempted == [
+        "unit:cover",
+        "unit:cover/paragraph:p_0001",
+        "unit:cover/paragraph:p_0002",
+        "unit:cover/paragraph:p_0003",
+        "unit:cover/paragraph:p_0004",
+    ]
+    t3 = bundle["ai_element_observation"]
+    assert t3["quality_report"]["resolution_counts"]["fallback"] == 4
+    assert any(record["status"] == "failed" for record in t3["sparse_call_records"])
     assert bundle["ai_element_observation"]["coverage"]["owned_source_seq"] == [1, 2, 3, 4]
 
 
@@ -263,17 +256,14 @@ def test_unit_routed_t3_short_circuits_local_calls_and_preserves_complete_unit()
             del evidence, n_samples
             return [{"items": [{"unit_id": "cover", "source_seq_refs": [1, 2, 3, 4]}]}]
 
-        def fetch_unit_plan(self, *, evidence, window):
-            calls.append(("unit", evidence["scope"], window["unit_id"]))
+        def fetch_t3_decision(self, *, evidence, node, unit_id):
+            calls.append((node["source_kind"], evidence["scope"], unit_id))
             return {
-                "route": "preserve_whole",
-                "default_preservation_policy": "fixed",
+                "target_ref": node["ref"],
+                "result": "keep",
                 "confidence": "high",
-                "rationale": "整个测试单元作为完整内容保留",
+                "reason": "整个测试单元作为完整内容保留",
             }
-
-        def fetch_elements(self, *, evidence, window):
-            raise AssertionError("preserve_whole must not call local element model")
 
     bundle = run_observation_pipeline(
         packet=packet,
@@ -282,9 +272,14 @@ def test_unit_routed_t3_short_circuits_local_calls_and_preserves_complete_unit()
     )
 
     t3 = bundle["ai_element_observation"]
-    assert calls == [("unit", "t3_unit_overview", "cover")]
-    assert t3["quality_report"]["input_mode"] == "unit_route_then_conditional_local"
-    assert t3["quality_report"]["route_counts"] == {"preserve_whole": 1}
+    assert calls == [("unit", "t3_hierarchical_node", "cover")]
+    assert t3["quality_report"]["input_mode"] == "hierarchical_sparse_stop_or_descend"
+    assert t3["quality_report"]["resolution_counts"] == {
+        "direct": 0,
+        "inherited": 4,
+        "fallback": 0,
+        "contested": 0,
+    }
     assert t3["coverage"]["owned_source_seq"] == [1, 2, 3, 4]
     assert all(item["policy"] == "fixed" for item in t3["items"])
 
@@ -664,26 +659,14 @@ def test_standalone_t3_auto_runs_live_t2_before_t3(monkeypatch, tmp_path) -> Non
                 }
             ]
 
-        def fetch_unit_plan(self, *, evidence, window):
-            del evidence
+        def fetch_t3_decision(self, *, evidence, node, unit_id):
+            calls.append(("t3", unit_id, evidence["scope"]))
+            self._record.append({"stage": "t3_hierarchy", "payload": {}, "error": None})
             return {
-                "route": "full_local_analysis",
-                "default_preservation_policy": "fixed",
-                "inspect_source_seq_refs": list(window["source_seq_refs"]),
+                "target_ref": node["ref"],
+                "result": "keep",
                 "confidence": "high",
-            }
-
-        def fetch_elements(self, *, evidence, window):
-            calls.append(("t3", window["unit_id"], evidence["scope"]))
-            self._record.append({"stage": "t3", "payload": {}, "error": None})
-            return {
-                "items": [
-                    {
-                        "element_id": f"{window['unit_id']}.001",
-                        "policy": "fixed",
-                        "source_seq_refs": window["source_seq_refs"],
-                    }
-                ]
+                "reason": "fixed unit fixture",
             }
 
     monkeypatch.setattr(
@@ -721,6 +704,7 @@ def test_standalone_t3_auto_runs_live_t2_before_t3(monkeypatch, tmp_path) -> Non
     assert calls[0][0] == "t2"
     assert [call[0] for call in calls[1:]] == ["t3", "t3"]
     assert (out_dir / "02.2_t2_ai_unit_observation.yaml").exists()
+    assert (out_dir / "03.0_t3_hierarchical_stage_input.json").exists()
     assert (out_dir / "03.1_t3_ai_element_observation.yaml").exists()
     assert (out_dir / "summary.json").exists()
 

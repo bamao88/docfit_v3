@@ -171,7 +171,19 @@ def test_t2_evidence_projects_compact_page_and_break_facts_without_local_paths()
             "image_type": "png",
         }
     ]
-    assert "/private/tmp" not in repr(view)
+    assert view["visual_evidence"] == [
+        {
+            "page_no": 1,
+            "sha256": "sha256:page-1",
+            "width_px": 900,
+            "height_px": 1200,
+            "image_type": "png",
+            "visual_ref": "page:1",
+            "_attachment_path": "/private/tmp/page-01.png",
+        }
+    ]
+    assert view["_visual_attachment_limit"] == 1
+    assert "/private/tmp" not in repr(view["page_thumbnails"])
 
 
 def test_t2_evidence_does_not_infer_rendered_page_position_from_projection() -> None:
@@ -179,6 +191,7 @@ def test_t2_evidence_does_not_infer_rendered_page_position_from_projection() -> 
 
     assert view["render_available"] is False
     assert view["page_summary"] == []
+    assert view["visual_evidence"] == []
     assert all("page_position" not in row for row in view["rows"])
 
 

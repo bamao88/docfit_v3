@@ -151,6 +151,11 @@ def build_t2_evidence(packet: dict[str, Any]) -> dict[str, Any]:
 
     render_artifacts = packet.get("render_artifacts", {}) or {}
     layout_facts = packet.get("global_layout_facts", {}) or {}
+    visual_evidence = (
+        _t2_visual_evidence(render_artifacts.get("clean_page_images"))
+        if render_available
+        else []
+    )
     view = {
         "scope": "t2_full_document",
         "source_render_hash": packet.get("source_render_hash"),
@@ -163,8 +168,10 @@ def build_t2_evidence(packet: dict[str, Any]) -> dict[str, Any]:
         "rows": rows,
         "page_summary": _t2_page_summary(packet_rows) if render_available else [],
         "break_facts": _t2_break_facts(layout_facts.get("breaks"), packet_rows),
-        # T2 text responder does not receive image bytes. Keep only stable page-image
-        # references and strip machine-local paths from the JSON prompt.
+        # ``_attachment_path`` is consumed by the multimodal transport and stripped
+        # before the JSON prompt is rendered, so local paths never enter text context.
+        "visual_evidence": visual_evidence,
+        "_visual_attachment_limit": len(visual_evidence),
         "page_thumbnails": [
             projected
             for item in render_artifacts.get("clean_page_images", []) or []
@@ -193,6 +200,22 @@ def _project_t2_text_facts(value: Any) -> dict[str, Any]:
         for key, item in projected.items()
         if item is not False
     }
+
+
+def _t2_visual_evidence(value: Any) -> list[dict[str, Any]]:
+    result: list[dict[str, Any]] = []
+    for item in value or []:
+        if not isinstance(item, dict):
+            continue
+        path = item.get("path")
+        page_no = _as_int(item.get("page_no"))
+        if not path or page_no is None:
+            continue
+        projected = _project_fields(item, T2_PAGE_IMAGE_REF_FIELDS)
+        projected["visual_ref"] = f"page:{page_no}"
+        projected["_attachment_path"] = str(path)
+        result.append(projected)
+    return result
 
 
 def _first_source_seq_by_page(rows: list[dict[str, Any]]) -> dict[int, int]:

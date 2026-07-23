@@ -364,6 +364,17 @@ def run_template_observation_stage(
                     config=config,
                     concurrency=t3_concurrency,
                 )
+                hierarchical_input = windows.pop(
+                    "hierarchical_stage_input",
+                    None,
+                )
+                if isinstance(hierarchical_input, dict):
+                    stage_input_path = out_dir / "03.0_t3_hierarchical_stage_input.json"
+                    write_json(stage_input_path, hierarchical_input)
+                    artifacts["t3_hierarchical_stage_input"] = stage_input_path
+                    windows["hierarchical_stage_input_ref"] = _artifact_ref(
+                        stage_input_path
+                    )
                 windows_path = out_dir / "03.0_t3_unit_windows.json"
                 write_json(windows_path, windows)
                 artifacts["t3_unit_windows"] = windows_path
@@ -707,6 +718,26 @@ class _UsageLimitFallbackTextResponder:
             return self._fallback.fetch_unit_plan(evidence=evidence, window=window)
         return payload
 
+    def fetch_t3_decision(
+        self,
+        *,
+        evidence: dict[str, Any],
+        node: dict[str, Any],
+        unit_id: str,
+    ) -> dict[str, Any]:
+        payload = self._primary.fetch_t3_decision(
+            evidence=evidence,
+            node=node,
+            unit_id=unit_id,
+        )
+        if _is_usage_limit_payload(payload):
+            return self._fallback.fetch_t3_decision(
+                evidence=evidence,
+                node=node,
+                unit_id=unit_id,
+            )
+        return payload
+
     def fetch_layout(self, *, evidence: dict[str, Any]) -> dict[str, Any]:
         return self._primary.fetch_layout(evidence=evidence)
 
@@ -933,7 +964,12 @@ def _require_successful_live_stage_call(
     api_record: list[dict[str, Any]],
 ) -> None:
     if stage in {"t2", "t3"}:
-        target_records = [item for item in api_record if item.get("stage") == stage]
+        accepted_stages = {stage}
+        if stage == "t3":
+            accepted_stages.add("t3_hierarchy")
+        target_records = [
+            item for item in api_record if item.get("stage") in accepted_stages
+        ]
     else:
         target_records = list(api_record)
     if not target_records:

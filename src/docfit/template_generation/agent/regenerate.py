@@ -11,6 +11,7 @@ def regenerate_from_structure_candidates(
     request: dict[str, Any],
     document_facts: dict[str, Any],
     structure_candidates: dict[str, Any],
+    include_source_instruction_heuristics: bool = True,
 ) -> dict[str, Any]:
     unit_map = build_unit_map(
         document_facts,
@@ -20,6 +21,7 @@ def regenerate_from_structure_candidates(
     generation_model = build_template_generation_model(
         request,
         structure_candidates=structure_candidates,
+        include_source_instruction_heuristics=include_source_instruction_heuristics,
     )
     element_spec = build_element_spec(generation_model)
     return {

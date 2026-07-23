@@ -102,6 +102,31 @@ def test_comparison_t3_rejects_policy_downgrade(tmp_path) -> None:
     assert item["manual_review_required"] is True
 
 
+def test_comparison_t3_unknown_is_safe_keep_not_a_policy_downgrade(tmp_path) -> None:
+    artifacts = round0_artifacts(tmp_path)
+    for unit in artifacts["structure_candidates"]["units"]:
+        for element in unit.get("elements", []):
+            if element.get("source_seq_refs") == [3]:
+                element["candidate_policy"] = "fill"
+
+    item = compare_proposal(
+        structure_candidates=artifacts["structure_candidates"],
+        packet=artifacts["packet"],
+        layer="t3",
+        collection="element_policy_candidates",
+        proposal={
+            "proposal_id": "t3_unknown_001",
+            "kind": "element_policy_candidate",
+            "policy": "unknown",
+            "source_seq_refs": [3],
+        },
+    )
+
+    assert item["status"] == "compatible"
+    assert item["can_auto_execute"] is True
+    assert "execute as keep/fixed" in item["reason"]
+
+
 def test_build_submission_comparison_counts_manual_and_auto_items(tmp_path) -> None:
     artifacts = round0_artifacts(tmp_path)
     auto_item = compare_proposal(

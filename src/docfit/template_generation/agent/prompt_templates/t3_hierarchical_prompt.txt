@@ -1,0 +1,36 @@
+--- BEGIN rubric ---
+你在做 T3 分层节点决策。输入只包含当前 target 的完整事实、直接 children 摘要、必要上下文和视觉证据。你只能引用输入里已有的 ref，不能创造节点、父子关系、文本、run 或 span。
+
+先在当前能够安全统一判断的最粗层级结束：
+- keep：当前 target 覆盖的全部后代内容都应原样保留；
+- fill：当前 target 整体是一个边界明确、可由学生内容或系统生成值替换的范围；
+- delete：当前 target 是可精确执行的 run/span，且只包含最终模板应删除的纯格式说明；
+- split：当前 target 内存在不同动作，只沿真正需要继续检查的直接 child 下钻。
+
+结构保留不等于终局 keep。表格骨架应保留、但内部存在电子字段或格式说明时，table 必须 split。打印后手写、签字、盖章、人工意见和勾选区域通常 keep，不是系统 fill。
+
+Split 规则：
+- default_child_result 固定为 keep；
+- inspect_child_refs 只能列当前 children 中的直接子节点；
+- 未列出的直接子节点由程序继承 keep；
+- 如果当前 evidence 已经完整展示某个直接 child 的文字、身份、样式和完整成员范围，必须在 child_decisions 中直接给出该 child 的终局 keep/fill/delete，不得只把它列入 inspect_child_refs 后要求下一次模型重复判断；该 ref 仍必须同时出现在 inspect_child_refs；
+- 只有当前 evidence 不能对该 child 整体安全终局、确实还需要查看其下一层直接 children 时，才允许只列 inspect_child_refs 而不提供对应 child_decisions；
+- child_decisions 只能处理当前直接 child，且只能给终局动作；需要继续 split 的 child 只列在 inspect_child_refs，由程序递归调用；
+- split 表示确定存在不同动作，不用于掩盖证据不足。
+
+首版动作边界：unit/table 只允许 keep 或 split；row/cell/paragraph 允许 keep、fill 或 split；run 允许 keep、fill、delete 或在其预生成 span children 确有不同动作时 split；span 允许 keep、fill、delete 且不再 split。没有 children 的节点不能 split。Delete 必须 confidence=high，并提供明确 delete.reason。Fill 必须提供 fill.source；学生内容使用 student_content，系统生成值使用 generated_field，并尽量提供 field。
+
+完整性门禁：如果 completeness 表示成员、内容或必要证据不完整，不得用高置信终局动作覆盖整个容器。能沿完整直接子节点缩小范围时选择 split；否则输出低置信 keep，并在 reason 中指出需要人工复核。context 只帮助理解，不能跨范围认领。
+
+只输出一个 JSON 对象，不要输出解释文字。
+--- END rubric ---
+
+--- BEGIN output_contract ---
+终局结果：
+{"target_ref":"<当前 target.ref>","result":"keep|fill|delete","confidence":"low|medium|high","reason":"<判断依据>","fill":{"source":"student_content|generated_field","field":"<可选业务字段>"},"delete":{"reason":"<仅 delete 必填>"}}
+
+Split 结果：
+{"target_ref":"<当前 target.ref>","result":"split","default_child_result":"keep","inspect_child_refs":["<当前 children 中的直接 ref>"],"child_decisions":[{"target_ref":"<已充分看清的直接叶子 child.ref>","result":"keep|fill|delete","confidence":"low|medium|high","reason":"<依据>","fill":{"source":"student_content|generated_field","field":"<可选业务字段>"},"delete":{"reason":"<仅 delete 必填>"}}],"confidence":"low|medium|high","reason":"<为何存在混合动作及为何只检查这些子节点>"}
+
+输出前自检：target_ref 必须完全等于当前 target.ref；inspect_child_refs 和 child_decisions.target_ref 不得跨层、跨单元或重复；child_decisions 的 ref 必须同时列入 inspect_child_refs，且不得 result=split；已经由当前 evidence 完整展示且可以终局的直接 child 必须出现在 child_decisions，不能留给重复调用；unit/table 不得 fill/delete；delete 只用于精确 run/span；run 只能引用输入中已有且带 start/end 的直接 span child，不能自造字符范围；不能安全细分的混合叶节点按低置信 keep，并在 reason 中保留失败原因。
+--- END output_contract ---
