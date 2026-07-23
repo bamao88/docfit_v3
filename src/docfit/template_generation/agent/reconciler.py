@@ -6,7 +6,6 @@ from docfit.core.io import sha256_json
 
 from .overlay import (
     apply_t2_proposal,
-    apply_t3_proposal,
     _proposal_source_seq_refs,
 )
 from .packet import packet_page_set, packet_render_target_set, packet_source_seq_set
@@ -62,35 +61,6 @@ def process_proposal(
                 decision="accepted",
                 check_id="C-OVERLAY-EXEC",
                 reason="proposal accepted and materialized",
-                before_hash=before_hash,
-                after_hash=sha256_json(patched),
-                target_path=_target_path(operation),
-            ),
-            operation,
-        )
-
-    if layer == "t3":
-        patched, operation, reason = apply_t3_proposal(structure_candidates, proposal)
-        if patched is None or operation is None:
-            return (
-                structure_candidates,
-                _decision(
-                    proposal,
-                    decision="rejected",
-                    check_id=_check_for_t3_reason(reason),
-                    reason=reason,
-                    before_hash=before_hash,
-                    after_hash=before_hash,
-                ),
-                None,
-            )
-        return (
-            patched,
-            _decision(
-                proposal,
-                decision="accepted",
-                check_id="C-TARGET-BIND",
-                reason="candidate policy patched",
                 before_hash=before_hash,
                 after_hash=sha256_json(patched),
                 target_path=_target_path(operation),
@@ -212,12 +182,6 @@ def _check_for_t2_reason(reason: str) -> str:
         return "C-EXECUTABLE-ENUM"
     if "gap" in reason or "overlap" in reason or "body_main" in reason:
         return "C-OVERLAY-EXEC"
-    return "C-TARGET-BIND"
-
-
-def _check_for_t3_reason(reason: str) -> str:
-    if "policy" in reason:
-        return "C-EXECUTABLE-ENUM"
     return "C-TARGET-BIND"
 
 

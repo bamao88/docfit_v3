@@ -316,7 +316,7 @@ def test_run_can_split_to_exact_spans_and_materialize_mixed_run_without_loss() -
     item = observation["items"][0]
     assert item["projection_status"] == "mixed_span_actions"
     assert item["core_action"] == "mixed"
-    assert item["merge_eligible"] is False
+    assert item["execution_eligible"] is False
     assert [span["core_action"] for span in item["spans"]] == [
         "keep",
         "fill",
@@ -349,11 +349,11 @@ def test_sparse_trace_materializes_legacy_items_without_losing_resolution_trace(
     assert len(observation["items"]) == 7
     assert all(item["decision_status"] == "accepted" for item in observation["items"])
     assert all(item["resolution"] == "inherited" for item in observation["items"])
-    assert all(item["merge_eligible"] is True for item in observation["items"])
+    assert all(item["execution_eligible"] is True for item in observation["items"])
     assert observation["atomic_coverage"] == trace["atomic_coverage"]
 
 
-def test_manual_review_fallback_is_not_merge_eligible() -> None:
+def test_manual_review_fallback_is_not_execution_eligible() -> None:
     stage_input = _stage_input()
     trace = run_t3_sparse_traversal(
         stage_input,
@@ -373,7 +373,7 @@ def test_manual_review_fallback_is_not_merge_eligible() -> None:
 
     assert observation["quality_report"]["demotions"]
     assert all(item["policy"] == "fixed" for item in observation["items"])
-    assert all(item["merge_eligible"] is False for item in observation["items"])
+    assert all(item["execution_eligible"] is False for item in observation["items"])
 
 
 def _split(target_ref: str, child_refs: list[str]) -> dict:

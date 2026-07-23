@@ -1,8 +1,8 @@
-"""Compatibility materialization for sparse T3 decisions.
+"""Canonical observation materialization for sparse T3 decisions.
 
 The sparse trace remains authoritative for hierarchy and coverage.  This module
-derives the existing flat ``ai_element_observation.items`` view so current
-evaluation and merge callers can migrate without creating a second meaning.
+derives the flat ``ai_element_observation.items`` view consumed by evaluation
+and the sole AI-to-element-spec materializer.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ def materialize_sparse_t3_observation(
             items.append(item)
         else:
             object_items.append(item)
-        if not item.get("merge_eligible"):
+        if not item.get("execution_eligible"):
             demotions.append(
                 {
                     "item_id": item["element_id"],
@@ -173,7 +173,7 @@ def _legacy_item(
         for row in rows
         if isinstance(row.get("run_text_length"), int)
     }
-    merge_eligible = bool(
+    execution_eligible = bool(
         statuses == {"accepted"}
         and action != "mixed"
         and semantics_uniform
@@ -253,7 +253,7 @@ def _legacy_item(
         "projection_status": (
             "mixed_span_actions" if action == "mixed" else "uniform_span_action"
         ),
-        "merge_eligible": merge_eligible,
+        "execution_eligible": execution_eligible,
     }
     fill = decision.get("fill") if isinstance(decision.get("fill"), dict) else {}
     if action == "fill":

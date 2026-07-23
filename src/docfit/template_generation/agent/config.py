@@ -12,9 +12,7 @@ AgentTransportName = Literal["replay"]
 AgentTextProviderName = Literal["kimi", "minimax"]
 AgentVisionProviderName = Literal["minimax"]
 ObservationMode = Literal["off", "bundle", "replay", "live"]
-T3AuthorityMode = Literal["merge", "code", "ai_primary"]
 SUPPORTED_OBSERVATION_MODES = {"off", "bundle", "replay", "live"}
-SUPPORTED_T3_AUTHORITY_MODES = {"merge", "code", "ai_primary"}
 SUPPORTED_TEXT_PROVIDERS = {"kimi", "minimax"}
 SUPPORTED_VISION_PROVIDERS = {"minimax"}
 
@@ -44,7 +42,6 @@ class AgentConfig:
     text_provider: AgentTextProviderName | None = None
     vision_provider: AgentVisionProviderName | None = None
     vision_model: str | None = None
-    t3_authority_mode: T3AuthorityMode = "merge"
 
 
 def validate_agent_config(config: AgentConfig) -> list[str]:
@@ -66,11 +63,6 @@ def validate_agent_config(config: AgentConfig) -> list[str]:
         errors.append(f"unsupported vision live provider: {vision_provider}")
     if config.observation_mode not in SUPPORTED_OBSERVATION_MODES:
         errors.append(f"unsupported observation_mode: {config.observation_mode}")
-    if config.t3_authority_mode not in SUPPORTED_T3_AUTHORITY_MODES:
-        errors.append(
-            "unsupported t3_authority_mode: "
-            f"{config.t3_authority_mode}; expected merge, code, or ai_primary"
-        )
     if config.max_rounds < 1 or config.max_rounds > 4:
         errors.append("agent max_rounds must be between 1 and 4")
     if config.max_tokens < 1:

@@ -152,7 +152,7 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     assert "visual_page_index" in l1_contract
     assert "run_index" in l1_contract
     assert "bundle_gate_view" not in l1_contract
-    assert len(route_eval["routes"]) == 23
+    assert len(route_eval["routes"]) == 21
     assert set(route_eval["stage_metrics"]) == {
         "T1",
         "L1",
@@ -165,12 +165,14 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
         "POST_T6",
     }
     assert route_eval["stage_metrics"]["L1"]["coverage"]["available"] is True
+    assert route_eval["stage_metrics"]["T3"]["route_availability"] == {
+        "ai": "NOT_AVAILABLE"
+    }
     assert route_eval["stage_metrics"]["T6"]["route_availability"]["merged"] == "AVAILABLE"
     assert route_eval["stage_metrics"]["POST_T6"]["route_availability"]["merged"] == "AVAILABLE"
-    assert route_eval["stage_metrics"]["T5"]["route_availability"]["code_raw"] in {
-        "AVAILABLE",
-        "OUT_OF_SCOPE",
-    }
+    assert route_eval["stage_metrics"]["T5"]["route_availability"]["code_raw"] == (
+        "NOT_AVAILABLE"
+    )
     assert route_eval["stage_metrics"]["T5"]["route_availability"]["ai_raw"] in {
         "NOT_AVAILABLE",
         "OUT_OF_SCOPE",

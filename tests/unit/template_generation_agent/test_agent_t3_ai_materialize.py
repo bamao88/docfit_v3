@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from docfit.template_generation.agent.ai_primary import (
-    materialize_ai_primary_t3_structure,
+from docfit.template_generation.agent.t3_ai_materialize import (
+    materialize_ai_t3_structure,
 )
 
 
-def test_ai_primary_replaces_code_policies_and_safely_keeps_invalid_claims() -> None:
+def test_ai_replaces_shell_policies_and_safely_keeps_invalid_claims() -> None:
     structure = {
         "source_context": {
             "runs_by_raw_run_id": {
@@ -57,7 +57,7 @@ def test_ai_primary_replaces_code_policies_and_safely_keeps_invalid_claims() -> 
         ]
     }
 
-    materialized, operation = materialize_ai_primary_t3_structure(
+    materialized, operation = materialize_ai_t3_structure(
         structure,
         observation,
     )
@@ -73,13 +73,14 @@ def test_ai_primary_replaces_code_policies_and_safely_keeps_invalid_claims() -> 
     assert elements[1]["fill_source"] == "student_content"
     assert elements[1]["fill_field"] == "student_name"
     assert elements[2]["removal_reason"] == "format annotation"
-    assert operation["merge_enabled"] is False
+    assert operation["authority"] == "ai"
+    assert operation["observation_available"] is True
     assert operation["claimed_raw_run_count"] == 3
     assert operation["matched_raw_run_count"] == 3
     assert operation["missing_claim_raw_run_ids"] == []
 
 
-def test_ai_primary_conflicting_claims_resolve_to_keep() -> None:
+def test_ai_conflicting_claims_resolve_to_keep() -> None:
     structure = {
         "source_context": {
             "runs_by_raw_run_id": {
@@ -116,10 +117,79 @@ def test_ai_primary_conflicting_claims_resolve_to_keep() -> None:
         ]
     }
 
-    materialized, operation = materialize_ai_primary_t3_structure(
+    materialized, operation = materialize_ai_t3_structure(
         structure,
         observation,
     )
 
     assert materialized["units"][0]["elements"][0]["candidate_policy"] == "fixed"
     assert operation["conflicting_raw_run_ids"] == ["r1"]
+
+
+def test_ai_incomplete_raw_run_claim_resolves_to_keep() -> None:
+    structure = {
+        "source_context": {
+            "runs_by_raw_run_id": {
+                "r1": {"text": "姓名", "logical_run_id": "lr1", "source_ref": "p1"}
+            }
+        },
+        "units": [
+            {
+                "unit_id": "body_main",
+                "elements": [
+                    {
+                        "element_id": "e1",
+                        "candidate_policy": "fill",
+                        "raw_run_ids": ["r1"],
+                    }
+                ],
+            }
+        ],
+    }
+    observation = {
+        "items": [
+            {
+                "raw_run_ids": ["r1"],
+                "policy": "instruction_remove",
+                "decision_status": "accepted",
+                "resolution": "direct",
+                "execution_eligible": False,
+                "ai_rationale": "the decision covers only part of the raw run",
+            }
+        ]
+    }
+
+    materialized, _operation = materialize_ai_t3_structure(structure, observation)
+
+    element = materialized["units"][0]["elements"][0]
+    assert element["candidate_policy"] == "fixed"
+    assert element["agent_traces"][-1]["safe_fallback"] is True
+
+
+def test_missing_ai_observation_cannot_leak_shell_policy() -> None:
+    structure = {
+        "source_context": {
+            "runs_by_raw_run_id": {
+                "r1": {"text": "说明", "logical_run_id": "lr1", "source_ref": "p1"}
+            }
+        },
+        "units": [
+            {
+                "unit_id": "body_main",
+                "elements": [
+                    {
+                        "element_id": "e1",
+                        "candidate_policy": "remove_instruction",
+                        "raw_run_ids": ["r1"],
+                    }
+                ],
+            }
+        ],
+    }
+
+    materialized, operation = materialize_ai_t3_structure(structure, {})
+
+    element = materialized["units"][0]["elements"][0]
+    assert element["candidate_policy"] == "fixed"
+    assert element["agent_traces"][-1]["safe_fallback"] is True
+    assert operation["observation_available"] is False

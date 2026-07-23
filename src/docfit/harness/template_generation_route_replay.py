@@ -57,7 +57,7 @@ def _materialize_code_raw(
 ) -> None:
     route_dir = route_root / "code_raw"
     unit_map = _load_yaml_route(run_dir, "02.0_t2_code_unit_map.yaml")
-    element_spec = _load_yaml_route(run_dir, "03.0_t3_code_element_spec.yaml")
+    element_spec = _load_yaml_route(run_dir, "03_element_spec.yaml")
     global_spec = _load_yaml_route(run_dir, "04.0_t4_code_global_spec.yaml")
     if not all(isinstance(item, dict) for item in (unit_map, element_spec, global_spec)):
         for stage_id, stage_key in _DOWNSTREAM_STAGES.items():
@@ -67,12 +67,28 @@ def _materialize_code_raw(
                 stage_id=stage_id,
                 stage_key=stage_key,
                 availability="NOT_AVAILABLE",
-                reason="code_raw T2/T3/T4 artifacts are not all available",
+                reason="code_raw T2/T4 and canonical AI-only T3 artifacts are not all available",
             )
         return
 
     if _route_availability(unit_map) != "AVAILABLE":
         reason = str((unit_map.get("route") or {}).get("reason") or "code_raw T2 route is unavailable")
+        for stage_id, stage_key in _DOWNSTREAM_STAGES.items():
+            _write_status(
+                route_dir,
+                route_id="code_raw",
+                stage_id=stage_id,
+                stage_key=stage_key,
+                availability="NOT_AVAILABLE",
+                reason=reason,
+            )
+        return
+
+    if _route_availability(element_spec) != "AVAILABLE":
+        reason = str(
+            (element_spec.get("route") or {}).get("reason")
+            or "canonical AI-only T3 artifact is unavailable"
+        )
         for stage_id, stage_key in _DOWNSTREAM_STAGES.items():
             _write_status(
                 route_dir,
@@ -95,7 +111,7 @@ def _materialize_code_raw(
         "stage_id": "T5",
         "stage_key": "t5_template_spec",
         "availability": "AVAILABLE",
-        "origin": "route_replay_from_code_raw_t2_t3_t4",
+        "origin": "route_replay_from_code_raw_t2_t4_and_canonical_ai_t3",
     }
     write_yaml(route_dir / "05_template_spec.yaml", template_spec)
 
@@ -140,14 +156,14 @@ def _materialize_ai_raw(*, run_dir: Path, route_root: Path) -> None:
     route_dir = route_root / "ai_raw"
     ai_routes = [
         _load_yaml_route(run_dir, "02.2_t2_ai_unit_observation.yaml"),
-        _load_yaml_route(run_dir, "03.1_t3_ai_element_observation.yaml"),
+        _load_yaml_route(run_dir, "03_element_spec.yaml"),
         _load_yaml_route(run_dir, "04.1_t4_ai_layout_observation.yaml"),
     ]
     if any(_route_availability(route) == "AVAILABLE" for route in ai_routes if isinstance(route, dict)):
         availability = "OUT_OF_SCOPE"
         reason = (
-            "ai_raw observations are available, but they are not a complete downstream "
-            "T2/T3/T4 authority payload until AI-primary materialization is enabled"
+            "AI artifacts are available, but T2/T4 are not yet a complete downstream "
+            "authority payload; T3 is already canonical AI-only"
         )
     else:
         availability = "NOT_AVAILABLE"
@@ -194,7 +210,6 @@ def _route_equals_merged(run_dir: Path, route_id: str) -> bool:
     pairs = {
         "code_raw": [
             ("02.0_t2_code_unit_map.yaml", "02.3_t2_merged_unit_map.yaml"),
-            ("03.0_t3_code_element_spec.yaml", "03.2_t3_merged_element_spec.yaml"),
             ("04.0_t4_code_global_spec.yaml", "04.2_t4_merged_global_spec.yaml"),
         ]
     }.get(route_id, [])

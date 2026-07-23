@@ -98,9 +98,7 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     t2_ai = read_yaml(out_dir / "02.2_t2_ai_unit_observation.yaml")
     t2_merged = read_yaml(out_dir / "02.3_t2_merged_unit_map.yaml")
     element_spec = read_yaml(out_dir / "03_element_spec.yaml")
-    t3_code = read_yaml(out_dir / "03.0_t3_code_element_spec.yaml")
     t3_ai = read_yaml(out_dir / "03.1_t3_ai_element_observation.yaml")
-    t3_merged = read_yaml(out_dir / "03.2_t3_merged_element_spec.yaml")
     global_spec = read_yaml(out_dir / "04_global_spec.yaml")
     t4_code = read_yaml(out_dir / "04.0_t4_code_global_spec.yaml")
     t4_ai = read_yaml(out_dir / "04.1_t4_ai_layout_observation.yaml")
@@ -138,17 +136,15 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert t2_merged["route"]["route_id"] == "merged"
     assert t2_merged["route"]["availability"] == "AVAILABLE"
     assert element_spec["artifact_type"] == "element_spec"
-    assert t3_code["route"]["route_id"] == "code_raw"
-    assert t3_code["route"]["availability"] == "AVAILABLE"
+    assert element_spec["route"]["route_id"] == "ai"
+    assert element_spec["route"]["availability"] == "NOT_AVAILABLE"
+    assert all(element["policy"] == "fixed" for element in element_spec["elements"])
     assert t3_ai["artifact_type"] == "ai_element_observation"
     assert t3_ai["route"]["route_id"] == "ai_raw"
     assert t3_ai["route"]["availability"] == "NOT_AVAILABLE"
     assert "abstain" not in t3_ai
     assert t3_ai["coverage"]["unknown_source_seq"] == []
     assert t3_ai["coverage"]["total"] == len(document_facts["body_flow"])
-    assert t3_merged["artifact_type"] == "element_spec"
-    assert t3_merged["route"]["route_id"] == "merged"
-    assert t3_merged["route"]["availability"] == "AVAILABLE"
     assert global_spec["artifact_type"] == "global_spec"
     assert t4_code["route"]["route_id"] == "code_raw"
     assert t4_code["route"]["availability"] == "AVAILABLE"
@@ -220,9 +216,9 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert (out_dir / "02.1_t2_input.json").exists()
     assert (out_dir / "02.2_t2_ai_unit_observation.yaml").exists()
     assert (out_dir / "02.3_t2_merged_unit_map.yaml").exists()
-    assert (out_dir / "03.0_t3_code_element_spec.yaml").exists()
+    assert not (out_dir / "03.0_t3_code_element_spec.yaml").exists()
     assert (out_dir / "03.1_t3_ai_element_observation.yaml").exists()
-    assert (out_dir / "03.2_t3_merged_element_spec.yaml").exists()
+    assert not (out_dir / "03.2_t3_merged_element_spec.yaml").exists()
     assert (out_dir / "03_element_spec.yaml").exists()
     assert (out_dir / "04.0_t4_code_global_spec.yaml").exists()
     assert (out_dir / "04.1_t4_ai_layout_observation.yaml").exists()
@@ -256,10 +252,8 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert manifest["actions_executed"]
     assert "actions_deferred" not in manifest
     assert any(unit["unit_id"] == "toc" for unit in structure_candidates["units"])
-    assert any(
-        item["policy"] == "strip"
-        for item in generation_model["cleanup"]
-    )
+    assert not any(item["policy"] == "strip" for item in generation_model["cleanup"])
+    assert "格式说明：小四宋体" in docx_texts(fillable)
     assert all("affected_source_seq_refs" in action for action in plan["actions"])
 
 
@@ -283,7 +277,7 @@ def test_template_generate_preserves_existing_body_slot(tmp_path) -> None:
     assert any(slot["slot_id"] == "slot_body_start" for slot in manifest["slots"])
 
 
-def test_template_generate_cleans_instruction_text_inside_table_cells(tmp_path) -> None:
+def test_template_generate_without_ai_preserves_instruction_text_inside_table_cells(tmp_path) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template-table.docx"
     source.parent.mkdir(parents=True, exist_ok=True)
     doc = Document()
@@ -302,11 +296,11 @@ def test_template_generate_cleans_instruction_text_inside_table_cells(tmp_path) 
 
     assert result.status == Status.UNKNOWN
     assert not manifest["actions_requiring_review"]
-    assert not any("格式说明" in text for text in table_texts(fillable))
-    assert any(tag != "slot_body_start" for tag in docx_sdt_tags(fillable))
+    assert any("格式说明" in text for text in table_texts(fillable))
+    assert docx_sdt_tags(fillable) == {"slot_body_start"}
 
 
-def test_template_generate_removes_form_usage_notes_but_keeps_manual_fields(tmp_path) -> None:
+def test_template_generate_without_ai_safely_keeps_form_usage_notes(tmp_path) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template-form-notes.docx"
     out_dir = tmp_path / "template_generate"
     notes = [
@@ -335,13 +329,18 @@ def test_template_generate_removes_form_usage_notes_but_keeps_manual_fields(tmp_
 
     assert result.status == Status.UNKNOWN
     for note in notes:
-        assert note not in output_text
+        assert note in output_text
     assert "指导教师签名：" in output_text
     assert "评阅教师意见：" in output_text
-    assert sum(
+    assert not any(
+        action["action_type"] == "create_manual_placeholder"
+        for action in plan["actions"]
+    )
+    assert not any(slot.get("kind") == "manual_only" for slot in result.artifacts["build_manifest"]["slots"])
+    assert not any(
         action["action_type"] == "remove_instruction_text"
         for action in plan["actions"]
-    ) >= len(notes)
+    )
 
 
 def test_template_generate_merges_table_label_value_candidates(tmp_path) -> None:
@@ -369,7 +368,7 @@ def test_template_generate_merges_table_label_value_candidates(tmp_path) -> None
     )
 
     assert result.status == Status.UNKNOWN
-    assert merged["candidate_policy"] == "fill"
+    assert merged["candidate_policy"] == "fixed"
     assert merged["role_hint"] == "student_field_candidate"
     assert len(merged["source_seq_refs"]) == 2
     assert len(merged["entry_refs"]) == 2
@@ -403,7 +402,7 @@ def test_template_generate_merges_business_sentence_continuation(tmp_path) -> No
     )
 
     assert result.status == Status.UNKNOWN
-    assert merged["candidate_policy"] == "fill"
+    assert merged["candidate_policy"] == "fixed"
     assert merged["role_hint"] == "student_field_candidate"
     assert merged["source_seq_refs"] == [2, 3]
     assert merged["entry_refs"] == ["body_0002", "body_0003"]
@@ -533,8 +532,8 @@ def test_template_generate_custom_units_are_not_copy_only_by_default(tmp_path) -
         and action["unit_id"] == custom_strategy["unit_id"]
         for action in plan["actions"]
     )
-    assert any(
-        action["action_type"] == "create_fillable_slot"
+    assert not any(
+        action["action_type"] in {"create_fillable_slot", "replace_span_with_slot"}
         and action["unit_id"] == custom_strategy["unit_id"]
         for action in plan["actions"]
     )
@@ -596,38 +595,38 @@ def test_template_generate_cover_uses_patch_analysis_when_copy_only_disabled(
         for element in cover_elements
     )
     assert title_candidate["role_hint"] == "student_field_candidate"
-    assert title_candidate["candidate_policy"] == "fill"
+    assert title_candidate["candidate_policy"] == "fixed"
     assert title_candidate["source_seq_refs"] == [2]
-    assert model_title["candidate_policy"] == "fill"
-    assert model_title["policy"] == "fill"
+    assert model_title["candidate_policy"] == "fixed"
+    assert model_title["policy"] == "fixed"
     assert instruction_candidate["role_hint"] == "instruction_candidate"
-    assert instruction_candidate["candidate_policy"] == "remove_instruction"
+    assert instruction_candidate["candidate_policy"] == "fixed"
     assert instruction_candidate["source_seq_refs"] == [3]
     assert cover_strategy["generation_mode"] == "copy_then_patch"
     assert not any(
         decision["decision_type"] == "keep_whole_unit_copy"
         for decision in cover_strategy["decisions"]
     )
-    assert any(
+    assert not any(
         decision["decision_type"] == "remove_instruction_text"
         and decision["source_ref"] == "word/document.xml:p[3]"
         and decision["source_seq_refs"] == [3]
         for decision in cover_strategy["decisions"]
     )
-    assert any(
+    assert not any(
         action.get("unit_id") == "cover"
-        and action["action_type"] == "create_fillable_slot"
+        and action["action_type"] in {"create_fillable_slot", "replace_span_with_slot"}
         and action["affected_source_seq_refs"] == [2]
         for action in plan["actions"]
     )
-    assert any(
+    assert not any(
         action["action_type"] == "remove_instruction_text"
         and action.get("source_ref") == "word/document.xml:p[3]"
         and action["affected_source_seq_refs"] == [3]
         for action in plan["actions"]
     )
-    assert "格式说明：小四宋体" not in docx_texts(fillable)
-    assert any(tag.startswith("cover.") for tag in docx_sdt_tags(fillable))
+    assert "格式说明：小四宋体" in docx_texts(fillable)
+    assert not any(tag.startswith("cover.") for tag in docx_sdt_tags(fillable))
 
 
 def test_template_generate_splits_within_paragraph_format_instruction_runs(
@@ -677,86 +676,26 @@ def test_template_generate_splits_within_paragraph_format_instruction_runs(
         for element in cover_model["elements"]
         if element.get("source_refs") == ["word/document.xml:p[2]"]
     ]
-    instruction_candidate = next(
-        element
-        for element in cover_elements
-        if element.get("candidate_policy") == "remove_instruction"
-    )
-    content_candidate = next(
-        element
-        for element in cover_elements
-        if element.get("candidate_policy") in {"fixed", "fill"}
-    )
-    instruction_spec = next(
-        element
-        for element in element_spec["elements"]
-        if element["unit_id"] == "cover"
-        and element["element_id"] == instruction_candidate["element_id"]
-    )
-    instruction_action = next(
-        action
-        for action in plan["actions"]
-        if action["action_type"] == "remove_instruction_text"
-        and action.get("unit_id") == "cover"
-        and action.get("element_id") == instruction_candidate["element_id"]
-    )
-    executed_instruction = next(
-        action
-        for action in manifest["actions_executed"]
-        if action["action_type"] == "remove_instruction_text"
-        and action.get("unit_id") == "cover"
-        and action.get("element_id") == instruction_candidate["element_id"]
-    )
-    body_main = next(
-        unit for unit in structure_candidates["units"] if unit["unit_id"] == "body_main"
-    )
-    body_paragraph_elements = [
-        element
-        for element in body_main["elements"]
-        if element.get("source_refs") == ["word/document.xml:p[5]"]
-    ]
-
     assert result.status == Status.UNKNOWN
-    assert len(cover_elements) >= 2
-    assert len(model_cover_elements) >= 2
-    assert content_candidate["source_seq_refs"] == [2]
-    assert content_candidate["candidate_policy"] == "fill"
-    assert instruction_candidate["source_seq_refs"] == [2]
-    assert content_candidate["raw_run_ids"]
-    assert instruction_candidate["raw_run_ids"]
-    assert set(content_candidate["raw_run_ids"]).isdisjoint(
-        set(instruction_candidate["raw_run_ids"])
-    )
-    assert instruction_candidate["logical_run_ids"]
-    assert instruction_spec["policy"] == "instruction_remove"
-    assert instruction_spec["raw_run_ids"] == instruction_candidate["raw_run_ids"]
-    assert instruction_action["affected_source_seq_refs"] == [2]
-    assert instruction_action["affected_raw_run_ids"] == instruction_candidate["raw_run_ids"]
-    assert instruction_action["affected_logical_run_ids"] == instruction_candidate["logical_run_ids"]
-    assert executed_instruction["affected_raw_run_ids"] == instruction_candidate["raw_run_ids"]
-    content_spec = next(
-        element
-        for element in element_spec["elements"]
-        if element["unit_id"] == "cover"
-        and element["element_id"] == content_candidate["element_id"]
-    )
-    assert any(
-        span["span_type"] == "sample_value"
-        and "毕业论文（设计）中文题目" in span["text"]
-        for span in content_spec["spans"]
-    )
-    assert any(
-        action["action_type"] == "replace_span_with_slot"
-        and action.get("unit_id") == "cover"
-        and action.get("element_id") == content_candidate["element_id"]
+    assert cover_elements
+    assert model_cover_elements
+    assert all(element["candidate_policy"] == "fixed" for element in cover_elements)
+    assert all(element["policy"] == "fixed" for element in model_cover_elements)
+    assert all(element["spans"] == [] for element in model_cover_elements)
+    assert all(element["policy"] == "fixed" for element in element_spec["elements"])
+    assert not any(
+        action["action_type"] in {"remove_instruction_text", "replace_span_with_slot"}
         for action in plan["actions"]
     )
-    assert not any("毕业论文（设计）中文题目" in text for text in docx_texts(fillable))
-    assert not any("小二黑体加粗" in text for text in docx_texts(fillable))
-    assert len(body_paragraph_elements) == 1
+    assert not any(
+        action["action_type"] in {"remove_instruction_text", "replace_span_with_slot"}
+        for action in manifest["actions_executed"]
+    )
+    assert any("毕业论文（设计）中文题目" in text for text in docx_texts(fillable))
+    assert any("小二黑体加粗" in text for text in docx_texts(fillable))
 
 
-def test_template_generate_replaces_field_line_placeholder_spans(tmp_path) -> None:
+def test_template_generate_without_ai_preserves_field_line_placeholder_spans(tmp_path) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     out_dir = tmp_path / "template_generate"
     write_source_docx_with_runs(
@@ -785,25 +724,24 @@ def test_template_generate_replaces_field_line_placeholder_spans(tmp_path) -> No
         and "学□□号" in element.get("content", "")
     )
 
-    span_types = {span["span_type"] for span in cover_field["spans"]}
     assert result.status == Status.UNKNOWN
-    assert {"label", "layout_spacer", "sample_value"}.issubset(span_types)
-    assert any(
+    assert cover_field["policy"] == "fixed"
+    assert cover_field["spans"] == []
+    assert not any(
         action["action_type"] == "replace_span_with_slot"
         and action["unit_id"] == "cover"
         and action["element_id"] == cover_field["element_id"]
         for action in plan["actions"]
     )
-    assert any(
+    assert not any(
         action["action_type"] == "replace_span_with_slot"
         for action in manifest["actions_executed"]
     )
     joined_text = "\n".join(docx_texts(fillable))
-    assert "□□□□□□" not in joined_text
-    assert "学□□号" not in joined_text
-    assert "20××" not in joined_text
-    assert "学号：" in joined_text
-    assert any(tag.startswith("cover.") for tag in docx_sdt_tags(fillable))
+    assert "□□□□□□" in joined_text
+    assert "学□□号" in joined_text
+    assert "20××" in joined_text
+    assert not any(tag.startswith("cover.") for tag in docx_sdt_tags(fillable))
 
 
 def test_template_generate_references_unit_is_fillable_not_copy_only(tmp_path) -> None:
@@ -822,9 +760,9 @@ def test_template_generate_references_unit_is_fillable_not_copy_only(tmp_path) -
 
     assert result.status == Status.UNKNOWN
     assert references["generation_mode"] == "copy_then_patch"
-    assert any(
-        action["action_type"] == "create_fillable_slot"
+    assert not any(
+        action["action_type"] in {"create_fillable_slot", "replace_span_with_slot"}
         and action["unit_id"] == "references"
         for action in plan["actions"]
     )
-    assert any(tag.startswith("references.") for tag in docx_sdt_tags(out_dir / "06.1_fillable_template.docx"))
+    assert not any(tag.startswith("references.") for tag in docx_sdt_tags(out_dir / "06.1_fillable_template.docx"))

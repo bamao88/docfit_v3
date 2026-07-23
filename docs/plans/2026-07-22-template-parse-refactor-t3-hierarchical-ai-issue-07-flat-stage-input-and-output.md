@@ -41,7 +41,7 @@ Expected：
 3. 终局动作停止该分支调用，程序确定性展开 inherited atomic coverage。
 4. 只有 Split 选中的直接子节点继续下钻；run/span 不是默认输出层。
 5. 容器结构保留与后代内容 Keep 分开：结构保留但内部动作混合时必须 Split。
-6. direct、inherited、fallback、contested 有不同 trace；code/AI 在共同 atomic identity 上比较。
+6. direct、inherited、fallback、contested 有不同 trace；AI 判断在共同 atomic identity 上校验和物化。
 7. 真实图片作为模型附件发送，并与 target/child ref、bbox 和完整性绑定。
 ```
 
@@ -63,7 +63,7 @@ Observed：
 - T3 unit/object/child prompt 与输出 schema；
 - stop-or-descend 编排、缓存和 replay；
 - direct/inherited/fallback coverage materialization；
-- code/AI/merged 跨层比较；
+- AI-only 判断、校验、物化与下游消费；
 - T3 gold、route-eval、准确率和调用成本报告；
 - T5/T6 对 element/span identity 与对象级 trace 的消费边界。
 
@@ -90,6 +90,10 @@ Observed：
 - 三校已签 gold 的评分粒度仍是一条 raw run 一个动作，无法表达同一 run 内的混合 span 动作；当前兼容评分将其记为 run conflict，span 级准确率仍需要独立人审 gold 才能闭环。
 
 因此本 issue 保持 `implemented_in_part`；Accuracy Promotion Gate 未运行出合规三校 candidate，不关闭问题，也不迁移 canonical 文档。
+
+## 2026-07-23 路线收敛决定
+
+用户确认 T3 后续只保留 AI 判断路线。Code 只保留为事实投影、结构校验、继承展开、安全回退和执行实现，不再输出独立策略；Merge 路线、三路对账产物和 authority mode 已从 T3 正式路径删除。AI 缺失或无效时 canonical `element_spec` 标记 `NOT_AVAILABLE` 并保守 Keep，禁止回落到旧 Code policy。该决定改变路线契约，但不代表动作准确率门禁已经通过。
 
 ## 验收门禁
 

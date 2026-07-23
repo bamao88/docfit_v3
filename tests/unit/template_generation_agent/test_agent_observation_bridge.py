@@ -259,7 +259,7 @@ def test_observation_bridge_keeps_low_confidence_t3_as_bound_proposal(tmp_path) 
     assert proposals[0]["observation_confidence"] == "low"
 
 
-def test_observation_bridge_only_emits_accepted_sparse_mutations(tmp_path) -> None:
+def test_observation_bridge_emits_all_sparse_ai_decisions(tmp_path) -> None:
     artifacts = round0_artifacts(tmp_path)
     bundle = _bundle(
         artifacts["packet"]["source_render_hash"],
@@ -274,7 +274,7 @@ def test_observation_bridge_only_emits_accepted_sparse_mutations(tmp_path) -> No
                 "confidence": "high",
                 "decision_status": "accepted",
                 "resolution": "direct",
-                "merge_eligible": True,
+                "execution_eligible": True,
             },
             {
                 "element_id": "body.run_1",
@@ -291,7 +291,7 @@ def test_observation_bridge_only_emits_accepted_sparse_mutations(tmp_path) -> No
                 "resolution": "inherited",
                 "inherited_from": "paragraph:p_0003",
                 "member_ref": "run:p_0003.r_001",
-                "merge_eligible": True,
+                "execution_eligible": True,
                 "fill_source": "student_content",
                 "fill_field": "STUDENT_ID",
             },
@@ -305,7 +305,7 @@ def test_observation_bridge_only_emits_accepted_sparse_mutations(tmp_path) -> No
                 "confidence": "low",
                 "decision_status": "failed",
                 "resolution": "fallback",
-                "merge_eligible": False,
+                "execution_eligible": False,
             },
         ],
     )
@@ -320,19 +320,17 @@ def test_observation_bridge_only_emits_accepted_sparse_mutations(tmp_path) -> No
     proposals = bridge["transcript"]["rounds"][1]["submission"]["layers"]["t3"][
         "element_policy_candidates"
     ]
-    assert len(proposals) == 1
-    assert proposals[0]["target_candidate_id"] is None
-    assert proposals[0]["raw_run_ids"] == ["p_0003.r_001"]
-    assert proposals[0]["decision_ref"] == "decision:fill"
-    assert proposals[0]["fill_field"] == "STUDENT_ID"
-    assert bridge["proposal_map"][0]["status"] == "no_op"
-    assert bridge["summary"]["manual_review_required"] == 1
-    assert bridge["manual_review_items"][0]["reason_code"] == (
-        "OBSERVATION-T3-SPARSE-NOT-MERGEABLE"
-    )
+    assert len(proposals) == 3
+    assert all(proposal["target_candidate_id"] is None for proposal in proposals)
+    assert proposals[1]["raw_run_ids"] == ["p_0003.r_001"]
+    assert proposals[1]["decision_ref"] == "decision:fill"
+    assert proposals[1]["fill_field"] == "STUDENT_ID"
+    assert proposals[2]["core_action"] == "keep"
+    assert proposals[2]["execution_eligible"] is False
+    assert bridge["summary"]["manual_review_required"] == 0
 
 
-def test_observation_bridge_ai_primary_emits_accepted_sparse_keep(tmp_path) -> None:
+def test_observation_bridge_emits_accepted_sparse_keep(tmp_path) -> None:
     artifacts = round0_artifacts(tmp_path)
     bundle = _bundle(
         artifacts["packet"]["source_render_hash"],
@@ -347,7 +345,7 @@ def test_observation_bridge_ai_primary_emits_accepted_sparse_keep(tmp_path) -> N
                 "confidence": "high",
                 "decision_status": "accepted",
                 "resolution": "direct",
-                "merge_eligible": True,
+                "execution_eligible": True,
             }
         ],
     )
@@ -359,7 +357,6 @@ def test_observation_bridge_ai_primary_emits_accepted_sparse_keep(tmp_path) -> N
         observation_bundle=bundle,
         packet=artifacts["packet"],
         structure_candidates=artifacts["structure_candidates"],
-        t3_authority_mode="ai_primary",
     )
 
     proposals = bridge["transcript"]["rounds"][1]["submission"]["layers"]["t3"][
@@ -371,7 +368,7 @@ def test_observation_bridge_ai_primary_emits_accepted_sparse_keep(tmp_path) -> N
     assert proposals[0]["raw_run_ids"] == ["p_0001.r_001"]
 
 
-def test_observation_bridge_ai_primary_materializes_sparse_fallback_keep(tmp_path) -> None:
+def test_observation_bridge_emits_sparse_fallback_keep(tmp_path) -> None:
     artifacts = round0_artifacts(tmp_path)
     bundle = _bundle(
         artifacts["packet"]["source_render_hash"],
@@ -386,7 +383,7 @@ def test_observation_bridge_ai_primary_materializes_sparse_fallback_keep(tmp_pat
                 "confidence": "low",
                 "decision_status": "manual_review",
                 "resolution": "fallback",
-                "merge_eligible": False,
+                "execution_eligible": False,
             }
         ],
     )
@@ -398,7 +395,6 @@ def test_observation_bridge_ai_primary_materializes_sparse_fallback_keep(tmp_pat
         observation_bundle=bundle,
         packet=artifacts["packet"],
         structure_candidates=artifacts["structure_candidates"],
-        t3_authority_mode="ai_primary",
     )
 
     proposals = bridge["transcript"]["rounds"][1]["submission"]["layers"]["t3"][
@@ -423,7 +419,7 @@ def test_observation_bridge_routes_sparse_source_objects_to_manual_review(tmp_pa
                     "policy": "fixed",
                     "decision_status": "accepted",
                     "resolution": "direct",
-                    "merge_eligible": True,
+                    "execution_eligible": True,
                 }
             ],
         }
@@ -476,7 +472,7 @@ def test_run_template_agent_materializes_accepted_sparse_raw_run_decision(tmp_pa
                 "decision_status": "accepted",
                 "resolution": "direct",
                 "member_ref": "run:p_0003.r_002",
-                "merge_eligible": True,
+                "execution_eligible": True,
                 "fill_source": "student_content",
                 "fill_field": "STUDENT_ID",
             }
@@ -507,7 +503,8 @@ def test_run_template_agent_materializes_accepted_sparse_raw_run_decision(tmp_pa
 
     assert result.changed is True
     assert result.decisions is not None
-    assert result.decisions["accepted_proposal_ids"] == ["obs_t3_body_main_001"]
+    assert result.decisions["accepted_proposal_ids"] == []
+    assert result.decisions["rejected_proposal_ids"] == ["obs_t3_body_main_001"]
     target = next(
         item
         for item in result.element_spec["elements"]

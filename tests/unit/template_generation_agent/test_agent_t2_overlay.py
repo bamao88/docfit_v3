@@ -237,9 +237,9 @@ def test_t2_overlay_rebuild_preserves_deterministic_element_policy(tmp_path) -> 
     )
 
     assert result.changed is True
-    assert title_element["candidate_policy"] == "fill"
-    assert title_spec["policy"] == "fill"
-    assert any(span["span_type"] == "sample_value" for span in title_spec["spans"])
+    assert title_element["candidate_policy"] == "fixed"
+    assert title_spec["policy"] == "fixed"
+    assert title_spec["spans"] == []
 
 
 def test_t2_overlay_rejects_claim_spanning_multiple_existing_units(tmp_path) -> None:

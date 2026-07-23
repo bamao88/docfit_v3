@@ -11,7 +11,6 @@ from docfit.ooxml.package import is_valid_docx
 
 from .agent import AgentConfig, AgentConfigError, run_template_agent
 from .agent.packet import build_template_agent_render_packet, load_render_packet
-from .agent.t3_atomic_compare import build_t3_atomic_route_comparison
 from .constants import BODY_SLOT_MARKER, DEFAULT_TEMPLATE_GENERATION_STRATEGY
 from .executor import execute_template_generation_plan
 from .generation_model import build_template_generation_model
@@ -139,13 +138,7 @@ def generate_template(
         request,
         structure_candidates=structure_candidates,
     )
-    element_spec = build_element_spec(generation_model)
-    code_raw_element_spec = _route_t3_element_spec(
-        element_spec,
-        route_id="code_raw",
-        origin="deterministic_code_before_agent_bridge",
-        l1_hash=l1_hash,
-    )
+    structural_element_shell = build_element_spec(generation_model)
     try:
         agent_run = run_template_agent(
             source_template_docx=source_template_docx,
@@ -154,7 +147,7 @@ def generate_template(
             structure_candidates=structure_candidates,
             unit_map=unit_map,
             generation_model=generation_model,
-            element_spec=element_spec,
+            element_spec=structural_element_shell,
             agent_config=effective_agent_config,
             render_packet=agent_stage_packet,
             render_artifacts_dir=out_dir / "agent_render_artifacts",
@@ -201,19 +194,17 @@ def generate_template(
         origin=final_t2_origin,
         l1_hash=l1_hash,
     )
-    element_spec = agent_run.element_spec
     t3_ai_element_observation = _route_t3_ai_observation(
         agent_run.ai_element_observation,
         document_facts=t3_facts,
         l1_hash=l1_hash,
     )
-    final_t3_route_id, final_t3_origin = _final_t3_route(
-        effective_agent_config.t3_authority_mode
-    )
-    t3_merged_element_spec = _route_t3_element_spec(
-        element_spec,
-        route_id=final_t3_route_id,
-        origin=final_t3_origin,
+    element_spec = _route_t3_element_spec(
+        agent_run.element_spec,
+        observation_available=bool(
+            isinstance(agent_run.ai_element_observation, dict)
+            and agent_run.ai_element_observation.get("items")
+        ),
         l1_hash=l1_hash,
     )
     t4_ai_layout_observation = _route_t4_ai_observation(
@@ -292,9 +283,7 @@ def generate_template(
         "t2_code_unit_map": code_raw_unit_map,
         "t2_ai_unit_observation": t2_ai_unit_observation,
         "t2_merged_unit_map": t2_merged_unit_map,
-        "t3_code_element_spec": code_raw_element_spec,
         "t3_ai_element_observation": t3_ai_element_observation,
-        "t3_merged_element_spec": t3_merged_element_spec,
         "t4_code_global_spec": code_raw_global_spec,
         "t4_ai_layout_observation": t4_ai_layout_observation,
         "t4_merged_global_spec": t4_merged_global_spec,
@@ -318,15 +307,6 @@ def generate_template(
             hierarchical_input = observation_windows.get("hierarchical_stage_input")
             if isinstance(hierarchical_input, dict):
                 artifacts["t3_hierarchical_stage_input"] = hierarchical_input
-                if isinstance(agent_run.ai_element_observation, dict):
-                    artifacts["t3_atomic_route_comparison"] = (
-                        build_t3_atomic_route_comparison(
-                            stage_input=hierarchical_input,
-                            code_element_spec=code_raw_element_spec,
-                            ai_observation=agent_run.ai_element_observation,
-                            merged_element_spec=element_spec,
-                        )
-                    )
         if isinstance(agent_run.ai_element_observation, dict) and agent_run.ai_element_observation.get(
             "sparse_decision_contract_version"
         ):
@@ -463,26 +443,30 @@ def _final_t2_route(
 def _route_t3_element_spec(
     element_spec: dict[str, object],
     *,
-    route_id: str,
-    origin: str,
+    observation_available: bool,
     l1_hash: str,
 ) -> dict[str, object]:
-    return _route_stage_artifact(
+    routed = _route_stage_artifact(
         element_spec,
-        route_id=route_id,
+        route_id="ai",
         stage_id="T3",
         stage_key="t3_element_policy",
-        origin=origin,
+        origin=(
+            "hierarchical_ai_decisions_materialized"
+            if observation_available
+            else "ai_unavailable_safe_keep_materialization"
+        ),
         l1_hash=l1_hash,
     )
-
-
-def _final_t3_route(authority_mode: str) -> tuple[str, str]:
-    if authority_mode == "code":
-        return "code_raw", "deterministic_code_from_pinned_t2_without_ai_merge"
-    if authority_mode == "ai_primary":
-        return "ai_raw", "ai_primary_from_pinned_t2_without_code_merge"
-    return "merged", "agent_bridge_reconciled_final_t3"
+    if not observation_available:
+        route = routed["route"]
+        assert isinstance(route, dict)
+        route["availability"] = "NOT_AVAILABLE"
+        route["reason"] = (
+            "T3 AI observation was not produced; downstream receives conservative "
+            "safe Keep materialization instead of a Code decision route"
+        )
+    return routed
 
 
 def _route_t4_global_spec(

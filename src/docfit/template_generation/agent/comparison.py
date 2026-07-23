@@ -5,18 +5,10 @@ from typing import Any
 
 from docfit.core.io import now_iso, sha256_json
 
-from .overlay import bind_t3_target, t3_execution_policy
 from .packet import packet_page_set, packet_render_target_set, packet_source_seq_set
-from docfit.template_generation.constants import KEEP_ONLY_UNIT_IDS
 
 
 AUTO_STATUSES = {"compatible", "missing"}
-EXECUTABLE_T3_POLICIES = {
-    "fill",
-    "fixed",
-    "generated",
-    "remove_instruction",
-}
 
 
 def build_submission_comparison(
@@ -92,13 +84,6 @@ def compare_proposal(
         return _compare_t2(
             structure_candidates=structure_candidates,
             packet=packet,
-            proposal=proposal,
-            collection=collection,
-            affected_refs=affected_refs,
-        )
-    if layer == "t3":
-        return _compare_t3(
-            structure_candidates=structure_candidates,
             proposal=proposal,
             collection=collection,
             affected_refs=affected_refs,
@@ -362,129 +347,6 @@ def _compare_t2(
         affected_refs=affected_refs,
         deterministic=deterministic,
     )
-
-
-def _compare_t3(
-    *,
-    structure_candidates: dict[str, Any],
-    proposal: dict[str, Any],
-    collection: str,
-    affected_refs: dict[str, Any],
-) -> dict[str, Any]:
-    observed_policy = str(
-        proposal.get("observed_policy")
-        or proposal.get("policy")
-        or proposal.get("candidate_policy")
-        or ""
-    ).strip()
-    policy = t3_execution_policy(
-        proposal.get("policy") or proposal.get("candidate_policy")
-    )
-    target = bind_t3_target(structure_candidates, proposal)
-    deterministic: dict[str, Any] = {}
-    if target is not None:
-        unit, element = target
-        deterministic = {
-            "target_candidate_id": f"{unit.get('unit_id')}.{element.get('element_id')}",
-            "current_policy": element.get("candidate_policy"),
-            "source_seq_refs": element.get("source_seq_refs", []),
-            "raw_run_ids": element.get("raw_run_ids", []),
-            "logical_run_ids": element.get("logical_run_ids", []),
-        }
-    if policy not in EXECUTABLE_T3_POLICIES:
-        return _item(
-            proposal,
-            layer="t3",
-            collection=collection,
-            status="unknown",
-            check_id="C-EXECUTABLE-ENUM",
-            reason=f"unsupported T3 policy: {policy}",
-            affected_refs=affected_refs,
-            deterministic=deterministic,
-        )
-    if target is None:
-        return _item(
-            proposal,
-            layer="t3",
-            collection=collection,
-            status="unknown",
-            check_id="C-TARGET-BIND",
-            reason="T3 target is ambiguous or missing",
-            affected_refs=affected_refs,
-            deterministic=deterministic,
-        )
-    if policy == "remove_instruction" and len(affected_refs["source_seq_refs"]) > 3:
-        return _item(
-            proposal,
-            layer="t3",
-            collection=collection,
-            status="unknown",
-            check_id="C-HIGH-RISK",
-            reason="remove_instruction over more than three source_seq_refs requires manual review",
-            affected_refs=affected_refs,
-            deterministic=deterministic,
-            risk_level="high",
-        )
-    current_policy = str(deterministic.get("current_policy") or "")
-    if policy == "fill" and target is not None and str(target[0].get("unit_id") or "") in KEEP_ONLY_UNIT_IDS:
-        return _item(
-            proposal,
-            layer="t3",
-            collection=collection,
-            status="conflict",
-            check_id="C-POLICY-DOWNGRADE",
-            reason="T3 fill policy is not executable for a keep-only unit",
-            affected_refs=affected_refs,
-            deterministic=deterministic,
-        )
-    downgrade_reason = (
-        None
-        if observed_policy == "unknown"
-        else _t3_policy_downgrade_reason(current_policy, policy)
-    )
-    if downgrade_reason is not None:
-        return _item(
-            proposal,
-            layer="t3",
-            collection=collection,
-            status="conflict",
-            check_id="C-POLICY-DOWNGRADE",
-            reason=downgrade_reason,
-            affected_refs=affected_refs,
-            deterministic=deterministic,
-        )
-    return _item(
-        proposal,
-        layer="t3",
-        collection=collection,
-        status="compatible",
-        check_id="C-COMPARISON-COMPATIBLE",
-        reason=(
-            "T3 unknown decision is bound and will execute as keep/fixed"
-            if observed_policy == "unknown"
-            else "T3 policy proposal is bound to one deterministic candidate"
-        ),
-        affected_refs=affected_refs,
-        deterministic=deterministic,
-    )
-
-
-def _t3_policy_downgrade_reason(current_policy: str, proposed_policy: str) -> str | None:
-    if not current_policy or current_policy == proposed_policy:
-        return None
-    downgrades = {
-        ("fill", "fixed"),
-        ("fill", "remove_instruction"),
-        ("generated", "fixed"),
-        ("generated", "fill"),
-        ("fixed", "generated"),
-    }
-    if (current_policy, proposed_policy) in downgrades:
-        return (
-            "T3 proposal would downgrade deterministic policy "
-            f"{current_policy!r} to {proposed_policy!r}; manual review required"
-        )
-    return None
 
 
 def _compare_t4(

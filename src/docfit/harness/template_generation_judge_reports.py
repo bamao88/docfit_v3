@@ -27,6 +27,10 @@ from docfit.harness.template_generation_standard_quality import (
     TemplateGenerationStandardSet,
 )
 from docfit.template_generation.page_policy import PAGE_POLICY_FIELDS, normalize_page_policy
+from docfit.template_generation.t3_action_projection import (
+    actions_for_t3_gold_run,
+    project_t3_actions_by_run_identity,
+)
 
 @dataclass
 class TemplateGenerationJudgeReport:
@@ -2112,9 +2116,7 @@ _ROUTE_STAGE_FILES = {
     "T3": {
         "stage_key": "t3_element_policy",
         "routes": {
-            "code_raw": {"filename": "03.0_t3_code_element_spec.yaml", "payload_type": "yaml"},
-            "ai_raw": {"filename": "03.1_t3_ai_element_observation.yaml", "payload_type": "yaml"},
-            "merged": {"filename": "03.2_t3_merged_element_spec.yaml", "payload_type": "yaml"},
+            "ai": {"filename": "03_element_spec.yaml", "payload_type": "yaml"},
         },
     },
     "T4": {
@@ -2214,10 +2216,13 @@ def build_template_generation_route_eval_report(
             for route_id, route_spec in (spec.get("routes") or {}).items()
         }
         routes.extend(stage_routes.values())
+        ai_route_id = "ai" if stage_id == "T3" else "ai_raw"
         code_hash = (stage_routes.get("code_raw") or {}).get("payload_hash")
-        ai_hash = (stage_routes.get("ai_raw") or {}).get("payload_hash")
+        ai_hash = (stage_routes.get(ai_route_id) or {}).get("payload_hash")
         merged_hash = (stage_routes.get("merged") or {}).get("payload_hash")
-        ai_availability = (stage_routes.get("ai_raw") or {}).get("availability", "NOT_APPLICABLE")
+        ai_availability = (stage_routes.get(ai_route_id) or {}).get(
+            "availability", "NOT_APPLICABLE"
+        )
         changed_from_code = bool(
             code_hash and merged_hash and code_hash != merged_hash
         )
@@ -2247,7 +2252,7 @@ def build_template_generation_route_eval_report(
                 for route_id, route in stage_routes.items()
             },
         }
-        ai_route = stage_routes.get("ai_raw") or {}
+        ai_route = stage_routes.get(ai_route_id) or {}
         if ai_route.get("availability") == "AVAILABLE":
             ai_payload = _route_candidate_payload(ai_route)
             if ai_payload:
@@ -2259,8 +2264,8 @@ def build_template_generation_route_eval_report(
                         _evaluate_ai_unit_accuracy(ai_payload, expected)
                     )
                 elif stage_id == "T3":
-                    stage_metrics[stage_id]["ai_raw_accuracy"] = (
-                        _evaluate_ai_element_accuracy(ai_payload, expected)
+                    stage_metrics[stage_id]["ai_accuracy"] = _evaluate_t3_route_accuracy(
+                        ai_payload, expected
                     )
                 elif stage_id == "T4":
                     stage_metrics[stage_id]["ai_raw_accuracy"] = (
@@ -2285,7 +2290,11 @@ def build_template_generation_route_eval_report(
             residual_gate = _t3_residual_gate(report.run_bundle.source_run_dir)
             stage_metrics[stage_id]["residual_gate"] = residual_gate
             mismatches.extend(_t3_residual_mismatches(residual_gate))
-        if ai_availability == "AVAILABLE" and not changed_from_code:
+        if (
+            stage_id != "T3"
+            and ai_availability == "AVAILABLE"
+            and not changed_from_code
+        ):
             mismatches.append(
                 {
                     "id": f"{stage_id}-ROUTE-MISMATCH-001",
@@ -2298,19 +2307,27 @@ def build_template_generation_route_eval_report(
                 }
             )
         if ai_availability == "NOT_AVAILABLE":
-            ai_reason = str((stage_routes.get("ai_raw") or {}).get("reason") or "")
+            ai_reason = str((stage_routes.get(ai_route_id) or {}).get("reason") or "")
             mismatches.append(
                 {
                     "id": f"{stage_id}-ROUTE-MISMATCH-001",
                     "stage_id": stage_id,
                     "stage_key": spec["stage_key"],
-                    "type": "ai_raw_not_available",
-                    "expected": "ai_raw route available for route comparison",
+                    "type": (
+                        "canonical_ai_not_available"
+                        if stage_id == "T3"
+                        else "ai_raw_not_available"
+                    ),
+                    "expected": (
+                        "canonical AI route available"
+                        if stage_id == "T3"
+                        else "ai_raw route available for route comparison"
+                    ),
                     "observed": (
-                        "ai_raw route is NOT_AVAILABLE"
+                        f"{ai_route_id} route is NOT_AVAILABLE"
                         + (f": {ai_reason}" if ai_reason else "")
                     ),
-                    "route_ids": ["ai_raw"],
+                    "route_ids": [ai_route_id],
                 }
             )
         for route_id, route in stage_routes.items():
@@ -2404,7 +2421,20 @@ def _ai_primary_gate_decision(
     mismatches_by_stage: dict[str, list[dict[str, Any]]] = {}
     for mismatch in mismatches:
         mismatches_by_stage.setdefault(str(mismatch.get("stage_id")), []).append(mismatch)
-    for stage_id in ("T3", "T4"):
+    t3_metrics = stage_metrics.get("T3", {})
+    t3_availability = str(t3_metrics.get("ai_availability") or "NOT_AVAILABLE")
+    stage_decisions["T3"] = {
+        "eligible": t3_availability == "AVAILABLE",
+        "status": "CANONICAL_AI_ONLY" if t3_availability == "AVAILABLE" else "BLOCKED",
+        "authority_mode": "ai",
+        "reason": (
+            "T3 has one canonical AI route"
+            if t3_availability == "AVAILABLE"
+            else f"canonical T3 AI route is {t3_availability}"
+        ),
+        "fallback": "safe_keep",
+    }
+    for stage_id in ("T4",):
         metrics = stage_metrics.get(stage_id, {})
         ai_availability = str(metrics.get("ai_availability") or "NOT_AVAILABLE")
         stage_mismatches = mismatches_by_stage.get(stage_id, [])
@@ -2441,7 +2471,7 @@ def _ai_primary_gate_decision(
         "artifact_type": "template_generation_ai_primary_gate_decision",
         "artifact_version": "1.0",
         "default_authority_mode": "merge",
-        "allowed_ai_primary_stages": ["T3", "T4"],
+        "allowed_ai_primary_stages": ["T4"],
         "stages": stage_decisions,
     }
 
@@ -2634,6 +2664,77 @@ def _route_candidate_payload(route: dict[str, Any]) -> dict[str, Any]:
     except Exception:
         return {}
     return loaded if isinstance(loaded, dict) else {}
+
+
+def _evaluate_t3_route_accuracy(
+    payload: dict[str, Any],
+    expected: dict[str, Any],
+) -> dict[str, Any]:
+    items = payload.get("items")
+    if not isinstance(items, list):
+        items = payload.get("elements")
+    projected = [item for item in (items or []) if isinstance(item, dict)]
+    ledger = [
+        row
+        for row in (expected.get("run_span_ledger") or [])
+        if isinstance(row, dict) and row.get("expected_action") in {"keep", "fill", "delete"}
+    ]
+    if not ledger:
+        legacy = _evaluate_ai_element_accuracy({"items": projected}, expected)
+        legacy.update(
+            {
+                "exact_action_accuracy": None,
+                "scoring_contract": "t3_common_route_v1",
+                "gold_universe": "unavailable",
+            }
+        )
+        return legacy
+
+    predictions = project_t3_actions_by_run_identity(projected)
+
+    matches = 0
+    missing: list[dict[str, Any]] = []
+    mismatches: list[dict[str, Any]] = []
+    mixed: list[dict[str, Any]] = []
+    for row in ledger:
+        identity = {
+            field: str(row[field])
+            for field in ("raw_run_id", "logical_run_id")
+            if row.get(field)
+        }
+        actions = actions_for_t3_gold_run(predictions, row)
+        expected_action = str(row["expected_action"])
+        if not actions:
+            missing.append({"expected_action": expected_action, **identity})
+        elif actions == {expected_action}:
+            matches += 1
+        else:
+            mismatch = {
+                "expected_action": expected_action,
+                "actual_actions": sorted(actions),
+                "status": "mixed" if len(actions) > 1 else "mismatch",
+                **identity,
+            }
+            mismatches.append(mismatch)
+            if len(actions) > 1:
+                mixed.append(mismatch)
+    total = len(ledger)
+    return {
+        "scoring_contract": "t3_common_route_v1",
+        "gold_universe": "expected.run_span_ledger.scored_actions",
+        "gold_count": total,
+        "match_count": matches,
+        "mismatch_count": len(mismatches),
+        "mixed_action_count": len(mixed),
+        "conflicted_run_count": len(mixed),
+        "missing_count": len(missing),
+        "coverage": round((total - len(missing)) / total, 4) if total else 0.0,
+        "exact_action_accuracy": round(matches / total, 4) if total else 0.0,
+        "mismatch_samples": mismatches[:10],
+        "mixed_action_samples": mixed[:10],
+        "conflict_samples": mixed[:10],
+        "missing_samples": missing[:10],
+    }
 
 
 def _evaluate_ai_unit_accuracy(
@@ -3005,6 +3106,8 @@ def _route_artifact_path(
                     derived_root / "route_replay" / route_id / "template_gap" / "artifacts" / filename,
                 ]
             )
+    if route_id == "ai" and stage_id == "T3":
+        candidates.append(run_dir / filename)
     if route_id in {"code_raw", "ai_raw"} and stage_id in {"T2", "T3", "T4"}:
         candidates.append(run_dir / filename)
     if route_id in {"merged", "shared_input"}:
@@ -3169,7 +3272,6 @@ def _t4_hint_consumption(report: TemplateGenerationJudgeReport) -> dict[str, Any
 def _t3_residual_gate(run_dir: Path) -> dict[str, Any]:
     element_spec = _load_run_yaml(
         run_dir,
-        "03.2_t3_merged_element_spec.yaml",
         "03_element_spec.yaml",
     ) or {}
     format_element_hits = []

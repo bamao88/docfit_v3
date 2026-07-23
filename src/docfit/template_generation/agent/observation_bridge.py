@@ -46,15 +46,13 @@ def build_observation_bridge(
     observation_bundle: dict[str, Any],
     packet: dict[str, Any],
     structure_candidates: dict[str, Any],
-    t3_authority_mode: str = "merge",
 ) -> dict[str, Any]:
     """Convert Module 1 observation artifacts into existing agent proposals.
 
     T2/T4 stay conservative on confidence because they can move large document
-    regions or layout hints. T3 emits evidence-bound policy proposals even when
-    the AI confidence is low; deterministic target binding, comparison, and the
-    reconciler remain the executable gates before anything reaches merged
-    outputs.
+    regions or layout hints. T3 emits evidence-bound policy records even when
+    the AI confidence is low; the T3 direct materializer owns identity binding,
+    safe Keep fallback, and canonical output construction.
     """
 
     packet_hash = packet.get("source_render_hash")
@@ -90,7 +88,6 @@ def build_observation_bridge(
             proposals=proposals,
             manual_items=manual_items,
             proposal_map=proposal_map,
-            include_keep=t3_authority_mode == "ai_primary",
         )
         _bridge_t4(
             observation_bundle.get("ai_layout_observation") or {},
@@ -283,7 +280,6 @@ def _bridge_t3(
     proposals: dict[str, list[dict[str, Any]]],
     manual_items: list[dict[str, Any]],
     proposal_map: list[dict[str, Any]],
-    include_keep: bool = False,
 ) -> None:
     sparse_mode = bool(
         observation.get("sparse_decisions")
@@ -295,34 +291,6 @@ def _bridge_t3(
     )
     for index, item in enumerate(_dict_items(observation.get("items")), start=1):
         item_id = _item_id(item, fallback=f"t3_{index:03d}", key="element_id")
-        if (
-            sparse_mode
-            and not _sparse_item_mergeable(item)
-            and not _ai_primary_safe_keep(item, include_keep=include_keep)
-        ):
-            _reject_observation_item(
-                item,
-                manual_items,
-                layer="t3",
-                reason_code="OBSERVATION-T3-SPARSE-NOT-MERGEABLE",
-                summary=(
-                    "Sparse T3 coverage row is fallback, contested, or otherwise "
-                    "not eligible for merged execution"
-                ),
-            )
-            proposal_map.append(
-                _map_item(item_id, "t3", None, "manual_review", "sparse result is not mergeable")
-            )
-            continue
-        if (
-            sparse_mode
-            and not include_keep
-            and str(item.get("core_action") or "").lower() == "keep"
-        ):
-            proposal_map.append(
-                _map_item(item_id, "t3", None, "no_op", "accepted Keep needs no overlay")
-            )
-            continue
         refs = _ints(item.get("source_seq_refs"))
         raw_run_ids = _strings(item.get("raw_run_ids"))
         logical_run_ids = _strings(item.get("logical_run_ids"))
@@ -397,7 +365,7 @@ def _bridge_t3(
             "inherited_from": item.get("inherited_from"),
             "member_ref": item.get("member_ref"),
             "member_refs": deepcopy(item.get("member_refs") or []),
-            "merge_eligible": item.get("merge_eligible"),
+            "execution_eligible": item.get("execution_eligible"),
         }
         proposals["t3"].append(proposal)
         proposal_map.append(_map_item(item_id, "t3", proposal_id, "proposal", "converted to T3 policy proposal"))
@@ -414,34 +382,6 @@ def _bridge_t3(
             _map_item(item_id, "t3", None, "manual_review", "source object is not materializable")
         )
     _demotions_to_manual(observation, manual_items, layer="t3")
-
-
-def _sparse_item_mergeable(item: dict[str, Any]) -> bool:
-    return bool(
-        item.get("merge_eligible") is True
-        and str(item.get("decision_status") or "") == "accepted"
-        and str(item.get("resolution") or "") in {"direct", "inherited"}
-    )
-
-
-def _ai_primary_safe_keep(
-    item: dict[str, Any],
-    *,
-    include_keep: bool,
-) -> bool:
-    """Materialize conservative sparse fallback as AI-route Keep.
-
-    Merge mode must reject fallback/contested decisions so they cannot mutate
-    Code.  An independent AI-primary route has no Code authority to fall back
-    to: its safe failure result is explicitly Keep/fixed, so that result must be
-    executed to prevent deterministic T3 policy from leaking into the route.
-    """
-
-    return bool(
-        include_keep
-        and str(item.get("core_action") or "").lower() == "keep"
-        and str(item.get("resolution") or "") in {"fallback", "contested"}
-    )
 
 
 def _bridge_t4(

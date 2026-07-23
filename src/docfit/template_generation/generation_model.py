@@ -26,6 +26,7 @@ def build_template_generation_model(
         structure_candidates.get("units", []),
         runs_by_raw=source_context.get("runs_by_raw_run_id", {}),
         source_entries_by_seq=source_entries_by_seq,
+        derive_element_spans=include_source_instruction_heuristics,
     )
     paragraphs = source_context.get("paragraphs", [])
     copy_only_source_refs = _copy_only_unit_source_refs(units)
@@ -130,6 +131,7 @@ def _materialize_template_units(
     *,
     runs_by_raw: dict[str, Any],
     source_entries_by_seq: dict[int, dict[str, Any]],
+    derive_element_spans: bool,
 ) -> list[dict[str, Any]]:
     units: list[dict[str, Any]] = []
     for unit in candidate_units:
@@ -141,6 +143,7 @@ def _materialize_template_units(
                 generation_mode=generation_mode,
                 runs_by_raw=runs_by_raw,
                 source_entries_by_seq=source_entries_by_seq,
+                derive_element_spans=derive_element_spans,
             )
             for element in unit.get("elements", [])
         ]
@@ -154,6 +157,7 @@ def _materialize_template_element(
     generation_mode: str,
     runs_by_raw: dict[str, Any],
     source_entries_by_seq: dict[int, dict[str, Any]],
+    derive_element_spans: bool,
 ) -> dict[str, Any]:
     materialized = deepcopy(element)
     _backfill_element_source_facts(materialized, source_entries_by_seq)
@@ -169,10 +173,14 @@ def _materialize_template_element(
     materialized["policy"] = final_policy
     materialized["type"] = _element_type(final_policy)
     materialized["fill"] = "yes" if final_policy == "fill" else "no"
-    materialized["spans"] = _element_spans(
-        materialized,
-        runs_by_raw=runs_by_raw,
-        run_text_overrides=run_text_overrides,
+    materialized["spans"] = (
+        _element_spans(
+            materialized,
+            runs_by_raw=runs_by_raw,
+            run_text_overrides=run_text_overrides,
+        )
+        if derive_element_spans
+        else []
     )
     return materialized
 

@@ -349,7 +349,12 @@ def template_inspect(
                 "01.8_t4_l1_stage_input.json",
             ],
             "t2": ["02.0_t2_code_unit_map.yaml", "02.2_t2_ai_unit_observation.yaml", "02.3_t2_merged_unit_map.yaml"],
-            "t3": ["03.0_t3_code_element_spec.yaml", "03.1_t3_ai_element_observation.yaml", "03.2_t3_merged_element_spec.yaml"],
+            "t3": [
+                "03.0_t3_hierarchical_stage_input.json",
+                "03.1_t3_ai_element_observation.yaml",
+                "03.1.5_t3_sparse_decision_trace.json",
+                "03_element_spec.yaml",
+            ],
             "t4": ["04.0_t4_code_global_spec.yaml", "04.1_t4_ai_layout_observation.yaml", "04.2_t4_merged_global_spec.yaml"],
             "t5": ["05_template_spec.yaml"],
             "t6": ["06.1_fillable_template.docx", "06.2_build_manifest.json"],

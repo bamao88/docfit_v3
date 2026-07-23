@@ -6,6 +6,7 @@ from docfit.harness.template_generation_judge_reports import (
     _evaluate_ai_element_accuracy,
     _evaluate_ai_layout_accuracy,
     _evaluate_ai_unit_accuracy,
+    _evaluate_t3_route_accuracy,
 )
 
 
@@ -211,3 +212,154 @@ def test_layout_stage_does_not_evaluate_unit_page_policy() -> None:
     assert r["page_policy_evaluable"] is False
     assert r["page_policy_owner"] == "T2"
     assert r["vision_page_observation_count"] == 1
+
+
+def test_t3_common_evaluator_penalizes_missing_gold_for_every_route() -> None:
+    expected = {
+        "run_span_ledger": [
+            {"raw_run_id": "r1", "expected_action": "keep"},
+            {"raw_run_id": "r2", "expected_action": "delete"},
+        ]
+    }
+    ai = {
+        "items": [
+            {
+                "core_action": "keep",
+                "policy": "fixed",
+                "raw_run_ids": ["r1"],
+            },
+        ]
+    }
+    canonical = {
+        "elements": [
+            {"policy": "fixed", "raw_run_ids": ["r1"]},
+            {"policy": "instruction_remove", "raw_run_ids": ["r2"]},
+        ]
+    }
+
+    ai_result = _evaluate_t3_route_accuracy(ai, expected)
+    canonical_result = _evaluate_t3_route_accuracy(canonical, expected)
+
+    assert ai_result["gold_count"] == canonical_result["gold_count"] == 2
+    assert ai_result["coverage"] == 0.5
+    assert ai_result["exact_action_accuracy"] == 0.5
+    assert canonical_result["coverage"] == 1.0
+    assert canonical_result["exact_action_accuracy"] == 1.0
+
+
+def test_t3_common_evaluator_collapses_same_action_spans_for_one_raw_run() -> None:
+    expected = {
+        "run_span_ledger": [
+            {"raw_run_id": "r1", "expected_action": "fill"},
+        ]
+    }
+    candidate = {
+        "elements": [
+            {
+                "policy": "fixed",
+                "raw_run_ids": ["r1"],
+                "run_text_length": 6,
+                "spans": [
+                    {
+                        "span_type": "sample_value",
+                        "policy": "fill",
+                        "raw_run_ids": ["r1"],
+                        "char_ranges": [
+                            {"raw_run_id": "r1", "start": 0, "end": 2},
+                        ],
+                    },
+                    {
+                        "span_type": "sample_value",
+                        "policy": "fill",
+                        "raw_run_ids": ["r1"],
+                        "char_ranges": [
+                            {"raw_run_id": "r1", "start": 2, "end": 6},
+                        ],
+                    },
+                ],
+            }
+        ]
+    }
+
+    result = _evaluate_t3_route_accuracy(candidate, expected)
+
+    assert result["exact_action_accuracy"] == 1.0
+    assert result["match_count"] == 1
+    assert result["mixed_action_count"] == 0
+    assert result["mismatch_samples"] == []
+
+
+def test_t3_common_evaluator_reports_mixed_span_actions_for_one_raw_run() -> None:
+    expected = {
+        "run_span_ledger": [
+            {"raw_run_id": "r1", "expected_action": "fill"},
+        ]
+    }
+    candidate = {
+        "elements": [
+            {
+                "policy": "fixed",
+                "raw_run_ids": ["r1"],
+                "spans": [
+                    {
+                        "span_type": "label",
+                        "policy": "fixed",
+                        "raw_run_ids": ["r1"],
+                    },
+                    {
+                        "span_type": "sample_value",
+                        "policy": "fill",
+                        "raw_run_ids": ["r1"],
+                    },
+                ],
+            }
+        ]
+    }
+
+    result = _evaluate_t3_route_accuracy(candidate, expected)
+
+    assert result["exact_action_accuracy"] == 0.0
+    assert result["match_count"] == 0
+    assert result["mismatch_count"] == 1
+    assert result["mixed_action_count"] == 1
+    assert result["conflicted_run_count"] == 1
+    assert result["mixed_action_samples"] == [
+        {
+            "expected_action": "fill",
+            "actual_actions": ["fill", "keep"],
+            "status": "mixed",
+            "raw_run_id": "r1",
+        }
+    ]
+
+
+def test_t3_common_evaluator_does_not_expand_partial_span_to_whole_run() -> None:
+    expected = {
+        "run_span_ledger": [
+            {"raw_run_id": "r1", "expected_action": "fill"},
+        ]
+    }
+    candidate = {
+        "elements": [
+            {
+                "policy": "fixed",
+                "raw_run_ids": ["r1"],
+                "run_text_length": 6,
+                "spans": [
+                    {
+                        "policy": "fill",
+                        "raw_run_ids": ["r1"],
+                        "char_ranges": [
+                            {"raw_run_id": "r1", "start": 0, "end": 2},
+                        ],
+                    }
+                ],
+            }
+        ]
+    }
+
+    result = _evaluate_t3_route_accuracy(candidate, expected)
+
+    assert result["exact_action_accuracy"] == 0.0
+    assert result["conflicted_run_count"] == 1
+    assert result["mixed_action_samples"][0]["actual_actions"] == ["fill", "keep"]

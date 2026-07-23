@@ -22,7 +22,7 @@ last_updated: 2026-07-23
 
 ## Summary
 
-本计划把两份讨论稿转成一轮可验证实现：先从 sealed L1 和对应 T2 route 建立完整、可追踪、带真实视觉证据的 T3 节点树；再让 AI 从 unit 开始，在 unit/table/row/cell/paragraph/run/span 中选择最粗安全终局动作或 Split；最后确定性展开 atomic coverage，完成 code/AI/merged 比较并用三校固定输入 A/B 验证准确率。
+本计划把两份讨论稿转成一轮可验证实现：先从 sealed L1 和对应 T2 route 建立完整、可追踪、带真实视觉证据的 T3 节点树；再让 AI 从 unit 开始，在 unit/table/row/cell/paragraph/run/span 中选择最粗安全终局动作或 Split；最后确定性展开 atomic coverage，将 AI 判断物化为唯一 canonical element decisions，并用固定输入验证准确率和 Word 效果。
 
 讨论稿仍不是 canonical 契约。只有本计划的真实准确率和安全门禁通过、且用户确认结论后，才更新 `docs/current/template-generation-architecture.md` 与 `docs/current/template-generation-testing.md`。
 
@@ -36,7 +36,7 @@ sealed L1 + corresponding T2 route
   → sparse Keep/Fill/Delete/Split decisions
   → stop-or-descend orchestration
   → deterministic inheritance and atomic coverage ledger
-  → code/AI comparison and merged element decisions
+  → validated AI-only canonical element decisions
   → fixed-input three-school accuracy A/B
 ```
 
@@ -49,7 +49,7 @@ sealed L1 + corresponding T2 route
 5. 结构保留但内部动作混合时输出 Split，而不是错误整体 Keep。
 6. 只有 Split 中的合法直接子节点进入下一次调用；递归有深度、预算、失败和完整性边界。
 7. AI 不自造身份、父子关系、content 或 span；越界输出被拒绝。
-8. direct/inherited/fallback/contested 在 artifact、比较、merged 和报告中保持可区分。
+8. direct/inherited/fallback/contested 在 artifact、物化和报告中保持可区分。
 9. 当前正式 T3 prompt 替换为分层节点 prompt，不再要求所有内容默认进入 run 标注。
 10. 三校固定输入 A/B 达到显著提升阈值且误删不恶化后，才允许迁入 canonical 长期文档。
 
@@ -91,8 +91,8 @@ sealed L1 + corresponding T2 route
 4. sparse decision schema、parser 和 stop-or-descend orchestrator 已进入正式路径。
 5. 整体 Keep、正确 Split、混合 run、非法 child ref、截断大表、跨页表格和子调用失败反例通过。
 6. atomic coverage ledger 完整且 direct/inherited/fallback/contested 互斥可追踪。
-7. code/AI/merged 可在共同 atomic identity 上比较，跨层决策不会按原始条目数误判。
-8. T3 merged 和下游 element/span trace 实际消费新判断，不只是 side artifact。
+7. AI observation 与 canonical element_spec 使用共同 atomic identity，跨层决策不会按原始条目数误判。
+8. T3 canonical element_spec 和下游 element/span trace 实际消费新判断，不只是 side artifact。
 9. 单测、契约测试、live/replay、三校 A/B、残留扫描和最终报告全部完成。
 10. Accuracy Promotion Gate 通过且用户确认后，才更新 canonical 架构和测试文档。
 
@@ -117,11 +117,11 @@ sealed L1 + corresponding T2 route
 | prompt | assembled messages snapshot/contract tests | 每层 prompt 只消费本层输入；图片引用与附件一致 |
 | contract | template-generation agent live/replay contracts | live、replay、fallback 走同一正式编排路径 |
 | visual | multimodal transport records + attachment hash audit | unit/object/crop 真实发送，覆盖状态准确 |
-| route | code_raw/ai_raw/merged common atomic evaluator | 三路使用相同 identity/gold；merge delta 可解释 |
+| route | canonical AI evaluator | AI observation、物化结果与 gold 使用相同 identity；无 Code/Merge 分支 |
 | real sample | 三校固定输入 baseline/candidate A/B | 达到 Accuracy Promotion Gate |
 | safety | false-delete、非法引用、截断、失败注入 | 不扩大删除；fallback/人工复核可追踪 |
 | residual | 旧 flat input/run-default prompt/重复 mapper 扫描 | 正式调用方清零或逐项有迁移理由 |
-| downstream | merged/T5/T6 trace and final DOCX checks | 新决策被实际消费；身份失败不扩大动作 |
+| downstream | canonical AI/T5/T6 trace and final DOCX checks | 新决策被实际消费；身份失败不扩大动作 |
 | docs | user approval + canonical diff | 仅质量门禁通过后更新长期文档 |
 
 ### Residual Policy
@@ -138,14 +138,16 @@ sealed L1 + corresponding T2 route
 
 ### 已落地
 
+- 2026-07-23 用户确认 T3 收敛为 AI-only。已删除 `t3_authority_mode`、Code/Merge element_spec 产物、三路 atomic comparison 和 T3 route-eval/replay 分支；`03_element_spec.yaml` 是 AI 判断经程序校验、继承展开与 safe Keep 后的唯一 canonical 输出。
+
 - 正式 T3 路径已切到 versioned hierarchical Stage Input、节点事实防火墙、tree validator 和 sparse traversal；旧 flat local router 仅保留为无正式调用方的兼容代码。
 - 决策支持最粗终局 Keep/Fill/Delete、Split、直接叶子批量决策、深度/调用预算和失败回退；程序确定性展开唯一 atomic coverage。
 - replay、Kimi、MiniMax 共用 `t3_hierarchy` prompt/response 契约；缓存键包含 assembled prompt、模型参数和 visual refs。
-- bridge 只允许 `accepted` 的非 Keep sparse mutation 进入 merged；fallback/contested/source object 进入人工复核。
+- bridge 保留 AI sparse 判断的审计记录；canonical materializer 直接消费 accepted direct/inherited，fallback/contested/缺失/冲突统一 safe Keep，source object 仍进入人工复核。
 - overlay 优先按 `raw_run_ids` 绑定；命中多 run element 时先按源 run 事实拆分，不把单 run 动作扩大到整段。
 - run 现在确定性展开为带精确 `raw_run_id + start/end` 的预生成 span 原子叶；AI 只能引用这些 span，不能自造字符范围。完整且同质的 span 动作才可安全投影回旧 raw-run 接口；同一 run 内混合动作显式标记冲突并进入人工复核。
-- `element_spec.ai_traces` 和 element 级 trace 保留 decision/member/resolution/raw/logical identity；新增 code_raw/ai_raw/merged common atomic comparison artifact。
-- ordered outputs 新增 `03.0.5_t3_hierarchical_stage_input.json`、`03.1.5_t3_sparse_decision_trace.json`、`03.2.5_t3_atomic_route_comparison.json`。
+- `element_spec.ai_traces` 和 element 级 trace 保留 decision/member/resolution/raw/logical identity；三路 comparison artifact 已按 AI-only 决定删除。
+- ordered outputs 只保留 `03.0_t3_hierarchical_stage_input.json`、`03.1_t3_ai_element_observation.yaml`、`03.1.5_t3_sparse_decision_trace.json` 和 canonical `03_element_spec.yaml`。
 
 ### 基线与验证边界
 
@@ -227,11 +229,11 @@ sealed L1 + corresponding T2 route
 - [x] 展开 direct/inherited/fallback/contested atomic coverage ledger。
 - [x] 校验每个 atomic member 唯一 resolved action，无 silent gap 或重叠覆盖。
 - [x] code route 生成可比较 sparse decision 或同一 atomic ledger。
-- [x] code/AI 跨层结果在共同 identity 上比较并保留原始停止层级。
+- [x] AI observation 与 canonical materialization 在共同 identity 上保留原始停止层级。
 - [x] run 确定性展开为 exact span 原子叶；atomic comparison 优先按字符范围解析，兼容 run gold 只接受可无损投影的同质 span 动作。
-- [x] merged 消费完整动作、条件语义、identity、evidence 和 trace。
+- [x] canonical AI element_spec 消费完整动作、条件语义、identity、evidence 和 trace。
 - [x] materializer 按语义组合 element，不把整体 Keep 强制膨胀为无意义 element。
-- [x] 增加从同一 gold-simulated T2 出发的 Code 与 AI-primary 独立 T3 authority；AI-primary 不经过 Code comparison/merge，失败只回退到本路线 safe Keep。
+- [x] 先用同一 gold-simulated T2 完成 Code/AI 历史视觉 A/B；随后按用户决定删除 Code/Merge authority，只保留 AI 与本路线 safe Keep。
 
 ### Phase 5：测试与真实 A/B
 
@@ -257,6 +259,6 @@ sealed L1 + corresponding T2 route
 2. Stage Input schema/builder/validator + tests；
 3. sparse decision/orchestrator + tests；
 4. prompt/provider/visual transport + tests；
-5. inheritance/comparison/merged + tests；
+5. inheritance/canonical AI materialization + tests；
 6. 三校 A/B evidence 与状态；
 7. 仅在门禁通过并经用户确认后提交 canonical 文档迁移。

@@ -47,8 +47,10 @@ def test_t4_hints_are_artifacts_only(tmp_path) -> None:
     )
 
     assert result.changed is False
-    assert result.unit_map == artifacts["unit_map"]
-    assert result.element_spec == artifacts["element_spec"]
+    assert result.unit_map["units"] == artifacts["unit_map"]["units"]
+    assert all(element["policy"] == "fixed" for element in result.element_spec["elements"])
+    assert result.element_spec["ai_traces"]
+    assert all(trace["safe_fallback"] is True for trace in result.element_spec["ai_traces"])
     assert result.t4_hints is not None
     assert result.t4_hints["section_profile_hints"][0]["proposal_id"] == "t4_section_001"
 

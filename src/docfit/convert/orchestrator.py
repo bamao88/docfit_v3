@@ -441,7 +441,7 @@ def _build_template_generation_quality_report(
             ("T1", "t1_document_facts", ["01_document_facts.json"]),
             ("L1", "l1_input_contract", ["01.5_l1_input_contract.json"]),
             ("T2", "t2_unit_pagination", ["02.3_t2_merged_unit_map.yaml", "02_unit_map.yaml"]),
-            ("T3", "t3_element_policy", ["03.2_t3_merged_element_spec.yaml", "03_element_spec.yaml"]),
+            ("T3", "t3_element_policy", ["03_element_spec.yaml"]),
             ("T4", "t4_global_layout", ["04.2_t4_merged_global_spec.yaml", "04_global_spec.yaml"]),
             ("T5", "t5_template_spec", ["05_template_spec.yaml"]),
             ("T6", "t6_fillable_template", ["06.1_fillable_template.docx", "06.2_build_manifest.json"]),

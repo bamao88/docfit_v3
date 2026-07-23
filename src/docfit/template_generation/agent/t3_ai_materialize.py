@@ -1,4 +1,4 @@
-"""Direct T3 materialization for the independent AI-primary route."""
+"""Materialize the sole T3 AI decision route onto the structural shell."""
 
 from __future__ import annotations
 
@@ -20,16 +20,16 @@ _EXECUTION_POLICY = {
 }
 
 
-def materialize_ai_primary_t3_structure(
+def materialize_ai_t3_structure(
     structure_candidates: dict[str, Any],
     observation: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Replace every source-backed T3 policy with AI authority or safe Keep.
 
-    This is deliberately not a Code/AI merge.  Accepted AI decisions own their
-    exact raw runs. Invalid, fallback, contested, missing, or conflicting claims
-    resolve to ``fixed`` (core action Keep), never to the deterministic Code T3
-    policy that happened to be present on the structural shell.
+    Accepted AI decisions own their exact raw runs. Invalid, fallback,
+    contested, missing, or conflicting claims resolve to ``fixed`` (core
+    action Keep), never to a deterministic policy that happened to be present
+    on the structural shell.
     """
 
     before_hash = sha256_json(structure_candidates)
@@ -64,7 +64,7 @@ def materialize_ai_primary_t3_structure(
                 replacement["element_id"] = (
                     original_id
                     if group_index == 1
-                    else f"{original_id}.ai_primary_{group_index:03d}"
+                    else f"{original_id}.ai_{group_index:03d}"
                 )
                 _bind_raw_runs(
                     replacement,
@@ -84,10 +84,10 @@ def materialize_ai_primary_t3_structure(
     missing_claim_raw_run_ids = sorted(set(claims) - matched_raw_run_ids)
     unclaimed_source_raw_run_ids = sorted(source_raw_run_ids - set(claims))
     operation = {
-        "proposal_id": "ai_primary_t3_authority",
-        "operation": "materialize_ai_primary_atomic_policies",
-        "authority": "ai_primary",
-        "merge_enabled": False,
+        "proposal_id": "ai_t3_authority",
+        "operation": "materialize_ai_atomic_policies",
+        "authority": "ai",
+        "observation_available": bool(observation.get("items")),
         "safe_failure_action": "keep",
         "claimed_raw_run_count": len(claims),
         "matched_raw_run_count": len(matched_raw_run_ids),
@@ -121,7 +121,7 @@ def _claims_by_raw_run(
             continue
         conflicts.append(raw_run_id)
         claims[raw_run_id] = _safe_keep_claim(
-            reason="conflicting AI-primary claims for one raw run"
+            reason="conflicting AI claims for one raw run"
         )
     return claims, sorted(conflicts)
 
@@ -130,6 +130,7 @@ def _claim_from_item(item: dict[str, Any]) -> dict[str, Any]:
     accepted = (
         str(item.get("decision_status") or "") == "accepted"
         and str(item.get("resolution") or "") in {"direct", "inherited"}
+        and item.get("execution_eligible") is not False
     )
     if not accepted:
         return _safe_keep_claim(
@@ -188,7 +189,7 @@ def _contiguous_claim_groups(
     for raw_run_id in raw_run_ids:
         claim = claims.get(
             raw_run_id,
-            _safe_keep_claim(reason="raw run is unclaimed by AI-primary observation"),
+            _safe_keep_claim(reason="raw run is unclaimed by AI observation"),
         )
         signature = sha256_json(_execution_payload(claim))
         if groups and sha256_json(_execution_payload(groups[-1][1])) == signature:
@@ -232,7 +233,7 @@ def _apply_claim(element: dict[str, Any], claim: dict[str, Any]) -> None:
     item = claim.get("item") if isinstance(claim.get("item"), dict) else {}
     element.setdefault("agent_traces", []).append(
         {
-            "origin": "ai_primary_direct_materialization",
+            "origin": "ai_direct_materialization",
             "decision_ref": item.get("decision_ref"),
             "decision_target_ref": item.get("decision_target_ref"),
             "member_ref": item.get("member_ref"),

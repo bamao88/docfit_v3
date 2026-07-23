@@ -76,7 +76,6 @@ def test_template_generate_cli_observation_bundle_writes_bridge_artifacts(tmp_pa
     ai_t2 = read_yaml(out_dir / "02.2_t2_ai_unit_observation.yaml")
     ai_t3 = read_yaml(out_dir / "03.1_t3_ai_element_observation.yaml")
     ai_t4 = read_yaml(out_dir / "04.1_t4_ai_layout_observation.yaml")
-    ai_t4_global_spec = read_yaml(out_dir / "04.1.5_t4_ai_global_spec.yaml")
     comparison = read_json(
         out_dir / "09.5_agent_submission_comparison.json"
     )
@@ -91,9 +90,6 @@ def test_template_generate_cli_observation_bundle_writes_bridge_artifacts(tmp_pa
     assert ai_t4["route"]["route_id"] == "ai_raw"
     assert ai_t4["route"]["availability"] == "AVAILABLE"
     assert ai_t4["artifact_type"] == "ai_layout_observation"
-    assert ai_t4_global_spec["artifact_type"] == "global_spec"
-    assert ai_t4_global_spec["route"]["route_id"] == "ai_raw"
-    assert ai_t4_global_spec["route"]["availability"] == "AVAILABLE"
     assert comparison["summary"]["total"] == 0
     assert attribution["observation_bridge"]["present"] is True
 
@@ -203,19 +199,19 @@ def test_template_generate_cli_observation_replay_runs_module1_in_same_run(tmp_p
     l1_input_contract = read_json(out_dir / "01.5_l1_input_contract.json")
     bridge = read_json(out_dir / "09.25_agent_observation_bridge.json")
     ai_t3 = read_yaml(out_dir / "03.1_t3_ai_element_observation.yaml")
+    element_spec = read_yaml(out_dir / "03_element_spec.yaml")
     hierarchical_input = read_json(
-        out_dir / "03.0.5_t3_hierarchical_stage_input.json"
+        out_dir / "03.0_t3_hierarchical_stage_input.json"
     )
     sparse_trace = read_json(out_dir / "03.1.5_t3_sparse_decision_trace.json")
-    atomic_comparison = read_json(
-        out_dir / "03.2.5_t3_atomic_route_comparison.json"
-    )
     assert bundle["source_render_hash"] == (
         l1_input_contract["visual_page_index"]["source_render_hash"]
     )
     assert ai_t3["route"]["route_id"] == "ai_raw"
     assert ai_t3["route"]["availability"] == "AVAILABLE"
     assert ai_t3["items"]
+    assert element_spec["route"]["route_id"] == "ai"
+    assert element_spec["route"]["availability"] == "AVAILABLE"
     assert hierarchical_input["artifact_type"] == "t3_hierarchical_stage_input"
     assert sparse_trace["artifact_type"] == "t3_sparse_decision_trace"
     assert sparse_trace["stage_input_ref"]["tree_hash"] == hierarchical_input["tree_hash"]
@@ -223,16 +219,13 @@ def test_template_generate_cli_observation_replay_runs_module1_in_same_run(tmp_p
     assert len({row["member_ref"] for row in sparse_trace["atomic_coverage"]}) == len(
         sparse_trace["atomic_coverage"]
     )
-    assert atomic_comparison["validation"]["valid"] is True
-    assert atomic_comparison["stage_input_ref"]["tree_hash"] == hierarchical_input["tree_hash"]
-    assert atomic_comparison["summary"]["atomic_member_count"] == len(
-        sparse_trace["atomic_coverage"]
-    )
     assert all(
         item.get("reason_code") != "OBSERVATION-HASH-MISMATCH"
         for item in bridge["manual_review_items"]
     )
     assert (out_dir / "09.1_ai_observation_bundle.json").exists()
-    assert (out_dir / "03.0.5_t3_hierarchical_stage_input.json").exists()
+    assert (out_dir / "03.0_t3_hierarchical_stage_input.json").exists()
     assert (out_dir / "03.1.5_t3_sparse_decision_trace.json").exists()
-    assert (out_dir / "03.2.5_t3_atomic_route_comparison.json").exists()
+    assert not (out_dir / "03.0_t3_code_element_spec.yaml").exists()
+    assert not (out_dir / "03.2_t3_merged_element_spec.yaml").exists()
+    assert not (out_dir / "03.2.5_t3_atomic_route_comparison.json").exists()

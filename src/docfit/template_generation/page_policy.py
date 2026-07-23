@@ -17,6 +17,48 @@ PAGE_BREAK_VALUES = {True, False, "document_start", "unknown"}
 BOOLEAN_OR_UNKNOWN_VALUES = {True, False, "unknown"}
 KEEP_TOGETHER_VALUES = {True, False, "local_groups_only", "unknown"}
 
+# Compatibility surface for the semantic T2 unit pagination contract.  The
+# legacy mechanical page-policy API remains available while callers migrate.
+UNIT_PAGE_POLICY_FIELDS = ("start", "scope")
+UNIT_PAGE_START_VALUES = {
+    "document_start",
+    "new_page",
+    "same_page_allowed",
+    "unknown",
+}
+UNIT_PAGE_SCOPE_VALUES = {
+    "single_page_exclusive",
+    "page_range_exclusive",
+    "shareable_flow",
+    "unknown",
+}
+
+
+def normalize_unit_page_policy(
+    unit_page_policy: Any,
+    *,
+    document_start: bool = False,
+) -> dict[str, str]:
+    if isinstance(unit_page_policy, dict):
+        start = unit_page_policy.get("start")
+        scope = unit_page_policy.get("scope")
+        if start in UNIT_PAGE_START_VALUES and scope in UNIT_PAGE_SCOPE_VALUES:
+            return {"start": str(start), "scope": str(scope)}
+    return {
+        "start": "document_start" if document_start else "unknown",
+        "scope": "unknown",
+    }
+
+
+def unit_page_policies_equivalent(left: Any, right: Any) -> bool:
+    if not isinstance(left, dict) or not isinstance(right, dict):
+        return False
+    return {
+        field: left.get(field) for field in UNIT_PAGE_POLICY_FIELDS
+    } == {
+        field: right.get(field) for field in UNIT_PAGE_POLICY_FIELDS
+    }
+
 
 def canonical_unknown_page_policy(
     *,

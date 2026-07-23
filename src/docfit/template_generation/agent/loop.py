@@ -16,7 +16,7 @@ from .attribution import (
     build_agent_t3_overlay,
     build_agent_t4_hints,
 )
-from .ai_primary import materialize_ai_primary_t3_structure
+from .t3_ai_materialize import materialize_ai_t3_structure
 from .comparison import (
     blocking_open_questions_by_layer,
     build_submission_comparison,
@@ -37,7 +37,7 @@ from .reconciler import process_proposal
 from .regenerate import regenerate_from_structure_candidates
 from .replay import load_agent_transcript, pass_plan_from_steps, transcript_steps
 from .schema import iter_layer_proposals, schema_error_decisions, validate_layered_submission
-from .windows import build_agent_unit_windows, t3_window_error, window_for_step
+from .windows import build_agent_unit_windows
 
 
 @dataclass
@@ -82,13 +82,23 @@ def run_template_agent(
     render_artifacts_dir: Path | None = None,
 ) -> AgentRunResult:
     if not agent_config.enabled:
+        safe_structure, _operation = materialize_ai_t3_structure(
+            structure_candidates,
+            {},
+        )
+        regenerated = regenerate_from_structure_candidates(
+            request=request,
+            document_facts=document_facts,
+            structure_candidates=safe_structure,
+            include_source_instruction_heuristics=False,
+        )
         return AgentRunResult(
             enabled=False,
             changed=False,
-            structure_candidates=structure_candidates,
-            unit_map=unit_map,
-            generation_model=generation_model,
-            element_spec=element_spec,
+            structure_candidates=safe_structure,
+            unit_map=regenerated["unit_map"],
+            generation_model=regenerated["generation_model"],
+            element_spec=regenerated["element_spec"],
         )
 
     require_valid_agent_config(agent_config)
@@ -130,7 +140,6 @@ def run_template_agent(
             observation_bundle=observation_bundle,
             packet=packet,
             structure_candidates=structure_candidates,
-            t3_authority_mode=agent_config.t3_authority_mode,
         )
         ai_unit_observation = observation_bundle.get("ai_unit_observation")
         ai_element_observation = observation_bundle.get("ai_element_observation")
@@ -180,7 +189,6 @@ def run_template_agent(
         submission = step["submission"]
         pass_context = _pass_context(step)
         allowed_layers = set(step.get("allowed_layers") or ["t2", "t3", "t4"])
-        active_window = window_for_step(unit_windows, step)
         round_id = str(submission.get("round_id") or "")
         validation = validate_layered_submission(
             submission,
@@ -236,35 +244,21 @@ def run_template_agent(
                 decisions.append(_pass_order_decision(proposal))
                 continue
             if layer == "t3":
-                window_error = t3_window_error(
-                    proposal=proposal,
-                    window=active_window,
+                decisions.append(
+                    {
+                        "proposal_id": proposal.get("proposal_id"),
+                        "layer": "t3",
+                        "collection": collection,
+                        "decision": "rejected",
+                        "reason": (
+                            "legacy T3 layered proposals are removed; provide a "
+                            "hierarchical AI observation for canonical materialization"
+                        ),
+                        "authority": "ai",
+                        **pass_context,
+                    }
                 )
-                if window_error is not None:
-                    decisions.append(
-                        _window_scope_decision(
-                            proposal,
-                            reason=window_error,
-                        )
-                    )
-                    continue
-                if agent_config.t3_authority_mode == "ai_primary":
-                    decisions.append(
-                        {
-                            "proposal_id": proposal.get("proposal_id"),
-                            "layer": "t3",
-                            "collection": collection,
-                            "decision": "accepted",
-                            "reason": (
-                                "AI-primary route defers this atomic policy to direct "
-                                "authority materialization without Code comparison"
-                            ),
-                            "authority": "ai_primary",
-                            "merge_enabled": False,
-                            **pass_context,
-                        }
-                    )
-                    continue
+                continue
             comparison_item = compare_proposal(
                 structure_candidates=current_structure,
                 packet=packet,
@@ -313,32 +307,24 @@ def run_template_agent(
             packet=packet,
         )
 
-    if (
-        agent_config.t3_authority_mode == "ai_primary"
-        and isinstance(ai_element_observation, dict)
-    ):
-        current_structure, ai_primary_operation = materialize_ai_primary_t3_structure(
-            current_structure,
-            ai_element_observation,
-        )
-        t3_operations = [ai_primary_operation]
+    current_structure, ai_operation = materialize_ai_t3_structure(
+        current_structure,
+        ai_element_observation if isinstance(ai_element_observation, dict) else {},
+    )
+    t3_operations = [ai_operation]
 
-    changed = bool(t2_operations or t3_operations)
-    regenerated = (
-        regenerate_from_structure_candidates(
-            request=request,
-            document_facts=document_facts,
-            structure_candidates=current_structure,
-            include_source_instruction_heuristics=(
-                agent_config.t3_authority_mode != "ai_primary"
-            ),
+    changed = bool(
+        t2_operations
+        or (
+            isinstance(ai_element_observation, dict)
+            and bool(ai_element_observation.get("items"))
         )
-        if changed
-        else {
-            "unit_map": unit_map,
-            "generation_model": generation_model,
-            "element_spec": element_spec,
-        }
+    )
+    regenerated = regenerate_from_structure_candidates(
+        request=request,
+        document_facts=document_facts,
+        structure_candidates=current_structure,
+        include_source_instruction_heuristics=False,
     )
     decisions_artifact = build_agent_decisions(decisions)
     submission_comparison = build_submission_comparison(
@@ -649,30 +635,6 @@ def _pass_scope_decision(
         "before_hash": None,
         "after_hash": None,
         "reason": "proposal layer is outside pass scope",
-        **_pass_context(proposal),
-    }
-
-
-def _window_scope_decision(
-    proposal: dict[str, Any],
-    *,
-    reason: str,
-) -> dict[str, Any]:
-    return {
-        "proposal_id": proposal.get("proposal_id"),
-        "round_id": proposal.get("round_id"),
-        "decision": "rejected",
-        "checks": [
-            {
-                "check_id": "C-WINDOW-BOUNDARY",
-                "status": "FAIL",
-                "reason": reason,
-            }
-        ],
-        "target_path": None,
-        "before_hash": None,
-        "after_hash": None,
-        "reason": reason,
         **_pass_context(proposal),
     }
 

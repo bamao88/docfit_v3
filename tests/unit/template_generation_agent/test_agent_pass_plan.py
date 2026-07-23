@@ -68,7 +68,7 @@ def test_pass_scope_rejects_disallowed_layer(tmp_path) -> None:
     assert decision["pass_id"] == "t2_unit_scan"
 
 
-def test_t3_unit_window_rejects_source_outside_window(tmp_path) -> None:
+def test_legacy_t3_layered_proposal_is_rejected_after_t2_pass(tmp_path) -> None:
     artifacts = round0_artifacts(tmp_path)
     t2_submission = layered_submission(
         artifacts["packet"]["source_render_hash"],
@@ -157,5 +157,5 @@ def test_t3_unit_window_rejects_source_outside_window(tmp_path) -> None:
     assert result.decisions["accepted_proposal_ids"] == ["t2_add_001"]
     assert result.decisions["rejected_proposal_ids"] == ["t3_outside_window"]
     rejected = result.decisions["decisions"][1]
-    assert rejected["checks"][0]["check_id"] == "C-WINDOW-BOUNDARY"
+    assert "legacy T3 layered proposals are removed" in rejected["reason"]
     assert rejected["pass_unit_id"] == "body_main"
