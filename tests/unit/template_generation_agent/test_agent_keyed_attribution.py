@@ -56,7 +56,9 @@ def _attribution(
         round0_element_spec={"elements": []},
         post_agent_element_spec={"elements": []},
         t2_overlay={"operations": []},
-        t3_overlay={"operations": []},
+        t3_materialization_trace={
+            "materialization": {"availability": "AVAILABLE"},
+        },
         t4_hints={
             "section_profile_hints": [],
             "page_numbering_hints": [],

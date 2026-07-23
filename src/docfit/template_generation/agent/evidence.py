@@ -4,7 +4,7 @@ AI 独立观察的前提是它**只看干净 Word 事实**，看不到任何代�
 
 1. 用字段白名单把 ``document_facts`` / render packet 投影成 T2/T4 的证据视图：
    - T2 = 全文压缩（每 source_seq 文本/样式/页/锚点事实 + 页缩略图 refs）
-   - T3 = 由 ``t3_input`` 按最新的整单元路由与条件式局部窗口构造
+   - T3 = 由 ``t3_hierarchical_input`` 构造节点树和逐节点证据
    - T4 = 真实页图（要求 real_render，否则该阶段 abstain）+ 页眉脚/sections/numbering 事实
 2. ``assert_firewall_clean`` 在证据子树上扫 deny-set **键名**，命中即抛
    ``EvidenceFirewallError``——拦住 ``unit_map`` / ``element_spec`` / ``template_policy``

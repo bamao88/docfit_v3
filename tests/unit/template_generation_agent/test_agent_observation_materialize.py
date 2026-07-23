@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 from docfit.template_generation.agent.observation_materialize import (
-    materialize_element_observation,
     materialize_layout_observation,
     materialize_unit_observation,
 )
@@ -153,119 +152,6 @@ def test_unit_overlap_higher_confidence_wins() -> None:
     assert "cover" in winners
     assert "body_main" not in winners
     assert "C-COVERAGE-OVERLAP" in demotion_checks(obs)
-
-
-def test_element_required_field_demotes_fill_without_source() -> None:
-    packet = clean_packet()
-    seqs = sorted(packet_source_seq_set(packet))
-    window = {"window_id": "unit:cover", "unit_id": "cover", "source_seq_refs": seqs[:1]}
-    obs = materialize_element_observation(
-        [{"element_id": "cover.001", "policy": "fill", "source_seq_refs": seqs[:1]}],
-        packet=packet,
-        window=window,
-    )
-    assert obs["items"] == []
-    assert "C-REQUIRED-FIELD" in demotion_checks(obs)
-
-
-def test_element_accepts_valid_fill_with_source() -> None:
-    packet = clean_packet()
-    seqs = sorted(packet_source_seq_set(packet))
-    window = {"window_id": "unit:cover", "unit_id": "cover", "source_seq_refs": seqs[:1]}
-    obs = materialize_element_observation(
-        [
-            {
-                "element_id": "cover.001",
-                "policy": "fill",
-                "core_action": "fill",
-                "fill_source": "student_content",
-                "source_seq_refs": seqs[:1],
-            }
-        ],
-        packet=packet,
-        window=window,
-    )
-    assert len(obs["items"]) == 1
-    assert obs["items"][0]["policy"] == "fill"
-    assert obs["items"][0]["core_action"] == "fill"
-
-
-def test_element_demotes_policy_and_core_action_mismatch() -> None:
-    packet = clean_packet()
-    seq = sorted(packet_source_seq_set(packet))[0]
-    window = {"window_id": "unit:cover", "unit_id": "cover", "source_seq_refs": [seq]}
-    obs = materialize_element_observation(
-        [
-            {
-                "element_id": "cover.001",
-                "policy": "fixed",
-                "core_action": "delete",
-                "source_seq_refs": [seq],
-            }
-        ],
-        packet=packet,
-        window=window,
-    )
-
-    assert obs["items"] == []
-    assert "C-REQUIRED-FIELD" in demotion_checks(obs)
-
-
-def test_element_preserves_explicit_unknown_as_a_bound_decision() -> None:
-    packet = clean_packet()
-    seq = sorted(packet_source_seq_set(packet))[0]
-    window = {"window_id": "unit:cover", "unit_id": "cover", "source_seq_refs": [seq]}
-    obs = materialize_element_observation(
-        [
-            {
-                "element_id": "cover.001",
-                "policy": "unknown",
-                "semantic_role": "mixed_or_uncertain",
-                "transformation": "review",
-                "source_seq_refs": [seq],
-                "raw_run_ids": ["p_0001.r_001"],
-                "confidence": "low",
-            }
-        ],
-        packet=packet,
-        window=window,
-    )
-
-    assert obs["items"][0]["policy"] == "unknown"
-    assert obs["items"][0]["transformation"] == "review"
-    assert obs["unknown_items"] == []
-
-
-def test_element_keeps_disjoint_run_claims_inside_same_source_seq() -> None:
-    packet = clean_packet()
-    seq = sorted(packet_source_seq_set(packet))[0]
-    window = {"window_id": "unit:cover", "unit_id": "cover", "source_seq_refs": [seq]}
-    obs = materialize_element_observation(
-        [
-            {
-                "element_id": "cover.001",
-                "policy": "fixed",
-                "source_seq_refs": [seq],
-                "raw_run_ids": ["p_0001.r_001"],
-                "logical_run_ids": ["p_0001.lr_001"],
-                "confidence": "high",
-            },
-            {
-                "element_id": "cover.002",
-                "policy": "instruction_remove",
-                "source_seq_refs": [seq],
-                "raw_run_ids": ["p_0001.r_002"],
-                "logical_run_ids": ["p_0001.lr_002"],
-                "confidence": "high",
-            },
-        ],
-        packet=packet,
-        window=window,
-    )
-
-    assert [item["element_id"] for item in obs["items"]] == ["cover.001", "cover.002"]
-    assert obs["items"][1]["logical_run_ids"] == ["p_0001.lr_002"]
-    assert "C-COVERAGE-CONTESTED" not in demotion_checks(obs)
 
 
 def test_layout_visual_abstains_without_facts_or_images() -> None:

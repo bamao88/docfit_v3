@@ -15,7 +15,7 @@ def test_attribution_records_round0_and_post_hashes() -> None:
         round0_element_spec={"elements": []},
         post_agent_element_spec={"elements": []},
         t2_overlay={"operations": [{"proposal_id": "p1"}]},
-        t3_overlay={"operations": []},
+        t3_materialization_trace={"materialization": {"availability": "AVAILABLE"}},
         t4_hints={"section_profile_hints": [], "page_numbering_hints": []},
     )
 
@@ -23,3 +23,4 @@ def test_attribution_records_round0_and_post_hashes() -> None:
     assert attribution["applied_proposal_ids"] == ["p1"]
     assert attribution["rejected_proposal_ids"] == ["p2"]
     assert attribution["field_diffs"]
+    assert attribution["materialization_traces"]["t3"]["availability"] == "AVAILABLE"

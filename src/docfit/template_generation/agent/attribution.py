@@ -43,13 +43,14 @@ def build_agent_t2_overlay(operations: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def build_agent_t3_overlay(operations: list[dict[str, Any]]) -> dict[str, Any]:
+def build_t3_materialization_trace(materialization: dict[str, Any]) -> dict[str, Any]:
     return {
-        "artifact_type": "agent_t3_overlay",
+        "artifact_type": "t3_materialization_trace",
         "artifact_version": "1.0",
         "created_at": now_iso(),
-        "operations": operations,
-        "advisory_only": False,
+        "authority": "ai",
+        "purpose": "materialization_self_check",
+        "materialization": materialization,
     }
 
 
@@ -82,7 +83,7 @@ def build_agent_attribution(
     round0_element_spec: dict[str, Any],
     post_agent_element_spec: dict[str, Any],
     t2_overlay: dict[str, Any],
-    t3_overlay: dict[str, Any],
+    t3_materialization_trace: dict[str, Any],
     t4_hints: dict[str, Any],
     submission_comparison: dict[str, Any] | None = None,
     manual_review_items: dict[str, Any] | None = None,
@@ -109,7 +110,9 @@ def build_agent_attribution(
         "rejected_proposal_ids": decisions.get("rejected_proposal_ids", []),
         "overlays": {
             "t2": t2_overlay.get("operations", []),
-            "t3": t3_overlay.get("operations", []),
+        },
+        "materialization_traces": {
+            "t3": t3_materialization_trace.get("materialization", {}),
         },
         "t4_hint_counts": {
             "section_profile_hints": len(t4_hints.get("section_profile_hints", [])),

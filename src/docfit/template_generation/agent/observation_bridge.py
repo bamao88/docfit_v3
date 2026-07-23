@@ -13,26 +13,12 @@ from .schema import empty_layered_submission
 
 
 EXECUTABLE_CONFIDENCE = {"medium", "high"}
-T3_EXECUTABLE_CONFIDENCE = {"low", "medium", "high"}
-POLICY_TO_EXECUTABLE = {
-    "fixed": "fixed",
-    "template_default": "fixed",
-    "fill": "fill",
-    "generated": "generated",
-    "instruction_remove": "remove_instruction",
-    # unknown 是判断结果，不是可执行的删除/填充策略。保留这个标签进入
-    # comparison/overlay，由执行边界统一降级为 fixed（core action=keep）。
-    "unknown": "unknown",
-}
 COLLECTION_BY_KIND = {
     "t2": {
         "unit_candidate": "unit_candidates",
         "block_candidate": "block_candidates",
         "boundary_adjustment": "boundary_adjustments",
         "page_policy_candidate": "page_policy_candidates",
-    },
-    "t3": {
-        "element_policy_candidate": "element_policy_candidates",
     },
     "t4": {
         "section_profile_hint": "section_profile_hints",
@@ -47,17 +33,15 @@ def build_observation_bridge(
     packet: dict[str, Any],
     structure_candidates: dict[str, Any],
 ) -> dict[str, Any]:
-    """Convert Module 1 observation artifacts into existing agent proposals.
+    """Convert T2/T4 observation artifacts into their proposal/hint pipeline.
 
-    T2/T4 stay conservative on confidence because they can move large document
-    regions or layout hints. T3 emits evidence-bound policy records even when
-    the AI confidence is low; the T3 direct materializer owns identity binding,
-    safe Keep fallback, and canonical output construction.
+    T3 is intentionally absent: its hierarchical decisions are materialized
+    directly and audited by ``t3_materialization_trace``.
     """
 
     packet_hash = packet.get("source_render_hash")
     bundle_hash = observation_bundle.get("source_render_hash")
-    proposals = {"t2": [], "t3": [], "t4": []}
+    proposals = {"t2": [], "t4": []}
     manual_items: list[dict[str, Any]] = []
     proposal_map: list[dict[str, Any]] = []
 
@@ -83,12 +67,6 @@ def build_observation_bridge(
             manual_items=manual_items,
             proposal_map=proposal_map,
         )
-        _bridge_t3(
-            observation_bundle.get("ai_element_observation") or {},
-            proposals=proposals,
-            manual_items=manual_items,
-            proposal_map=proposal_map,
-        )
         _bridge_t4(
             observation_bundle.get("ai_layout_observation") or {},
             packet=packet,
@@ -105,7 +83,6 @@ def build_observation_bridge(
     transcript = _transcript_from_submissions(submissions, observation_bundle=observation_bundle)
     summary = {
         "t2_proposals": len(proposals["t2"]),
-        "t3_proposals": len(proposals["t3"]),
         "t4_proposals": len(proposals["t4"]),
         "total_proposals": sum(len(values) for values in proposals.values()),
         "manual_review_required": len(manual_items),
@@ -274,116 +251,6 @@ def _t2_page_policy_proposal(
     }
 
 
-def _bridge_t3(
-    observation: dict[str, Any],
-    *,
-    proposals: dict[str, list[dict[str, Any]]],
-    manual_items: list[dict[str, Any]],
-    proposal_map: list[dict[str, Any]],
-) -> None:
-    sparse_mode = bool(
-        observation.get("sparse_decisions")
-        or observation.get("atomic_coverage")
-        or any(
-            isinstance(item, dict) and item.get("decision_status") is not None
-            for item in observation.get("items", []) or []
-        )
-    )
-    for index, item in enumerate(_dict_items(observation.get("items")), start=1):
-        item_id = _item_id(item, fallback=f"t3_{index:03d}", key="element_id")
-        refs = _ints(item.get("source_seq_refs"))
-        raw_run_ids = _strings(item.get("raw_run_ids"))
-        logical_run_ids = _strings(item.get("logical_run_ids"))
-        raw_policy = str(item.get("policy") or "")
-        executable_policy = POLICY_TO_EXECUTABLE.get(raw_policy)
-        if executable_policy is None:
-            _reject_observation_item(
-                item,
-                manual_items,
-                layer="t3",
-                reason_code="OBSERVATION-POLICY-NOT-EXECUTABLE",
-                summary=f"AI element policy is not executable by current overlay: {raw_policy}",
-            )
-            continue
-        confidence = _confidence(item)
-        if confidence not in T3_EXECUTABLE_CONFIDENCE:
-            _reject_observation_item(
-                item,
-                manual_items,
-                layer="t3",
-                reason_code="OBSERVATION-CONFIDENCE-INVALID",
-                summary="AI element observation confidence is not recognized",
-            )
-            continue
-        if not refs and not raw_run_ids:
-            _reject_observation_item(
-                item,
-                manual_items,
-                layer="t3",
-                reason_code="OBSERVATION-EVIDENCE-MISSING",
-                summary="AI element observation has no source_seq_refs",
-            )
-            continue
-        unit_id = str(item.get("unit_id") or "")
-        proposal_id = f"obs_t3_{_slug(unit_id or 'unit')}_{index:03d}"
-        proposal = {
-            "proposal_id": proposal_id,
-            "kind": "element_policy_candidate",
-            "policy": executable_policy,
-            "core_action": item.get("core_action"),
-            "observed_policy": raw_policy,
-            "execution_fallback_action": "keep" if raw_policy == "unknown" else None,
-            "execution_fallback_policy": "fixed" if raw_policy == "unknown" else None,
-            "unit_id": unit_id,
-            "source_seq_refs": refs,
-            "source_refs": _strings(item.get("source_refs")),
-            "raw_run_ids": raw_run_ids,
-            "logical_run_ids": logical_run_ids,
-            "span_refs": _strings(item.get("span_refs")),
-            "char_ranges": deepcopy(item.get("char_ranges") or []),
-            "spans": deepcopy(item.get("spans") or []),
-            "projection_status": item.get("projection_status"),
-            "target_candidate_id": (
-                None
-                if sparse_mode
-                else _target_candidate_id(unit_id, str(item.get("element_id") or ""))
-            ),
-            "rationale": item.get("ai_rationale"),
-            "evidence": item.get("evidence_refs", []),
-            "origin": "ai_observation",
-            "observation_item_id": item_id,
-            "observation_confidence": confidence,
-            "fill_source": item.get("fill_source"),
-            "fill_field": item.get("fill_field"),
-            "generated": item.get("generated"),
-            "removal_reason": item.get("removal_reason"),
-            "transformation": item.get("transformation"),
-            "decision_ref": item.get("decision_ref"),
-            "decision_target_ref": item.get("decision_target_ref"),
-            "decision_status": item.get("decision_status"),
-            "resolution": item.get("resolution"),
-            "inherited_from": item.get("inherited_from"),
-            "member_ref": item.get("member_ref"),
-            "member_refs": deepcopy(item.get("member_refs") or []),
-            "execution_eligible": item.get("execution_eligible"),
-        }
-        proposals["t3"].append(proposal)
-        proposal_map.append(_map_item(item_id, "t3", proposal_id, "proposal", "converted to T3 policy proposal"))
-    for index, item in enumerate(_dict_items(observation.get("object_items")), start=1):
-        item_id = _item_id(item, fallback=f"t3_object_{index:03d}", key="element_id")
-        _reject_observation_item(
-            item,
-            manual_items,
-            layer="t3",
-            reason_code="OBSERVATION-T3-OBJECT-NOT-MATERIALIZABLE",
-            summary="T3 source object has no precise executable generation-model binding",
-        )
-        proposal_map.append(
-            _map_item(item_id, "t3", None, "manual_review", "source object is not materializable")
-        )
-    _demotions_to_manual(observation, manual_items, layer="t3")
-
-
 def _bridge_t4(
     observation: dict[str, Any],
     *,
@@ -446,7 +313,6 @@ def _submissions_from_proposals(
 ) -> list[dict[str, Any]]:
     specs = [
         ("round_obs_t2", "t2_unit_scan", "observation:t2", "t2"),
-        ("round_obs_t3", "t3_unit_elements", "observation:t3", "t3"),
         ("round_obs_t4", "t4_global_layout", "observation:t4", "t4"),
     ]
     submissions: list[dict[str, Any]] = []
@@ -581,14 +447,6 @@ def _map_item(
     }
 
 
-def _target_candidate_id(unit_id: str, element_id: str) -> str | None:
-    if not unit_id or not element_id:
-        return None
-    if "." in element_id:
-        return element_id
-    return f"{unit_id}.{element_id}"
-
-
 def _layout_refs(item: dict[str, Any]) -> tuple[list[int], list[str]]:
     page_nos: list[int] = []
     render_refs: list[str] = []
@@ -641,18 +499,6 @@ def _ints(values: Any) -> list[int]:
         if parsed is not None:
             result.append(parsed)
     return sorted(dict.fromkeys(result))
-
-
-def _strings(values: Any) -> list[str]:
-    if not isinstance(values, list):
-        return []
-    return list(
-        dict.fromkeys(
-            str(value)
-            for value in values
-            if value not in (None, "") and str(value).strip()
-        )
-    )
 
 
 def _int_or_none(value: Any) -> int | None:

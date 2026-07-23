@@ -55,27 +55,6 @@ def test_comparison_t2_add_unit_spanning_multiple_units_requires_manual_review(t
     assert "multiple existing units" in item["reason"]
 
 
-def test_comparison_rejects_removed_t3_layer(tmp_path) -> None:
-    artifacts = round0_artifacts(tmp_path)
-
-    item = compare_proposal(
-        structure_candidates=artifacts["structure_candidates"],
-        packet=artifacts["packet"],
-        layer="t3",
-        collection="element_policy_candidates",
-        proposal={
-            "proposal_id": "t3_remove_001",
-            "kind": "element_policy_candidate",
-            "policy": "remove",
-            "source_seq_refs": [3],
-        },
-    )
-
-    assert item["status"] == "unknown"
-    assert item["check_id"] == "C-SCHEMA"
-    assert item["manual_review_required"] is True
-
-
 def test_build_submission_comparison_counts_manual_and_auto_items(tmp_path) -> None:
     artifacts = round0_artifacts(tmp_path)
     auto_item = compare_proposal(

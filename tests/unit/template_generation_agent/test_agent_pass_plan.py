@@ -7,17 +7,16 @@ from docfit.template_generation.agent.loop import run_template_agent
 from .helpers import layered_submission, round0_artifacts
 
 
-def test_pass_scope_rejects_disallowed_layer(tmp_path) -> None:
+def test_pass_scope_rejects_disallowed_t4_layer(tmp_path) -> None:
     artifacts = round0_artifacts(tmp_path)
     submission = layered_submission(
         artifacts["packet"]["source_render_hash"],
         layers={
-            "t3": {
-                "element_policy_candidates": [
+            "t4": {
+                "section_profile_hints": [
                     {
-                        "proposal_id": "t3_out_of_scope",
-                        "kind": "element_policy_candidate",
-                        "policy": "fill",
+                        "proposal_id": "t4_out_of_scope",
+                        "kind": "section_profile_hint",
                         "source_seq_refs": [3],
                     }
                 ]
@@ -58,17 +57,13 @@ def test_pass_scope_rejects_disallowed_layer(tmp_path) -> None:
         ),
     )
 
-    assert result.changed is False
-    assert result.pass_plan is not None
     assert result.pass_plan["passes"][0]["pass_id"] == "t2_unit_scan"
-    assert result.decisions is not None
-    assert result.decisions["rejected_proposal_ids"] == ["t3_out_of_scope"]
+    assert result.decisions["rejected_proposal_ids"] == ["t4_out_of_scope"]
     decision = result.decisions["decisions"][0]
     assert decision["checks"][0]["check_id"] == "C-PASS-SCOPE"
-    assert decision["pass_id"] == "t2_unit_scan"
 
 
-def test_legacy_t3_layered_proposal_is_rejected_after_t2_pass(tmp_path) -> None:
+def test_t4_pass_builds_post_t2_checkpoint_without_t3_side_input(tmp_path) -> None:
     artifacts = round0_artifacts(tmp_path)
     t2_submission = layered_submission(
         artifacts["packet"]["source_render_hash"],
@@ -87,20 +82,9 @@ def test_legacy_t3_layered_proposal_is_rejected_after_t2_pass(tmp_path) -> None:
             }
         },
     )
-    t3_submission = layered_submission(
+    t4_submission = layered_submission(
         artifacts["packet"]["source_render_hash"],
-        layers={
-            "t3": {
-                "element_policy_candidates": [
-                    {
-                        "proposal_id": "t3_outside_window",
-                        "kind": "element_policy_candidate",
-                        "policy": "fill",
-                        "source_seq_refs": [2],
-                    }
-                ]
-            }
-        },
+        layers={},
     )
     transcript_path = tmp_path / "transcript.json"
     packet_path = tmp_path / "packet.json"
@@ -111,20 +95,15 @@ def test_legacy_t3_layered_proposal_is_rejected_after_t2_pass(tmp_path) -> None:
             "rounds": [
                 {
                     "round_id": "round_001",
-                    "pass_id": "t2_unit_scan",
                     "pass_kind": "t2_unit_scan",
-                    "window_id": "full_document",
                     "allowed_layers": ["t2"],
                     "submission": t2_submission,
                 },
                 {
                     "round_id": "round_002",
-                    "pass_id": "t3_unit_elements_body_main",
-                    "pass_kind": "t3_unit_elements",
-                    "window_id": "unit:body_main",
-                    "unit_id": "body_main",
-                    "allowed_layers": ["t3"],
-                    "submission": t3_submission,
+                    "pass_kind": "t4_global_layout",
+                    "allowed_layers": ["t4"],
+                    "submission": t4_submission,
                 },
             ]
         },
@@ -146,16 +125,4 @@ def test_legacy_t3_layered_proposal_is_rejected_after_t2_pass(tmp_path) -> None:
     )
 
     assert result.post_t2_checkpoint is not None
-    assert result.unit_windows is not None
-    body_main = next(
-        window
-        for window in result.unit_windows["windows"]
-        if window["unit_id"] == "body_main"
-    )
-    assert 2 not in body_main["source_seq_refs"]
-    assert result.decisions is not None
     assert result.decisions["accepted_proposal_ids"] == ["t2_add_001"]
-    assert result.decisions["rejected_proposal_ids"] == ["t3_outside_window"]
-    rejected = result.decisions["decisions"][1]
-    assert "legacy T3 layered proposals are removed" in rejected["reason"]
-    assert rejected["pass_unit_id"] == "body_main"

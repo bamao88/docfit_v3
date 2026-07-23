@@ -1,6 +1,6 @@
-"""T3 hierarchical Stage Input derived only from sealed L1 facts and T2 windows.
+"""T3 hierarchical Stage Input derived only from sealed L1 facts and final T2.
 
-The builder creates one validated tree per T2 unit.  Nodes contain factual Word
+The builder creates one validated tree per final T2 unit. Nodes contain factual Word
 identity, direct-child relations, completeness and visual bindings; they never
 contain T3 policy or action decisions.
 """
@@ -29,20 +29,21 @@ _CELL_ID_RE = re.compile(r"^(?P<table>.+)\.r_(?P<row>\d+)\.c_(?P<column>\d+)$")
 def build_t3_hierarchical_stage_input(
     packet: dict[str, Any],
     *,
-    unit_windows: dict[str, Any] | list[dict[str, Any]],
+    t2_unit_result: dict[str, Any],
 ) -> dict[str, Any]:
     """Build the complete node tree used by sparse T3 traversal.
 
-    ``packet`` is the L1-derived agent packet. ``unit_windows`` is the matching
-    T2 route projection.  The returned artifact is deterministic apart from its
-    audit timestamp; ``tree_hash`` excludes that timestamp.
+    ``packet`` is the L1-derived agent packet. ``t2_unit_result`` is the single
+    final T2 result selected for this run. The returned artifact is deterministic
+    apart from its audit timestamp; ``tree_hash`` excludes that timestamp.
     """
 
-    windows = (
-        list(unit_windows.get("windows", []) or [])
-        if isinstance(unit_windows, dict)
-        else list(unit_windows)
-    )
+    t2_items = [
+        item
+        for item in t2_unit_result.get("items", []) or []
+        if isinstance(item, dict)
+    ]
+    unit_projections = _project_t2_units(t2_items)
     packet_rows = [
         row for row in packet.get("page_text_index", []) or [] if isinstance(row, dict)
     ]
@@ -67,23 +68,21 @@ def build_t3_hierarchical_stage_input(
 
     nodes: list[dict[str, Any]] = []
     unit_roots: list[dict[str, Any]] = []
-    for window in windows:
-        if not isinstance(window, dict):
-            continue
+    for unit_projection in unit_projections:
         root_ref, unit_nodes = _build_unit_tree(
             packet=packet,
             packet_rows=packet_rows,
             rows_by_seq=rows_by_seq,
             objects_by_ref=objects_by_ref,
             images_by_page=images_by_page,
-            window=window,
+            unit_projection=unit_projection,
         )
         nodes.extend(unit_nodes)
         unit_roots.append(
             {
-                "unit_id": str(window.get("unit_id") or ""),
+                "unit_id": str(unit_projection.get("unit_id") or ""),
                 "root_ref": root_ref,
-                "t2_window_id": window.get("window_id"),
+                "t2_result_ref": unit_projection.get("result_ref"),
             }
         )
 
@@ -94,11 +93,7 @@ def build_t3_hierarchical_stage_input(
         "contract": {
             "l1_hash": packet.get("input_contract_hash"),
             "source_render_hash": packet.get("source_render_hash"),
-            "t2_route_hash": (
-                unit_windows.get("post_t2_observation_hash")
-                if isinstance(unit_windows, dict)
-                else sha256_json(windows)
-            ),
+            "t2_route_hash": sha256_json(t2_items),
             "stage_input_version": T3_STAGE_INPUT_VERSION,
         },
         "unit_roots": unit_roots,
@@ -115,6 +110,52 @@ def build_t3_hierarchical_stage_input(
     return artifact
 
 
+def _project_t2_units(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Project the selected T2 result directly into T3 tree roots.
+
+    This is an in-memory construction step, not a second T3 input artifact.
+    """
+
+    projections: list[dict[str, Any]] = []
+    for index, item in enumerate(items):
+        unit_id = str(item.get("unit_id") or "")
+        projections.append(
+            {
+                "result_ref": str(
+                    item.get("item_id")
+                    or item.get("result_ref")
+                    or f"t2_unit:{unit_id or index}"
+                ),
+                "unit_id": unit_id,
+                "source_seq_refs": _ints(item.get("source_seq_refs")),
+                "source_ref_refs": _source_ref_refs(item),
+                "neighbor_context": {
+                    "previous_unit_id": _unit_id_at(items, index - 1),
+                    "next_unit_id": _unit_id_at(items, index + 1),
+                },
+            }
+        )
+    return projections
+
+
+def _unit_id_at(items: list[dict[str, Any]], index: int) -> str | None:
+    if index < 0 or index >= len(items):
+        return None
+    return str(items[index].get("unit_id") or "") or None
+
+
+def _source_ref_refs(item: dict[str, Any]) -> list[str]:
+    explicit = _strings(item.get("source_ref_refs"))
+    if explicit:
+        return list(dict.fromkeys(explicit))
+    source_ref_range = item.get("source_ref_range")
+    if not isinstance(source_ref_range, dict):
+        return []
+    start = str(source_ref_range.get("start") or "").strip()
+    end = str(source_ref_range.get("end") or "").strip()
+    return list(dict.fromkeys(value for value in (start, end) if value))
+
+
 def _build_unit_tree(
     *,
     packet: dict[str, Any],
@@ -122,16 +163,16 @@ def _build_unit_tree(
     rows_by_seq: dict[int, dict[str, Any]],
     objects_by_ref: dict[str, dict[str, Any]],
     images_by_page: dict[int, dict[str, Any]],
-    window: dict[str, Any],
+    unit_projection: dict[str, Any],
 ) -> tuple[str, list[dict[str, Any]]]:
-    unit_id = str(window.get("unit_id") or "unknown_unit")
+    unit_id = str(unit_projection.get("unit_id") or "unknown_unit")
     root_ref = f"unit:{unit_id}"
-    requested_seqs = _ints(window.get("source_seq_refs"))
+    requested_seqs = _ints(unit_projection.get("source_seq_refs"))
     rows = [rows_by_seq[seq] for seq in requested_seqs if seq in rows_by_seq]
     requested_object_refs = list(
         dict.fromkeys(
             [
-                *_strings(window.get("source_ref_refs")),
+                *_strings(unit_projection.get("source_ref_refs")),
                 *[
                     source_ref
                     for source_ref, fact in objects_by_ref.items()
@@ -238,7 +279,7 @@ def _build_unit_tree(
         page_nos=pages,
         facts={
             "unit_id": unit_id,
-            "t2_window_id": window.get("window_id"),
+            "t2_result_ref": unit_projection.get("result_ref"),
             "ordered_text": [
                 {"source_seq": row.get("source_seq"), "text": row.get("text", "")}
                 for row in rows
@@ -252,7 +293,11 @@ def _build_unit_tree(
             images_by_page=images_by_page,
             render_status=packet.get("render_status"),
         ),
-        context={"neighbor_units": deepcopy(window.get("neighbor_context") or {})},
+        context={
+            "neighbor_units": deepcopy(
+                unit_projection.get("neighbor_context") or {}
+            )
+        },
     )
     return root_ref, [root, *nodes]
 

@@ -32,22 +32,16 @@ def test_schema_accepts_layered_submission() -> None:
     assert result["valid"] is True
 
 
-def test_schema_rejects_missing_proposal_id() -> None:
+def test_schema_rejects_removed_t3_proposal_layer() -> None:
     render_packet = packet()
     submission = layered_submission(
         render_packet["source_render_hash"],
-        layers={
-            "t3": {
-                "element_policy_candidates": [
-                    {
-                        "kind": "element_policy_candidate",
-                        "policy": "fill",
-                        "source_seq_refs": [3],
-                    }
-                ]
-            }
-        },
+        layers={},
     )
+    submission["layers"]["t3"] = {
+        "element_policy_candidates": [],
+        "open_questions": [],
+    }
 
     result = validate_layered_submission(
         submission,
@@ -55,7 +49,11 @@ def test_schema_rejects_missing_proposal_id() -> None:
     )
 
     assert result["valid"] is False
-    assert any(error["path"].endswith(".proposal_id") for error in result["errors"])
+    assert any(
+        error["path"] == "$.layers.t3"
+        and error["message"] == "unsupported proposal layer: t3"
+        for error in result["errors"]
+    )
 
 
 def test_schema_rejects_one_shot_hash_mismatch() -> None:

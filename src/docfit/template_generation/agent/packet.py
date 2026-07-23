@@ -62,7 +62,7 @@ def build_template_agent_render_packet(
         "advisory_only": True,
         "allowed_ai_tasks": [
             "submit_t2_structure_proposals",
-            "submit_t3_element_policy_proposals",
+            "submit_t3_hierarchical_decisions",
             "submit_t4_layout_hints",
             "abstain",
         ],

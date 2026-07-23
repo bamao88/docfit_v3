@@ -26,9 +26,9 @@ def materialize_sparse_t3_observation(
     *,
     packet: dict[str, Any],
     model: str,
-    unit_windows: dict[str, Any],
+    stage_input: dict[str, Any],
 ) -> dict[str, Any]:
-    """Derive legacy items while retaining sparse decisions and atomic ledger."""
+    """Derive executable atomic policy items and retain the sparse audit ledger."""
 
     items: list[dict[str, Any]] = []
     object_items: list[dict[str, Any]] = []
@@ -40,7 +40,7 @@ def materialize_sparse_t3_observation(
     }
     coverage_groups = _group_atomic_coverage(trace.get("atomic_coverage", []) or [])
     for order, rows in enumerate(coverage_groups):
-        item = _legacy_item(
+        item = _atomic_policy_item(
             rows,
             decisions_by_ref=decisions_by_ref,
             order=order,
@@ -114,9 +114,8 @@ def materialize_sparse_t3_observation(
                 for item in items
                 if item.get("projection_status") == "mixed_span_actions"
             ),
-            "window_source": unit_windows.get("window_source"),
-            "post_t2_observation_hash": unit_windows.get(
-                "post_t2_observation_hash"
+            "t2_route_hash": (stage_input.get("contract") or {}).get(
+                "t2_route_hash"
             ),
             "input_mode": "hierarchical_sparse_stop_or_descend",
             "decision_call_count": trace.get("call_count"),
@@ -126,7 +125,7 @@ def materialize_sparse_t3_observation(
     }
 
 
-def _legacy_item(
+def _atomic_policy_item(
     rows: list[dict[str, Any]],
     *,
     decisions_by_ref: dict[str, dict[str, Any]],
@@ -214,7 +213,7 @@ def _legacy_item(
             if isinstance(char_range, dict)
         ],
         "spans": [
-            _legacy_span(row, current)
+            _atomic_policy_span(row, current)
             for row, current in zip(rows, decisions)
             if row.get("member_kind") == "span"
         ],
@@ -290,7 +289,7 @@ def _group_atomic_coverage(values: Any) -> list[list[dict[str, Any]]]:
     return [groups[key] for key in order]
 
 
-def _legacy_span(row: dict[str, Any], decision: dict[str, Any]) -> dict[str, Any]:
+def _atomic_policy_span(row: dict[str, Any], decision: dict[str, Any]) -> dict[str, Any]:
     action = str(row.get("resolved_result") or "keep")
     policy, _semantic_role, _transformation = _policy_fields(action, decision)
     return {

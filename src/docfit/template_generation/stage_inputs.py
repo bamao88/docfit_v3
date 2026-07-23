@@ -54,18 +54,6 @@ def build_t2_stage_input(l1_input_contract: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_t3_compatibility_input(
-    l1_input_contract: dict[str, Any],
-) -> dict[str, Any]:
-    return {
-        "artifact_type": "t3_l1_compatibility_input",
-        "artifact_version": "1.0",
-        "created_at": now_iso(),
-        "l1_hash": l1_artifact_hash(l1_input_contract),
-        "facts": _document_facts_view(l1_input_contract),
-    }
-
-
 def build_t4_stage_input(l1_input_contract: dict[str, Any]) -> dict[str, Any]:
     return {
         "artifact_type": "t4_l1_stage_input",
@@ -123,7 +111,7 @@ def build_agent_stage_packet(l1_input_contract: dict[str, Any]) -> dict[str, Any
         "advisory_only": True,
         "allowed_ai_tasks": [
             "submit_t2_structure_proposals",
-            "submit_t3_element_policy_proposals",
+            "submit_t3_hierarchical_decisions",
             "submit_t4_layout_hints",
             "abstain",
         ],

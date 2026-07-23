@@ -18,10 +18,6 @@ from typing import Any
 
 from docfit.core.io import now_iso
 from .observation_schema import (
-    ALLOWED_FIELD_TYPES,
-    ALLOWED_FILL_SOURCES,
-    ALLOWED_POLICIES,
-    ALLOWED_ROLES,
     ALLOWED_UNIT_IDS,
     CONFIDENCE_LEVELS,
     OBSERVATION_SCHEMA_VERSION,
@@ -40,18 +36,6 @@ _UNIT_PAGE_SCOPE_VALUES = {
     "shareable_flow",
     "unknown",
 }
-_POLICY_TO_CORE_ACTION = {
-    "fixed": "keep",
-    "template_default": "keep",
-    "fill": "fill",
-    "generated": "fill",
-    "instruction_remove": "delete",
-    # 防御性兼容：Prompt 不允许模型输出 unknown，但外部/历史产物进入时
-    # 仍必须只能对应保守 keep。
-    "unknown": "keep",
-}
-
-
 def materialize_unit_observation(
     raw_items: list[dict[str, Any]],
     *,
@@ -127,94 +111,6 @@ def _unit_page_fields(raw: dict[str, Any]) -> dict[str, Any]:
             "scope": str(scope) if scope in _UNIT_PAGE_SCOPE_VALUES else "unknown",
         }
     }
-
-
-def materialize_element_observation(
-    raw_items: list[dict[str, Any]],
-    *,
-    packet: dict[str, Any],
-    window: dict[str, Any],
-    model: str = "replay",
-) -> dict[str, Any]:
-    valid_seq = packet_source_seq_set(packet)
-    window_refs = set(_ints(window.get("source_seq_refs")))
-    unit_id = str(window.get("unit_id") or "")
-    demotions: list[dict[str, Any]] = []
-    survivors: list[dict[str, Any]] = []
-    unknown_items: list[dict[str, Any]] = []
-
-    for index, raw in enumerate(raw_items):
-        element_id = str(raw.get("element_id") or f"{unit_id}.{index:03d}")
-        policy = str(raw.get("policy") or "")
-        confidence = _normalize_confidence(raw.get("confidence"))
-        # ② 标签闭合
-        if policy not in ALLOWED_POLICIES:
-            unknown_items.append(_as_unknown(raw, reason="policy not in ontology"))
-            demotions.append(_demotion(element_id, "C-LABEL-CLOSURE", f"policy {policy!r} not in ontology"))
-            continue
-        role = raw.get("role")
-        if role is not None and role not in ALLOWED_ROLES:
-            demotions.append(_demotion(element_id, "C-LABEL-CLOSURE", f"role {role!r} not in ontology; dropped"))
-            role = None
-        # ③ 证据绑定 + 窗口边界
-        refs = _ints(raw.get("source_seq_refs"))
-        bound = [seq for seq in refs if seq in valid_seq and seq in window_refs]
-        if not bound:
-            unknown_items.append(_as_unknown(raw, reason="no in-window evidence binding"))
-            demotions.append(_demotion(element_id, "C-EVIDENCE-BIND", "source_seq_refs outside unit window or packet"))
-            continue
-        # ④ 必填规则
-        missing = _required_field_error(policy, raw)
-        if missing is not None:
-            unknown_items.append(_as_unknown(raw, reason=missing))
-            demotions.append(_demotion(element_id, "C-REQUIRED-FIELD", missing))
-            continue
-        survivors.append(
-            {
-                "element_id": element_id,
-                "unit_id": unit_id,
-                "order": raw.get("order", index),
-                "policy": policy,
-                "core_action": raw.get("core_action"),
-                "role": role,
-                "content": raw.get("content"),
-                "source_seq_refs": sorted(bound),
-                "raw_run_ids": raw.get("raw_run_ids", []),
-                "logical_run_ids": raw.get("logical_run_ids", []),
-                "confidence": confidence,
-                "evidence_refs": raw.get("evidence_refs", []),
-                "fill_source": raw.get("fill_source"),
-                "generated": raw.get("generated"),
-                "semantic_role": raw.get("semantic_role"),
-                "transformation": raw.get("transformation"),
-                "removal_reason": raw.get("removal_reason"),
-                "ai_rationale": raw.get("ai_rationale"),
-                "ai_decision_path": raw.get("ai_decision_path"),
-            }
-        )
-
-    items = _resolve_overlap(
-        survivors,
-        unknown_items,
-        demotions,
-        id_key="element_id",
-        allow_disjoint_run_claims=True,
-    )
-    # 元素覆盖只在本单元窗口内衡量。
-    coverage = compute_coverage(items, all_source_seq=window_refs & valid_seq)
-    observation = _envelope(
-        "ai_element_observation",
-        packet=packet,
-        model=model,
-        items=items,
-        unknown_items=unknown_items,
-        coverage=coverage,
-        demotions=demotions,
-        self_consistency=None,
-    )
-    observation["window_id"] = window.get("window_id")
-    observation["unit_id"] = unit_id
-    return observation
 
 
 def materialize_layout_observation(
@@ -426,9 +322,8 @@ def _resolve_overlap(
     demotions: list[dict[str, Any]],
     *,
     id_key: str = "unit_id",
-    allow_disjoint_run_claims: bool = False,
 ) -> list[dict[str, Any]]:
-    """解决真实证据重叠；元素若绑定到同段内互不相交的 run，则不属于争用。"""
+    """Resolve overlapping claims by confidence; ties remain unknown."""
 
     claims: dict[int, list[int]] = {}
     for idx, item in enumerate(survivors):
@@ -438,10 +333,6 @@ def _resolve_overlap(
     contested_drop: dict[int, set[int]] = {}
     for seq, claimants in claims.items():
         if len(claimants) <= 1:
-            continue
-        if allow_disjoint_run_claims and _run_claims_are_disjoint(
-            [survivors[index] for index in claimants]
-        ):
             continue
         ranked = sorted(claimants, key=lambda i: _rank(survivors[i]), reverse=True)
         top = _rank(survivors[ranked[0]])
@@ -487,46 +378,6 @@ def _sort_unit_items_by_source_seq(items: list[dict[str, Any]]) -> list[dict[str
 def _min_source_seq(item: dict[str, Any]) -> int:
     refs = _ints(item.get("source_seq_refs"))
     return min(refs) if refs else 10**12
-
-
-def _run_claims_are_disjoint(items: list[dict[str, Any]]) -> bool:
-    use_raw = all(item.get("raw_run_ids") for item in items)
-    use_logical = all(item.get("logical_run_ids") for item in items)
-    if not use_raw and not use_logical:
-        return False
-    identity_key = "raw_run_ids" if use_raw else "logical_run_ids"
-    claims: list[set[str]] = []
-    for item in items:
-        identities = {
-            str(value)
-            for value in (item.get(identity_key) or [])
-            if str(value)
-        }
-        if not identities:
-            return False
-        if any(identities & existing for existing in claims):
-            return False
-        claims.append(identities)
-    return True
-
-
-def _required_field_error(policy: str, raw: dict[str, Any]) -> str | None:
-    core_action = raw.get("core_action")
-    expected_core_action = _POLICY_TO_CORE_ACTION.get(policy)
-    if core_action is not None and core_action != expected_core_action:
-        return (
-            f"policy {policy} requires core_action={expected_core_action}, "
-            f"got {core_action}"
-        )
-    if policy == "fill":
-        source = raw.get("fill_source")
-        if source not in ALLOWED_FILL_SOURCES:
-            return f"fill policy requires fill_source in {sorted(ALLOWED_FILL_SOURCES)}"
-    if policy == "generated":
-        generated = raw.get("generated") or {}
-        if generated.get("field_type") not in ALLOWED_FIELD_TYPES:
-            return f"generated policy requires generated.field_type in {sorted(ALLOWED_FIELD_TYPES)}"
-    return None
 
 
 def _has_layout_evidence(evidence_refs: list[Any]) -> bool:

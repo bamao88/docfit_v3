@@ -128,16 +128,6 @@ class LiveResponder:
         # 自一致性：温度>0 下重复采样 N 次，交给上层投票。
         return [self._complete("t2", evidence, sample_index=i) for i in range(max(1, n_samples))]
 
-    def fetch_elements(self, *, evidence: dict[str, Any], window: dict[str, Any]) -> dict[str, Any]:
-        return self._complete("t3", evidence, label=str(window.get("window_id") or "t3"))
-
-    def fetch_unit_plan(self, *, evidence: dict[str, Any], window: dict[str, Any]) -> dict[str, Any]:
-        return self._complete(
-            "t3_unit",
-            evidence,
-            label=str(window.get("window_id") or window.get("unit_id") or "t3_unit"),
-        )
-
     def fetch_t3_decision(
         self,
         *,
@@ -257,8 +247,8 @@ class LiveResponder:
         if error is not None:
             payload: dict[str, Any] = (
                 {"items": []}
-                if stage in {"t2", "t3"}
-                else ({} if stage == "t3_unit" else {"section_profiles": []})
+                if stage == "t2"
+                else ({} if stage == "t3_hierarchy" else {"section_profiles": []})
             )
         else:
             try:
@@ -267,8 +257,8 @@ class LiveResponder:
                 error = str(exc)
                 payload = (
                     {"items": []}
-                    if stage in {"t2", "t3"}
-                    else ({} if stage == "t3_unit" else {"section_profiles": []})
+                    if stage == "t2"
+                    else ({} if stage == "t3_hierarchy" else {"section_profiles": []})
                 )
         if finish_reason == "length" and not content.strip():
             error = error or "model hit max_tokens before emitting content (reasoning budget exhausted)"
@@ -329,9 +319,9 @@ class LiveResponder:
 def _parse_json_object(content: str, *, stage: str) -> dict[str, Any]:
     if not content.strip():
         # 空响应 → 该阶段弃权（物化闸门会把它落成 schema-valid 的全 unknown 产物）。
-        if stage in {"t2", "t3"}:
+        if stage == "t2":
             return {"items": []}
-        if stage == "t3_unit":
+        if stage == "t3_hierarchy":
             return {}
         return {"section_profiles": []}
     try:

@@ -13,7 +13,7 @@ from .attribution import (
     build_agent_decisions,
     build_agent_pass_plan,
     build_agent_t2_overlay,
-    build_agent_t3_overlay,
+    build_t3_materialization_trace,
     build_agent_t4_hints,
 )
 from .t3_ai_materialize import materialize_ai_t3_structure
@@ -37,7 +37,6 @@ from .reconciler import process_proposal
 from .regenerate import regenerate_from_structure_candidates
 from .replay import load_agent_transcript, pass_plan_from_steps, transcript_steps
 from .schema import iter_layer_proposals, schema_error_decisions, validate_layered_submission
-from .windows import build_agent_unit_windows
 
 
 @dataclass
@@ -56,14 +55,13 @@ class AgentRunResult:
     pass_plan: dict[str, Any] | None = None
     post_t2_checkpoint: dict[str, Any] | None = None
     post_t2_input: dict[str, Any] | None = None
-    unit_windows: dict[str, Any] | None = None
     transcript: dict[str, Any] | None = None
     observation_bridge: dict[str, Any] | None = None
     submission_comparison: dict[str, Any] | None = None
     decisions: dict[str, Any] | None = None
     manual_review_items: dict[str, Any] | None = None
     t2_overlay: dict[str, Any] | None = None
-    t3_overlay: dict[str, Any] | None = None
+    t3_materialization_trace: dict[str, Any] | None = None
     t4_hints: dict[str, Any] | None = None
     attribution: dict[str, Any] | None = None
 
@@ -82,7 +80,7 @@ def run_template_agent(
     render_artifacts_dir: Path | None = None,
 ) -> AgentRunResult:
     if not agent_config.enabled:
-        safe_structure, _operation = materialize_ai_t3_structure(
+        safe_structure, operation = materialize_ai_t3_structure(
             structure_candidates,
             {},
         )
@@ -99,6 +97,7 @@ def run_template_agent(
             unit_map=regenerated["unit_map"],
             generation_model=regenerated["generation_model"],
             element_spec=regenerated["element_spec"],
+            t3_materialization_trace=build_t3_materialization_trace(operation),
         )
 
     require_valid_agent_config(agent_config)
@@ -162,11 +161,9 @@ def run_template_agent(
     decisions: list[dict[str, Any]] = []
     comparison_items: list[dict[str, Any]] = []
     t2_operations: list[dict[str, Any]] = []
-    t3_operations: list[dict[str, Any]] = []
     t4_hints: list[dict[str, Any]] = []
     post_t2_checkpoint: dict[str, Any] | None = None
     post_t2_input: dict[str, Any] | None = None
-    unit_windows: dict[str, Any] | None = None
 
     expected_hash = packet.get("source_render_hash")
     for step in steps:
@@ -182,13 +179,9 @@ def run_template_agent(
                 structure_candidates=current_structure,
                 changed=bool(t2_operations),
             )
-            unit_windows = build_agent_unit_windows(
-                structure_candidates=current_structure,
-                packet=packet,
-            )
         submission = step["submission"]
         pass_context = _pass_context(step)
-        allowed_layers = set(step.get("allowed_layers") or ["t2", "t3", "t4"])
+        allowed_layers = set(step.get("allowed_layers") or ["t2", "t4"])
         round_id = str(submission.get("round_id") or "")
         validation = validate_layered_submission(
             submission,
@@ -243,22 +236,6 @@ def run_template_agent(
             if layer == "t2" and post_t2_checkpoint is not None:
                 decisions.append(_pass_order_decision(proposal))
                 continue
-            if layer == "t3":
-                decisions.append(
-                    {
-                        "proposal_id": proposal.get("proposal_id"),
-                        "layer": "t3",
-                        "collection": collection,
-                        "decision": "rejected",
-                        "reason": (
-                            "legacy T3 layered proposals are removed; provide a "
-                            "hierarchical AI observation for canonical materialization"
-                        ),
-                        "authority": "ai",
-                        **pass_context,
-                    }
-                )
-                continue
             comparison_item = compare_proposal(
                 structure_candidates=current_structure,
                 packet=packet,
@@ -285,8 +262,6 @@ def run_template_agent(
             payload.update(pass_context)
             if layer == "t2":
                 t2_operations.append(payload)
-            elif layer == "t3":
-                t3_operations.append(payload)
             elif layer == "t4":
                 t4_hints.append(payload)
 
@@ -302,16 +277,10 @@ def run_template_agent(
             structure_candidates=current_structure,
             changed=True,
         )
-        unit_windows = build_agent_unit_windows(
-            structure_candidates=current_structure,
-            packet=packet,
-        )
-
     current_structure, ai_operation = materialize_ai_t3_structure(
         current_structure,
         ai_element_observation if isinstance(ai_element_observation, dict) else {},
     )
-    t3_operations = [ai_operation]
 
     changed = bool(
         t2_operations
@@ -339,7 +308,7 @@ def run_template_agent(
         observation_bridge=observation_bridge,
     )
     t2_overlay = build_agent_t2_overlay(t2_operations)
-    t3_overlay = build_agent_t3_overlay(t3_operations)
+    t3_materialization_trace = build_t3_materialization_trace(ai_operation)
     t4_hints_artifact = build_agent_t4_hints(t4_hints)
     attribution = build_agent_attribution(
         transcript=transcript,
@@ -349,7 +318,7 @@ def run_template_agent(
         round0_element_spec=element_spec,
         post_agent_element_spec=regenerated["element_spec"],
         t2_overlay=t2_overlay,
-        t3_overlay=t3_overlay,
+        t3_materialization_trace=t3_materialization_trace,
         t4_hints=t4_hints_artifact,
         submission_comparison=submission_comparison,
         manual_review_items=manual_review_items,
@@ -378,14 +347,13 @@ def run_template_agent(
         pass_plan=pass_plan,
         post_t2_checkpoint=post_t2_checkpoint,
         post_t2_input=post_t2_input,
-        unit_windows=unit_windows,
         transcript=transcript,
         observation_bridge=observation_bridge,
         submission_comparison=submission_comparison,
         decisions=decisions_artifact,
         manual_review_items=manual_review_items,
         t2_overlay=t2_overlay,
-        t3_overlay=t3_overlay,
+        t3_materialization_trace=t3_materialization_trace,
         t4_hints=t4_hints_artifact,
         attribution=attribution,
     )
@@ -661,7 +629,7 @@ def _pass_order_decision(proposal: dict[str, Any]) -> dict[str, Any]:
 
 def _requires_post_t2_checkpoint(step: dict[str, Any]) -> bool:
     pass_kind = str(step.get("pass_kind") or "")
-    return pass_kind in {"t3_unit_elements", "t4_global_layout"}
+    return pass_kind == "t4_global_layout"
 
 
 def _build_post_t2_checkpoint(

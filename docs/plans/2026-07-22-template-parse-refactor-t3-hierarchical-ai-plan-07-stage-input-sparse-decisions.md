@@ -140,14 +140,15 @@ sealed L1 + corresponding T2 route
 
 - 2026-07-23 用户确认 T3 收敛为 AI-only。已删除 `t3_authority_mode`、Code/Merge element_spec 产物、三路 atomic comparison 和 T3 route-eval/replay 分支；`03_element_spec.yaml` 是 AI 判断经程序校验、继承展开与 safe Keep 后的唯一 canonical 输出。
 
-- 正式 T3 路径已切到 versioned hierarchical Stage Input、节点事实防火墙、tree validator 和 sparse traversal；旧 flat local router 仅保留为无正式调用方的兼容代码。
+- 正式 T3 路径已切到 versioned hierarchical Stage Input、节点事实防火墙、tree validator 和 sparse traversal；旧 flat local router、unit-window prompt/responder/materializer 及其兼容测试已删除。
 - 决策支持最粗终局 Keep/Fill/Delete、Split、直接叶子批量决策、深度/调用预算和失败回退；程序确定性展开唯一 atomic coverage。
 - replay、Kimi、MiniMax 共用 `t3_hierarchy` prompt/response 契约；缓存键包含 assembled prompt、模型参数和 visual refs。
-- bridge 保留 AI sparse 判断的审计记录；canonical materializer 直接消费 accepted direct/inherited，fallback/contested/缺失/冲突统一 safe Keep，source object 仍进入人工复核。
-- overlay 优先按 `raw_run_ids` 绑定；命中多 run element 时先按源 run 事实拆分，不把单 run 动作扩大到整段。
+- T3 已退出 layered proposal/schema、observation bridge、comparison/reconciler；canonical materializer 直接消费 accepted direct/inherited，fallback/contested/缺失/冲突统一 safe Keep，source object 残留写入物化自检。
+- materializer 优先按 `raw_run_ids` 绑定；命中多 run element 时先按源 run 事实拆分，不把单 run 动作扩大到整段。
 - run 现在确定性展开为带精确 `raw_run_id + start/end` 的预生成 span 原子叶；AI 只能引用这些 span，不能自造字符范围。完整且同质的 span 动作才可安全投影回旧 raw-run 接口；同一 run 内混合动作显式标记冲突并进入人工复核。
 - `element_spec.ai_traces` 和 element 级 trace 保留 decision/member/resolution/raw/logical identity；三路 comparison artifact 已按 AI-only 决定删除。
 - ordered outputs 只保留 `03.0_t3_hierarchical_stage_input.json`、`03.1_t3_ai_element_observation.yaml`、`03.1.5_t3_sparse_decision_trace.json` 和 canonical `03_element_spec.yaml`。
+- 已删除 `01.7_t3_l1_compatibility_input.json`、`08.7_agent_unit_windows.json` 和 `12_agent_t3_overlay.json`；新增 `12_t3_materialization_trace.json`，只记录 schema/identity/coverage/safe-Keep 自检，不构成第二条路线。
 
 ### 基线与验证边界
 
@@ -181,7 +182,7 @@ sealed L1 + corresponding T2 route
 
 ### 当前结论与 remaining gaps
 
-状态为 `implemented_in_part`，不更新 `docs/current/` canonical 契约。remaining gaps：
+状态为 `implemented_in_part`。用户已确认 AI-only、单一最终结果和 availability 下传属于当前长期契约，因此已同步 `docs/current/`；这不代表准确率或下游适配已经 verified。remaining gaps：
 
 1. L1/T3 projection 补齐 `gridSpan/vMerge`、嵌套表、空 cell、多段落 cell 和 field/object 覆盖关系；当前 alias 是安全降级，不是完整 merge 模型。
 2. visual evidence 目前发送带 target bbox/hash 的真实整页附件，尚未生成 unit/object/row/cell/paragraph 实体 crop。
@@ -247,8 +248,8 @@ sealed L1 + corresponding T2 route
 
 ### Phase 6：晋升或残留
 
-- [ ] Accuracy Promotion Gate 通过后由用户确认讨论结论。
-- [ ] 通过后更新 canonical T3 架构和测试契约，并同步 status/issue/plan/index。
+- [x] 用户确认 T3 AI-only、程序自检、单一最终结果和 availability 下传的讨论结论。
+- [x] 更新 canonical T3 架构和测试契约，并同步 status/plan/index；下游实现适配另列状态项。
 - [x] 未通过则保持讨论稿和 `implemented_in_part`，记录下一轮改进，不更新长期文档。
 
 ## Commit Strategy

@@ -357,27 +357,16 @@ def run_template_observation_stage(
                     ran_upstream_t2 = True
                 assert t2_source is not None
                 upstream_artifacts["t2"] = _artifact_ref(t2_source)
-                observation, windows = run_t3_observation(
+                observation, hierarchical_input = run_t3_observation(
                     packet=packet,
                     ai_unit_observation=t2_observation,
                     responder=responder,
                     config=config,
                     concurrency=t3_concurrency,
                 )
-                hierarchical_input = windows.pop(
-                    "hierarchical_stage_input",
-                    None,
-                )
-                if isinstance(hierarchical_input, dict):
-                    stage_input_path = out_dir / "03.0_t3_hierarchical_stage_input.json"
-                    write_json(stage_input_path, hierarchical_input)
-                    artifacts["t3_hierarchical_stage_input"] = stage_input_path
-                    windows["hierarchical_stage_input_ref"] = _artifact_ref(
-                        stage_input_path
-                    )
-                windows_path = out_dir / "03.0_t3_unit_windows.json"
-                write_json(windows_path, windows)
-                artifacts["t3_unit_windows"] = windows_path
+                stage_input_path = out_dir / "03.0_t3_hierarchical_stage_input.json"
+                write_json(stage_input_path, hierarchical_input)
+                artifacts["t3_hierarchical_stage_input"] = stage_input_path
                 artifacts["ai_element_observation"] = _write_stage_observation(
                     out_dir,
                     "t3",
@@ -674,11 +663,6 @@ class _UsageLimitFallbackTextResponder:
     def __init__(self, primary: Any, fallback: Any) -> None:
         self._primary = primary
         self._fallback = fallback
-        self.supports_action_refinement = bool(
-            getattr(primary, "supports_action_refinement", False)
-            or getattr(fallback, "supports_action_refinement", False)
-        )
-
     def fetch_units(
         self,
         *,
@@ -695,28 +679,6 @@ class _UsageLimitFallbackTextResponder:
                 n_samples=n_samples,
             )
         return payloads
-
-    def fetch_elements(
-        self,
-        *,
-        evidence: dict[str, Any],
-        window: dict[str, Any],
-    ) -> dict[str, Any]:
-        payload = self._primary.fetch_elements(evidence=evidence, window=window)
-        if _is_usage_limit_payload(payload):
-            return self._fallback.fetch_elements(evidence=evidence, window=window)
-        return payload
-
-    def fetch_unit_plan(
-        self,
-        *,
-        evidence: dict[str, Any],
-        window: dict[str, Any],
-    ) -> dict[str, Any]:
-        payload = self._primary.fetch_unit_plan(evidence=evidence, window=window)
-        if _is_usage_limit_payload(payload):
-            return self._fallback.fetch_unit_plan(evidence=evidence, window=window)
-        return payload
 
     def fetch_t3_decision(
         self,

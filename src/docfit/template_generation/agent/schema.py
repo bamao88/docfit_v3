@@ -10,14 +10,12 @@ T2_COLLECTIONS = (
     "boundary_adjustments",
     "page_policy_candidates",
 )
-T3_COLLECTIONS = ("element_policy_candidates",)
 T4_COLLECTIONS = (
     "section_profile_hints",
     "page_numbering_hints",
 )
 LAYER_COLLECTIONS = {
     "t2": T2_COLLECTIONS,
-    "t3": T3_COLLECTIONS,
     "t4": T4_COLLECTIONS,
 }
 PROPOSAL_KIND_BY_COLLECTION = {
@@ -25,7 +23,6 @@ PROPOSAL_KIND_BY_COLLECTION = {
     "block_candidates": "block_candidate",
     "boundary_adjustments": "boundary_adjustment",
     "page_policy_candidates": "page_policy_candidate",
-    "element_policy_candidates": "element_policy_candidate",
     "section_profile_hints": "section_profile_hint",
     "page_numbering_hints": "page_numbering_hint",
 }
@@ -49,10 +46,6 @@ def empty_layered_submission(
                 "block_candidates": [],
                 "boundary_adjustments": [],
                 "page_policy_candidates": [],
-                "open_questions": [],
-            },
-            "t3": {
-                "element_policy_candidates": [],
                 "open_questions": [],
             },
             "t4": {
@@ -91,6 +84,14 @@ def validate_layered_submission(
         errors.append(_error("$.layers", "C-SCHEMA", "layers must be an object"))
         layers = {}
         normalized["layers"] = layers
+    for layer in sorted(set(layers) - set(LAYER_COLLECTIONS)):
+        errors.append(
+            _error(
+                f"$.layers.{layer}",
+                "C-SCHEMA",
+                f"unsupported proposal layer: {layer}",
+            )
+        )
 
     for layer, collections in LAYER_COLLECTIONS.items():
         layer_value = layers.setdefault(layer, {})

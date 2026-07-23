@@ -87,11 +87,6 @@ def write_template_generation_outputs(out_dir: Path, result: StageResult) -> Non
         "T2 输入：只由 sealed L1 单向派生的阶段视图。",
     )
     write_step_json(
-        "01.7_t3_l1_compatibility_input.json",
-        "t3_l1_compatibility_input",
-        "T3 兼容输入：只由 sealed L1 单向派生，等待 Plan 06 替换。",
-    )
-    write_step_json(
         "01.8_t4_l1_stage_input.json",
         "t4_l1_stage_input",
         "T4 输入：只由 sealed L1 单向派生的阶段视图。",
@@ -208,11 +203,6 @@ def write_template_generation_outputs(out_dir: Path, result: StageResult) -> Non
         "Agent 编排：T2 overlay 后的 source_seq ownership 与 unit input 视图。",
     )
     write_step_json(
-        "08.7_agent_unit_windows.json",
-        "template_agent_unit_windows",
-        "Agent 编排：基于 post-T2 结构生成的 T3 unit windows。",
-    )
-    write_step_json(
         "09_agent_transcript.json",
         "template_agent_transcript",
         "Agent replay/live transcript。",
@@ -248,9 +238,9 @@ def write_template_generation_outputs(out_dir: Path, result: StageResult) -> Non
         "T2 Agent overlay：只 patch structure_candidates 后重生 unit_map。",
     )
     write_step_json(
-        "12_agent_t3_overlay.json",
-        "agent_t3_overlay",
-        "T3 Agent overlay：只 patch candidate_policy 后重生 element_spec。",
+        "12_t3_materialization_trace.json",
+        "t3_materialization_trace",
+        "T3 物化自检：记录 AI 决策覆盖、安全 Keep 和最终 element_spec 物化摘要；不是第二条输出路线。",
     )
     write_step_json(
         "13_agent_t4_hints.json",

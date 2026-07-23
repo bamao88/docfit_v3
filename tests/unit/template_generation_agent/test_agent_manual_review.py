@@ -4,7 +4,7 @@ from docfit.template_generation.agent.attribution import (
     build_agent_attribution,
     build_agent_decisions,
     build_agent_t2_overlay,
-    build_agent_t3_overlay,
+    build_t3_materialization_trace,
     build_agent_t4_hints,
 )
 from docfit.template_generation.agent.comparison import build_submission_comparison
@@ -114,7 +114,9 @@ def test_attribution_includes_comparison_and_manual_review_summary(tmp_path) -> 
         round0_element_spec=artifacts["element_spec"],
         post_agent_element_spec=artifacts["element_spec"],
         t2_overlay=build_agent_t2_overlay([]),
-        t3_overlay=build_agent_t3_overlay([]),
+        t3_materialization_trace=build_t3_materialization_trace(
+            {"availability": "NOT_AVAILABLE"}
+        ),
         t4_hints=build_agent_t4_hints([]),
         submission_comparison=comparison,
         manual_review_items=manual,

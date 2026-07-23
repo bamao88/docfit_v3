@@ -301,13 +301,8 @@ class MinimaxVisionResponder:
 
 
 class MinimaxTextResponder:
-    """T2/T3 文本观察 responder（MiniMax M3, Anthropic 格式），与 Kimi 用相同 prompt。
+    """T2/T3 分层文本 responder（MiniMax M3, Anthropic 格式）。"""
 
-    实现 ObservationResponder 协议（fetch_units/fetch_elements/fetch_layout）。T4 不走这里
-    （T4 用视觉/确定性），fetch_layout 返回空。单次失败重试后降级为该阶段弃权。
-    """
-
-    supports_action_refinement = True
 
     def __init__(
         self,
@@ -346,16 +341,6 @@ class MinimaxTextResponder:
 
     def fetch_units(self, *, evidence: dict[str, Any], n_samples: int) -> list[dict[str, Any]]:
         return [self._complete("t2", evidence, sample_index=i) for i in range(max(1, n_samples))]
-
-    def fetch_elements(self, *, evidence: dict[str, Any], window: dict[str, Any]) -> dict[str, Any]:
-        return self._complete("t3", evidence, label=str(window.get("window_id") or "t3"))
-
-    def fetch_unit_plan(self, *, evidence: dict[str, Any], window: dict[str, Any]) -> dict[str, Any]:
-        return self._complete(
-            "t3_unit",
-            evidence,
-            label=str(window.get("window_id") or window.get("unit_id") or "t3_unit"),
-        )
 
     def fetch_t3_decision(
         self,
@@ -424,9 +409,7 @@ class MinimaxTextResponder:
                 )
             return cached
 
-        empty: dict[str, Any] = (
-            {} if stage in {"t3_unit", "t3_hierarchy"} else {"items": []}
-        )
+        empty: dict[str, Any] = {} if stage == "t3_hierarchy" else {"items": []}
         error: str | None = None
         payload = empty
         skipped_due_usage_limit = self._usage_limit_state.is_exhausted("minimax")

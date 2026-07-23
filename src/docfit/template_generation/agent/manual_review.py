@@ -217,8 +217,6 @@ def _layer_from_context(decision: dict[str, Any]) -> str | None:
     pass_kind = str(decision.get("pass_kind") or "")
     if pass_kind.startswith("t2"):
         return "t2"
-    if pass_kind.startswith("t3"):
-        return "t3"
     if pass_kind.startswith("t4"):
         return "t4"
     return None

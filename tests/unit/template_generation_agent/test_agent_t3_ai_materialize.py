@@ -74,7 +74,9 @@ def test_ai_replaces_shell_policies_and_safely_keeps_invalid_claims() -> None:
     assert elements[1]["fill_field"] == "student_name"
     assert elements[2]["removal_reason"] == "format annotation"
     assert operation["authority"] == "ai"
-    assert operation["observation_available"] is True
+    assert operation["availability"] == "AVAILABLE"
+    assert operation["accepted_observation_item_count"] == 2
+    assert operation["fallback_observation_item_count"] == 1
     assert operation["claimed_raw_run_count"] == 3
     assert operation["matched_raw_run_count"] == 3
     assert operation["missing_claim_raw_run_ids"] == []
@@ -192,4 +194,5 @@ def test_missing_ai_observation_cannot_leak_shell_policy() -> None:
     element = materialized["units"][0]["elements"][0]
     assert element["candidate_policy"] == "fixed"
     assert element["agent_traces"][-1]["safe_fallback"] is True
-    assert operation["observation_available"] is False
+    assert operation["availability"] == "NOT_AVAILABLE"
+    assert operation["materialization_status"] == "SAFE_KEEP_ONLY"

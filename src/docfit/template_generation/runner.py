@@ -11,6 +11,7 @@ from docfit.ooxml.package import is_valid_docx
 
 from .agent import AgentConfig, AgentConfigError, run_template_agent
 from .agent.packet import build_template_agent_render_packet, load_render_packet
+from .agent.t3_hierarchical_input import build_t3_hierarchical_stage_input
 from .constants import BODY_SLOT_MARKER, DEFAULT_TEMPLATE_GENERATION_STRATEGY
 from .executor import execute_template_generation_plan
 from .generation_model import build_template_generation_model
@@ -29,7 +30,6 @@ from .source_tree import inspect_document_facts_docx
 from .stage_inputs import (
     build_agent_stage_packet,
     build_t2_stage_input,
-    build_t3_compatibility_input,
     build_t4_stage_input,
     l1_artifact_hash,
 )
@@ -107,12 +107,10 @@ def generate_template(
     )
     l1_hash = l1_artifact_hash(l1_input_contract)
     t2_stage_input = build_t2_stage_input(l1_input_contract)
-    t3_compatibility_input = build_t3_compatibility_input(l1_input_contract)
     t4_stage_input = build_t4_stage_input(l1_input_contract)
     agent_stage_packet = build_agent_stage_packet(l1_input_contract)
     source_tree = t2_stage_input["source_tree"]
     t2_facts = t2_stage_input["facts"]
-    t3_facts = t3_compatibility_input["facts"]
     t4_facts = t4_stage_input["facts"]
     structure_candidates = build_template_structure_candidates(source_tree)
     t2_input = structure_candidates.get("t2_input")
@@ -143,7 +141,7 @@ def generate_template(
         agent_run = run_template_agent(
             source_template_docx=source_template_docx,
             request=request,
-            document_facts=t3_facts,
+            document_facts=t2_facts,
             structure_candidates=structure_candidates,
             unit_map=unit_map,
             generation_model=generation_model,
@@ -196,7 +194,7 @@ def generate_template(
     )
     t3_ai_element_observation = _route_t3_ai_observation(
         agent_run.ai_element_observation,
-        document_facts=t3_facts,
+        document_facts=t2_facts,
         l1_hash=l1_hash,
     )
     element_spec = _route_t3_element_spec(
@@ -268,7 +266,6 @@ def generate_template(
         "document_facts": document_facts,
         "template_generation_l1_input_contract": l1_input_contract,
         "t2_l1_stage_input": t2_stage_input,
-        "t3_l1_compatibility_input": t3_compatibility_input,
         "t4_l1_stage_input": t4_stage_input,
         "unit_map": unit_map,
         "element_spec": element_spec,
@@ -296,17 +293,22 @@ def generate_template(
         artifacts["template_agent_post_t2_checkpoint"] = agent_run.post_t2_checkpoint
     if agent_run.post_t2_input is not None:
         artifacts["template_agent_post_t2_input"] = agent_run.post_t2_input
-    if agent_run.unit_windows is not None:
-        artifacts["template_agent_unit_windows"] = agent_run.unit_windows
     if agent_run.transcript is not None:
         artifacts["template_agent_transcript"] = agent_run.transcript
     if agent_run.ai_observation_bundle is not None:
         artifacts["ai_observation_bundle"] = agent_run.ai_observation_bundle
-        observation_windows = agent_run.ai_observation_bundle.get("unit_windows") or {}
-        if isinstance(observation_windows, dict):
-            hierarchical_input = observation_windows.get("hierarchical_stage_input")
-            if isinstance(hierarchical_input, dict):
-                artifacts["t3_hierarchical_stage_input"] = hierarchical_input
+        hierarchical_input = agent_run.ai_observation_bundle.get(
+            "t3_hierarchical_stage_input"
+        )
+        if not isinstance(hierarchical_input, dict) and isinstance(
+            agent_run.ai_unit_observation, dict
+        ):
+            hierarchical_input = build_t3_hierarchical_stage_input(
+                agent_run.render_packet,
+                t2_unit_result=agent_run.ai_unit_observation,
+            )
+        if isinstance(hierarchical_input, dict):
+            artifacts["t3_hierarchical_stage_input"] = hierarchical_input
         if isinstance(agent_run.ai_element_observation, dict) and agent_run.ai_element_observation.get(
             "sparse_decision_contract_version"
         ):
@@ -342,8 +344,8 @@ def generate_template(
         artifacts["template_agent_manual_review_items"] = agent_run.manual_review_items
     if agent_run.t2_overlay is not None:
         artifacts["agent_t2_overlay"] = agent_run.t2_overlay
-    if agent_run.t3_overlay is not None:
-        artifacts["agent_t3_overlay"] = agent_run.t3_overlay
+    if agent_run.t3_materialization_trace is not None:
+        artifacts["t3_materialization_trace"] = agent_run.t3_materialization_trace
     if agent_run.t4_hints is not None:
         artifacts["agent_t4_hints"] = agent_run.t4_hints
     if agent_run.attribution is not None:

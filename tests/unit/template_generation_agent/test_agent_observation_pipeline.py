@@ -4,11 +4,10 @@ from typing import Any
 
 import pytest
 
-from docfit.core.io import read_json, write_json, write_yaml
+from docfit.core.io import read_json, sha256_json, write_json, write_yaml
 from docfit.template_generation.agent.api_config import LiveProviderUsageLimitState
 from docfit.template_generation.agent.config import AgentConfig, AgentConfigError
 from docfit.template_generation.agent import observation_orchestrate, observation_vision
-from docfit.template_generation.agent.observation_loop import _refine_t3_action_candidates
 from docfit.template_generation.agent.observation_config import ObservationConfig
 from docfit.template_generation.agent.observation_loop import (
     run_observation_pipeline,
@@ -141,14 +140,18 @@ def test_pipeline_coverage_invariants_hold_for_all_stages() -> None:
         assert coverage_invariant_errors(coverage, all_source_seq=all_seq) == [], key
 
 
-def test_pipeline_t3_windows_come_from_ai_units() -> None:
+def test_pipeline_t3_stage_input_binds_the_single_final_t2_result() -> None:
     packet = clean_packet()
     bundle = run_observation_pipeline(
         packet=packet,
         transcript=transcript_three_samples(),
         config=ObservationConfig(enabled=True, self_consistency_samples=3),
     )
-    assert bundle["unit_windows"]["window_source"] == "ai_unit_observation"
+    stage_input = bundle["t3_hierarchical_stage_input"]
+    assert stage_input["contract"]["t2_route_hash"] == sha256_json(
+        bundle["ai_unit_observation"]["items"]
+    )
+    assert "unit_windows" not in bundle
     # T3 元素挂在 AI 自己认出的 cover / body_main 单元上。
     element_units = {item["unit_id"] for item in bundle["ai_element_observation"]["items"]}
     assert element_units <= {"cover", "body_main", "integrity_statement"}
@@ -385,50 +388,44 @@ def test_minimax_usage_limit_falls_back_to_kimi_for_t3() -> None:
     calls: list[tuple[str, str]] = []
 
     class Primary:
-        def fetch_elements(self, *, evidence, window):
-            del evidence, window
-            calls.append(("minimax", "t3"))
+        def fetch_t3_decision(self, *, evidence, node, unit_id):
+            del evidence, node, unit_id
+            calls.append(("minimax", "t3_hierarchy"))
             return {
-                "items": [],
                 "_observation_error": (
                     "MinimaxVisionError: minimax 403: usage limit exhausted"
                 ),
             }
 
-        def fetch_unit_plan(self, *, evidence, window):
-            del evidence, window
-            calls.append(("minimax", "t3_unit"))
-            return {
-                "_observation_error": "minimax quota exceeded for billing cycle"
-            }
-
     class Fallback:
-        def fetch_elements(self, *, evidence, window):
-            del evidence, window
-            calls.append(("kimi", "t3"))
-            return {"items": [{"policy": "fixed"}]}
-
-        def fetch_unit_plan(self, *, evidence, window):
-            del evidence, window
-            calls.append(("kimi", "t3_unit"))
-            return {"route": "preserve_whole"}
+        def fetch_t3_decision(self, *, evidence, node, unit_id):
+            del evidence, unit_id
+            calls.append(("kimi", "t3_hierarchy"))
+            return {
+                "target_ref": node["ref"],
+                "result": "keep",
+                "confidence": "medium",
+                "reason": "fallback",
+            }
 
     responder = observation_orchestrate._UsageLimitFallbackTextResponder(
         Primary(),
         Fallback(),
     )
 
-    assert responder.fetch_unit_plan(evidence={}, window={}) == {
-        "route": "preserve_whole"
-    }
-    assert responder.fetch_elements(evidence={}, window={}) == {
-        "items": [{"policy": "fixed"}]
+    assert responder.fetch_t3_decision(
+        evidence={},
+        node={"ref": "unit:cover"},
+        unit_id="cover",
+    ) == {
+        "target_ref": "unit:cover",
+        "result": "keep",
+        "confidence": "medium",
+        "reason": "fallback",
     }
     assert calls == [
-        ("minimax", "t3_unit"),
-        ("kimi", "t3_unit"),
-        ("minimax", "t3"),
-        ("kimi", "t3"),
+        ("minimax", "t3_hierarchy"),
+        ("kimi", "t3_hierarchy"),
     ]
 
 
@@ -436,26 +433,29 @@ def test_non_quota_minimax_error_does_not_switch_provider() -> None:
     calls: list[str] = []
 
     class Primary:
-        def fetch_elements(self, *, evidence, window):
-            del evidence, window
+        def fetch_t3_decision(self, *, evidence, node, unit_id):
+            del evidence, node, unit_id
             calls.append("minimax")
             return {
-                "items": [],
                 "_observation_error": "JSONDecodeError: invalid response",
             }
 
     class Fallback:
-        def fetch_elements(self, *, evidence, window):
-            del evidence, window
+        def fetch_t3_decision(self, *, evidence, node, unit_id):
+            del evidence, node, unit_id
             calls.append("kimi")
-            return {"items": [{"policy": "fixed"}]}
+            return {"result": "keep"}
 
     responder = observation_orchestrate._UsageLimitFallbackTextResponder(
         Primary(),
         Fallback(),
     )
 
-    payload = responder.fetch_elements(evidence={}, window={})
+    payload = responder.fetch_t3_decision(
+        evidence={},
+        node={"ref": "unit:cover"},
+        unit_id="cover",
+    )
 
     assert payload["_observation_error"].startswith("JSONDecodeError")
     assert calls == ["minimax"]
@@ -487,13 +487,15 @@ def test_minimax_usage_limit_stops_internal_retries(monkeypatch) -> None:
         progress=False,
     )
 
-    payload = responder.fetch_elements(
+    payload = responder.fetch_t3_decision(
         evidence={},
-        window={"window_id": "unit:toc"},
+        node={"ref": "unit:toc"},
+        unit_id="toc",
     )
-    second_payload = responder.fetch_elements(
+    second_payload = responder.fetch_t3_decision(
         evidence={},
-        window={"window_id": "unit:body_main"},
+        node={"ref": "unit:body_main"},
+        unit_id="body_main",
     )
 
     assert calls == 1
@@ -897,62 +899,3 @@ def test_t3_gold_mode_blocks_before_model_when_atomic_input_is_incomplete(
             replay_path=tmp_path / "unused-replay.json",
             t2_gold_standard_path=standard_path,
         )
-
-
-def test_t3_action_refinement_batches_by_action_and_preserves_unreturned_items() -> None:
-    class RefiningResponder:
-        supports_action_refinement = True
-
-        def __init__(self) -> None:
-            self.actions: list[str] = []
-
-        def fetch_elements(self, *, evidence, window):
-            action = evidence["refinement_action"]
-            self.actions.append(action)
-            candidates = evidence["candidate_items"]
-            if action == "delete":
-                return {
-                    "items": [
-                        {
-                            **candidates[0],
-                            "core_action": "keep",
-                            "policy": "fixed",
-                        }
-                    ]
-                }
-            return {"items": candidates}
-
-    responder = RefiningResponder()
-    payload = {
-        "items": [
-            {"element_id": "u.1", "core_action": "keep", "policy": "fixed"},
-            {"element_id": "u.2", "core_action": "fill", "policy": "fill"},
-            {"element_id": "u.3", "core_action": "delete", "policy": "instruction_remove"},
-        ]
-    }
-
-    result = _refine_t3_action_candidates(
-        responder,
-        payload=payload,
-        evidence={"scope": "t3_local_window"},
-        window={"window_id": "unit:u", "unit_id": "u"},
-    )
-
-    assert responder.actions == ["fill", "delete"]
-    by_id = {item["element_id"]: item for item in result["items"]}
-    assert by_id["u.1"]["core_action"] == "keep"
-    assert by_id["u.2"]["core_action"] == "fill"
-    assert by_id["u.3"]["core_action"] == "keep"
-
-
-def test_usage_limit_fallback_exposes_action_refinement_capability() -> None:
-    class Responder:
-        def __init__(self, supports_action_refinement: bool) -> None:
-            self.supports_action_refinement = supports_action_refinement
-
-    responder = observation_orchestrate._UsageLimitFallbackTextResponder(
-        Responder(False),
-        Responder(True),
-    )
-
-    assert responder.supports_action_refinement is True

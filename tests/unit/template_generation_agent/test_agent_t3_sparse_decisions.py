@@ -12,15 +12,15 @@ from docfit.template_generation.agent.t3_sparse_materialize import (
     materialize_sparse_t3_observation,
 )
 
-from .test_agent_t3_input import table_packet, unit_window
+from .t3_hierarchical_fixtures import table_packet, t2_unit_result_item
 
 
-def _stage_input(window: dict | None = None) -> dict:
+def _stage_input(t2_item: dict | None = None) -> dict:
     return build_t3_hierarchical_stage_input(
         table_packet(),
-        unit_windows={
-            "post_t2_observation_hash": "sha256:t2",
-            "windows": [window or unit_window()],
+        t2_unit_result={
+            "artifact_type": "ai_unit_observation",
+            "items": [t2_item or t2_unit_result_item()],
         },
     )
 
@@ -167,11 +167,11 @@ def test_invalid_cross_level_child_ref_becomes_manual_review_fallback_keep() -> 
 
 
 def test_incomplete_table_cannot_terminal_or_split_as_accepted() -> None:
-    window = {
-        **unit_window(),
+    t2_item = {
+        **t2_unit_result_item(),
         "source_seq_refs": [1, 2],
     }
-    stage_input = _stage_input(window)
+    stage_input = _stage_input(t2_item)
 
     def decide(_evidence: dict, node: dict, _unit_id: str) -> dict:
         if node["source_kind"] == "unit":
@@ -251,9 +251,9 @@ def test_run_can_split_to_exact_spans_and_materialize_mixed_run_without_loss() -
     row["style_details"]["runs"][0]["text"] = row["text"]
     stage_input = build_t3_hierarchical_stage_input(
         packet,
-        unit_windows={
-            "post_t2_observation_hash": "sha256:t2",
-            "windows": [{**unit_window(), "source_seq_refs": [7]}],
+        t2_unit_result={
+            "artifact_type": "ai_unit_observation",
+            "items": [{**t2_unit_result_item(), "source_seq_refs": [7]}],
         },
     )
     by_ref = nodes_by_ref(stage_input)
@@ -298,7 +298,7 @@ def test_run_can_split_to_exact_spans_and_materialize_mixed_run_without_loss() -
         trace,
         packet=packet,
         model="fixture",
-        unit_windows={"post_t2_observation_hash": "sha256:t2"},
+        stage_input=stage_input,
     )
 
     assert trace["validation"] == {"valid": True, "errors": []}
@@ -325,7 +325,7 @@ def test_run_can_split_to_exact_spans_and_materialize_mixed_run_without_loss() -
     assert observation["quality_report"]["mixed_span_run_count"] == 1
 
 
-def test_sparse_trace_materializes_legacy_items_without_losing_resolution_trace() -> None:
+def test_sparse_trace_materializes_atomic_items_without_losing_resolution_trace() -> None:
     stage_input = _stage_input()
     trace = run_t3_sparse_traversal(
         stage_input,
@@ -341,7 +341,7 @@ def test_sparse_trace_materializes_legacy_items_without_losing_resolution_trace(
         trace,
         packet=table_packet(),
         model="replay",
-        unit_windows={"window_source": "gold", "post_t2_observation_hash": "sha256:t2"},
+        stage_input=stage_input,
     )
 
     assert observation["quality_report"]["input_mode"] == "hierarchical_sparse_stop_or_descend"
@@ -368,7 +368,7 @@ def test_manual_review_fallback_is_not_execution_eligible() -> None:
         trace,
         packet=table_packet(),
         model="replay",
-        unit_windows={},
+        stage_input=stage_input,
     )
 
     assert observation["quality_report"]["demotions"]

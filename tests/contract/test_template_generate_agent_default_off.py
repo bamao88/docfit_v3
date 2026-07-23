@@ -21,8 +21,11 @@ def test_template_generate_default_off_writes_l1_stage_inputs_but_no_agent_decis
     assert "template_agent_manual_review_items" not in result.artifacts
     assert not (out_dir / "08_agent_render_packet.json").exists()
     assert (out_dir / "01.6_t2_l1_stage_input.json").exists()
-    assert (out_dir / "01.7_t3_l1_compatibility_input.json").exists()
+    assert not (out_dir / "01.7_t3_l1_compatibility_input.json").exists()
     assert (out_dir / "01.8_t4_l1_stage_input.json").exists()
+    assert (out_dir / "12_t3_materialization_trace.json").exists()
+    trace = read_json(out_dir / "12_t3_materialization_trace.json")
+    assert trace["materialization"]["availability"] == "NOT_AVAILABLE"
     assert not (out_dir / "09.5_agent_submission_comparison.json").exists()
     assert not (out_dir / "10.5_agent_manual_review_items.json").exists()
     summary = read_json(out_dir / "summary.json")

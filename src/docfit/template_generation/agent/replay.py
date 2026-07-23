@@ -7,9 +7,8 @@ from docfit.core.io import read_json
 
 PASS_KIND_ALLOWED_LAYERS = {
     "t2_unit_scan": ["t2"],
-    "t3_unit_elements": ["t3"],
     "t4_global_layout": ["t4"],
-    "legacy_layered_submission": ["t2", "t3", "t4"],
+    "legacy_layered_submission": ["t2", "t4"],
 }
 
 
@@ -108,10 +107,10 @@ def _allowed_layers(
 ) -> list[str]:
     raw = round_item.get("allowed_layers") or submission.get("allowed_layers")
     if isinstance(raw, list):
-        values = [str(value) for value in raw if str(value) in {"t2", "t3", "t4"}]
+        values = [str(value) for value in raw if str(value) in {"t2", "t4"}]
         if values:
             return values
-    return list(PASS_KIND_ALLOWED_LAYERS.get(pass_kind, ["t2", "t3", "t4"]))
+    return list(PASS_KIND_ALLOWED_LAYERS.get(pass_kind, ["t2", "t4"]))
 
 
 def pass_plan_from_steps(

@@ -35,6 +35,16 @@ def materialize_ai_t3_structure(
     before_hash = sha256_json(structure_candidates)
     patched = deepcopy(structure_candidates)
     claims, conflicting_raw_run_ids = _claims_by_raw_run(observation)
+    observation_items = [
+        item
+        for item in observation.get("items", []) or []
+        if isinstance(item, dict)
+    ]
+    object_items = [
+        item
+        for item in observation.get("object_items", []) or []
+        if isinstance(item, dict)
+    ]
     runs_by_raw = (
         patched.get("source_context", {}).get("runs_by_raw_run_id", {}) or {}
     )
@@ -83,18 +93,51 @@ def materialize_ai_t3_structure(
 
     missing_claim_raw_run_ids = sorted(set(claims) - matched_raw_run_ids)
     unclaimed_source_raw_run_ids = sorted(source_raw_run_ids - set(claims))
+    safe_keep_claim_raw_run_ids = sorted(
+        raw_run_id
+        for raw_run_id, claim in claims.items()
+        if claim.get("safe_fallback")
+    )
+    availability = "AVAILABLE" if observation_items else "NOT_AVAILABLE"
     operation = {
-        "proposal_id": "ai_t3_authority",
         "operation": "materialize_ai_atomic_policies",
         "authority": "ai",
-        "observation_available": bool(observation.get("items")),
+        "availability": availability,
+        "materialization_status": (
+            "MATERIALIZED" if availability == "AVAILABLE" else "SAFE_KEEP_ONLY"
+        ),
+        "observation_item_count": len(observation_items),
+        "accepted_observation_item_count": sum(
+            1 for item in observation_items if _is_accepted_item(item)
+        ),
+        "fallback_observation_item_count": sum(
+            1 for item in observation_items if not _is_accepted_item(item)
+        ),
+        "object_observation_item_count": len(object_items),
+        "unmaterialized_object_refs": sorted(
+            {
+                str(item.get("member_ref") or item.get("element_id") or "")
+                for item in object_items
+                if item.get("member_ref") or item.get("element_id")
+            }
+        ),
         "safe_failure_action": "keep",
+        "source_raw_run_count": len(source_raw_run_ids),
         "claimed_raw_run_count": len(claims),
         "matched_raw_run_count": len(matched_raw_run_ids),
+        "safe_keep_claim_raw_run_ids": safe_keep_claim_raw_run_ids,
         "materialized_element_count": materialized_count,
         "conflicting_raw_run_ids": conflicting_raw_run_ids,
         "missing_claim_raw_run_ids": missing_claim_raw_run_ids,
         "unclaimed_source_raw_run_ids": unclaimed_source_raw_run_ids,
+        "coverage_self_check": {
+            "all_source_runs_materialized": materialized_count > 0
+            or not source_raw_run_ids,
+            "unmatched_claim_count": len(missing_claim_raw_run_ids),
+            "unclaimed_source_run_count": len(unclaimed_source_raw_run_ids),
+            "conflict_count": len(conflicting_raw_run_ids),
+            "safe_keep_is_only_failure_action": True,
+        },
         "before_hash": before_hash,
         "after_hash": sha256_json(patched),
     }
@@ -127,11 +170,7 @@ def _claims_by_raw_run(
 
 
 def _claim_from_item(item: dict[str, Any]) -> dict[str, Any]:
-    accepted = (
-        str(item.get("decision_status") or "") == "accepted"
-        and str(item.get("resolution") or "") in {"direct", "inherited"}
-        and item.get("execution_eligible") is not False
-    )
+    accepted = _is_accepted_item(item)
     if not accepted:
         return _safe_keep_claim(
             reason=str(item.get("ai_rationale") or "AI decision was not accepted"),
@@ -147,6 +186,14 @@ def _claim_from_item(item: dict[str, Any]) -> dict[str, Any]:
         "item": item,
         "safe_fallback": False,
     }
+
+
+def _is_accepted_item(item: dict[str, Any]) -> bool:
+    return (
+        str(item.get("decision_status") or "") == "accepted"
+        and str(item.get("resolution") or "") in {"direct", "inherited"}
+        and item.get("execution_eligible") is not False
+    )
 
 
 def _safe_keep_claim(

@@ -345,7 +345,6 @@ def template_inspect(
             "l1": [
                 "01.5_l1_input_contract.json",
                 "01.6_t2_l1_stage_input.json",
-                "01.7_t3_l1_compatibility_input.json",
                 "01.8_t4_l1_stage_input.json",
             ],
             "t2": ["02.0_t2_code_unit_map.yaml", "02.2_t2_ai_unit_observation.yaml", "02.3_t2_merged_unit_map.yaml"],
