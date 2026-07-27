@@ -91,35 +91,25 @@ def write_template_generation_outputs(out_dir: Path, result: StageResult) -> Non
         "t4_l1_stage_input",
         "T4 输入：只由 sealed L1 单向派生的阶段视图。",
     )
-    write_step_yaml(
-        "02.0_t2_code_unit_map.yaml",
-        "t2_code_unit_map",
-        "T2/code_raw：agent 合并前由确定性代码直接生成的单元边界。",
-    )
     write_step_json(
         "02.1_t2_input.json",
         "t2_input",
-        "T2：边界/标签低置信问题的确定性投影，供人工或 AI 兜底使用。",
+        "T2 AI 输入：按页排列的真实页图引用与客观 L1 事实。",
     )
     write_step_yaml(
         "02.2_t2_ai_unit_observation.yaml",
         "t2_ai_unit_observation",
-        "T2/ai_raw：Module 1 AI 独立生成的单元观察；未提供 AI 时标记 NOT_AVAILABLE。",
-    )
-    write_step_yaml(
-        "02.3_t2_merged_unit_map.yaml",
-        "t2_merged_unit_map",
-        "T2/merged：AI/code bridge 与 reconciler 后进入 T3/T5/T6 的最终单元边界。",
+        "T2 AI 观察产物：AI 决策核心只含 unit_id、unit_name 和页面边界。",
     )
     write_step_yaml(
         "02_unit_map.yaml",
         "unit_map",
-        "T2 兼容别名：当前主链路消费的最终 merged unit_map。",
+        "T2 final：AI 页面组经完整覆盖校验和确定性 L1 绑定后的唯一 unit_map。",
     )
     write_step_json(
         "03.0_t3_hierarchical_stage_input.json",
         "t3_hierarchical_stage_input",
-        "T3 分层输入：基于 sealed L1 与对应 T2 route 的可校验节点树。",
+        "T3 分层输入：只基于 sealed L1 与本次运行 T2 final 的可校验节点树。",
     )
     write_step_yaml(
         "03.1_t3_ai_element_observation.yaml",
@@ -137,29 +127,19 @@ def write_template_generation_outputs(out_dir: Path, result: StageResult) -> Non
         "T3 canonical：AI 判断经身份校验、继承展开和安全 Keep 后的元素策略。",
     )
     write_step_yaml(
-        "04.0_t4_code_global_spec.yaml",
-        "t4_code_global_spec",
-        "T4/code_raw：agent 合并前由确定性代码直接生成的全局布局规则。",
-    )
-    write_step_yaml(
         "04.1_t4_ai_layout_observation.yaml",
         "t4_ai_layout_observation",
-        "T4/ai_raw：Module 1 AI 独立生成的布局观察；未提供 AI 时标记 NOT_AVAILABLE。",
-    )
-    write_step_yaml(
-        "04.2_t4_merged_global_spec.yaml",
-        "t4_merged_global_spec",
-        "T4/merged：当前进入 T5/T6 的最终全局布局规则。",
+        "T4 AI 原始布局判断：唯一语义来源，保留模型输出和校验诊断。",
     )
     write_step_yaml(
         "04_global_spec.yaml",
         "global_spec",
-        "T4 兼容别名：当前主链路消费的最终 merged global_spec。",
+        "T4 final：AI 判断经身份、证据和契约校验后发布的唯一 global_spec。",
     )
     write_step_yaml(
         "05_template_spec.yaml",
         "template_spec",
-        "T5：模板解析主产物，供可填模板构建和后续阶段消费。",
+        "T5 final：只合并 T2/T3/T4 final 后发布的唯一模板解析主产物。",
     )
 
     if source_template is not None:
@@ -188,69 +168,14 @@ def write_template_generation_outputs(out_dir: Path, result: StageResult) -> Non
         "T1-T6 聚合 verifier 报告。",
     )
     write_step_json(
-        "08.5_agent_pass_plan.json",
-        "template_agent_pass_plan",
-        "Agent 编排：每个 pass 的阶段、窗口和允许输出层。",
-    )
-    write_step_json(
-        "08.6_agent_post_t2_checkpoint.json",
-        "template_agent_post_t2_checkpoint",
-        "Agent 编排：T2 pass 后的结构与 unit_map checkpoint。",
-    )
-    write_step_json(
-        "08.65_agent_post_t2_input.json",
-        "template_agent_post_t2_input",
-        "Agent 编排：T2 overlay 后的 source_seq ownership 与 unit input 视图。",
-    )
-    write_step_json(
-        "09_agent_transcript.json",
-        "template_agent_transcript",
-        "Agent replay/live transcript。",
-    )
-    write_step_json(
         "09.1_ai_observation_bundle.json",
         "ai_observation_bundle",
         "Agent 观察输入：同 run Module 1 AI observation bundle。",
     )
     write_step_json(
-        "09.25_agent_observation_bridge.json",
-        "template_agent_observation_bridge",
-        "Agent 观察桥接：AI observation bundle 到 executable proposal/manual review 的映射。",
-    )
-    write_step_json(
-        "09.5_agent_submission_comparison.json",
-        "template_agent_submission_comparison",
-        "Agent 对账：AI submission 与 deterministic 当前结果的 compatible/conflict/missing/unknown 关系。",
-    )
-    write_step_json(
-        "10_agent_decisions.json",
-        "template_agent_decisions",
-        "Agent deterministic reconciler 的 accepted/rejected 决策。",
-    )
-    write_step_json(
-        "10.5_agent_manual_review_items.json",
-        "template_agent_manual_review_items",
-        "Agent 人工待决：open_questions、comparison conflicts、validation failures 和高风险项。",
-    )
-    write_step_json(
-        "11_agent_t2_overlay.json",
-        "agent_t2_overlay",
-        "T2 Agent overlay：只 patch structure_candidates 后重生 unit_map。",
-    )
-    write_step_json(
         "12_t3_materialization_trace.json",
         "t3_materialization_trace",
         "T3 物化自检：记录 AI 决策覆盖、安全 Keep 和最终 element_spec 物化摘要；不是第二条输出路线。",
-    )
-    write_step_json(
-        "13_agent_t4_hints.json",
-        "agent_t4_hints",
-        "T4 Agent hints：T4 全局布局诊断/佐证 artifact，只包含 section profile 与 page numbering hint。",
-    )
-    write_step_json(
-        "14_agent_attribution.json",
-        "agent_attribution",
-        "Agent attribution：round0/post-agent diff 与 proposal 归因。",
     )
     index_path = out_dir / "99_template_generation_debug_index.json"
     write_json(

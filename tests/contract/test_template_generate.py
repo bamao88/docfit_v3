@@ -9,9 +9,11 @@ from typer.testing import CliRunner
 
 from docfit.cli.main import app
 from docfit.convert.orchestrator import run_template_generate_eval
-from docfit.core.io import read_json, read_yaml, sha256_file, sha256_json
+from docfit.core.io import read_json, read_yaml, sha256_file, sha256_json, write_json
 from docfit.core.status import Status
-from docfit.template_generation.runner import BODY_SLOT_MARKER
+from docfit.template_generation.constants import BODY_SLOT_MARKER
+from docfit.template_generation.agent.config import AgentConfig
+from docfit.template_generation.source_tree import inspect_document_facts_docx
 
 
 W_NS = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
@@ -72,6 +74,95 @@ def docx_sdt_tags(path: Path) -> set[str]:
     return tags
 
 
+def ai_replay_config(
+    tmp_path: Path,
+    *,
+    end_page: int = 1,
+    end_source_seq: int = 1,
+) -> AgentConfig:
+    replay = tmp_path / "t2-ai-replay.json"
+    write_json(
+        replay,
+        {
+            "t2": [
+                {
+                    "units": [
+                        {
+                            "unit_id": "template_pages",
+                            "unit_name": "模板页面",
+                            "boundary": {
+                                "start_page": 1,
+                                "end_page": end_page,
+                            },
+                        }
+                    ]
+                }
+            ],
+            "t3": {},
+            "t4": {
+                "section_profiles": [
+                    {
+                        "section_profile_id": "section_001",
+                        "source_ref": "word/document.xml:body/sectPr",
+                        "boundary": {
+                            "start_source_seq": 1,
+                            "end_source_seq": end_source_seq,
+                            "confidence": "high",
+                        },
+                        "page_setup": {},
+                        "header_footer": [],
+                        "page_numbering": {
+                            "declared": {"status": "none"},
+                            "fields": [],
+                            "display": {
+                                "status": "no_page_field",
+                                "has_page_field": False,
+                                "checked_scopes": {
+                                    "body_source_seq_range": {
+                                        "start": 1,
+                                        "end": end_source_seq,
+                                    },
+                                    "header_footer_parts": [],
+                                },
+                            },
+                            "flags": [],
+                        },
+                        "evidence_refs": [
+                            {"page_no": 1, "render_target_id": "page:1"}
+                        ],
+                    }
+                ],
+                "default_font": None,
+                "page_numbering": {"status": "none"},
+                "header_footer": [],
+                "numbering_rules": [],
+            },
+        },
+    )
+    return AgentConfig(
+        enabled=True,
+        observation_mode="replay",
+        observation_transcript_path=replay,
+    )
+
+
+def run_template_generate_replay(
+    tmp_path: Path,
+    source: Path,
+    out_dir: Path,
+):
+    source_seq_count = len(inspect_document_facts_docx(source).get("body_flow", []))
+    return run_template_generate_eval(
+        tmp_path,
+        source,
+        out_dir,
+        agent_config=ai_replay_config(
+            tmp_path,
+            end_source_seq=max(1, source_seq_count),
+        ),
+    )
+
+
 def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     write_source_docx(source, ["学校固定封面", "目录", "正文开始", "格式说明：小四宋体"])
@@ -84,7 +175,12 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
         bundle_root
         / "eval_runs/template_generate"
     )
-    result = run_template_generate_eval(tmp_path, source, out_dir)
+    result = run_template_generate_eval(
+        tmp_path,
+        source,
+        out_dir,
+        agent_config=ai_replay_config(tmp_path, end_source_seq=4),
+    )
 
     fillable = out_dir / "06.1_fillable_template.docx"
     manifest_path = out_dir / "06.2_build_manifest.json"
@@ -94,25 +190,22 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     document_facts = read_json(out_dir / "01_document_facts.json")
     l1_input_contract = read_json(out_dir / "01.5_l1_input_contract.json")
     unit_map = read_yaml(out_dir / "02_unit_map.yaml")
-    t2_code = read_yaml(out_dir / "02.0_t2_code_unit_map.yaml")
     t2_ai = read_yaml(out_dir / "02.2_t2_ai_unit_observation.yaml")
-    t2_merged = read_yaml(out_dir / "02.3_t2_merged_unit_map.yaml")
     element_spec = read_yaml(out_dir / "03_element_spec.yaml")
     t3_ai = read_yaml(out_dir / "03.1_t3_ai_element_observation.yaml")
     global_spec = read_yaml(out_dir / "04_global_spec.yaml")
-    t4_code = read_yaml(out_dir / "04.0_t4_code_global_spec.yaml")
     t4_ai = read_yaml(out_dir / "04.1_t4_ai_layout_observation.yaml")
-    t4_merged = read_yaml(out_dir / "04.2_t4_merged_global_spec.yaml")
     template_spec = read_yaml(out_dir / "05_template_spec.yaml")
     verification_report = read_json(out_dir / "07_verification_report.json")
     source_tree = result.artifacts["source_template_tree"]
-    structure_candidates = result.artifacts["template_structure_candidates"]
     t2_input = read_json(out_dir / "02.1_t2_input.json")
     generation_model = result.artifacts["template_generation_model"]
     debug_index = read_json(out_dir / "99_template_generation_debug_index.json")
     issue_clusters = read_json(out_dir / "issue_clusters.json")
 
     assert result.status == Status.UNKNOWN
+    assert result.run_status in {Status.PASS, Status.UNKNOWN, Status.FAIL}
+    assert result.quality_status == Status.UNKNOWN
     assert out_dir.parent.name == "eval_runs"
     assert fillable.exists()
     assert (out_dir / "00_template_generation_request.json").exists()
@@ -124,44 +217,56 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     for forbidden in ("template_policy", "final_disposition", "policy_reason"):
         assert forbidden not in serialized_document_facts
     assert unit_map["artifact_type"] == "unit_map"
-    assert t2_code["route"]["route_id"] == "code_raw"
-    assert t2_code["route"]["availability"] == "AVAILABLE"
     assert t2_ai["artifact_type"] == "ai_unit_observation"
-    assert t2_ai["route"]["route_id"] == "ai_raw"
-    assert t2_ai["route"]["availability"] == "NOT_AVAILABLE"
-    assert "abstain" not in t2_ai
-    assert t2_ai["coverage"]["unknown_source_seq"] == []
-    assert t2_ai["coverage"]["total"] == len(document_facts["body_flow"])
-    assert t2_merged["artifact_type"] == "unit_map"
-    assert t2_merged["route"]["route_id"] == "merged"
-    assert t2_merged["route"]["availability"] == "AVAILABLE"
+    assert t2_ai["units"] == [
+        {
+            "unit_id": "template_pages",
+            "unit_name": "模板页面",
+            "boundary": {"start_page": 1, "end_page": 1},
+        }
+    ]
+    assert unit_map["lineage"]["producer_mode"] == "ai"
+    assert unit_map["units"][0]["page_policy"] == {
+        "start": "document_start",
+        "scope": "page_range_exclusive",
+    }
     assert element_spec["artifact_type"] == "element_spec"
     assert element_spec["route"]["route_id"] == "ai"
-    assert element_spec["route"]["availability"] == "NOT_AVAILABLE"
+    assert element_spec["route"]["availability"] == "AVAILABLE"
     assert all(element["policy"] == "fixed" for element in element_spec["elements"])
     assert t3_ai["artifact_type"] == "ai_element_observation"
     assert t3_ai["route"]["route_id"] == "ai_raw"
-    assert t3_ai["route"]["availability"] == "NOT_AVAILABLE"
-    assert "abstain" not in t3_ai
+    assert t3_ai["route"]["availability"] == "AVAILABLE"
+    assert t3_ai["abstain"] is False
     assert t3_ai["coverage"]["unknown_source_seq"] == []
     assert t3_ai["coverage"]["total"] == len(document_facts["body_flow"])
     assert global_spec["artifact_type"] == "global_spec"
-    assert t4_code["route"]["route_id"] == "code_raw"
-    assert t4_code["route"]["availability"] == "AVAILABLE"
+    assert global_spec["availability"]["status"] == "AVAILABLE"
+    assert global_spec["lineage"]["producer_mode"] == "ai"
+    assert len(global_spec["lineage"]["selected_from"]) == 1
+    assert global_spec["lineage"]["selected_from"][0]["artifact"] == (
+        "04.1_t4_ai_layout_observation.yaml"
+    )
     assert t4_ai["artifact_type"] == "ai_layout_observation"
-    assert t4_ai["route"]["route_id"] == "ai_raw"
-    assert t4_ai["route"]["availability"] == "NOT_AVAILABLE"
-    assert "abstain" not in t4_ai
+    assert "route" not in t4_ai
+    assert t4_ai["abstain"] is False
     assert t4_ai["coverage"]["unknown_source_seq"] == []
     assert t4_ai["coverage"]["total"] == len(document_facts["body_flow"])
-    assert t4_merged["artifact_type"] == "global_spec"
-    assert t4_merged["route"]["route_id"] == "merged"
-    assert t4_merged["route"]["availability"] == "AVAILABLE"
+    assert set(global_spec) >= {
+        "section_profiles",
+        "default_font",
+        "page_numbering",
+        "header_footer",
+        "numbering_rules",
+        "flags",
+    }
     assert template_spec["artifact_type"] == "template_spec"
     assert manifest["artifact_type"] == "build_manifest"
+    assert manifest["observed_layout_effects"]["status"] == Status.PASS.value
+    assert manifest["observed_layout_effects"]["output_docx_hash"] == sha256_file(fillable)
     assert verification_report["status"] == Status.UNKNOWN.value
-    assert verification_report["first_bad_stage"] == "T2"
-    assert any(flag["type"] == "unit_confidence_needs_review" for flag in unit_map["flags"])
+    assert verification_report["first_bad_stage"] is None
+    assert unit_map["flags"] == []
     # Element confidence is graded by final policy/evidence (not blanket medium):
     # unambiguous fixed/instruction/generated elements grade `high` and raise no
     # review flag; only genuinely-ambiguous elements stay medium/low and get one.
@@ -181,21 +286,26 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     )
     assert global_spec["page_numbering"]["status"] == "none"
     assert not any(flag["type"] == "page_numbering_unknown" for flag in global_spec["flags"])
-    assert template_spec["review_flags"]
-    assert any(
+    assert template_spec["review_flags"] == []
+    assert not any(
         finding["type"] == "t2_unit_confidence_needs_review"
         for finding in verification_report["findings"]
     )
+    unavailable_stages = {
+        finding["affected_ids"][0]
+        for finding in verification_report["findings"]
+        if finding["type"] == "stage_final_not_available"
+    }
+    assert not unavailable_stages
     assert not any(
         finding["type"] == "t4_page_numbering_unknown"
         for finding in verification_report["findings"]
     )
     assert issue_clusters
     assert source_tree["artifact_type"] == "source_template_tree"
-    assert structure_candidates["artifact_type"] == "template_structure_candidates"
-    assert t2_input["artifact_type"] == "t2_input"
+    assert t2_input["scope"] == "t2_page_groups"
     assert generation_model["artifact_type"] == "template_generation_model"
-    assert any(question["kind"] == "boundary" for question in unit_map["open_questions"])
+    assert unit_map["open_questions"] == []
     assert manifest_path.exists()
     source_seq_refs = [
         item["source_seq"] for item in document_facts["body_flow"]
@@ -211,18 +321,19 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert (out_dir / "00_input_source_template.docx").exists()
     assert (out_dir / "00_template_generation_request.json").exists()
     assert (out_dir / "01_document_facts.json").exists()
-    assert (out_dir / "02.0_t2_code_unit_map.yaml").exists()
+    assert not (out_dir / "02.0_t2_code_unit_map.yaml").exists()
     assert (out_dir / "02_unit_map.yaml").exists()
     assert (out_dir / "02.1_t2_input.json").exists()
     assert (out_dir / "02.2_t2_ai_unit_observation.yaml").exists()
-    assert (out_dir / "02.3_t2_merged_unit_map.yaml").exists()
+    assert not (out_dir / "02.3_t2_merged_unit_map.yaml").exists()
     assert not (out_dir / "03.0_t3_code_element_spec.yaml").exists()
     assert (out_dir / "03.1_t3_ai_element_observation.yaml").exists()
     assert not (out_dir / "03.2_t3_merged_element_spec.yaml").exists()
     assert (out_dir / "03_element_spec.yaml").exists()
-    assert (out_dir / "04.0_t4_code_global_spec.yaml").exists()
+    assert not (out_dir / "04.0_t4_code_global_spec.yaml").exists()
     assert (out_dir / "04.1_t4_ai_layout_observation.yaml").exists()
-    assert (out_dir / "04.2_t4_merged_global_spec.yaml").exists()
+    assert not (out_dir / "04.1.5_t4_ai_global_spec.yaml").exists()
+    assert not (out_dir / "04.2_t4_merged_global_spec.yaml").exists()
     assert (out_dir / "04_global_spec.yaml").exists()
     assert (out_dir / "05_template_spec.yaml").exists()
     assert (out_dir / "06.0_copy_source_docx.docx").exists()
@@ -231,9 +342,14 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert (out_dir / "07_verification_report.json").exists()
     assert (out_dir / "99_template_generation_debug_index.json").exists()
     assert summary["status"] == Status.UNKNOWN.value
+    assert summary["run_status"] == result.run_status.value
+    assert summary["quality_status"] == Status.UNKNOWN.value
     assert summary["unknown_findings"] > 0
     assert summary["artifacts"]["fillable_template_docx"] == str(fillable)
     assert "slot_body_start" in docx_sdt_tags(fillable)
+    assert template_spec["availability"]["status"] == "AVAILABLE"
+    assert manifest["availability"]["status"] == "AVAILABLE"
+    assert manifest["input_refs"]["t5_final"]["sha256"] == sha256_json(template_spec)
     assert not any("[[DOCFIT_" in text for text in docx_texts(fillable))
     assert BODY_SLOT_MARKER not in docx_texts(out_dir / "06.0_copy_source_docx.docx")
     assert "格式说明：小四宋体" in docx_texts(out_dir / "06.0_copy_source_docx.docx")
@@ -251,7 +367,6 @@ def test_template_generate_writes_full_stage_artifact_chain(tmp_path) -> None:
     assert {slot["slot_id"] for slot in manifest["slots"]} >= {"slot_body_start"}
     assert manifest["actions_executed"]
     assert "actions_deferred" not in manifest
-    assert any(unit["unit_id"] == "toc" for unit in structure_candidates["units"])
     assert not any(item["policy"] == "strip" for item in generation_model["cleanup"])
     assert "格式说明：小四宋体" in docx_texts(fillable)
     assert all("affected_source_seq_refs" in action for action in plan["actions"])
@@ -261,7 +376,9 @@ def test_template_generate_preserves_existing_body_slot(tmp_path) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template-with-slot.docx"
     write_source_docx(source, ["学校固定封面", BODY_SLOT_MARKER])
 
-    result = run_template_generate_eval(tmp_path, source, tmp_path / "template_generate")
+    result = run_template_generate_replay(
+        tmp_path, source, tmp_path / "template_generate"
+    )
     fillable = tmp_path / "template_generate/06.1_fillable_template.docx"
     manifest = read_json(
         tmp_path / "template_generate/06.2_build_manifest.json"
@@ -288,7 +405,9 @@ def test_template_generate_without_ai_preserves_instruction_text_inside_table_ce
     doc.add_paragraph("正文")
     doc.save(source)
 
-    result = run_template_generate_eval(tmp_path, source, tmp_path / "template_generate")
+    result = run_template_generate_replay(
+        tmp_path, source, tmp_path / "template_generate"
+    )
     fillable = tmp_path / "template_generate/06.1_fillable_template.docx"
     manifest = read_json(
         tmp_path / "template_generate/06.2_build_manifest.json"
@@ -322,7 +441,7 @@ def test_template_generate_without_ai_safely_keeps_form_usage_notes(tmp_path) ->
         ],
     )
 
-    result = run_template_generate_eval(tmp_path, source, out_dir)
+    result = run_template_generate_replay(tmp_path, source, out_dir)
     fillable = out_dir / "06.1_fillable_template.docx"
     plan = result.artifacts["template_generation_plan"]
     output_text = "\n".join(docx_texts(fillable))
@@ -343,7 +462,9 @@ def test_template_generate_without_ai_safely_keeps_form_usage_notes(tmp_path) ->
     )
 
 
-def test_template_generate_merges_table_label_value_candidates(tmp_path) -> None:
+def test_template_generate_keeps_table_cells_neutral_without_code_side_t2_merging(
+    tmp_path,
+) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template-table-label.docx"
     source.parent.mkdir(parents=True, exist_ok=True)
     doc = Document()
@@ -354,29 +475,34 @@ def test_template_generate_merges_table_label_value_candidates(tmp_path) -> None
     doc.add_paragraph("正文")
     doc.save(source)
 
-    result = run_template_generate_eval(tmp_path, source, tmp_path / "template_generate")
-    structure_candidates = result.artifacts["template_structure_candidates"]
-    merged = next(
-        element
-        for unit in structure_candidates["units"]
-        for element in unit["elements"]
-        if element.get("source_refs")
-        == [
-            "word/document.xml:tbl[1]/tr[1]/tc[1]",
-            "word/document.xml:tbl[1]/tr[1]/tc[2]",
-        ]
+    result = run_template_generate_replay(
+        tmp_path, source, tmp_path / "template_generate"
     )
+    generation_model = result.artifacts["template_generation_model"]
+    elements = generation_model["units"][0]["elements"]
+    table_elements = [
+        element
+        for element in elements
+        if element.get("source_refs")
+        in (
+            ["word/document.xml:tbl[1]/tr[1]/tc[1]"],
+            ["word/document.xml:tbl[1]/tr[1]/tc[2]"],
+        )
+    ]
 
     assert result.status == Status.UNKNOWN
-    assert merged["candidate_policy"] == "fixed"
-    assert merged["role_hint"] == "student_field_candidate"
-    assert len(merged["source_seq_refs"]) == 2
-    assert len(merged["entry_refs"]) == 2
-    assert merged["merge"]["type"] == "table_row_label_value"
-    assert merged["merge"]["merged_source_seq_refs"] == merged["source_seq_refs"]
+    assert len(table_elements) == 2
+    assert all(element["candidate_policy"] == "fixed" for element in table_elements)
+    assert all(
+        element["role_hint"] == "unclassified_source_content"
+        for element in table_elements
+    )
+    assert all("merge" not in element for element in table_elements)
 
 
-def test_template_generate_merges_business_sentence_continuation(tmp_path) -> None:
+def test_template_generate_keeps_paragraphs_neutral_without_code_side_t2_merging(
+    tmp_path,
+) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template-continuation.docx"
     out_dir = tmp_path / "template_generate"
     write_source_docx(
@@ -389,25 +515,25 @@ def test_template_generate_merges_business_sentence_continuation(tmp_path) -> No
         ],
     )
 
-    result = run_template_generate_eval(tmp_path, source, out_dir)
-    structure_candidates = result.artifacts["template_structure_candidates"]
-    abstract = next(
-        unit for unit in structure_candidates["units"] if unit["unit_id"] == "abstract_cn"
-    )
-    merged = next(
+    result = run_template_generate_replay(tmp_path, source, out_dir)
+    generation_model = result.artifacts["template_generation_model"]
+    unit = generation_model["units"][0]
+    continuation_elements = [
         element
-        for element in abstract["elements"]
+        for element in unit["elements"]
         if element.get("source_refs")
-        == ["word/document.xml:p[2]", "word/document.xml:p[3]"]
-    )
+        in (["word/document.xml:p[2]"], ["word/document.xml:p[3]"])
+    ]
 
     assert result.status == Status.UNKNOWN
-    assert merged["candidate_policy"] == "fixed"
-    assert merged["role_hint"] == "student_field_candidate"
-    assert merged["source_seq_refs"] == [2, 3]
-    assert merged["entry_refs"] == ["body_0002", "body_0003"]
-    assert merged["merge"]["type"] == "business_sentence_continuation"
-    assert merged["merge"]["merged_source_seq_refs"] == [2, 3]
+    assert unit["unit_id"] == "template_pages"
+    assert len(continuation_elements) == 2
+    assert [element["source_seq_refs"] for element in continuation_elements] == [[2], [3]]
+    assert all(
+        element["role_hint"] == "unclassified_source_content"
+        for element in continuation_elements
+    )
+    assert all("merge" not in element for element in continuation_elements)
 
 
 def test_template_generate_invalid_docx_fails_without_output(tmp_path) -> None:
@@ -415,7 +541,9 @@ def test_template_generate_invalid_docx_fails_without_output(tmp_path) -> None:
     source.parent.mkdir(parents=True, exist_ok=True)
     source.write_text("not a zip package", encoding="utf-8")
 
-    result = run_template_generate_eval(tmp_path, source, tmp_path / "template_generate")
+    result = run_template_generate_replay(
+        tmp_path, source, tmp_path / "template_generate"
+    )
     summary = read_json(tmp_path / "template_generate/summary.json")
 
     assert result.status == Status.FAIL
@@ -432,16 +560,22 @@ def test_template_generate_cli_writes_public_outputs(tmp_path) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     out_dir = tmp_path / "cli_template_generate"
     write_source_docx(source, ["学校固定封面"])
+    replay = ai_replay_config(tmp_path).observation_transcript_path
+    assert replay is not None
 
     result = CliRunner().invoke(
         app,
         [
-            "eval",
-            "template-generate",
+            "template",
+            "generate",
             "--template",
             str(source),
             "--out",
             str(out_dir),
+            "--ai",
+            "replay",
+            "--replay",
+            str(replay),
         ],
     )
 
@@ -476,35 +610,23 @@ def test_template_generate_cli_rejects_school_standard_input(tmp_path) -> None:
     assert "No such option" in result.output or "No such option" in result.stderr
 
 
-def test_template_generate_disables_whole_unit_copy_by_default(tmp_path) -> None:
+def test_template_generate_uses_copy_then_patch_actions(tmp_path) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     out_dir = tmp_path / "template_generate"
     write_source_docx(source, ["封面", "参考文献"])
 
-    result = run_template_generate_eval(tmp_path, source, out_dir)
+    result = run_template_generate_replay(tmp_path, source, out_dir)
     generation_model = result.artifacts["template_generation_model"]
     plan = result.artifacts["template_generation_plan"]
-    cover = next(
-        unit for unit in generation_model["unit_strategies"] if unit["unit_id"] == "cover"
-    )
+    strategies = generation_model["unit_strategies"]
 
     assert result.status == Status.UNKNOWN
-    assert cover["generation_mode"] == "copy_then_patch"
-    assert cover["generation_policy"] == "unit_actions"
-    references = next(
-        unit
-        for unit in generation_model["unit_strategies"]
-        if unit["unit_id"] == "references"
-    )
-    assert references["generation_mode"] == "copy_then_patch"
-    assert references["generation_policy"] == "unit_actions"
-    assert not any(
-        action["action_type"] == "preserve_whole_unit_copy"
-        for action in plan["actions"]
-    )
+    assert [strategy["unit_id"] for strategy in strategies] == ["template_pages"]
+    assert strategies[0]["generation_mode"] == "copy_then_patch"
+    assert strategies[0]["generation_policy"] == "unit_actions"
 
 
-def test_template_generate_custom_units_are_not_copy_only_by_default(tmp_path) -> None:
+def test_template_generate_does_not_invent_custom_units_outside_ai_output(tmp_path) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     out_dir = tmp_path / "template_generate"
     source.parent.mkdir(parents=True, exist_ok=True)
@@ -515,31 +637,24 @@ def test_template_generate_custom_units_are_not_copy_only_by_default(tmp_path) -
     doc.add_paragraph("正文", style="Heading 1")
     doc.save(source)
 
-    result = run_template_generate_eval(tmp_path, source, out_dir)
+    result = run_template_generate_replay(tmp_path, source, out_dir)
     generation_model = result.artifacts["template_generation_model"]
     plan = result.artifacts["template_generation_plan"]
-    custom_strategy = next(
-        unit
-        for unit in generation_model["unit_strategies"]
-        if str(unit["unit_id"]).startswith("custom:template:")
-    )
+    strategies = generation_model["unit_strategies"]
 
     assert result.status == Status.UNKNOWN
-    assert custom_strategy["generation_mode"] == "copy_then_patch"
-    assert custom_strategy["generation_policy"] == "unit_actions"
+    assert [strategy["unit_id"] for strategy in strategies] == ["template_pages"]
     assert not any(
-        action["action_type"] == "preserve_whole_unit_copy"
-        and action["unit_id"] == custom_strategy["unit_id"]
-        for action in plan["actions"]
+        str(strategy["unit_id"]).startswith("custom")
+        for strategy in strategies
     )
     assert not any(
         action["action_type"] in {"create_fillable_slot", "replace_span_with_slot"}
-        and action["unit_id"] == custom_strategy["unit_id"]
         for action in plan["actions"]
     )
 
 
-def test_template_generate_cover_uses_patch_analysis_when_copy_only_disabled(
+def test_template_generate_cover_uses_patch_analysis(
     tmp_path,
 ) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
@@ -555,66 +670,43 @@ def test_template_generate_cover_uses_patch_analysis_when_copy_only_disabled(
         ],
     )
 
-    result = run_template_generate_eval(tmp_path, source, out_dir)
+    result = run_template_generate_replay(tmp_path, source, out_dir)
     fillable = out_dir / "06.1_fillable_template.docx"
-    structure_candidates = result.artifacts["template_structure_candidates"]
     generation_model = result.artifacts["template_generation_model"]
     plan = result.artifacts["template_generation_plan"]
-    cover_candidate = next(
-        unit for unit in structure_candidates["units"] if unit["unit_id"] == "cover"
-    )
-    cover_model = next(
-        unit
-        for unit in generation_model["units"]
-        if unit["unit_id"] == "cover"
-    )
+    unit_model = generation_model["units"][0]
     cover_strategy = next(
-        unit for unit in generation_model["unit_strategies"] if unit["unit_id"] == "cover"
+        unit
+        for unit in generation_model["unit_strategies"]
+        if unit["unit_id"] == "template_pages"
     )
-    cover_elements = cover_candidate["elements"]
-    cover_model_elements = cover_model["elements"]
-    title_candidate = next(
-        element
-        for element in cover_elements
-        if element.get("source_refs") == ["word/document.xml:p[2]"]
-    )
-    instruction_candidate = next(
-        element
-        for element in cover_elements
-        if element.get("source_refs") == ["word/document.xml:p[3]"]
-    )
+    unit_elements = unit_model["elements"]
     model_title = next(
         element
-        for element in cover_model_elements
+        for element in unit_elements
         if element.get("source_refs") == ["word/document.xml:p[2]"]
+    )
+    model_instruction = next(
+        element
+        for element in unit_elements
+        if element.get("source_refs") == ["word/document.xml:p[3]"]
     )
 
     assert result.status == Status.UNKNOWN
-    assert not any(
-        element.get("relationship") == "copy_region_candidate"
-        for element in cover_elements
-    )
-    assert title_candidate["role_hint"] == "student_field_candidate"
-    assert title_candidate["candidate_policy"] == "fixed"
-    assert title_candidate["source_seq_refs"] == [2]
+    assert unit_model["unit_id"] == "template_pages"
+    assert model_title["role_hint"] == "unclassified_source_content"
     assert model_title["candidate_policy"] == "fixed"
     assert model_title["policy"] == "fixed"
-    assert instruction_candidate["role_hint"] == "instruction_candidate"
-    assert instruction_candidate["candidate_policy"] == "fixed"
-    assert instruction_candidate["source_seq_refs"] == [3]
+    assert model_instruction["role_hint"] == "unclassified_source_content"
+    assert model_instruction["candidate_policy"] == "fixed"
     assert cover_strategy["generation_mode"] == "copy_then_patch"
-    assert not any(
-        decision["decision_type"] == "keep_whole_unit_copy"
-        for decision in cover_strategy["decisions"]
-    )
     assert not any(
         decision["decision_type"] == "remove_instruction_text"
         and decision["source_ref"] == "word/document.xml:p[3]"
-        and decision["source_seq_refs"] == [3]
         for decision in cover_strategy["decisions"]
     )
     assert not any(
-        action.get("unit_id") == "cover"
+        action.get("unit_id") == "template_pages"
         and action["action_type"] in {"create_fillable_slot", "replace_span_with_slot"}
         and action["affected_source_seq_refs"] == [2]
         for action in plan["actions"]
@@ -626,7 +718,9 @@ def test_template_generate_cover_uses_patch_analysis_when_copy_only_disabled(
         for action in plan["actions"]
     )
     assert "格式说明：小四宋体" in docx_texts(fillable)
-    assert not any(tag.startswith("cover.") for tag in docx_sdt_tags(fillable))
+    assert not any(
+        tag.startswith("template_pages.") for tag in docx_sdt_tags(fillable)
+    )
 
 
 def test_template_generate_splits_within_paragraph_format_instruction_runs(
@@ -652,34 +746,22 @@ def test_template_generate_splits_within_paragraph_format_instruction_runs(
         ],
     )
 
-    result = run_template_generate_eval(tmp_path, source, out_dir)
+    result = run_template_generate_replay(tmp_path, source, out_dir)
     fillable = out_dir / "06.1_fillable_template.docx"
-    structure_candidates = result.artifacts["template_structure_candidates"]
     generation_model = result.artifacts["template_generation_model"]
     element_spec = read_yaml(out_dir / "03_element_spec.yaml")
     plan = result.artifacts["template_generation_plan"]
     manifest = read_json(out_dir / "06.2_build_manifest.json")
 
-    cover_candidate = next(
-        unit for unit in structure_candidates["units"] if unit["unit_id"] == "cover"
-    )
-    cover_model = next(
-        unit for unit in generation_model["units"] if unit["unit_id"] == "cover"
-    )
-    cover_elements = [
-        element
-        for element in cover_candidate["elements"]
-        if element.get("source_refs") == ["word/document.xml:p[2]"]
-    ]
+    unit_model = generation_model["units"][0]
     model_cover_elements = [
         element
-        for element in cover_model["elements"]
+        for element in unit_model["elements"]
         if element.get("source_refs") == ["word/document.xml:p[2]"]
     ]
     assert result.status == Status.UNKNOWN
-    assert cover_elements
+    assert unit_model["unit_id"] == "template_pages"
     assert model_cover_elements
-    assert all(element["candidate_policy"] == "fixed" for element in cover_elements)
     assert all(element["policy"] == "fixed" for element in model_cover_elements)
     assert all(element["spans"] == [] for element in model_cover_elements)
     assert all(element["policy"] == "fixed" for element in element_spec["elements"])
@@ -695,7 +777,7 @@ def test_template_generate_splits_within_paragraph_format_instruction_runs(
     assert any("小二黑体加粗" in text for text in docx_texts(fillable))
 
 
-def test_template_generate_without_ai_preserves_field_line_placeholder_spans(tmp_path) -> None:
+def test_template_generate_ai_replay_preserves_field_line_placeholder_spans(tmp_path) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     out_dir = tmp_path / "template_generate"
     write_source_docx_with_runs(
@@ -712,7 +794,7 @@ def test_template_generate_without_ai_preserves_field_line_placeholder_spans(tmp
         ],
     )
 
-    result = run_template_generate_eval(tmp_path, source, out_dir)
+    result = run_template_generate_replay(tmp_path, source, out_dir)
     fillable = out_dir / "06.1_fillable_template.docx"
     element_spec = read_yaml(out_dir / "03_element_spec.yaml")
     plan = result.artifacts["template_generation_plan"]
@@ -720,7 +802,7 @@ def test_template_generate_without_ai_preserves_field_line_placeholder_spans(tmp
     cover_field = next(
         element
         for element in element_spec["elements"]
-        if element["unit_id"] == "cover"
+        if element["unit_id"] == "template_pages"
         and "学□□号" in element.get("content", "")
     )
 
@@ -729,7 +811,7 @@ def test_template_generate_without_ai_preserves_field_line_placeholder_spans(tmp
     assert cover_field["spans"] == []
     assert not any(
         action["action_type"] == "replace_span_with_slot"
-        and action["unit_id"] == "cover"
+        and action["unit_id"] == "template_pages"
         and action["element_id"] == cover_field["element_id"]
         for action in plan["actions"]
     )
@@ -741,28 +823,30 @@ def test_template_generate_without_ai_preserves_field_line_placeholder_spans(tmp
     assert "□□□□□□" in joined_text
     assert "学□□号" in joined_text
     assert "20××" in joined_text
-    assert not any(tag.startswith("cover.") for tag in docx_sdt_tags(fillable))
+    assert not any(
+        tag.startswith("template_pages.") for tag in docx_sdt_tags(fillable)
+    )
 
 
-def test_template_generate_references_unit_is_fillable_not_copy_only(tmp_path) -> None:
+def test_template_generate_does_not_invent_references_unit_outside_ai_output(
+    tmp_path,
+) -> None:
     source = tmp_path / "inputs/targets/demo-school/raw/school-template.docx"
     out_dir = tmp_path / "template_generate"
     write_source_docx(source, ["封面", "正文", "参考文献", "学生文献内容占位"])
 
-    result = run_template_generate_eval(tmp_path, source, out_dir)
+    result = run_template_generate_replay(tmp_path, source, out_dir)
     generation_model = result.artifacts["template_generation_model"]
     plan = result.artifacts["template_generation_plan"]
-    references = next(
-        unit
-        for unit in generation_model["unit_strategies"]
-        if unit["unit_id"] == "references"
-    )
+    strategies = generation_model["unit_strategies"]
 
     assert result.status == Status.UNKNOWN
-    assert references["generation_mode"] == "copy_then_patch"
+    assert [strategy["unit_id"] for strategy in strategies] == ["template_pages"]
     assert not any(
         action["action_type"] in {"create_fillable_slot", "replace_span_with_slot"}
-        and action["unit_id"] == "references"
         for action in plan["actions"]
     )
-    assert not any(tag.startswith("references.") for tag in docx_sdt_tags(out_dir / "06.1_fillable_template.docx"))
+    assert not any(
+        tag.startswith("references.")
+        for tag in docx_sdt_tags(out_dir / "06.1_fillable_template.docx")
+    )

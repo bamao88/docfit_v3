@@ -3,7 +3,7 @@
 AI 独立观察的前提是它**只看干净 Word 事实**，看不到任何代码阶段结论。本模块：
 
 1. 用字段白名单把 ``document_facts`` / render packet 投影成 T2/T4 的证据视图：
-   - T2 = 全文压缩（每 source_seq 文本/样式/页/锚点事实 + 页缩略图 refs）
+   - T2 = 按页组织的真实页图引用与客观正文事实
    - T3 = 由 ``t3_hierarchical_input`` 构造节点树和逐节点证据
    - T4 = 真实页图（要求 real_render，否则该阶段 abstain）+ 页眉脚/sections/numbering 事实
 2. ``assert_firewall_clean`` 在证据子树上扫 deny-set **键名**，命中即抛
@@ -17,6 +17,8 @@ AI 独立观察的前提是它**只看干净 Word 事实**，看不到任何代�
 from __future__ import annotations
 
 from typing import Any
+
+from docfit.template_generation.t2_ai import is_t2_page_body_row
 
 # 每 scope 允许进入证据视图的字段白名单（唯一真相，单测护）。
 EVIDENCE_FIELD_WHITELIST = {
@@ -116,12 +118,14 @@ def _project(item: dict[str, Any], scope: str) -> dict[str, Any]:
 
 
 def build_t2_evidence(packet: dict[str, Any]) -> dict[str, Any]:
-    """T2 全文压缩证据：文本顺序 + 紧凑样式事实 + 可回绑分页事实。"""
+    """T2 page-first evidence: each page image is followed by objective facts."""
 
     packet_rows = [
         item
         for item in packet.get("page_text_index", [])
-        if isinstance(item, dict) and item.get("source_seq") is not None
+        if isinstance(item, dict)
+        and is_t2_page_body_row(item)
+        and item.get("source_seq") is not None
     ]
     render_available = packet.get("render_status") == "real_render"
     layout_by_seq = {
@@ -156,18 +160,56 @@ def build_t2_evidence(packet: dict[str, Any]) -> dict[str, Any]:
         if render_available
         else []
     )
+    images_by_page = {
+        page_no: item
+        for item in visual_evidence
+        if (page_no := _as_int(item.get("page_no"))) is not None
+    }
+    rows_by_page: dict[int, list[dict[str, Any]]] = {}
+    for row in rows:
+        page_no = _as_int(row.get("page_no"))
+        if page_no is not None:
+            rows_by_page.setdefault(page_no, []).append(row)
+    page_count = _as_int(render_artifacts.get("page_count")) or 0
+    break_facts = _t2_break_facts(layout_facts.get("breaks"), packet_rows)
+    page_packets = []
+    for page_no in range(1, page_count + 1):
+        image = images_by_page.get(page_no, {})
+        page_packets.append(
+            {
+                "page_no": page_no,
+                "page_ref": f"page:{page_no}",
+                "image": image,
+                "content": rows_by_page.get(page_no, []),
+                "break_facts": [
+                    item
+                    for item in break_facts
+                    if item.get("page_no") == page_no
+                    or item.get("after_source_seq")
+                    in {
+                        row.get("source_seq")
+                        for row in rows_by_page.get(page_no, [])
+                    }
+                ],
+                "completeness": {
+                    "image_available": bool(image),
+                    "content_binding_complete": all(
+                        row.get("source_seq") is not None
+                        for row in rows_by_page.get(page_no, [])
+                    ),
+                },
+            }
+        )
     view = {
-        "scope": "t2_full_document",
+        "scope": "t2_page_groups",
         "source_render_hash": packet.get("source_render_hash"),
         "render_status": packet.get("render_status"),
         "render_available": render_available,
         "document_summary": {
             "source_seq_count": len(rows),
-            "page_count": render_artifacts.get("page_count"),
+            "page_count": page_count,
         },
-        "rows": rows,
-        "page_summary": _t2_page_summary(packet_rows) if render_available else [],
-        "break_facts": _t2_break_facts(layout_facts.get("breaks"), packet_rows),
+        "page_packets": page_packets,
         # ``_attachment_path`` is consumed by the multimodal transport and stripped
         # before the JSON prompt is rendered, so local paths never enter text context.
         "visual_evidence": visual_evidence,
@@ -285,25 +327,6 @@ def _t2_break_facts(value: Any, rows: list[dict[str, Any]]) -> list[dict[str, An
         if projected:
             result.append(projected)
     return result
-
-
-def _t2_page_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    by_page: dict[int, list[int]] = {}
-    for item in rows:
-        page_no = _as_int(item.get("page_no"))
-        source_seq = _as_int(item.get("source_seq"))
-        if page_no is None or source_seq is None:
-            continue
-        by_page.setdefault(page_no, []).append(source_seq)
-    return [
-        {
-            "page_no": page_no,
-            "first_source_seq": refs[0],
-            "last_source_seq": refs[-1],
-            "text_items": len(refs),
-        }
-        for page_no, refs in sorted(by_page.items())
-    ]
 
 
 def build_t4_evidence(packet: dict[str, Any]) -> dict[str, Any]:

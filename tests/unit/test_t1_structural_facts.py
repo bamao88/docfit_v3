@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pytest
 from docx import Document
 from docx.oxml import OxmlElement
 from docx.oxml.ns import qn
@@ -14,7 +13,6 @@ from docfit.template_generation.source_tree import (
     inspect_document_facts_docx,
     _runs_from_inspection,
 )
-from docfit.template_generation.structure_candidates import _structural_signals
 
 
 def _run(
@@ -296,57 +294,3 @@ def test_document_facts_trace_header_footer_part_runs(tmp_path) -> None:
     assert footer_item["raw_run_ids"] == ["word_footer1_xml.p_0001.r_001"]
     assert footer_item["logical_run_ids"] == ["word_footer1_xml.p_0001.lr_001"]
     assert footer_item["part_run_refs"] == footer_item["raw_run_ids"]
-
-
-@pytest.mark.parametrize(
-    ("text", "style"),
-    [
-        ("□□摘要……………………1", ""),
-        ("摘 要\tⅠ", ""),
-        ("1 绪论\t23", ""),
-        ("摘要", "TOC 1"),
-    ],
-)
-def test_structural_signals_identify_toc_entries(text: str, style: str) -> None:
-    signals = _structural_signals({"text": text, "style": style})
-
-    assert signals["is_toc_entry"] is True
-
-
-@pytest.mark.parametrize(
-    ("text", "style"),
-    [("目录", "TOC 1"), ("目  录", "TOC 1"), ("摘要1", ""), ("摘要", "")],
-)
-def test_structural_signals_do_not_treat_titles_as_toc_entries(
-    text: str,
-    style: str,
-) -> None:
-    signals = _structural_signals({"text": text, "style": style})
-
-    assert signals["is_toc_entry"] is False
-
-
-@pytest.mark.parametrize(
-    "text",
-    [
-        "",
-        "   ",
-        "（空三行）",
-        "（五号字空一行）",
-        "（根据题目长短四号字空二或三行）",
-        "(空2格)",
-    ],
-)
-def test_structural_signals_identify_spacing_lines(text: str) -> None:
-    signals = _structural_signals({"text": text})
-
-    assert signals["is_spacing_line"] is True
-
-
-@pytest.mark.parametrize("text", ["（一号黑体加粗）", "摘要（三号黑体）", "空三行"])
-def test_structural_signals_do_not_treat_format_notes_as_spacing_lines(
-    text: str,
-) -> None:
-    signals = _structural_signals({"text": text})
-
-    assert signals["is_spacing_line"] is False

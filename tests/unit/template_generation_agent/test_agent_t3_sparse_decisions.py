@@ -11,6 +11,7 @@ from docfit.template_generation.agent.t3_sparse_decisions import (
 from docfit.template_generation.agent.t3_sparse_materialize import (
     materialize_sparse_t3_observation,
 )
+from docfit.template_generation.final_results import publish_final_stage_result
 
 from .t3_hierarchical_fixtures import table_packet, t2_unit_result_item
 
@@ -18,10 +19,17 @@ from .t3_hierarchical_fixtures import table_packet, t2_unit_result_item
 def _stage_input(t2_item: dict | None = None) -> dict:
     return build_t3_hierarchical_stage_input(
         table_packet(),
-        t2_unit_result={
-            "artifact_type": "ai_unit_observation",
-            "items": [t2_item or t2_unit_result_item()],
-        },
+        t2_final=_t2_final(t2_item or t2_unit_result_item()),
+    )
+
+
+def _t2_final(*items: dict):
+    return publish_final_stage_result(
+        {"artifact_type": "unit_map", "units": list(items)},
+        stage_id="T2",
+        artifact_type="unit_map",
+        artifact_name="02_unit_map.yaml",
+        producer_mode="fixture",
     )
 
 
@@ -251,10 +259,9 @@ def test_run_can_split_to_exact_spans_and_materialize_mixed_run_without_loss() -
     row["style_details"]["runs"][0]["text"] = row["text"]
     stage_input = build_t3_hierarchical_stage_input(
         packet,
-        t2_unit_result={
-            "artifact_type": "ai_unit_observation",
-            "items": [{**t2_unit_result_item(), "source_seq_refs": [7]}],
-        },
+        t2_final=_t2_final(
+            {**t2_unit_result_item(), "source_seq_refs": [7]}
+        ),
     )
     by_ref = nodes_by_ref(stage_input)
 

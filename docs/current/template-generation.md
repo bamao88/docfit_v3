@@ -1,13 +1,15 @@
 # 模板解析与可填模板生成当前主线
 
-Last updated: 2026-07-11
+Last updated: 2026-07-18
+
+> 迁移状态：本文正在淘汰。模板生成架构、阶段职责、输入输出和公开产物的长期事实统一迁入 `docs/current/template-generation-architecture.md`。后续不要在本文新增事实；只允许迁移、纠错和删除重复内容。
 
 一句话结论：当前 canonical 研发入口是 `docfit template generate|stage|verify|inspect`。
 `generate` 默认离线生成可填模板，`stage` 固定某次 run 后调试 T2/T3/T4 AI 观察，
 `verify` 一次运行生成、最终 gap、阶段裁判和 route-eval，`inspect` 只读查看已有 run。
 旧 `docfit eval template-*` 命令暂作兼容 alias。
 
-各阶段的长期职责、依赖、输入输出、共享身份和 code/AI/merged route 规则，以 `docs/current/template-generation-stage-contracts.md` 为准；本文只说明当前真实运行入口和产物，不承载实施计划。
+各阶段的长期职责、依赖、输入输出、共享身份和 code/AI/merged route 规则，以 `docs/current/template-generation-architecture.md` 为准；本文只作为迁移期兼容参考，不承载实施计划。
 
 ## 支撑流程边界
 
@@ -61,7 +63,7 @@ flowchart TD
   G --> J["template-gap"]
 ```
 
-旧 `source_template_tree.json`、`template_structure_candidates.json`、`template_generation_model.json`、`template_generation_plan.json` 和 `template_artifact.json` 已不再作为公开文件落盘。仍参与算法的中间模型只在单次运行内消费；对外事实以编号产物和 `99_template_generation_debug_index.json` 为准。
+旧 `source_template_tree.json`、`template_generation_model.json`、`template_generation_plan.json` 和 `template_artifact.json` 已不再作为公开文件落盘。T2 的旧结构候选、代码候选和 merged 产物已经从生产链删除；对外事实以编号产物和 `99_template_generation_debug_index.json` 为准。
 
 ## 核心产物
 
@@ -72,8 +74,8 @@ flowchart TD
 | 3 | `03_element_spec.yaml` | deterministic element classifier | T5/T6/verifier | 元素策略、fill_source、manual/generated 语义和证据 |
 | 4 | `04_global_spec.yaml` | global rule builder | T5/T6/verifier | 页面、分节、页眉页脚、页码、编号和默认样式规则 |
 | 5 | `05_template_spec.yaml` | spec merger | T6、后续 placement/render 包装、verifier | 模板解析阶段主产物 |
-| 6 | `06.1_fillable_template.docx` | builder | template-gap、后续渲染 | 可填写 Word 模板，fill/manual_only 使用 SDT tag |
-| 7 | `06.2_build_manifest.json` | builder | verifier、审计、人工排查 | 每个构建 action、source refs、output ref、状态 |
+| 6 | `06.1_fillable_template.docx` | builder | template-gap、后续渲染 | 可填写 Word 模板，fill 使用 SDT tag；fixed 由源 DOCX 整包复制保留 |
+| 7 | `06.2_build_manifest.json` | builder | verifier、审计、人工排查 | 每个构建 action、source refs、output ref、状态，以及绑定最终 DOCX hash 的 `observed_layout_effects` |
 | 8 | `07_verification_report.json` | deterministic verifier | summary、gate、人工排查 | T1-T6 的 `PASS/FAIL/UNKNOWN` 和 `first_bad_stage` |
 
 ## 字段规则
@@ -112,10 +114,10 @@ evidence_refs
 
 - `fixed/template_default` 原样保留。
 - `instruction_remove` 删除说明文字，保留必要 OOXML 结构。
-- `fill/manual_only` 写入 Word SDT 内容控件，`w:tag` 为稳定 `element_id` 或 `unit_id.element_id`。
+- `fill` 写入 Word SDT 内容控件，`w:tag` 为稳定 `element_id` 或 `unit_id.element_id`；`fixed` 不创建槽位，保持源 DOCX 内容与结构不动。
 - `generated` 目前写入可定位的 generated SDT/字段占位证据，后续可升级为低层 OOXML Word field。
 - 输出 Word 不能包含 `[[DOCFIT_*]]` 内部文本 marker。
-- `06.2_build_manifest.json` 必须记录每个 action 的 source refs、source_seq、output_ref 和执行状态。
+- `06.2_build_manifest.json` 必须记录每个 action 的 source refs、source_seq、output_ref 和执行状态，并写入重新解析最终 DOCX 得到的分页、分节和 keep 属性计数。
 
 ## 三态 verifier
 
@@ -128,19 +130,21 @@ T1-T6 verifier 使用 `PASS/FAIL/UNKNOWN`：
 | T3 | policy/role/fill_source、manual/generated 语义、AI trace、confidence flags | fill 缺 `fill_source` 为 `FAIL`；低/中置信未审为 `UNKNOWN` |
 | T4 | section profile、boundary、页码证据、页眉页脚 part、编号规则 | section boundary 或页码证据缺失为 `UNKNOWN`；检测到页码但缺 PAGE 字段证据为 `FAIL` |
 | T5 | schema、id 唯一、unit-section 引用存在、range 相交、review flags | unit 无法绑定 section 为 `UNKNOWN`；引用不存在或 range 不相交为 `FAIL` |
-| T6 | DOCX 有效、无 marker、SDT tag、manifest hash/action | marker 残留或 SDT 缺失为 `FAIL` |
+| T6 | DOCX 有效、无 marker、SDT tag、manifest hash/action、最终 DOCX 动作效果 | marker/SDT 缺失、manifest 与 fresh observation 不一致、声明执行分页动作但最终 OOXML 无对应效果均为 `FAIL` |
 
 聚合报告字段：
 
 ```json
 {
   "status": "UNKNOWN",
+  "run_status": "PASS",
+  "quality_status": "UNKNOWN",
   "first_bad_stage": "T2",
   "stages": [{"stage": "T1", "status": "PASS"}, {"stage": "T2", "status": "UNKNOWN"}]
 }
 ```
 
-任一阶段 `FAIL/UNKNOWN`，不能宣称模板解析成功。
+单独 `template generate` 不运行学校标准，所以即使 `run_status=PASS`，`quality_status` 和总 `status` 仍为 `UNKNOWN`。任一阶段 `FAIL/UNKNOWN`，不能宣称模板解析或学校质量通过。
 
 ## first_bad_stage 判断
 
@@ -148,7 +152,7 @@ T1-T6 verifier 使用 `PASS/FAIL/UNKNOWN`：
 | --- | --- | --- | --- |
 | 输入文件拿错 | `template_generation_request.json` | `T0/input` | CLI/profile 绑定 |
 | 源 Word 内容没解析出来 | `01_document_facts.json` | `T1` | inspector / OOXML 解析 |
-| unit 没识别或识别错 | `02_unit_map.yaml`，兼容视图 `template_structure_candidates.json` | `T2` | 单元发现规则 |
+| unit 没识别或页面边界错 | `02.1_t2_input.json`、`02.2_t2_ai_unit_observation.yaml`、`02_unit_map.yaml` | `T2` | 页面输入、T2 Prompt 或页面契约 |
 | 元素策略错 | `03_element_spec.yaml`，兼容视图 `template_generation_model.json` | `T3` | 元素分类和策略 materialize |
 | 页面/分节规则缺失 | `04_global_spec.yaml`、`02_unit_map.yaml` | `T2/T4` | 页面规则抽取 |
 | template_spec 引用断裂 | `05_template_spec.yaml` | `T5` | spec 合并 |
@@ -168,8 +172,8 @@ uv run docfit template verify \
   --out /private/tmp/docfit_template_generation_full_hunannongye
 ```
 
-完整流程默认不调用 LLM API，以保证日常生成和回归可复现。需要同时生成 T2/T3
-文本观察和 T4 视觉观察时，显式使用 `--ai live`：
+T2 是 AI-only，完整流程默认使用 `--ai live`，默认文本和视觉 provider 都是
+MiniMax：
 
 ```bash
 KIMI_API_KEY=... MINIMAX_API_KEY=... \
@@ -180,9 +184,10 @@ uv run docfit template verify \
   --ai live
 ```
 
-统一 AI 模式为 `--ai off|live|replay|bundle`。`generate` / `verify` 默认 `off`；
+统一 AI 模式为 `--ai live|replay|bundle`；完整模板生成不接受 `--ai off`。
 `--llm` 只是 `--ai live` 的兼容简写。replay 用 `--replay <transcript.json>`，
-bundle 用 `--bundle <observation_bundle.json>`。旧 `--agent-*` 只保留在兼容 alias 中。
+bundle 用 `--bundle <observation_bundle.json>`。旧的 `--agent-replay`、
+`--agent-provider` 和 `--agent-live` 已删除，避免形成第二套正式配置入口。
 live API 配置统一读取 `DOCFIT_TEMPLATE_AGENT_TEXT_PROVIDER`、
 `DOCFIT_TEMPLATE_AGENT_VISION_PROVIDER` 和对应 provider 的 `<PROVIDER>_API_KEY` /
 `<PROVIDER>_BASE_URL` / `<PROVIDER>_MODEL`。所有 live API 调用共用一份按能力角色定义的
@@ -205,7 +210,7 @@ API trace 分开记录真实网络调用、缓存命中、额度熔断跳过和 
   full_summary.md
 ```
 
-`full_summary.json` 是全流程质量报告入口，包含 `status`、`first_bad_stage`、`stage_statuses`、`quality_report.stage_cards[]`、`route_eval`、`gates`、`owner_summary`、`top_blockers` 和 `next_verification`。`quality_report.stage_cards[]` 覆盖 `T1/L1/T2/T3/T4/T5/T6/T7/POST_T6`，用于定位每个阶段的产物质量、route 缺口、root cause、owner 和下一步验收。
+`full_summary.json` 是全流程质量报告入口，包含 `status`、`run_status`、`quality_status`、`first_bad_stage`、`stage_statuses`、`stage_run_statuses`、`stage_quality_statuses`、`quality_report.stage_cards[]`、`route_eval`、`gates`、`owner_summary`、`top_blockers` 和 `next_verification`。`quality_report.stage_cards[]` 覆盖 `T1/L1/T2/T3/T4/T5/T6/T7/POST_T6`，用于定位每个阶段的产物质量、route 缺口、root cause、owner 和下一步验收。
 
 拆阶段调试入口：
 

@@ -86,22 +86,7 @@ def test_explicit_environment_overrides_project_dotenv(tmp_path, monkeypatch) ->
     assert config.api_key == "exported-secret"
 
 
-def test_legacy_live_transport_is_rejected() -> None:
-    errors = validate_agent_config(AgentConfig(enabled=True, transport="kimi"))
-
-    assert any("legacy agent transport has been removed" in error for error in errors)
-
-
-def test_replay_transport_requires_transcript(tmp_path) -> None:
-    missing = tmp_path / "missing.json"
-    errors = validate_agent_config(
-        AgentConfig(enabled=True, transport="replay", transcript_path=missing)
-    )
-
-    assert any("transcript_path does not exist" in error for error in errors)
-
-
-def test_observation_replay_satisfies_replay_transport(tmp_path) -> None:
+def test_observation_replay_config_is_valid(tmp_path) -> None:
     observation_transcript = tmp_path / "observation_replay.json"
     observation_transcript.write_text("{}", encoding="utf-8")
 
@@ -117,24 +102,18 @@ def test_observation_replay_satisfies_replay_transport(tmp_path) -> None:
 
 
 def test_max_rounds_is_limited(tmp_path) -> None:
-    transcript = tmp_path / "transcript.json"
-    transcript.write_text("{}", encoding="utf-8")
-
     errors = validate_agent_config(
-        AgentConfig(enabled=True, transcript_path=transcript, max_rounds=5)
+        AgentConfig(enabled=True, observation_mode="live", max_rounds=5)
     )
 
     assert any("max_rounds" in error for error in errors)
 
 
 def test_live_generation_knobs_are_validated(tmp_path) -> None:
-    transcript = tmp_path / "transcript.json"
-    transcript.write_text("{}", encoding="utf-8")
-
     errors = validate_agent_config(
         AgentConfig(
             enabled=True,
-            transcript_path=transcript,
+            observation_mode="live",
             max_tokens=0,
             temperature=3,
         )
@@ -225,12 +204,11 @@ def test_agent_config_from_env_reports_unsupported_provider_when_enabled() -> No
     assert any("unsupported text live provider: unknown-ai" in error for error in errors)
 
 
-def test_observation_live_can_request_auto_generated_render_packet() -> None:
+def test_observation_live_can_auto_generate_render_packet() -> None:
     errors = validate_agent_config(
         AgentConfig(
             enabled=True,
             observation_mode="live",
-            allow_live_without_render_packet=True,
         )
     )
 
@@ -247,10 +225,7 @@ def test_live_transport_rejects_projection_fallback_packet_before_sdk(tmp_path) 
             source_template_docx=tmp_path / "template.docx",
             request=artifacts["request"],
             document_facts=artifacts["document_facts"],
-            structure_candidates=artifacts["structure_candidates"],
-            unit_map=artifacts["unit_map"],
-            generation_model=artifacts["generation_model"],
-            element_spec=artifacts["element_spec"],
+            source_tree=artifacts["source_tree"],
             agent_config=AgentConfig(
                 enabled=True,
                 observation_mode="live",

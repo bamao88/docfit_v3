@@ -54,6 +54,14 @@ DocFit v3 是一个把学生论文转换成学校模板格式的产品。
 
 先进入 `docs/plans/` 读取 README、索引和相关历史文档。issue 记录问题事实，plan 承载执行契约；不要为同一轮工作再创建第二套 execution plan。若 plan 不够可执行，更新原 plan；若目标或根因变化，进入下一轮 issue/plan。
 
+### 维护系统与阶段文档
+
+DocFit 的业务流程包括学校模板生成、学生论文内容提取、内容匹配与放置、最终 Word 渲染，以及阶段质量评测和端到端验收。当前处理哪个阶段，以用户本轮目标和对应事实源为准。
+
+修改系统流程、阶段职责、输入输出、字段语义、上下游关系、测试评测或长期文档前，先读 `docs/current/README.md`，按其中定义的阶段文档、职责和迁移状态进入对应文档。发现契约变化、上下游不一致、实现缺陷或评测问题时，先读 `docs/status/README.md`；制定或执行具体修改方案时，先读 `docs/plans/README.md`。
+
+`docs/current/` 描述系统及各阶段现在应该怎样工作和怎样验证；`docs/status/` 追踪当前变化、缺陷、影响和闭环情况；`docs/plans/` 描述具体修改方案。历史报告和运行产物只作为证据。处于迁移期的旧文档不得继续新增长期事实，后续修改应收敛到 `docs/current/README.md` 指定的目标文档。
+
 ### 做验收或裁判
 
 先区分“运行成功”和“质量通过”。报告应明确 expected vs observed、mismatch、root cause、owner、fix plan 和残留。不要用总状态掩盖阶段差异。

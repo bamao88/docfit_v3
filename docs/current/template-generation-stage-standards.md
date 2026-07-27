@@ -2,6 +2,8 @@
 
 Last updated: 2026-06-28
 
+> 迁移状态：本文正在淘汰。长期有效的阶段标准、gold、使用方式和验收规则统一迁入 `docs/current/template-generation-testing.md`。后续不要在本文新增事实。
+
 一句话结论：当前 real-core-v0 的三校模板生成阶段标准已经拆成 T1 到 T5 的阶段专用标准文件，并已接入 `template-generation-judge` gate。它们是阶段标准裁判口径，不是某一次运行产物，也不是代码里 `07_verification_report.json` 的替代品。
 
 ## 当前版本
@@ -69,7 +71,7 @@ template_generation/
 | --- | --- | --- | --- |
 | `t1_document_facts.standard.yaml` | `01_document_facts.json` | T1 verifier、T2/T4 调试、人工 first_bad_stage 排查 | 判断源 DOCX 事实是否完整、可定位，并且没有混入 T2/T3 语义判断 |
 | `t2_unit_pagination.standard.yaml` | `02_unit_map.yaml` | T2 verifier、T3/T5、最终 gap 归因 | 判断单元识别、单元顺序、边界范围、source_seq 归属和分页口径 |
-| `t3_element_policy.standard.yaml` | `03_element_spec.yaml` | T3 verifier、T5/T6、人工策略排查 | 判断元素 policy、fill_source、manual_semantics、generated.field_type 和 source trace |
+| `t3_element_policy.standard.yaml` | `03_element_spec.yaml` | T3 verifier、T5/T6、人工策略排查 | 判断元素 policy、fill_source、generated.field_type 和 source trace |
 | `t4_global_layout.standard.yaml` | `04_global_spec.yaml` | T4 verifier、T5/T6、页面规则排查 | 判断 section profile、page numbering、header/footer、numbering 和全局布局证据 |
 | `t5_template_spec.standard.yaml` | `05_template_spec.yaml` | T5 verifier、T6 builder、后续 placement/render 包装视图 | 判断 unit、element、global 三类信息是否正确合并，section 绑定和 review flags 是否保留 |
 

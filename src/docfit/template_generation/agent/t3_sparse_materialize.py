@@ -114,8 +114,8 @@ def materialize_sparse_t3_observation(
                 for item in items
                 if item.get("projection_status") == "mixed_span_actions"
             ),
-            "t2_route_hash": (stage_input.get("contract") or {}).get(
-                "t2_route_hash"
+            "t2_final_hash": (stage_input.get("contract") or {}).get(
+                "t2_final_hash"
             ),
             "input_mode": "hierarchical_sparse_stop_or_descend",
             "decision_call_count": trace.get("call_count"),

@@ -19,15 +19,10 @@ from string import Template
 from typing import Any
 
 from .evidence import assert_firewall_clean
-from .observation_schema import (
-    ALLOWED_UNIT_IDS,
-    PROMPT_CONTRACT_VERSION,
-)
+from .observation_schema import PROMPT_CONTRACT_VERSION
+from docfit.template_generation.t2_ai import T2_PROMPT_CONTRACT_VERSION
 from .t3_hierarchical_input import assert_t3_stage_input_clean
 
-ALLOWED_LABELS = {
-    "unit_ids": sorted(ALLOWED_UNIT_IDS),
-}
 _PROMPT_TEMPLATE_DIR = "prompt_templates"
 _STAGES = ("t2", "t3_hierarchy", "t4")
 
@@ -36,7 +31,7 @@ def _allowed_labels_for_stage(stage: str) -> dict[str, list[str]]:
     """只向各阶段暴露它实际需要输出的标签，避免无关 unknown 干扰 T3。"""
 
     if stage == "t2":
-        return {"unit_ids": list(ALLOWED_LABELS["unit_ids"])}
+        return {}
     if stage == "t3_hierarchy":
         return {
             "results": ["keep", "fill", "delete", "split"],
@@ -145,7 +140,11 @@ def build_observation_prompt(
     if stage not in templates.rubrics or stage not in templates.output_contracts:
         raise ValueError(f"prompt templates missing stage: {stage!r}")
     return {
-        "prompt_contract_version": PROMPT_CONTRACT_VERSION,
+        "prompt_contract_version": (
+            T2_PROMPT_CONTRACT_VERSION
+            if stage == "t2"
+            else PROMPT_CONTRACT_VERSION
+        ),
         "stage": stage,
         "rubric": templates.rubrics[stage],
         "glossary": _GLOSSARY_BY_STAGE[stage](),
@@ -193,6 +192,11 @@ def assemble_observation_messages(
 
 
 def _abstain_instruction(stage: str) -> str:
+    if stage == "t2":
+        return (
+            "T2 不允许遗漏页面；语义确实无法判断时使用 unknown_unit，"
+            "但仍必须输出完整、连续的页面边界。"
+        )
     if stage == "t3_hierarchy":
         return (
             "T3 分层决策不输出 unknown：证据不足但能安全下钻时输出 split；"

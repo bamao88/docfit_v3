@@ -207,7 +207,7 @@ def minimal_expected_units(*, style: str = "") -> list[dict]:
                 {
                     "element_id": "e_002",
                     "name": "学生姓名",
-                    "policy": "manual_only",
+                    "policy": "fixed",
                     "content": "学生姓名：",
                     "style": "",
                 },
@@ -871,7 +871,7 @@ def test_template_gap_treats_word_paragraph_options_as_uncheckable(
                 {
                     "element_id": "e_002",
                     "name": "孤行控制",
-                    "policy": "manual_only",
+                    "policy": "fixed",
                     "content": "孤行控制",
                     "style": "",
                 },
@@ -959,7 +959,7 @@ def test_template_gap_normalizes_template_noise(tmp_path) -> None:
                 {
                     "element_id": "e_002",
                     "name": "学生信息",
-                    "policy": "manual_only",
+                    "policy": "fixed",
                     "content": "学生姓名：；学号：；年级专业及班级：",
                     "style": "",
                 },
@@ -1108,7 +1108,7 @@ def test_template_gap_matches_form_element_across_multiple_nodes(tmp_path) -> No
                 {
                     "element_id": "e_002",
                     "name": "学生基本信息",
-                    "policy": "manual_only",
+                    "policy": "fixed",
                     "content": "学生姓名；学号；年级专业及班级",
                     "style": "",
                 },

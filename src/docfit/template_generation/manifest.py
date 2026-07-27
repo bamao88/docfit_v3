@@ -5,21 +5,27 @@ from typing import Any
 
 from docfit.core.io import now_iso, sha256_file, sha256_json
 
+from .final_results import FinalStageResult, require_final_stage_result
 from .stage_inputs import l1_artifact_hash
+from .docx_effects import inspect_docx_layout_effects
 
 
 def build_template_generation_manifest(
     *,
     request: dict[str, Any],
     l1_input_contract: dict[str, Any],
-    unit_map: dict[str, Any],
-    element_spec: dict[str, Any],
-    global_spec: dict[str, Any],
-    template_spec: dict[str, Any],
+    template_final: FinalStageResult,
     plan: dict[str, Any],
     fillable_template_docx: Path,
     execution: dict[str, Any],
 ) -> dict[str, Any]:
+    template_result = require_final_stage_result(
+        template_final,
+        stage_id="T5",
+        artifact_type="template_spec",
+        artifact_name="05_template_spec.yaml",
+    )
+    template_spec = template_result.payload
     manifest = {
         "artifact_type": "build_manifest",
         "artifact_version": "1.0",
@@ -29,11 +35,13 @@ def build_template_generation_manifest(
         "input_hashes": {
             "source_template_docx": request.get("source_template_hash"),
             "l1": l1_artifact_hash(l1_input_contract),
-            "unit_map": sha256_json(unit_map),
-            "element_spec": sha256_json(element_spec),
-            "global_spec": sha256_json(global_spec),
-            "template_spec": sha256_json(template_spec),
+            "template_spec": template_result.sha256,
             "template_generation_plan": sha256_json(plan),
+        },
+        "input_refs": {"t5_final": template_result.input_ref()},
+        "upstream_availability": {
+            "status": template_result.availability,
+            "reason": template_result.reason,
         },
         "output": {
             "fillable_template_docx": str(fillable_template_docx),
@@ -49,11 +57,16 @@ def build_template_generation_manifest(
             execution.get("actions_executed", []),
             execution.get("actions_requiring_review", []),
         ),
-        "layout_hint_consumption": global_spec.get("layout_hint_consumption", {}),
+        "layout_hint_consumption": (
+            template_spec.get("global", {}) or {}
+        ).get("layout_hint_consumption", {}),
         "synthesized_texts": execution.get("synthesized_texts", []),
         "actions_executed": execution.get("actions_executed", []),
         "actions_requiring_review": execution.get("actions_requiring_review", []),
         "identity_resolution": execution.get("identity_resolution", {}),
+        "observed_layout_effects": inspect_docx_layout_effects(
+            fillable_template_docx
+        ),
     }
     return manifest
 

@@ -33,7 +33,7 @@ gold_coverage:
   unit_detection: expected.unit_order and expected.units[].unit_id
   unit_order: expected.unit_order
   unit_boundary: expected.units[].boundary.source_seq_range or source_ref_range
-  unit_page_policy: expected.units[].page
+  unit_page_policy: expected.units[].page_policy
 gold_review_notes:
   - Boundary gold was manually assigned from accepted source template body_flow/source_ref facts, not copied from any generated unit_map.
   - Source-seq ranges include unit-local format/instruction prefaces when they belong to the school template unit.
@@ -67,16 +67,14 @@ expected:
         source_seq_range:
           start: 1
           end: 11
-      page:
-        page_break: document_start
-        page_isolation: true
-        allow_multi_page: false
-        keep_together: true
+      page_policy:
+        start: document_start
+        scope: single_page_exclusive
       notes: 封面固定模块，删除不属于模板的说明文字。
     - unit_id: copyright_notice
       name: 版权声明
-      status: manual_only
-      policy: manual_only
+      status: fixed
+      policy: fixed
       anchors:
         title_aliases: [版权声明]
         start_title: 版权声明
@@ -87,11 +85,9 @@ expected:
         source_seq_range:
           start: 12
           end: 14
-      page:
-        page_break: true
-        page_isolation: true
-        allow_multi_page: false
-        keep_together: true
+      page_policy:
+        start: new_page
+        scope: single_page_exclusive
       notes: 固定版权页，包含二维码替换说明，不自动填充。
     - unit_id: abstract_cn
       name: 中文摘要
@@ -107,11 +103,9 @@ expected:
         source_seq_range:
           start: 15
           end: 24
-      page:
-        page_break: true
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: shareable_flow
       notes: 中文摘要标题、摘要正文和关键词标签属于同一单元。
     - unit_id: abstract_en
       name: 英文摘要
@@ -128,11 +122,9 @@ expected:
           start: 25
           end: 30
         anchor_source_seq: 28
-      page:
-        page_break: true
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: shareable_flow
       notes: 英文题名、作者、导师、ABSTRACT 和 KEY WORDS 属于英文摘要单元。
     - unit_id: toc
       name: 目录
@@ -149,11 +141,9 @@ expected:
           start: word/document.xml:p[65]/field[39]
           end: word/document.xml:p[65]/field[39]
         field_end_source_ref: word/document.xml:p[102]
-      page:
-        page_break: true
-        page_isolation: true
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: page_range_exclusive
       notes: 主目录、图目录、表目录必须识别为三个独立单元。
     - unit_id: figure_list
       name: 图目录
@@ -169,11 +159,9 @@ expected:
         source_seq_range:
           start: 31
           end: 45
-      page:
-        page_break: true
-        page_isolation: true
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: page_range_exclusive
       notes: 图目录可复用 TOC-like block 检测，但 unit_id 必须是 figure_list。
     - unit_id: table_list
       name: 表目录
@@ -189,11 +177,9 @@ expected:
         source_seq_range:
           start: 46
           end: 49
-      page:
-        page_break: true
-        page_isolation: true
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: page_range_exclusive
       notes: 表目录可复用 TOC-like block 检测，但 unit_id 必须是 table_list。
     - unit_id: body_main
       name: 正文主体
@@ -209,11 +195,9 @@ expected:
         source_seq_range:
           start: 50
           end: 305
-      page:
-        page_break: true
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: shareable_flow
       notes: 进入正文后，章标题和小节标题属于 body_main 内部结构，直到真正后置参考文献。
     - unit_id: references
       name: 参考文献
@@ -230,11 +214,9 @@ expected:
           start: 306
           end: 312
         negative_anchor_source_seq_refs: [244]
-      page:
-        page_break: true
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: shareable_flow
       notes: 正文说明中的“参考文献”不是后置 references；后置区真实标题才打开本单元。
     - unit_id: academic_achievements
       name: 附录A  博士期间工作成果
@@ -250,11 +232,9 @@ expected:
         source_seq_range:
           start: 313
           end: 322
-      page:
-        page_break: true
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: shareable_flow
       notes: 该后置成果模块默认保留，不归为普通 appendix。
     - unit_id: acknowledgement
       name: 致谢
@@ -270,16 +250,14 @@ expected:
         source_seq_range:
           start: 323
           end: 343
-      page:
-        page_break: true
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: shareable_flow
       notes: 致谢位于成果模块之后、原创性声明和使用授权说明之前。
     - unit_id: originality_authorization_statement
       name: 北京大学学位论文原创性声明和使用授权说明
-      status: manual_only
-      policy: manual_only
+      status: fixed
+      policy: fixed
       anchors:
         title_aliases: [原创性声明, 使用授权说明, 北京大学学位论文原创性声明和使用授权说明]
         start_title: 北京大学学位论文原创性声明和使用授权说明
@@ -290,12 +268,10 @@ expected:
         source_seq_range:
           start: 344
           end: 357
-      page:
-        page_break: true
-        page_isolation: true
-        allow_multi_page: false
-        keep_together: true
-      notes: 固定签名和授权页，签名、日期、授权勾选项均 manual_only。
+      page_policy:
+        start: new_page
+        scope: single_page_exclusive
+      notes: 固定签名和授权页，签名、日期、授权勾选项均 fixed。
 dimensions:
   - dimension_id: template_generation.t2.artifact_under_test
     required: true

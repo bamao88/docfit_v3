@@ -6,7 +6,7 @@ from collections import defaultdict
 from copy import deepcopy
 from typing import Any
 
-from docfit.core.io import sha256_json
+from docfit.core.io import now_iso, sha256_json
 
 
 _EXECUTION_POLICY = {
@@ -20,8 +20,89 @@ _EXECUTION_POLICY = {
 }
 
 
+def build_t3_source_structure(
+    source_tree: dict[str, Any],
+    unit_map: dict[str, Any],
+) -> dict[str, Any]:
+    """Build the neutral T3 source shell from the published T2 page groups."""
+
+    layers = source_tree.get("layers", {}) or {}
+    data = source_tree.get("data", {}) or {}
+    indexes = source_tree.get("indexes", {}) or {}
+    source_context = {
+        "source_template_tree_ref": "source_template_tree.json",
+        "body_order": deepcopy(indexes.get("body_order", [])),
+        "body_flow": deepcopy(layers.get("body_flow", [])),
+        "by_source_ref": deepcopy(indexes.get("by_source_ref", {})),
+        "by_source_seq": deepcopy(indexes.get("by_source_seq", {})),
+        "style_inventory": _style_inventory(data.get("paragraphs", [])),
+        "numbering_definitions": deepcopy(
+            (layers.get("package_global", {}) or {}).get(
+                "numbering_definitions",
+                data.get("numbering_definitions", []),
+            )
+        ),
+        "numbering_refs": deepcopy(data.get("numbering_refs", [])),
+        "section_rules": deepcopy(layers.get("section_rules", [])),
+        "header_footer": deepcopy(layers.get("header_footer", [])),
+        "unknown_objects": deepcopy(layers.get("unknown_objects", [])),
+        "warnings": deepcopy(source_tree.get("warnings", [])),
+        "paragraphs": deepcopy(data.get("paragraphs", [])),
+        "runs_by_raw_run_id": deepcopy(indexes.get("runs_by_raw_run_id", {})),
+        "runs_by_source_ref": deepcopy(indexes.get("runs_by_source_ref", {})),
+    }
+    entries_by_seq = {
+        source_seq: entry
+        for entry in source_context["body_flow"]
+        if isinstance(entry, dict)
+        and (source_seq := _as_int(entry.get("source_seq"))) is not None
+    }
+    units: list[dict[str, Any]] = []
+    for unit in unit_map.get("units", []) or []:
+        if not isinstance(unit, dict):
+            continue
+        refs = _unique_ints(unit.get("source_seq_refs", []))
+        entries = [entries_by_seq[ref] for ref in refs if ref in entries_by_seq]
+        units.append(
+            {
+                **deepcopy(unit),
+                "name": unit.get("unit_name"),
+                "status": "required",
+                "source_range": {
+                    "start": (unit.get("source_refs") or [None])[0],
+                    "end": (unit.get("source_refs") or [None])[-1],
+                }
+                if unit.get("source_refs")
+                else {},
+                "elements": [
+                    _neutral_element(entry, order=index)
+                    for index, entry in enumerate(entries, start=1)
+                ],
+            }
+        )
+    return {
+        "artifact_type": "t3_source_structure",
+        "artifact_version": "1.0",
+        "created_at": now_iso(),
+        "input_hashes": {
+            "source_template_tree": sha256_json(source_tree),
+            "unit_map": sha256_json(unit_map),
+            **(
+                {"l1": source_tree.get("input_hashes", {}).get("l1")}
+                if source_tree.get("input_hashes", {}).get("l1")
+                else {}
+            ),
+        },
+        "source_method": "ai_page_groups_with_deterministic_l1_binding",
+        "source_context": source_context,
+        "units": units,
+        "unknowns": [],
+        "open_questions": [],
+    }
+
+
 def materialize_ai_t3_structure(
-    structure_candidates: dict[str, Any],
+    downstream_structure: dict[str, Any],
     observation: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Replace every source-backed T3 policy with AI authority or safe Keep.
@@ -32,8 +113,8 @@ def materialize_ai_t3_structure(
     on the structural shell.
     """
 
-    before_hash = sha256_json(structure_candidates)
-    patched = deepcopy(structure_candidates)
+    before_hash = sha256_json(downstream_structure)
+    patched = deepcopy(downstream_structure)
     claims, conflicting_raw_run_ids = _claims_by_raw_run(observation)
     observation_items = [
         item
@@ -142,6 +223,70 @@ def materialize_ai_t3_structure(
         "after_hash": sha256_json(patched),
     }
     return patched, operation
+
+
+def _neutral_element(entry: dict[str, Any], *, order: int) -> dict[str, Any]:
+    source_ref = str(entry.get("source_ref") or "")
+    source_seq = _as_int(entry.get("source_seq"))
+    content = str(entry.get("text") or "")
+    return {
+        "element_id": f"e_{order:03d}",
+        "name": content.strip()[:80] or f"source_{source_seq or order}",
+        "order": order,
+        "candidate_policy": "fixed",
+        "type": "fixed_text",
+        "fill": "no",
+        "content": content,
+        "style": entry.get("style") or "",
+        "style_summary": entry.get("style") or "",
+        "style_evidence": deepcopy(entry.get("style_details", {})),
+        "position": source_ref,
+        "role_hint": "unclassified_source_content",
+        "evidence": [],
+        "source_refs": [source_ref] if source_ref else [],
+        "source_seq_refs": [source_seq] if source_seq is not None else [],
+        "raw_run_ids": deepcopy(entry.get("raw_run_ids", [])),
+        "logical_run_ids": deepcopy(entry.get("logical_run_ids", [])),
+        "run_source_refs": deepcopy(entry.get("run_source_refs", [])),
+        "entry_refs": [entry.get("node_id")] if entry.get("node_id") else [],
+        "structure": {
+            "kind": entry.get("kind"),
+            "container_ref": entry.get("container_ref"),
+            "source_refs": [source_ref] if source_ref else [],
+        },
+        "confidence": "high",
+        "review_notes": [],
+    }
+
+
+def _style_inventory(paragraphs: Any) -> list[dict[str, Any]]:
+    styles: dict[str, int] = {}
+    for paragraph in paragraphs if isinstance(paragraphs, list) else []:
+        if not isinstance(paragraph, dict):
+            continue
+        style = str(paragraph.get("style") or "").strip()
+        if style:
+            styles[style] = styles.get(style, 0) + 1
+    return [{"name": name, "count": count} for name, count in styles.items()]
+
+
+def _as_int(value: Any) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value)
+    return None
+
+
+def _unique_ints(values: Any) -> list[int]:
+    result: list[int] = []
+    for value in values:
+        parsed = _as_int(value)
+        if parsed is not None and parsed not in result:
+            result.append(parsed)
+    return result
 
 
 def _claims_by_raw_run(

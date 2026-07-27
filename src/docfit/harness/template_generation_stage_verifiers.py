@@ -4,11 +4,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from docfit.core.io import sha256_json
 from docfit.core.models import Finding, make_finding
 from docfit.core.status import Status, merge_statuses
 from docfit.harness.template_generation_run_bundle import (
     BoundArtifact,
     TemplateGenerationRunBundle,
+)
+from docfit.harness.template_generation_proof_ledger import (
+    build_required_check_ledger,
+    required_check,
 )
 from docfit.harness.template_generation_standard_quality import (
     StageStandardSpec,
@@ -18,6 +23,22 @@ from docfit.harness.template_generation_standard_quality import (
 )
 from docfit.template_generation.artifacts import source_tree_from_document_facts
 from docfit.template_generation.t2_standard import audit_unit_map_against_t2_standard
+from docfit.template_generation.t3_action_projection import project_t3_gold_item
+from docfit.template_generation.verifier import (
+    verify_t4_global_spec_artifact,
+    verify_t5_template_spec_artifact,
+)
+
+
+_T3_POLICY_TO_CORE_ACTION = {
+    "fixed": "keep",
+    "template_default": "keep",
+    "template_default_optional": "keep",
+    "fill": "fill",
+    "generated": "fill",
+    "instruction_remove": "delete",
+    "remove_instruction": "delete",
+}
 
 
 @dataclass
@@ -168,7 +189,20 @@ def judge_template_generation_stage(
         start_index=len(findings) + 1,
     )
     findings.extend(audit_findings)
-    audit_status = _audit_status(audit_findings)
+    if not isinstance(audit.get("required_check_ledger"), dict):
+        findings.append(
+            _stage_finding(
+                len(findings) + 1,
+                stage_key,
+                Status.UNKNOWN,
+                "template_generation_required_check_ledger_missing",
+                f"{stage_key} verifier did not produce the required-check ledger",
+                "required_check_ledger",
+                "missing",
+                bucket="verifier_missing",
+            )
+        )
+    audit_status = _audit_status(audit_findings, audit)
     audit["audit_status"] = audit_status
 
     status = _gate_status(
@@ -323,6 +357,7 @@ def _audit_t1_document_facts(
         source_ref_required=bool(
             locator_contract.get("source_ref_required_for_visible_body_flow")
         ),
+        part_name_required=bool(locator_contract.get("part_name_required")),
     )
     if visible_missing:
         findings.append(
@@ -356,13 +391,130 @@ def _audit_t1_document_facts(
                 bucket="stage_boundary",
             )
         )
-    return {
+    source_hash_expected = expected.get("source_template_docx_sha256")
+    source_hash_actual = (payload.get("metadata") or {}).get("source_template_hash")
+    source_hash_status = Status.PASS
+    if source_hash_expected and not source_hash_actual:
+        source_hash_status = Status.UNKNOWN
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.UNKNOWN,
+                "t1_source_template_hash_missing",
+                "T1 must bind facts to the source template hash",
+                source_hash_expected,
+                source_hash_actual,
+                bucket="artifact_trace",
+            )
+        )
+    elif source_hash_expected and source_hash_actual != source_hash_expected:
+        source_hash_status = Status.FAIL
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.FAIL,
+                "t1_source_template_hash_mismatch",
+                "T1 source template hash must match the signed stage standard",
+                source_hash_expected,
+                source_hash_actual,
+                bucket="artifact_trace",
+            )
+        )
+    index_gaps = _t1_index_gaps(payload, locator_contract)
+    if index_gaps:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.FAIL,
+                "t1_locator_index_unresolved",
+                "T1 indexes must resolve visible source_ref and source_seq locators",
+                "all visible locators resolve through indexes",
+                index_gaps[:30],
+                bucket="artifact_trace",
+            )
+        )
+    fact_evidence_gaps = _t1_fact_evidence_gaps(payload, contract)
+    if fact_evidence_gaps:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.UNKNOWN,
+                "t1_required_fact_evidence_missing",
+                "T1 must contain observable source facts, not only empty containers",
+                "visible body flow, run boundaries, styles and required OOXML groups",
+                fact_evidence_gaps,
+                affected_ids=fact_evidence_gaps,
+                bucket="artifact_coverage",
+            )
+        )
+    audit = {
         "artifact_type": payload.get("artifact_type"),
+        "source_template_hash": source_hash_actual,
         "missing_top_level_fields": missing_top,
         "missing_data_groups": missing_groups,
         "visible_locator_gaps": visible_missing,
+        "index_resolution_gaps": index_gaps,
+        "fact_evidence_gaps": fact_evidence_gaps,
         "forbidden_semantic_field_paths": forbidden_paths,
-    }, findings
+    }
+    checks = [
+        _required_check_from_findings(
+            "t1.artifact_schema",
+            findings,
+            {"t1_artifact_type_mismatch", "t1_required_top_level_fields_missing", "t1_required_data_groups_missing"},
+            [
+                "expected.artifact_type",
+                "expected.source_fact_contract.primary_artifact",
+                "expected.source_fact_contract.compatibility_debug_view",
+                "expected.source_fact_contract.compatibility_debug_view_is_standard",
+                "expected.source_fact_contract.required_top_level_fields",
+                "expected.source_fact_contract.required_data_groups",
+            ],
+        ),
+        required_check(
+            "t1.source_template_binding",
+            source_hash_status,
+            standard_paths=[
+                "expected.source_template_docx_sha256",
+            ],
+            evidence={"actual_source_template_hash": source_hash_actual},
+        ),
+        required_check(
+            "t1.signed_source_section_provenance",
+            Status.PASS,
+            standard_paths=["expected.source_section_sha256"],
+            evidence={"validated_by": "stage_standard_quality_gate"},
+        ),
+        _required_check_from_findings(
+            "t1.locator_integrity",
+            findings,
+            {"t1_visible_body_flow_locator_missing", "t1_locator_index_unresolved"},
+            ["expected.source_fact_contract.locator_contract"],
+        ),
+        _required_check_from_findings(
+            "t1.source_fact_coverage",
+            findings,
+            {"t1_required_fact_evidence_missing"},
+            ["expected.source_fact_contract.ooxml_fact_policy"],
+        ),
+        _required_check_from_findings(
+            "t1.semantic_firewall",
+            findings,
+            {"t1_forbidden_semantic_fields_present"},
+            ["expected.forbidden_semantic_fields"],
+        ),
+    ]
+    return _finalize_stage_audit(
+        standard,
+        audit,
+        findings,
+        checks,
+        start_index=start_index,
+    )
 
 
 def _audit_t2_unit_pagination(
@@ -404,7 +556,30 @@ def _audit_t2_unit_pagination(
                 bucket="artifact_schema",
             ),
         )
-    return audit, findings
+    checks = [
+        _required_check_from_findings(
+            "t2.artifact_schema",
+            findings,
+            {"t2_artifact_type_mismatch"},
+            ["expected.artifact_type"],
+        ),
+        required_check(
+            "t2.unit_boundary_and_page_policy",
+            _status_value(audit.get("audit_status")),
+            standard_paths=[f"expected.{key}" for key in standard.expected],
+            evidence={
+                "finding_count": len(audit.get("findings", [])),
+                "page_policy_result_count": len(audit.get("page_policy_results", [])),
+            },
+        ),
+    ]
+    return _finalize_stage_audit(
+        standard,
+        audit,
+        findings,
+        checks,
+        start_index=start_index,
+    )
 
 
 def _audit_t3_element_policy(
@@ -416,6 +591,30 @@ def _audit_t3_element_policy(
 ) -> tuple[dict[str, Any], list[Finding]]:
     findings: list[Finding] = []
     expected = standard.expected
+    core_action_contract = expected.get("core_action_contract")
+    core_action_mode = isinstance(core_action_contract, dict) and bool(
+        core_action_contract
+    )
+    core_action_contract_gaps = _t3_core_action_contract_gaps(
+        core_action_contract if isinstance(core_action_contract, dict) else {}
+    ) if core_action_mode else []
+    if core_action_contract_gaps:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.FAIL,
+                "t3_core_action_contract_invalid",
+                "T3 primary gold must define one keep/fill/delete projection",
+                {
+                    "primary_metric": "exact_action_accuracy",
+                    "allowed_actions": ["keep", "fill", "delete"],
+                    "grouping_invariant": True,
+                },
+                core_action_contract_gaps,
+                bucket="stage_standard_mismatch",
+            )
+        )
     elements = _dict_items(payload.get("elements"))
     if payload.get("artifact_type") != "element_spec":
         findings.append(
@@ -428,6 +627,36 @@ def _audit_t3_element_policy(
                 "element_spec",
                 payload.get("artifact_type"),
                 bucket="artifact_schema",
+            )
+        )
+    allowed_policies = set(
+        _string_list(
+            expected.get("element_policy_contract", {}).get("allowed_policies")
+        )
+    )
+    invalid_policies = [
+        {
+            **_element_ref(element),
+            "policy": element.get("policy"),
+        }
+        for element in elements
+        if allowed_policies and str(element.get("policy") or "") not in allowed_policies
+    ]
+    if invalid_policies:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.FAIL,
+                "t3_policy_not_allowed",
+                "Every T3 element policy must belong to the signed policy ontology",
+                sorted(allowed_policies),
+                invalid_policies[:30],
+                affected_ids=[
+                    str(item.get("stable_id") or item.get("element_id"))
+                    for item in invalid_policies[:30]
+                ],
+                bucket="stage_standard_mismatch",
             )
         )
     expected_order = _string_list(expected.get("unit_order"))
@@ -451,7 +680,7 @@ def _audit_t3_element_policy(
         )
     policy_groups = expected.get("policy_groups", {})
     conflicts = _t3_policy_group_conflicts(elements, policy_groups)
-    if conflicts:
+    if conflicts and not core_action_mode:
         findings.append(
             _audit_finding(
                 start_index + len(findings),
@@ -489,7 +718,7 @@ def _audit_t3_element_policy(
                 bucket="artifact_schema",
             )
         )
-    element_expectation_gaps = _t3_element_expectation_gaps(
+    element_expectation_gaps = [] if core_action_mode else _t3_element_expectation_gaps(
         elements,
         _dict_items(expected.get("element_expectations")),
     )
@@ -510,7 +739,7 @@ def _audit_t3_element_policy(
                 bucket="stage_standard_mismatch",
             )
         )
-    run_level_gaps = _t3_run_level_element_gaps(
+    run_level_gaps = [] if core_action_mode else _t3_run_level_element_gaps(
         elements,
         _dict_items(expected.get("run_level_elements")),
     )
@@ -531,9 +760,48 @@ def _audit_t3_element_policy(
                 bucket="stage_standard_mismatch",
             )
         )
+    scored_run_span_ledger = _t3_scored_run_span_ledger(
+        _dict_items(expected.get("run_span_ledger")),
+        core_action_contract=(
+            core_action_contract if isinstance(core_action_contract, dict) else {}
+        ),
+        run_bundle=run_bundle,
+    ) if core_action_mode else _dict_items(expected.get("run_span_ledger"))
+    unknown_fallback_run_span_ledger = (
+        _t3_unknown_fallback_run_span_ledger(
+            _dict_items(expected.get("run_span_ledger")),
+            core_action_contract=(
+                core_action_contract if isinstance(core_action_contract, dict) else {}
+            ),
+            run_bundle=run_bundle,
+        )
+        if core_action_mode
+        else []
+    )
+    unknown_fallback_gaps = _t3_run_span_ledger_gaps(
+        elements,
+        unknown_fallback_run_span_ledger,
+    )
+    if unknown_fallback_gaps:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.FAIL,
+                "t3_unknown_execution_fallback_mismatch",
+                "T3 unknown gold runs are excluded from accuracy but must execute as keep",
+                unknown_fallback_run_span_ledger,
+                unknown_fallback_gaps[:30],
+                affected_ids=[
+                    str(item.get("raw_run_id") or item.get("logical_run_id"))
+                    for item in unknown_fallback_gaps[:30]
+                ],
+                bucket="unsafe_execution_policy",
+            )
+        )
     run_span_gaps = _t3_run_span_ledger_gaps(
         elements,
-        _dict_items(expected.get("run_span_ledger")),
+        scored_run_span_ledger,
     )
     if run_span_gaps:
         findings.append(
@@ -552,16 +820,94 @@ def _audit_t3_element_policy(
                 bucket="stage_standard_mismatch",
             )
         )
-    return {
+    audit = {
         "artifact_type": payload.get("artifact_type"),
+        "allowed_policies": sorted(allowed_policies),
+        "invalid_policies": invalid_policies,
         "expected_unit_order": expected_order,
         "actual_unit_order": actual_order,
         "policy_group_conflicts": conflicts,
         "required_policy_field_gaps": missing_required,
+        "core_action_contract_gaps": core_action_contract_gaps,
+        "core_action_gold_count": len(scored_run_span_ledger) if core_action_mode else None,
+        "core_action_unknown_gold_count": len(unknown_fallback_run_span_ledger),
+        "unknown_execution_fallback_gaps": unknown_fallback_gaps,
+        "core_action_match_count": (
+            len(scored_run_span_ledger) - len(run_span_gaps)
+            if core_action_mode
+            else None
+        ),
+        "core_action_accuracy": (
+            round(
+                (len(scored_run_span_ledger) - len(run_span_gaps))
+                / len(scored_run_span_ledger),
+                4,
+            )
+            if core_action_mode and scored_run_span_ledger
+            else None
+        ),
         "element_expectation_gaps": element_expectation_gaps,
         "run_level_element_gaps": run_level_gaps,
         "run_span_ledger_gaps": run_span_gaps,
-    }, findings
+    }
+    checks = [
+        _required_check_from_findings(
+            "t3.core_action_contract",
+            findings,
+            {"t3_core_action_contract_invalid"},
+            ["expected.core_action_contract"],
+        ),
+        _required_check_from_findings(
+            "t3.artifact_schema",
+            findings,
+            {"t3_artifact_type_mismatch", "t3_required_policy_fields_missing"},
+            ["expected.element_policy_contract.artifact_type", "expected.element_policy_contract.required_fields_by_policy"],
+        ),
+        _required_check_from_findings(
+            "t3.unit_order",
+            findings,
+            {"t3_unit_order_mismatch"},
+            ["expected.unit_order"],
+        ),
+        _required_check_from_findings(
+            "t3.policy_ontology_and_groups",
+            findings,
+            {"t3_policy_not_allowed", "t3_policy_group_conflict"},
+            [
+                "expected.policy_groups",
+                "expected.element_policy_contract.allowed_policies",
+                "expected.element_policy_contract.unit_boundary_policy",
+            ],
+        ),
+        _required_check_from_findings(
+            "t3.human_element_expectations",
+            findings,
+            {"t3_element_expectation_mismatch"},
+            ["expected.element_expectations"],
+        ),
+        _required_check_from_findings(
+            "t3.run_level_expectations",
+            findings,
+            {"t3_run_level_element_mismatch"},
+            ["expected.run_level_elements"],
+        ),
+        _required_check_from_findings(
+            "t3.run_span_ledger",
+            findings,
+            {
+                "t3_run_span_ledger_mismatch",
+                "t3_unknown_execution_fallback_mismatch",
+            },
+            ["expected.run_span_ledger"],
+        ),
+    ]
+    return _finalize_stage_audit(
+        standard,
+        audit,
+        findings,
+        checks,
+        start_index=start_index,
+    )
 
 
 def _audit_t4_global_layout(
@@ -643,7 +989,71 @@ def _audit_t4_global_layout(
                 bucket="artifact_schema",
             )
         )
-    return {
+    runtime_findings = _runtime_findings_for_stage(
+        verify_t4_global_spec_artifact(payload),
+        standard.stage_key,
+        start_index=start_index + len(findings),
+    )
+    findings.extend(runtime_findings)
+
+    unit_map = run_bundle.payload("unit_map") or {}
+    upstream_unit_order = [
+        str(unit.get("unit_id"))
+        for unit in _dict_items(unit_map.get("units"))
+        if unit.get("unit_id") is not None
+    ]
+    expected_unit_order = _string_list(expected.get("unit_order"))
+    if expected_unit_order and upstream_unit_order != expected_unit_order:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.FAIL,
+                "t4_upstream_unit_order_mismatch",
+                "T4 must consume the signed T2 unit order without changing it",
+                expected_unit_order,
+                upstream_unit_order,
+                bucket="stage_standard_mismatch",
+            )
+        )
+
+    document_facts = run_bundle.payload("document_facts") or {}
+    fact_data = document_facts.get("data") if isinstance(document_facts.get("data"), dict) else {}
+    expected_numbering_rules = {
+        "definitions": fact_data.get("numbering_definitions", []),
+        "refs": fact_data.get("numbering_refs", []),
+    }
+    numbering_rules_match = payload.get("numbering_rules") == expected_numbering_rules
+    if contract and contract.get("numbering_rules_must_be_preserved_from_document_facts") and not numbering_rules_match:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.FAIL,
+                "t4_numbering_rules_not_preserved",
+                "T4 numbering rules must exactly preserve T1 numbering facts",
+                expected_numbering_rules,
+                payload.get("numbering_rules"),
+                bucket="artifact_trace",
+            )
+        )
+
+    layout_policy_gaps = _t4_layout_policy_gaps(expected)
+    if layout_policy_gaps:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.UNKNOWN,
+                "t4_layout_policy_standard_incomplete",
+                "T4 layout policy must classify every signed unit consistently",
+                expected.get("unit_order", []),
+                layout_policy_gaps,
+                bucket="standard_invalid",
+            )
+        )
+
+    audit = {
         "artifact_type": payload.get("artifact_type"),
         "has_global_layout_contract": isinstance(contract, dict),
         "missing_evidence_fields": missing_fields,
@@ -651,7 +1061,78 @@ def _audit_t4_global_layout(
         "page_numbering_status": page_numbering.get("status")
         if isinstance(page_numbering, dict)
         else None,
-    }, findings
+        "expected_unit_order": expected_unit_order,
+        "upstream_unit_order": upstream_unit_order,
+        "numbering_rules_match": numbering_rules_match,
+        "layout_policy_gaps": layout_policy_gaps,
+        "runtime_finding_types": [finding.type for finding in runtime_findings],
+    }
+    checks = [
+        _required_check_from_findings(
+            "t4.artifact_and_layout_schema",
+            findings,
+            {
+                "t4_artifact_type_mismatch",
+                "t4_global_layout_contract_missing",
+                "t4_global_spec_evidence_fields_missing",
+                "t4_section_profiles_missing",
+                "t4_page_numbering_missing",
+                "global_spec_artifact_missing",
+                "global_spec_section_profiles_missing",
+                "global_spec_duplicate_section_profile_id",
+                "global_spec_section_boundary_missing",
+                "global_spec_section_boundary_unknown",
+                "global_spec_section_source_ref_missing",
+            },
+            [
+                "expected.global_layout_contract.artifact_type",
+                "expected.global_layout_contract.section_profiles_required",
+                "expected.global_layout_contract.section_profile_ids_unique",
+                "expected.global_layout_contract.section_boundaries_must_trace_to_source_seq",
+            ],
+        ),
+        _required_check_from_findings(
+            "t4.page_numbering_and_header_footer",
+            findings,
+            {
+                "global_spec_page_numbering_display_status_missing",
+                "global_spec_page_numbering_detected_without_page_field",
+                "global_spec_no_page_field_scope_missing",
+                "global_spec_header_footer_part_missing",
+            },
+            [
+                "expected.global_layout_contract.page_numbering_display_status_required",
+                "expected.global_layout_contract.detected_page_numbering_requires_page_field_evidence",
+                "expected.global_layout_contract.no_page_field_requires_checked_scope",
+                "expected.global_layout_contract.header_footer_refs_must_resolve_to_parsed_parts",
+            ],
+        ),
+        _required_check_from_findings(
+            "t4.numbering_preservation",
+            findings,
+            {"t4_numbering_rules_not_preserved"},
+            ["expected.global_layout_contract.numbering_rules_must_be_preserved_from_document_facts"],
+        ),
+        _required_check_from_findings(
+            "t4.t2_unit_order_preservation",
+            findings,
+            {"t4_upstream_unit_order_mismatch"},
+            ["expected.unit_order", "expected.global_layout_contract.must_not_change_t2_unit_order"],
+        ),
+        _required_check_from_findings(
+            "t4.layout_policy",
+            findings,
+            {"t4_layout_policy_standard_incomplete"},
+            ["expected.layout_policy"],
+        ),
+    ]
+    return _finalize_stage_audit(
+        standard,
+        audit,
+        findings,
+        checks,
+        start_index=start_index,
+    )
 
 
 def _audit_t5_template_spec(
@@ -714,6 +1195,51 @@ def _audit_t5_template_spec(
                 bucket="artifact_trace",
             )
         )
+    expected_hashes = {
+        key: sha256_json(run_bundle.payload(key))
+        for key in required_hashes
+        if isinstance(run_bundle.payload(key), dict)
+    }
+    hash_mismatches = [
+        {
+            "artifact_key": key,
+            "expected": expected_hashes.get(key),
+            "actual": input_hashes.get(key),
+        }
+        for key in required_hashes
+        if key in input_hashes
+        and key in expected_hashes
+        and input_hashes.get(key) != expected_hashes.get(key)
+    ]
+    if hash_mismatches:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.FAIL,
+                "t5_input_hash_mismatch",
+                "T5 input hashes must bind the exact upstream artifacts under audit",
+                expected_hashes,
+                hash_mismatches,
+                affected_ids=[item["artifact_key"] for item in hash_mismatches],
+                bucket="artifact_trace",
+            )
+        )
+    unbound_hashes = [key for key in required_hashes if key not in expected_hashes]
+    if unbound_hashes:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.UNKNOWN,
+                "t5_upstream_hash_evidence_missing",
+                "T5 hash values cannot be verified without the bound upstream artifacts",
+                required_hashes,
+                unbound_hashes,
+                affected_ids=unbound_hashes,
+                bucket="run_bundle_missing",
+            )
+        )
     missing_section_refs = [
         str(unit.get("unit_id"))
         for unit in units
@@ -747,14 +1273,175 @@ def _audit_t5_template_spec(
                 bucket="artifact_trace",
             )
         )
-    return {
+    runtime_findings = _runtime_findings_for_stage(
+        verify_t5_template_spec_artifact(payload),
+        standard.stage_key,
+        start_index=start_index + len(findings),
+    )
+    findings.extend(runtime_findings)
+
+    upstream_global = run_bundle.payload("global_spec")
+    global_spec_match = (
+        isinstance(upstream_global, dict)
+        and payload.get("global") == upstream_global
+    )
+    if isinstance(upstream_global, dict) and not global_spec_match:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.FAIL,
+                "t5_global_spec_not_preserved",
+                "T5 must embed the exact T4 global specification",
+                sha256_json(upstream_global),
+                sha256_json(payload.get("global")),
+                bucket="artifact_trace",
+            )
+        )
+
+    upstream_elements = _dict_items((run_bundle.payload("element_spec") or {}).get("elements"))
+    actual_elements = [
+        element
+        for unit in units
+        for element in _dict_items(unit.get("elements"))
+    ]
+    expected_element_ids = [str(item.get("stable_id") or "") for item in upstream_elements]
+    actual_element_ids = [str(item.get("stable_id") or "") for item in actual_elements]
+    element_binding_match = expected_element_ids == actual_element_ids
+    if upstream_elements and not element_binding_match:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.FAIL,
+                "t5_element_binding_mismatch",
+                "T5 must preserve all T3 elements in unit order",
+                expected_element_ids,
+                actual_element_ids,
+                bucket="artifact_trace",
+            )
+        )
+
+    upstream_units = _dict_items((run_bundle.payload("unit_map") or {}).get("units"))
+    upstream_page_policies = {
+        str(unit.get("unit_id") or ""): unit.get("page_policy") or {}
+        for unit in upstream_units
+    }
+    page_policy_mismatches = [
+        str(unit.get("unit_id") or "")
+        for unit in units
+        if str(unit.get("unit_id") or "") in upstream_page_policies
+        and (unit.get("page_policy") or {})
+        != upstream_page_policies[str(unit.get("unit_id") or "")]
+    ]
+    if page_policy_mismatches:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.FAIL,
+                "t5_page_policy_not_preserved",
+                "T5 must preserve canonical T2 page policies without reinterpretation",
+                "exact T2 page policy per unit",
+                page_policy_mismatches,
+                affected_ids=page_policy_mismatches,
+                bucket="artifact_trace",
+            )
+        )
+
+    forbidden_action_keys = [
+        key for key in ("actions", "actions_executed", "slots", "output") if key in payload
+    ]
+    if forbidden_action_keys:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.FAIL,
+                "t5_word_action_execution_present",
+                "T5 is a specification stage and must not execute Word actions",
+                "no execution fields",
+                forbidden_action_keys,
+                affected_ids=forbidden_action_keys,
+                bucket="stage_boundary",
+            )
+        )
+
+    audit = {
         "artifact_type": payload.get("artifact_type"),
         "expected_unit_order": expected_order,
         "actual_unit_order": actual_order,
         "missing_input_hashes": missing_hashes,
+        "input_hash_mismatches": hash_mismatches,
+        "unbound_input_hashes": unbound_hashes,
         "missing_section_profile_refs": missing_section_refs,
         "missing_review_flags": missing_flags,
-    }, findings
+        "global_spec_match": global_spec_match,
+        "element_binding_match": element_binding_match,
+        "page_policy_mismatches": page_policy_mismatches,
+        "forbidden_action_keys": forbidden_action_keys,
+        "runtime_finding_types": [finding.type for finding in runtime_findings],
+    }
+    checks = [
+        _required_check_from_findings(
+            "t5.artifact_schema_and_unit_order",
+            findings,
+            {"t5_artifact_type_mismatch", "t5_unit_order_mismatch", "template_spec_artifact_missing", "template_spec_duplicate_unit_id", "template_spec_duplicate_other_unit_id"},
+            [
+                "expected.unit_order",
+                "expected.template_spec_contract.artifact_type",
+                "expected.template_spec_contract.must_preserve_unit_order",
+                "expected.template_spec_contract.unit_ids_must_be_unique_except_reviewed_other",
+            ],
+        ),
+        _required_check_from_findings(
+            "t5.input_hash_binding",
+            findings,
+            {"t5_required_input_hashes_missing", "t5_input_hash_mismatch", "t5_upstream_hash_evidence_missing"},
+            [
+                "expected.template_spec_contract.merge_inputs",
+                "expected.template_spec_contract.required_input_hashes",
+            ],
+        ),
+        _required_check_from_findings(
+            "t5.unit_section_binding",
+            findings,
+            {"t5_unit_section_profile_refs_missing", "template_spec_unit_section_profile_refs_missing", "template_spec_unit_section_profile_ref_missing", "template_spec_unit_section_profile_range_mismatch"},
+            [
+                "expected.template_spec_contract.every_unit_must_have_section_profile_refs",
+                "expected.template_spec_contract.unit_section_refs_must_resolve_to_global_section_profiles",
+                "expected.template_spec_contract.unit_section_ranges_must_overlap_unit_source_seq_range",
+            ],
+        ),
+        _required_check_from_findings(
+            "t5.upstream_semantic_preservation",
+            findings,
+            {"t5_global_spec_not_preserved", "t5_element_binding_mismatch", "t5_page_policy_not_preserved", "template_spec_fill_source_missing"},
+            ["expected.template_spec_contract.fill_elements_must_preserve_fill_source"],
+        ),
+        _required_check_from_findings(
+            "t5.review_flag_preservation",
+            findings,
+            {"t5_review_flags_dropped"},
+            ["expected.template_spec_contract.review_flags_must_not_be_dropped"],
+        ),
+        _required_check_from_findings(
+            "t5.no_word_action_execution",
+            findings,
+            {"t5_word_action_execution_present"},
+            [
+                "expected.template_spec_contract.no_word_action_execution",
+                "expected.template_spec_contract.downstream_owner_for_docx_build",
+            ],
+        ),
+    ]
+    return _finalize_stage_audit(
+        standard,
+        audit,
+        findings,
+        checks,
+        start_index=start_index,
+    )
 
 
 def _visible_body_flow_locator_gaps(
@@ -762,6 +1449,7 @@ def _visible_body_flow_locator_gaps(
     *,
     source_seq_required: bool,
     source_ref_required: bool,
+    part_name_required: bool,
 ) -> list[dict[str, Any]]:
     gaps: list[dict[str, Any]] = []
     for item in _dict_items(payload.get("body_flow")):
@@ -772,6 +1460,8 @@ def _visible_body_flow_locator_gaps(
             missing.append("source_seq")
         if source_ref_required and not item.get("source_ref"):
             missing.append("source_ref")
+        if part_name_required and not item.get("part_name"):
+            missing.append("part_name")
         if missing:
             gaps.append(
                 {
@@ -781,6 +1471,78 @@ def _visible_body_flow_locator_gaps(
                 }
             )
     return gaps
+
+
+def _t1_index_gaps(
+    payload: dict[str, Any],
+    locator_contract: dict[str, Any],
+) -> list[dict[str, Any]]:
+    indexes = payload.get("indexes") if isinstance(payload.get("indexes"), dict) else {}
+    by_ref = indexes.get("by_source_ref") if isinstance(indexes.get("by_source_ref"), dict) else {}
+    by_seq = indexes.get("by_source_seq") if isinstance(indexes.get("by_source_seq"), dict) else {}
+    gaps: list[dict[str, Any]] = []
+    for item in _dict_items(payload.get("body_flow")):
+        if not _is_visible_body_flow_item(item):
+            continue
+        missing: list[str] = []
+        source_ref = item.get("source_ref")
+        source_seq = item.get("source_seq")
+        if locator_contract.get("indexes_must_resolve_source_ref") and (
+            not source_ref or str(source_ref) not in by_ref
+        ):
+            missing.append("indexes.by_source_ref")
+        if locator_contract.get("indexes_must_resolve_source_seq") and (
+            source_seq is None or str(source_seq) not in by_seq
+        ):
+            missing.append("indexes.by_source_seq")
+        if missing:
+            gaps.append(
+                {
+                    "node_id": item.get("node_id"),
+                    "source_ref": source_ref,
+                    "source_seq": source_seq,
+                    "missing": missing,
+                }
+            )
+    return gaps
+
+
+def _t1_fact_evidence_gaps(
+    payload: dict[str, Any],
+    contract: dict[str, Any],
+) -> list[str]:
+    policy = contract.get("ooxml_fact_policy") if isinstance(contract.get("ooxml_fact_policy"), dict) else {}
+    body_flow = _dict_items(payload.get("body_flow"))
+    runs = _dict_items(payload.get("runs"))
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    gaps: list[str] = []
+    if policy.get("preserve_visible_text") and not any(_is_visible_body_flow_item(item) for item in body_flow):
+        gaps.append("visible_body_flow")
+    if policy.get("preserve_style_details") and not any(
+        item.get("style_details")
+        for item in body_flow
+        if item.get("text") and item.get("kind") != "table_cell"
+    ):
+        gaps.append("style_details")
+    if policy.get("preserve_run_boundaries") and (
+        not runs
+        or any(not run.get("raw_run_id") or not run.get("logical_run_id") for run in runs)
+    ):
+        gaps.append("run_boundaries")
+    required_groups = {
+        "preserve_table_structure": "tables",
+        "preserve_section_rules": "sections",
+        "preserve_header_footer_parts": "headers_footers",
+        "preserve_unknown_visible_objects": "unknown_visible_objects",
+    }
+    for policy_key, group in required_groups.items():
+        if policy.get(policy_key) and group not in data:
+            gaps.append(group)
+    if policy.get("preserve_fields_and_numbering") and any(
+        group not in data for group in ("fields", "numbering_definitions", "numbering_refs")
+    ):
+        gaps.append("fields_and_numbering")
+    return _unique_preserving_order(gaps)
 
 
 def _is_visible_body_flow_item(item: dict[str, Any]) -> bool:
@@ -811,7 +1573,6 @@ def _t3_policy_group_conflicts(
     elements: list[dict[str, Any]],
     policy_groups: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    manual_only_units = set(_string_list(policy_groups.get("manual_only_units")))
     generated_units = set(_string_list(policy_groups.get("generated_units")))
     fixed_units = set(_string_list(policy_groups.get("fixed_units")))
     fixed_units_allow_fill = set(
@@ -821,9 +1582,7 @@ def _t3_policy_group_conflicts(
     for element in elements:
         unit_id = str(element.get("unit_id") or "")
         policy = str(element.get("policy") or "")
-        if unit_id in manual_only_units and policy == "fill":
-            conflicts.append({**_element_ref(element), "expected": "manual_only", "actual": policy})
-        elif unit_id in generated_units and policy not in {"generated", "fixed", "instruction_remove"}:
+        if unit_id in generated_units and policy not in {"generated", "fixed", "instruction_remove"}:
             conflicts.append({**_element_ref(element), "expected": "generated", "actual": policy})
         elif unit_id in fixed_units and unit_id not in fixed_units_allow_fill and policy == "fill":
             conflicts.append({**_element_ref(element), "expected": "fixed", "actual": policy})
@@ -1048,6 +1807,18 @@ def _t3_run_span_ledger_gaps(
             for element in elements
             if (raw_run_id and raw_run_id in _string_list(element.get("raw_run_ids")))
             or (
+                raw_run_id
+                and any(
+                    raw_run_id in _string_list(span.get("raw_run_ids"))
+                    or any(
+                        isinstance(char_range, dict)
+                        and str(char_range.get("raw_run_id") or "") == raw_run_id
+                        for char_range in span.get("char_ranges", []) or []
+                    )
+                    for span in _dict_items(element.get("spans"))
+                )
+            )
+            or (
                 logical_run_id
                 and logical_run_id in _string_list(element.get("logical_run_ids"))
             )
@@ -1067,10 +1838,158 @@ def _t3_run_span_ledger_gaps(
     return gaps
 
 
+def _t3_core_action_contract_gaps(contract: dict[str, Any]) -> list[dict[str, Any]]:
+    gaps: list[dict[str, Any]] = []
+    if contract.get("primary_metric") != "exact_action_accuracy":
+        gaps.append({"field": "primary_metric", "actual": contract.get("primary_metric")})
+    if contract.get("scored_ledger") != "run_span_ledger":
+        gaps.append({"field": "scored_ledger", "actual": contract.get("scored_ledger")})
+    if contract.get("gold_granularity") != "adaptive_run_or_span":
+        gaps.append({"field": "gold_granularity", "actual": contract.get("gold_granularity")})
+    if contract.get("gold_source_field") != "expected_action":
+        gaps.append(
+            {
+                "field": "gold_source_field",
+                "actual": contract.get("gold_source_field"),
+            }
+        )
+    if _string_list(contract.get("allowed_actions")) != ["keep", "fill", "delete"]:
+        gaps.append({"field": "allowed_actions", "actual": contract.get("allowed_actions")})
+    if contract.get("grouping_invariant") is not True:
+        gaps.append({"field": "grouping_invariant", "actual": contract.get("grouping_invariant")})
+    if contract.get("subtype_policy_accuracy") != "out_of_scope":
+        gaps.append(
+            {
+                "field": "subtype_policy_accuracy",
+                "actual": contract.get("subtype_policy_accuracy"),
+            }
+        )
+    if contract.get("unknown_action") != "unknown":
+        gaps.append({"field": "unknown_action", "actual": contract.get("unknown_action")})
+    if contract.get("unknown_scoring") != "excluded_from_primary":
+        gaps.append(
+            {"field": "unknown_scoring", "actual": contract.get("unknown_scoring")}
+        )
+    if contract.get("unknown_execution_fallback") != "keep":
+        gaps.append(
+            {
+                "field": "unknown_execution_fallback",
+                "actual": contract.get("unknown_execution_fallback"),
+            }
+        )
+    if contract.get("uncertain_delete_forbidden") is not True:
+        gaps.append(
+            {
+                "field": "uncertain_delete_forbidden",
+                "actual": contract.get("uncertain_delete_forbidden"),
+            }
+        )
+    if _string_list(contract.get("owned_structure_layers")) != ["body_flow"]:
+        gaps.append(
+            {
+                "field": "owned_structure_layers",
+                "actual": contract.get("owned_structure_layers"),
+            }
+        )
+    mapping = contract.get("policy_to_action")
+    mapping = mapping if isinstance(mapping, dict) else {}
+    for policy, expected_action in _T3_POLICY_TO_CORE_ACTION.items():
+        if str(mapping.get(policy) or "") != expected_action:
+            gaps.append(
+                {
+                    "field": f"policy_to_action.{policy}",
+                    "expected": expected_action,
+                    "actual": mapping.get(policy),
+                }
+            )
+    return gaps
+
+
+def _t3_scored_run_span_ledger(
+    ledger: list[dict[str, Any]],
+    *,
+    core_action_contract: dict[str, Any],
+    run_bundle: TemplateGenerationRunBundle,
+) -> list[dict[str, Any]]:
+    mapping = core_action_contract.get("policy_to_action")
+    policy_to_action = mapping if isinstance(mapping, dict) else {}
+    gold_source_field = str(
+        core_action_contract.get("gold_source_field") or "expected_policy"
+    )
+    unknown_action = str(core_action_contract.get("unknown_action") or "unknown")
+    owned_raw_ids = _t3_owned_raw_run_ids(run_bundle)
+    projected: list[dict[str, Any]] = []
+    for item in ledger:
+        raw_run_id = str(item.get("raw_run_id") or "")
+        if owned_raw_ids is not None and raw_run_id not in owned_raw_ids:
+            continue
+        gold_value = item.get("expected_action", item.get(gold_source_field))
+        expected_action = str(gold_value or "")
+        if expected_action == unknown_action:
+            continue
+        if expected_action not in {"keep", "fill", "delete"}:
+            expected_action = str(policy_to_action.get(expected_action) or "")
+        projected.append(
+            {
+                **item,
+                "expected_action": expected_action,
+                "_core_action_only": True,
+            }
+        )
+    return projected
+
+
+def _t3_unknown_fallback_run_span_ledger(
+    ledger: list[dict[str, Any]],
+    *,
+    core_action_contract: dict[str, Any],
+    run_bundle: TemplateGenerationRunBundle,
+) -> list[dict[str, Any]]:
+    unknown_action = str(core_action_contract.get("unknown_action") or "unknown")
+    owned_raw_ids = _t3_owned_raw_run_ids(run_bundle)
+    return [
+        {
+            **item,
+            "expected_action": "keep",
+            "_core_action_only": True,
+            "_unknown_execution_fallback": True,
+        }
+        for item in ledger
+        if str(item.get("expected_action") or "") == unknown_action
+        and (
+            owned_raw_ids is None
+            or str(item.get("raw_run_id") or "") in owned_raw_ids
+        )
+    ]
+
+
+def _t3_owned_raw_run_ids(
+    run_bundle: TemplateGenerationRunBundle,
+) -> set[str] | None:
+    artifact = run_bundle.artifact_for_stage("t1_document_facts")
+    if artifact is None or not isinstance(artifact.payload, dict):
+        return None
+    body_flow = _dict_items(artifact.payload.get("body_flow"))
+    return {
+        str(raw_run_id)
+        for item in body_flow
+        if str(item.get("structure_layer") or "") == "body_flow"
+        for raw_run_id in item.get("raw_run_ids", []) or []
+        if raw_run_id
+    }
+
+
 def _t3_has_expected_run_span(
     candidates: list[dict[str, Any]],
     expectation: dict[str, Any],
 ) -> bool:
+    if expectation.get("_core_action_only"):
+        expected_action = str(expectation.get("expected_action") or "")
+        projection = project_t3_gold_item(candidates, expectation)
+        return (
+            projection.coverage_complete
+            and projection.actions == {expected_action}
+        )
     for candidate in candidates:
         unit_id = expectation.get("unit_id")
         if unit_id is not None and str(candidate.get("unit_id") or "") != str(unit_id):
@@ -1097,6 +2016,42 @@ def _t3_has_expected_run_span(
             continue
         return True
     return False
+
+
+def _t3_candidate_or_span_core_actions(
+    candidate: dict[str, Any],
+    expectation: dict[str, Any],
+) -> set[str]:
+    raw_run_id = str(expectation.get("raw_run_id") or "")
+    logical_run_id = str(expectation.get("logical_run_id") or "")
+    matching_spans = [
+        span
+        for span in _dict_items(candidate.get("spans"))
+        if (raw_run_id and raw_run_id in _string_list(span.get("raw_run_ids")))
+        or (
+            logical_run_id
+            and logical_run_id in _string_list(span.get("logical_run_ids"))
+        )
+    ]
+    if matching_spans:
+        return {_t3_span_core_action(span) for span in matching_spans}
+    return {_t3_policy_core_action(candidate.get("policy"))}
+
+
+def _t3_policy_core_action(value: Any) -> str:
+    return _T3_POLICY_TO_CORE_ACTION.get(str(value or ""), "")
+
+
+def _t3_span_core_action(span: dict[str, Any]) -> str:
+    policy_action = _t3_policy_core_action(span.get("policy"))
+    if policy_action:
+        return policy_action
+    return {
+        "label": "keep",
+        "sample_value": "fill",
+        "inline_instruction": "delete",
+        "layout_spacer": "delete",
+    }.get(str(span.get("span_type") or ""), "")
 
 
 def _t3_candidate_or_span_policy_matches(
@@ -1322,9 +2277,126 @@ def _gate_status(
     return Status(audit_status)
 
 
-def _audit_status(findings: list[Finding]) -> str:
+def _audit_status(findings: list[Finding], audit: dict[str, Any]) -> str:
     statuses = [finding.status for finding in findings if finding.severity == "blocking"]
-    return merge_statuses(statuses).value if statuses else Status.PASS.value
+    ledger = audit.get("required_check_ledger")
+    if isinstance(ledger, dict):
+        statuses.append(_status_value(ledger.get("status")))
+    else:
+        statuses.append(Status.UNKNOWN)
+    return merge_statuses(statuses).value
+
+
+def _finalize_stage_audit(
+    standard: StageStandardSpec,
+    audit: dict[str, Any],
+    findings: list[Finding],
+    checks: list[dict[str, Any]],
+    *,
+    start_index: int,
+) -> tuple[dict[str, Any], list[Finding]]:
+    ledger = build_required_check_ledger(standard.expected, checks)
+    audit["required_check_ledger"] = ledger
+    unconsumed = ledger.get("unconsumed_standard_paths", [])
+    if unconsumed:
+        findings.append(
+            _audit_finding(
+                start_index + len(findings),
+                standard.stage_key,
+                Status.UNKNOWN,
+                "template_generation_standard_fields_unconsumed",
+                "Every declared expected field must be consumed by a named verifier check",
+                sorted(f"expected.{key}" for key in standard.expected),
+                unconsumed,
+                affected_ids=[str(path) for path in unconsumed],
+                bucket="verifier_coverage",
+            )
+        )
+    return audit, findings
+
+
+def _required_check_from_findings(
+    check_id: str,
+    findings: list[Finding],
+    finding_types: set[str],
+    standard_paths: list[str],
+) -> dict[str, Any]:
+    matched = [finding for finding in findings if finding.type in finding_types]
+    status = merge_statuses([finding.status for finding in matched]) if matched else Status.PASS
+    return required_check(
+        check_id,
+        status,
+        standard_paths=standard_paths,
+        evidence={
+            "finding_types": sorted({finding.type for finding in matched}),
+            "finding_count": len(matched),
+        },
+    )
+
+
+def _status_value(value: Any) -> Status:
+    try:
+        return Status(str(value))
+    except ValueError:
+        return Status.UNKNOWN
+
+
+def _runtime_findings_for_stage(
+    findings: list[Finding],
+    stage_key: str,
+    *,
+    start_index: int,
+) -> list[Finding]:
+    adapted: list[Finding] = []
+    for offset, finding in enumerate(findings):
+        adapted.append(
+            make_finding(
+                start_index + offset,
+                stage_key,
+                finding.status,
+                finding.type,
+                finding.message,
+                finding.expected,
+                finding.actual,
+                evidence_refs=finding.evidence_refs,
+                affected_ids=finding.affected_ids,
+                root_cause_bucket=finding.root_cause_bucket,
+                severity=finding.severity,
+            )
+        )
+    return adapted
+
+
+def _t4_layout_policy_gaps(expected: dict[str, Any]) -> list[dict[str, Any]]:
+    unit_order = _string_list(expected.get("unit_order"))
+    layout_policy = expected.get("layout_policy") if isinstance(expected.get("layout_policy"), dict) else {}
+    document_start = set(_string_list(layout_policy.get("document_start_units")))
+    standalone = set(_string_list(layout_policy.get("standalone_units")))
+    flowing = set(_string_list(layout_policy.get("flowing_units")))
+    gaps: list[dict[str, Any]] = []
+    if not layout_policy.get("page_policy_source"):
+        gaps.append({"type": "page_policy_source_missing"})
+    if document_start - standalone:
+        gaps.append(
+            {
+                "type": "document_start_not_standalone",
+                "unit_ids": sorted(document_start - standalone),
+            }
+        )
+    if standalone & flowing:
+        gaps.append(
+            {
+                "type": "standalone_flowing_overlap",
+                "unit_ids": sorted(standalone & flowing),
+            }
+        )
+    unclassified = set(unit_order) - standalone - flowing
+    if unclassified:
+        gaps.append({"type": "unit_unclassified", "unit_ids": sorted(unclassified)})
+    unknown = (standalone | flowing | document_start) - set(unit_order)
+    if unknown:
+        gaps.append({"type": "unknown_unit", "unit_ids": sorted(unknown)})
+    return gaps
 
 
 def _raw_audit_finding(

@@ -181,7 +181,7 @@ class LiveResponder:
         if cached is not None:
             payload = cached
             if self._progress:
-                n = len(payload.get("items", payload.get("section_profiles", [])) or [])
+                n = len(payload.get("units", payload.get("items", payload.get("section_profiles", []))) or [])
                 print(f"  [ cache] {tag:28s} raw={n}", file=sys.stderr, flush=True)
             if self._record is not None:
                 self._record.append(
@@ -246,7 +246,7 @@ class LiveResponder:
 
         if error is not None:
             payload: dict[str, Any] = (
-                {"items": []}
+                {"units": []}
                 if stage == "t2"
                 else ({} if stage == "t3_hierarchy" else {"section_profiles": []})
             )
@@ -256,7 +256,7 @@ class LiveResponder:
             except LiveObservationError as exc:
                 error = str(exc)
                 payload = (
-                    {"items": []}
+                    {"units": []}
                     if stage == "t2"
                     else ({} if stage == "t3_hierarchy" else {"section_profiles": []})
                 )
@@ -268,7 +268,7 @@ class LiveResponder:
         if error is None:
             self._cache_store(cache_key, payload)
         if self._progress:
-            n = len(payload.get("items", payload.get("section_profiles", [])) or [])
+            n = len(payload.get("units", payload.get("items", payload.get("section_profiles", []))) or [])
             flag = f" ERROR={error}" if error else ""
             print(
                 f"  [{time.monotonic() - started:5.1f}s] {tag:28s} finish={finish_reason} raw={n}{flag}",
@@ -320,7 +320,7 @@ def _parse_json_object(content: str, *, stage: str) -> dict[str, Any]:
     if not content.strip():
         # 空响应 → 该阶段弃权（物化闸门会把它落成 schema-valid 的全 unknown 产物）。
         if stage == "t2":
-            return {"items": []}
+            return {"units": []}
         if stage == "t3_hierarchy":
             return {}
         return {"section_profiles": []}

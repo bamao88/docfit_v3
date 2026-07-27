@@ -70,7 +70,7 @@ REAL_CORE_PROFILE = EvalProfile(
             "placement.disposition_coverage",
             "placement.no_silent_drop",
             "placement.fixed_content_policy",
-            "placement.manual_only_policy",
+            "placement.fixed_policy",
             "placement.comparator_policy",
         ),
         "render": (

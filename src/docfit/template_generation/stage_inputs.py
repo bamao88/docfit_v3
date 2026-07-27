@@ -7,9 +7,6 @@ from typing import Any
 
 from docfit.core.io import now_iso, sha256_json
 
-from .constants import UNIT_DEFINITIONS
-
-
 def l1_artifact_hash(l1_input_contract: dict[str, Any]) -> str:
     persisted_view = json.loads(
         json.dumps(l1_input_contract, ensure_ascii=False, sort_keys=True)
@@ -66,6 +63,13 @@ def build_t4_stage_input(l1_input_contract: dict[str, Any]) -> dict[str, Any]:
 
 def build_agent_stage_packet(l1_input_contract: dict[str, Any]) -> dict[str, Any]:
     visual = l1_input_contract.get("visual_page_index", {}) or {}
+    raw_runs_by_id = {
+        str(item.get("raw_run_id") or ""): item
+        for item in (l1_input_contract.get("run_index", {}) or {}).get(
+            "raw_runs", []
+        )
+        if isinstance(item, dict) and item.get("raw_run_id")
+    }
     page_text_index = [
         {
             "source_seq": item.get("source_seq"),
@@ -73,10 +77,21 @@ def build_agent_stage_packet(l1_input_contract: dict[str, Any]) -> dict[str, Any
             "node_id": item.get("node_id"),
             "part_name": item.get("part_name"),
             "order": item.get("order"),
+            "kind": item.get("kind"),
+            "paragraph_id": (item.get("source_facts", {}) or {}).get(
+                "paragraph_id"
+            )
+            or _first_raw_run_fact(item, raw_runs_by_id).get("paragraph_id"),
+            "table_id": (item.get("source_facts", {}) or {}).get("table_id"),
+            "cell_id": (item.get("source_facts", {}) or {}).get("cell_id"),
             "flow_item_type": item.get("flow_item_type"),
             "structure_layer": item.get("structure_layer"),
             "text": item.get("text", ""),
             "text_facts": deepcopy(item.get("text_facts", {})),
+            "style_details": _agent_style_details(
+                item,
+                raw_runs_by_id=raw_runs_by_id,
+            ),
             "raw_run_ids": deepcopy(item.get("raw_run_ids", [])),
             "logical_run_ids": deepcopy(item.get("logical_run_ids", [])),
             "page_no": item.get("page_no"),
@@ -100,19 +115,20 @@ def build_agent_stage_packet(l1_input_contract: dict[str, Any]) -> dict[str, Any
         "render_error": visual.get("render_error"),
         "render_hash": visual.get("source_render_hash"),
     }
+    object_fact_index = _agent_object_fact_index(l1_input_contract)
     return {
         "artifact_type": "template_agent_l1_stage_packet",
-        "artifact_version": "2.0",
+        "artifact_version": "3.0",
         "created_at": now_iso(),
         "input_contract_hash": l1_artifact_hash(l1_input_contract),
         "render_status": visual.get("render_status"),
         "source_render_hash": visual.get("source_render_hash"),
         "status_authority": "verify_template_parse_build",
-        "advisory_only": True,
+        "ai_semantic_authority_stages": ["T2", "T3", "T4"],
         "allowed_ai_tasks": [
-            "submit_t2_structure_proposals",
+            "return_t2_page_groups",
             "submit_t3_hierarchical_decisions",
-            "submit_t4_layout_hints",
+            "return_t4_global_layout_decisions",
             "abstain",
         ],
         "forbidden_ai_tasks": [
@@ -128,6 +144,7 @@ def build_agent_stage_packet(l1_input_contract: dict[str, Any]) -> dict[str, Any
         ],
         "render_artifacts": render_artifacts,
         "page_text_index": page_text_index,
+        "object_fact_index": object_fact_index,
         "page_layout_index": deepcopy(list(visual.get("page_layout_index", []) or [])),
         "input_windows": {
             "full_pass": {
@@ -136,18 +153,130 @@ def build_agent_stage_packet(l1_input_contract: dict[str, Any]) -> dict[str, Any
             },
             "focused_pass": [],
         },
-        "optional_reference": {
-            "canonical_unit_ids": [
-                {"unit_id": unit_id, "name": name}
-                for unit_id, name, _aliases in UNIT_DEFINITIONS
-            ],
-            "non_binding": True,
-        },
         "global_layout_facts": _global_layout_facts(l1_input_contract),
         "round0_snapshot_id": sha256_json(
             {"l1_hash": l1_artifact_hash(l1_input_contract)}
         ),
     }
+
+
+def _agent_object_fact_index(
+    l1_input_contract: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Project claimable L1 object identities without T2/T3 policy semantics."""
+
+    rows: list[dict[str, Any]] = []
+    for item in l1_input_contract.get("source_object_index", []) or []:
+        if not isinstance(item, dict) or not item.get("source_ref"):
+            continue
+        rows.append(
+            {
+                key: deepcopy(item.get(key))
+                for key in (
+                    "object_id",
+                    "object_type",
+                    "source_ref",
+                    "source_seq_anchor",
+                    "binding_status",
+                    "page_no",
+                    "bbox",
+                    "render_target_id",
+                    "relationship_id",
+                    "target",
+                    "sha256",
+                    "byte_count",
+                    "text",
+                    "tag",
+                    "alias",
+                    "footnote_id",
+                    "reason",
+                )
+                if item.get(key) is not None
+            }
+        )
+
+    existing_refs = {str(item.get("source_ref") or "") for item in rows}
+    layout = l1_input_contract.get("layout_fact_index", {}) or {}
+    for field in layout.get("fields", []) or []:
+        if not isinstance(field, dict):
+            continue
+        source_ref = str(field.get("source_ref") or "")
+        if not source_ref or source_ref in existing_refs:
+            continue
+        rows.append(
+            {
+                key: deepcopy(value)
+                for key, value in {
+                    "object_id": f"field:{source_ref}",
+                    "object_type": "field",
+                    "source_ref": source_ref,
+                    "part_name": field.get("part_name"),
+                    "kind": field.get("kind"),
+                    "field_type": field.get("field_type"),
+                    "instruction": field.get("instruction"),
+                    "paragraph_index": field.get("paragraph_index"),
+                    "end_paragraph_index": field.get("end_paragraph_index"),
+                    "end_source_ref": field.get("end_source_ref"),
+                }.items()
+                if value is not None
+            }
+        )
+        existing_refs.add(source_ref)
+    return rows
+
+
+def _agent_style_details(
+    source_item: dict[str, Any],
+    *,
+    raw_runs_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Project authoritative L1 run facts without downstream policy semantics."""
+
+    details = deepcopy(source_item.get("style_details", {}) or {})
+    source_runs = [
+        item for item in details.get("runs", []) or [] if isinstance(item, dict)
+    ]
+    projected_runs: list[dict[str, Any]] = []
+    for index, raw_run_id_value in enumerate(source_item.get("raw_run_ids", []) or []):
+        raw_run_id = str(raw_run_id_value or "")
+        indexed = raw_runs_by_id.get(raw_run_id, {})
+        fallback = source_runs[index] if index < len(source_runs) else {}
+        effective_style = deepcopy(indexed.get("effective_style", {}) or {})
+        if not effective_style:
+            effective_style = {
+                key: fallback.get(key)
+                for key in (
+                    "font_names",
+                    "font_size_pt",
+                    "bold",
+                    "italic",
+                    "underline",
+                    "color",
+                )
+                if fallback.get(key) is not None
+            }
+        projected_runs.append(
+            {
+                "raw_run_id": raw_run_id,
+                "logical_run_id": indexed.get("logical_run_id"),
+                "text": indexed.get("text", fallback.get("text", "")),
+                "source_ref": indexed.get("source_ref")
+                or fallback.get("source_ref"),
+                "effective_style": effective_style,
+            }
+        )
+    details["runs"] = projected_runs
+    return details
+
+
+def _first_raw_run_fact(
+    source_item: dict[str, Any],
+    raw_runs_by_id: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    raw_run_ids = list(source_item.get("raw_run_ids", []) or [])
+    if not raw_run_ids:
+        return {}
+    return raw_runs_by_id.get(str(raw_run_ids[0]), {})
 
 
 def _document_facts_view(l1_input_contract: dict[str, Any]) -> dict[str, Any]:

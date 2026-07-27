@@ -1,17 +1,6 @@
-"""Module 1 独立同形产物（ai-observation）的信封与形状校验。
+"""T3/T4 observation-envelope validation.
 
-Module 1 让 AI 只看干净 Word 事实，独立产出与代码同形的三份完整文件：
-
-  ai_unit_observation     镜像 unit_map     stage=t2
-  ai_element_observation  镜像 element_spec stage=t3
-  ai_layout_observation   镜像 global_spec  stage=t4
-
-本模块只负责信封 / 形状校验 / 覆盖不变量（Phase 1）。
-越界标签降级、证据绑定、必填规则等物化闸门在 observation_materialize 落地（Phase 3）。
-
-允许标签集（unit_id / policy / field_type / fill_source / role）来自运行时
-``UNIT_DEFINITIONS`` 与 ``ontology.yaml``，不在此硬编码——这样产物校验永远与真实
-taxonomy 同步（历史 A.3 写“22 单元”，现已 24，硬编码会立刻失配）。
+T2 uses the separate exact page-native contract in ``t2_ai.py``.
 """
 
 from __future__ import annotations
@@ -22,17 +11,13 @@ from typing import Any
 
 from docfit.core.io import now_iso, read_yaml
 
-from ..constants import UNIT_DEFINITIONS
-
 OBSERVATION_SCHEMA_VERSION = "ai-observation-1.0"
 PROMPT_CONTRACT_VERSION = "ai-observation-prompt-1.6"
 
-UNKNOWN_UNIT_ID = "unknown_unit"
 CONFIDENCE_LEVELS = ("low", "medium", "high")
 
 # artifact_type -> stage。三份产物同信封、按 stage 区分 item 形状。
 OBSERVATION_STAGES = {
-    "ai_unit_observation": "t2",
     "ai_element_observation": "t3",
     "ai_layout_observation": "t4",
 }
@@ -40,8 +25,6 @@ OBSERVATION_STAGES = {
 _ONTOLOGY_PATH = Path(__file__).resolve().parent.parent / "ontology.yaml"
 _ONTOLOGY: dict[str, Any] = read_yaml(_ONTOLOGY_PATH) or {}
 
-# 单一真相：允许标签集从运行时 taxonomy / ontology 派生。
-ALLOWED_UNIT_IDS = frozenset(unit_id for unit_id, *_ in UNIT_DEFINITIONS) | {UNKNOWN_UNIT_ID}
 ALLOWED_POLICIES = frozenset(_ONTOLOGY.get("policies", ()))
 ALLOWED_ROLES = frozenset(_ONTOLOGY.get("roles", ()))
 ALLOWED_FILL_SOURCES = frozenset(_ONTOLOGY.get("fill_sources", ()))

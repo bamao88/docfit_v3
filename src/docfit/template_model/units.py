@@ -183,7 +183,7 @@ def protected_zones_from_units(units: list[dict[str, Any]]) -> list[dict[str, An
         fixed_elements = [
             element.get("element_id")
             for element in unit.get("elements", [])
-            if element.get("policy") in {"fixed", "manual_only"}
+            if element.get("policy") == "fixed"
         ]
         if not fixed_elements:
             continue
@@ -379,8 +379,8 @@ def _line_value(lines: list[str], field: str) -> str:
 
 def _policy_from_values(*, status: str, type_text: str, fill_text: str) -> str:
     haystack = f"{status} {type_text} {fill_text}"
-    if "manual_only" in haystack or "手工" in haystack or "手填" in haystack:
-        return "manual_only"
+    if "fixed" in haystack or "手工" in haystack or "手填" in haystack:
+        return "fixed"
     if "生成" in haystack or "系统生成" in haystack:
         return "generated"
     if "填充" in type_text or (fill_text and "否" not in fill_text):

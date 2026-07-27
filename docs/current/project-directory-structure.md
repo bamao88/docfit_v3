@@ -54,12 +54,13 @@
 
 ```text
 docfit_v3/
-├── README.md / SPEC.md / STATUS.md
+├── README.md / SPEC.md / STATUS.md  # STATUS.md 仅保留历史快照
 ├── DIRECTORY_STRUCTURE.md          # 短入口，正文指向 docs/current/project-directory-structure.md
 ├── pyproject.toml / uv.lock
 │
 ├── docs/                           # 只放说明，不放可执行标准、不放运行输出
 │   ├── current/                    # 长期维护的当前正文（本文住这里）
+│   ├── status/                     # 当前变化、缺陷、影响和闭环状态
 │   ├── plans/                      # 计划、阶段拆解、历史方案
 │   ├── human/                      # 人工 review、讨论材料、过程记录
 │   └── agents/                     # agent 操作手册
@@ -257,8 +258,10 @@ template_generation_judge_reports.py
 | `docs/current/project-directory-structure.md` | 唯一维护正文 |
 | `DIRECTORY_STRUCTURE.md` | 根目录短入口，只指向本文 |
 | `docs/human/project-directory-structure.md` | 迁移指针，只指向本文 |
+| `docs/current/**` | 当前架构与测试契约；具体入口和阶段文档见 `docs/current/README.md` |
+| `docs/status/**` | 当前变化、缺陷、影响和闭环状态；规则见 `docs/status/README.md` |
 | `docs/human/**` | 人工 review、讨论材料、历史过程，可保留旧路径上下文 |
-| `docs/plans/**` | 当时的计划和执行记录，可保留旧路径上下文 |
+| `docs/plans/**` | issue、实施计划和历史记录；不作为当前状态看板 |
 | 外部讨论稿 | 已并入本文；不再作为当前目录规则引用 |
 
 原则：
@@ -269,6 +272,7 @@ template_generation_judge_reports.py
 3. 其他文档可以链接本文，但不要新增目录判断表。
 4. 历史文档中的旧路径不批量改写，避免破坏当时证据；读取时按 §5 翻译。
 5. 新 plan / 新 docs / 新代码注释不得把旧路径写成默认入口。
+6. 当前契约、当前状态和实施计划分别进入 `docs/current/`、`docs/status/` 和 `docs/plans/`，不得混写。
 ```
 
 ---

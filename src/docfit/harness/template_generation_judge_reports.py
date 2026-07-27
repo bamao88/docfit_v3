@@ -14,22 +14,22 @@ from docfit.core.models import Finding, StageResult
 from docfit.core.status import Status, merge_statuses
 from docfit.harness.reports import write_report_bundle
 from docfit.harness.template_generation_run_bundle import (
+    BoundArtifact,
     RUN_ARTIFACT_SPECS,
     RunArtifactSpec,
     TemplateGenerationRunBundle,
 )
-from docfit.harness.template_generation_route_replay import (
-    materialize_template_generation_route_replay,
+from docfit.harness.template_generation_stage_verifiers import (
+    StageCheck,
+    judge_template_generation_stage,
 )
-from docfit.harness.template_generation_stage_verifiers import StageCheck
 from docfit.harness.template_generation_standard_quality import (
+    StageStandardSpec,
     TemplateGenerationStandardQualityReport,
     TemplateGenerationStandardSet,
 )
-from docfit.template_generation.page_policy import PAGE_POLICY_FIELDS, normalize_page_policy
 from docfit.template_generation.t3_action_projection import (
-    actions_for_t3_gold_run,
-    project_t3_actions_by_run_identity,
+    project_t3_gold_item,
 )
 
 @dataclass
@@ -86,6 +86,8 @@ class TemplateGenerationJudgeReport:
         return StageResult(
             "template_generation_judge",
             self.status,
+            run_status=Status.PASS,
+            quality_status=self.status,
             findings=self.findings,
             artifacts={
                 "template_generation_judge_report": report_dict,
@@ -130,14 +132,22 @@ def aggregate_template_generation_judgement(
     findings = [
         *standard_quality.findings,
         *run_bundle.findings,
+        *run_bundle.observed_t6_findings,
         *[
             finding
             for check in stage_checks
             for finding in check.findings
         ],
     ]
+    t6_status = (
+        merge_statuses(
+            [finding.status for finding in run_bundle.observed_t6_findings]
+        )
+        if run_bundle.observed_t6_findings
+        else Status.PASS
+    )
     status = merge_statuses(
-        [standard_quality.status, run_bundle.status]
+        [standard_quality.status, run_bundle.status, t6_status]
         + [check.status for check in stage_checks]
     )
     first_bad_stage = _first_bad_stage(stage_checks)
@@ -145,6 +155,8 @@ def aggregate_template_generation_judgement(
         first_bad_stage = "standard_quality"
     if first_bad_stage is None and run_bundle.status != Status.PASS:
         first_bad_stage = "run_bundle"
+    if first_bad_stage is None and t6_status != Status.PASS:
+        first_bad_stage = "T6"
     return TemplateGenerationJudgeReport(
         status=status,
         first_bad_stage=first_bad_stage,
@@ -168,6 +180,8 @@ def write_template_generation_standard_quality_outputs(
         out_dir,
         stage="template_generation_standard_quality",
         status=report.status,
+        run_status=Status.PASS,
+        quality_status=report.status,
         findings=[finding.to_dict() for finding in report.findings],
         artifacts={
             "template_generation_stage_standard_quality_report": json_path.name,
@@ -179,6 +193,8 @@ def write_template_generation_standard_quality_outputs(
     return StageResult(
         "template_generation_standard_quality",
         report.status,
+        run_status=Status.PASS,
+        quality_status=report.status,
         findings=report.findings,
         artifacts={"report": report.to_dict()},
         artifact_paths={
@@ -203,8 +219,6 @@ def write_template_generation_judge_outputs(
     stage_diff_paths = write_stage_standard_diff_reports(out_dir, report)
     root_cause_path = out_dir / "template_generation_root_cause_report.json"
     root_cause_md_path = out_dir / "template_generation_root_cause_report.md"
-    bridge_acceptance_path = out_dir / "template_agent_bridge_standard_acceptance.json"
-    bridge_acceptance_md_path = out_dir / "template_agent_bridge_standard_acceptance.md"
     route_eval_path = out_dir / "template_generation_route_eval_report.json"
     route_eval_md_path = out_dir / "template_generation_route_eval_report.md"
 
@@ -214,24 +228,12 @@ def write_template_generation_judge_outputs(
     write_text(quality_md_path, build_standard_quality_markdown(report.standard_quality))
     report_dict = report.to_dict()
     root_cause_report = build_template_generation_root_cause_report(report, report_dict)
-    bridge_acceptance = build_template_agent_bridge_standard_acceptance(report, report_dict)
-    materialize_template_generation_route_replay(
-        run_dir=report.run_bundle.source_run_dir,
-        out_dir=out_dir,
-        standard_set=report.standard_set,
-    )
     route_eval = build_template_generation_route_eval_report(
         report,
         report_dict,
-        derived_root=out_dir,
     )
     write_json(root_cause_path, root_cause_report)
     write_text(root_cause_md_path, build_template_generation_root_cause_markdown(root_cause_report))
-    write_json(bridge_acceptance_path, bridge_acceptance)
-    write_text(
-        bridge_acceptance_md_path,
-        build_template_agent_bridge_standard_acceptance_markdown(bridge_acceptance),
-    )
     write_json(route_eval_path, route_eval)
     write_text(route_eval_md_path, build_template_generation_route_eval_markdown(route_eval))
     write_json(judge_path, report_dict)
@@ -264,6 +266,8 @@ def write_template_generation_judge_outputs(
         out_dir,
         stage="template_generation_judge",
         status=report.status,
+        run_status=Status.PASS,
+        quality_status=report.status,
         findings=[finding.to_dict() for finding in report.findings],
         artifacts={
             "template_generation_run_bundle": run_bundle_path.name,
@@ -274,8 +278,6 @@ def write_template_generation_judge_outputs(
             "template_generation_judge_report_md": judge_md_path.name,
             "template_generation_root_cause_report": root_cause_path.name,
             "template_generation_root_cause_report_md": root_cause_md_path.name,
-            "template_agent_bridge_standard_acceptance": bridge_acceptance_path.name,
-            "template_agent_bridge_standard_acceptance_md": bridge_acceptance_md_path.name,
             "template_generation_route_eval_report": route_eval_path.name,
             "template_generation_route_eval_report_md": route_eval_md_path.name,
             **stage_quality_artifacts,
@@ -291,10 +293,6 @@ def write_template_generation_judge_outputs(
             "mismatch_count": len(report_dict["mismatches"]),
             "root_cause_count": len(report_dict["root_causes"]),
             "owner_summary": report_dict["owner_summary"],
-            "bridge_present": bridge_acceptance["bridge_present"],
-            "bridged_output_accuracy": bridge_acceptance["bridged_output_accuracy"][
-                "aggregate_accuracy"
-            ],
             "route_eval_mismatch_count": len(route_eval["mismatches"]),
         },
         stage_statuses=stage_statuses,
@@ -313,8 +311,6 @@ def write_template_generation_judge_outputs(
             "template_generation_judge_report_md": judge_md_path,
             "template_generation_root_cause_report": root_cause_path,
             "template_generation_root_cause_report_md": root_cause_md_path,
-            "template_agent_bridge_standard_acceptance": bridge_acceptance_path,
-            "template_agent_bridge_standard_acceptance_md": bridge_acceptance_md_path,
             "template_generation_route_eval_report": route_eval_path,
             "template_generation_route_eval_report_md": route_eval_md_path,
         }
@@ -326,7 +322,6 @@ def write_template_generation_judge_outputs(
         result.artifact_paths[report_id] = paths["json"]
         result.artifact_paths[f"{report_id}_md"] = paths["md"]
     result.artifacts["summary"] = summary
-    result.artifacts["template_agent_bridge_standard_acceptance"] = bridge_acceptance
     result.artifacts["template_generation_route_eval_report"] = route_eval
     return result
 
@@ -679,100 +674,6 @@ def build_template_generation_root_cause_report(
     }
 
 
-def build_template_agent_bridge_standard_acceptance(
-    report: TemplateGenerationJudgeReport,
-    report_dict: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    report_dict = report_dict or report.to_dict()
-    bridge = _load_run_json(
-        report.run_bundle.source_run_dir,
-        "09.25_agent_observation_bridge.json",
-    )
-    attribution = _load_run_json(
-        report.run_bundle.source_run_dir,
-        "14_agent_attribution.json",
-    )
-    stage_metrics = {
-        check.stage_key: _stage_accuracy_metric(report, check)
-        for check in report.stage_checks
-    }
-    numeric_scores = [
-        metric["primary_accuracy"]
-        for metric in stage_metrics.values()
-        if isinstance(metric.get("primary_accuracy"), (int, float))
-    ]
-    aggregate_accuracy = (
-        round(sum(numeric_scores) / len(numeric_scores), 4)
-        if numeric_scores
-        else None
-    )
-    return {
-        "artifact_type": "template_agent_bridge_standard_acceptance",
-        "artifact_version": "1.0",
-        "report_kind": "agent_bridge_standard_acceptance",
-        "status": report_dict["status"],
-        "standard_acceptance_status": report_dict["standard_acceptance_status"],
-        "signoff_status": report_dict["signoff_status"],
-        "source_run_id": report.run_bundle.source_run_id,
-        "source_run_dir": str(report.run_bundle.source_run_dir),
-        "bridge_present": bridge is not None,
-        "attribution_present": attribution is not None,
-        "bridge_summary": (bridge or {}).get("summary", {}),
-        "attribution_summary": {
-            "applied_proposal_ids": (attribution or {}).get("applied_proposal_ids", []),
-            "rejected_proposal_ids": (attribution or {}).get("rejected_proposal_ids", []),
-            "comparison_summary": (attribution or {}).get("comparison_summary", {}),
-            "manual_review": (attribution or {}).get("manual_review", {}),
-            "observation_bridge": (attribution or {}).get("observation_bridge", {}),
-        },
-        "bridged_output_accuracy": {
-            "aggregate_accuracy": aggregate_accuracy,
-            "metric_note": (
-                "Accuracy is derived from stage standard verifier audits after AI-to-code "
-                "bridge execution. Stages without signed fine-grained gold expose null "
-                "metrics instead of inferred precision."
-            ),
-            "stages": stage_metrics,
-        },
-        "mismatches": report_dict["mismatches"],
-        "root_causes": report_dict["root_causes"],
-        "owner_assignments": report_dict["owner_assignments"],
-        "fix_plan": report_dict["fix_plan"],
-    }
-
-
-def build_template_agent_bridge_standard_acceptance_markdown(report: dict[str, Any]) -> str:
-    accuracy = report.get("bridged_output_accuracy", {})
-    lines = [
-        "# Template Agent Bridge Standard Acceptance",
-        "",
-        f"- Status: {report['status']}",
-        f"- Standard acceptance: {report['standard_acceptance_status']}",
-        f"- Sign-off: {report['signoff_status']}",
-        f"- Bridge present: {report['bridge_present']}",
-        f"- Aggregate accuracy: {accuracy.get('aggregate_accuracy')}",
-        "",
-        "## Stage Accuracy",
-    ]
-    for stage_key, metric in (accuracy.get("stages") or {}).items():
-        lines.append(
-            "- "
-            f"{stage_key}: primary={metric.get('primary_accuracy')}, "
-            f"status={metric.get('status')}, audit={metric.get('audit_status')}"
-        )
-    lines.extend(["", "## Diagnosis"])
-    if report.get("mismatches"):
-        for mismatch in report["mismatches"]:
-            lines.append(
-                "- "
-                f"{mismatch.get('id')} {mismatch.get('field')}: "
-                f"{mismatch.get('problem')}"
-            )
-    else:
-        lines.append("- mismatches: none")
-    return "\n".join(lines) + "\n"
-
-
 def _stage_accuracy_metric(
     report: TemplateGenerationJudgeReport,
     check: StageCheck,
@@ -830,6 +731,27 @@ def _t3_accuracy_metric(
     report: TemplateGenerationJudgeReport,
     check: StageCheck,
 ) -> dict[str, Any]:
+    core_action_accuracy = check.audit.get("core_action_accuracy")
+    if isinstance(core_action_accuracy, (int, float)):
+        gold_count = int(check.audit.get("core_action_gold_count") or 0)
+        unknown_gold_count = int(
+            check.audit.get("core_action_unknown_gold_count") or 0
+        )
+        match_count = int(check.audit.get("core_action_match_count") or 0)
+        return _base_accuracy_metric(
+            check,
+            primary_accuracy=float(core_action_accuracy),
+            primary_metric="exact_action_accuracy",
+            accuracy_level="core_action",
+            allowed_actions=["keep", "fill", "delete"],
+            gold_run_count=gold_count,
+            excluded_unknown_gold_run_count=unknown_gold_count,
+            unknown_scoring="excluded_from_primary",
+            unknown_execution_fallback="keep",
+            matched_run_count=match_count,
+            mismatch_run_count=max(gold_count - match_count, 0),
+            grouping_invariant=True,
+        )
     standard = report.standard_set.stages.get(check.stage_key)
     expected_policy_units = _expected_policy_units(standard.expected if standard else {})
     conflicts = [
@@ -998,10 +920,20 @@ def build_standard_acceptance_summary(
         else build_root_causes(stage_standard_diffs)
     )
     owner_summary = _owner_summary(root_causes)
-    has_fail = any(diff["status"] == Status.FAIL.value for diff in stage_standard_diffs)
+    has_fail = (
+        any(diff["status"] == Status.FAIL.value for diff in stage_standard_diffs)
+        or any(
+            finding.status == Status.FAIL
+            for finding in report.run_bundle.observed_t6_findings
+        )
+    )
     has_unknown = (
         report.standard_quality.status != Status.PASS
         or report.run_bundle.status != Status.PASS
+        or any(
+            finding.status == Status.UNKNOWN
+            for finding in report.run_bundle.observed_t6_findings
+        )
         or any(diff["status"] == Status.UNKNOWN.value for diff in stage_standard_diffs)
         or any(check.status == Status.UNKNOWN for check in report.stage_checks)
     )
@@ -1040,8 +972,9 @@ def build_stage_standard_quality_report(
         else None
     )
     findings = check.findings if check is not None else _run_bundle_findings_for_spec(report, spec)
-    status = check.status if check is not None else (
-        artifact.status if artifact is not None else Status.UNKNOWN
+    status = check.status if check is not None else merge_statuses(
+        [artifact.status if artifact is not None else Status.UNKNOWN]
+        + [finding.status for finding in findings]
     )
     stage_key = spec.stage_key or _implicit_stage_key(spec)
     stage_id = spec.stage_id or "T0"
@@ -1107,7 +1040,11 @@ def build_stage_standard_quality_report(
         "comparison_scope": (
             "stage_standard"
             if spec.stage_key is not None
-            else "run_bundle_artifact_binding"
+            else (
+                "run_bundle_binding_and_final_docx_observation"
+                if spec.stage_id == "T6"
+                else "run_bundle_artifact_binding"
+            )
         ),
         "mismatches": mismatches,
         "stage_standard_diffs": stage_diffs,
@@ -1758,7 +1695,8 @@ def _fix_plan_for_root_cause(root_cause: dict[str, Any]) -> dict[str, Any]:
         return {
             "action": _t2_fix_action(finding_type),
             "likely_files": [
-                "src/docfit/template_generation/structure_candidates.py",
+                "src/docfit/template_generation/t2_ai.py",
+                "src/docfit/template_generation/agent/prompt_templates/t2_rubric.txt",
                 "src/docfit/template_generation/t2_standard.py",
             ],
             "tests": [
@@ -1775,7 +1713,7 @@ def _fix_plan_for_root_cause(root_cause: dict[str, Any]) -> dict[str, Any]:
         return {
             "action": _t3_fix_action(finding_type),
             "likely_files": [
-                "src/docfit/template_generation/structure_candidates.py",
+                "src/docfit/template_generation/agent/t3_ai_materialize.py",
                 "src/docfit/template_generation/artifacts.py",
                 "src/docfit/harness/template_generation_stage_verifiers.py",
             ],
@@ -1877,8 +1815,8 @@ def _owner_for_finding(finding: Finding) -> tuple[str, str, str]:
     if "agent" in text or "ai" in text:
         return (
             "ai_prompt",
-            "AI proposal or attribution touched this path",
-            "Review accepted AI proposal and deterministic reconciler behavior.",
+            "AI observation or its materialization touched this path",
+            "Review the AI evidence, output contract, and final materialization.",
         )
     if "verifier" in text or "gate_disabled" in text or "not_configured" in text:
         return (
@@ -1981,6 +1919,8 @@ def _run_bundle_findings_for_spec(
             findings.append(finding)
         elif spec.artifact_key == "fillable_template_docx" and "fillable" in finding.type:
             findings.append(finding)
+    if spec.stage_id == "T6":
+        findings.extend(report.run_bundle.observed_t6_findings)
     return findings
 
 
@@ -2108,9 +2048,7 @@ _ROUTE_STAGE_FILES = {
     "T2": {
         "stage_key": "t2_unit_pagination",
         "routes": {
-            "code_raw": {"filename": "02.0_t2_code_unit_map.yaml", "payload_type": "yaml"},
-            "ai_raw": {"filename": "02.2_t2_ai_unit_observation.yaml", "payload_type": "yaml"},
-            "merged": {"filename": "02.3_t2_merged_unit_map.yaml", "payload_type": "yaml"},
+            "ai": {"filename": "02_unit_map.yaml", "payload_type": "yaml"},
         },
     },
     "T3": {
@@ -2122,33 +2060,19 @@ _ROUTE_STAGE_FILES = {
     "T4": {
         "stage_key": "t4_global_layout",
         "routes": {
-            "code_raw": {"filename": "04.0_t4_code_global_spec.yaml", "payload_type": "yaml"},
-            "ai_raw": {"filename": "04.1_t4_ai_layout_observation.yaml", "payload_type": "yaml"},
-            "merged": {"filename": "04.2_t4_merged_global_spec.yaml", "payload_type": "yaml"},
+            "ai": {"filename": "04_global_spec.yaml", "payload_type": "yaml"},
         },
     },
     "T5": {
         "stage_key": "t5_template_spec",
         "routes": {
-            "code_raw": {"filename": "05_template_spec.yaml", "payload_type": "yaml"},
-            "ai_raw": {"filename": "05_template_spec.yaml", "payload_type": "yaml"},
-            "merged": {"filename": "05_template_spec.yaml", "payload_type": "yaml"},
+            "canonical": {"filename": "05_template_spec.yaml", "payload_type": "yaml"},
         },
     },
     "T6": {
         "stage_key": "t6_fillable_template",
         "routes": {
-            "code_raw": {
-                "filename": ["06.1_fillable_template.docx", "06.2_build_manifest.json"],
-                "payload_type": "composite",
-                "artifact_type": "t6_execution_bundle",
-            },
-            "ai_raw": {
-                "filename": ["06.1_fillable_template.docx", "06.2_build_manifest.json"],
-                "payload_type": "composite",
-                "artifact_type": "t6_execution_bundle",
-            },
-            "merged": {
+            "canonical": {
                 "filename": ["06.1_fillable_template.docx", "06.2_build_manifest.json"],
                 "payload_type": "composite",
                 "artifact_type": "t6_execution_bundle",
@@ -2158,24 +2082,19 @@ _ROUTE_STAGE_FILES = {
     "T7": {
         "stage_key": "t7_verification_report",
         "routes": {
-            "code_raw": {"filename": "07_verification_report.json", "payload_type": "json"},
-            "ai_raw": {"filename": "07_verification_report.json", "payload_type": "json"},
-            "merged": {"filename": "07_verification_report.json", "payload_type": "json"},
+            "canonical": {"filename": "07_verification_report.json", "payload_type": "json"},
         },
     },
     "POST_T6": {
         "stage_key": "post_t6_template_gap",
         "routes": {
-            "code_raw": {"filename": "template_gap_report.json", "payload_type": "json"},
-            "ai_raw": {"filename": "template_gap_report.json", "payload_type": "json"},
-            "merged": {"filename": "template_gap_report.json", "payload_type": "json"},
+            "canonical": {"filename": "template_gap_report.json", "payload_type": "json"},
         },
     },
 }
 
 _OBSERVATION_POLICY_GROUPS = {
     "fixed_units": "fixed",
-    "manual_only_units": "manual_only",
     "fill_units": "fill",
     "generated_units": "generated",
     "template_default_optional_units": "template_default",
@@ -2192,13 +2111,10 @@ _PLACEHOLDER_RE = re.compile(r"(?:□+|×{2,}|20×+|…{2,}|\.{6,}|_{4,})")
 def build_template_generation_route_eval_report(
     report: TemplateGenerationJudgeReport,
     report_dict: dict[str, Any] | None = None,
-    *,
-    derived_root: Path | None = None,
 ) -> dict[str, Any]:
     routes: list[dict[str, Any]] = []
     stage_metrics: dict[str, dict[str, Any]] = {}
     mismatches: list[dict[str, Any]] = []
-    ai_payloads_by_stage: dict[str, dict[str, Any]] = {}
     run_dir = report.run_bundle.source_run_dir
     for stage_id, spec in _ROUTE_STAGE_FILES.items():
         stage_routes = {
@@ -2210,29 +2126,19 @@ def build_template_generation_route_eval_report(
                 filename=route_spec.get("filename"),
                 payload_type=str(route_spec.get("payload_type") or "yaml"),
                 artifact_type=route_spec.get("artifact_type"),
-                not_evaluable_reason=route_spec.get("not_evaluable_reason"),
-                derived_root=derived_root,
             )
             for route_id, route_spec in (spec.get("routes") or {}).items()
         }
         routes.extend(stage_routes.values())
-        ai_route_id = "ai" if stage_id == "T3" else "ai_raw"
-        code_hash = (stage_routes.get("code_raw") or {}).get("payload_hash")
+        ai_route_id = "ai" if stage_id in {"T2", "T3", "T4"} else "canonical"
         ai_hash = (stage_routes.get(ai_route_id) or {}).get("payload_hash")
-        merged_hash = (stage_routes.get("merged") or {}).get("payload_hash")
         ai_availability = (stage_routes.get(ai_route_id) or {}).get(
             "availability", "NOT_APPLICABLE"
-        )
-        changed_from_code = bool(
-            code_hash and merged_hash and code_hash != merged_hash
         )
         stage_metrics[stage_id] = {
             "stage_key": spec["stage_key"],
             "ai_availability": ai_availability,
-            "changed_from_code": changed_from_code,
-            "code_raw_hash": code_hash,
-            "ai_raw_hash": ai_hash,
-            "merged_hash": merged_hash,
+            "ai_hash": ai_hash,
             "route_availability": {
                 route_id: route.get("availability")
                 for route_id, route in stage_routes.items()
@@ -2252,29 +2158,28 @@ def build_template_generation_route_eval_report(
                 for route_id, route in stage_routes.items()
             },
         }
-        ai_route = stage_routes.get(ai_route_id) or {}
-        if ai_route.get("availability") == "AVAILABLE":
-            ai_payload = _route_candidate_payload(ai_route)
-            if ai_payload:
-                ai_payloads_by_stage[stage_id] = ai_payload
-                standard = report.standard_set.stages.get(str(spec["stage_key"]))
-                expected = standard.expected if standard is not None else {}
-                if stage_id == "T2":
-                    stage_metrics[stage_id]["ai_raw_accuracy"] = (
-                        _evaluate_ai_unit_accuracy(ai_payload, expected)
-                    )
-                elif stage_id == "T3":
-                    stage_metrics[stage_id]["ai_accuracy"] = _evaluate_t3_route_accuracy(
-                        ai_payload, expected
-                    )
-                elif stage_id == "T4":
-                    stage_metrics[stage_id]["ai_raw_accuracy"] = (
-                        _evaluate_ai_layout_accuracy(
-                            ai_payload,
-                            ai_payloads_by_stage.get("T2", {}),
-                            expected,
-                        )
-                    )
+        standard = report.standard_set.stages.get(str(spec["stage_key"]))
+        expected = standard.expected if standard is not None else {}
+        if stage_id in {"T2", "T3"}:
+            _add_common_route_accuracy(
+                stage_metrics[stage_id],
+                stage_routes,
+                stage_id=stage_id,
+                expected=expected,
+            )
+        if stage_id == "T4":
+            t4_contract, t4_contract_mismatches = _evaluate_t4_route_output_contract(
+                stage_routes
+            )
+            stage_metrics[stage_id]["common_output_contract"] = t4_contract
+            mismatches.extend(t4_contract_mismatches)
+            if standard is not None:
+                _add_t4_common_route_accuracy(
+                    stage_metrics[stage_id],
+                    stage_routes,
+                    report=report,
+                    standard=standard,
+                )
         if stage_id == "L1":
             stage_metrics[stage_id]["coverage"] = _l1_route_coverage(
                 stage_routes.get("shared_input")
@@ -2282,30 +2187,10 @@ def build_template_generation_route_eval_report(
             mismatches.extend(
                 _l1_route_mismatches(stage_routes.get("shared_input"))
             )
-        if stage_id == "T4":
-            hint_consumption = _t4_hint_consumption(report)
-            stage_metrics[stage_id]["hint_consumption"] = hint_consumption
-            mismatches.extend(_t4_hint_consumption_mismatches(hint_consumption))
         if stage_id == "T3":
             residual_gate = _t3_residual_gate(report.run_bundle.source_run_dir)
             stage_metrics[stage_id]["residual_gate"] = residual_gate
             mismatches.extend(_t3_residual_mismatches(residual_gate))
-        if (
-            stage_id != "T3"
-            and ai_availability == "AVAILABLE"
-            and not changed_from_code
-        ):
-            mismatches.append(
-                {
-                    "id": f"{stage_id}-ROUTE-MISMATCH-001",
-                    "stage_id": stage_id,
-                    "stage_key": spec["stage_key"],
-                    "type": "ai_available_but_merged_equals_code",
-                    "expected": "merged route changes from code_raw or records explicit noop",
-                    "observed": "ai_raw is AVAILABLE but merged hash equals code_raw",
-                    "route_ids": ["code_raw", "ai_raw", "merged"],
-                }
-            )
         if ai_availability == "NOT_AVAILABLE":
             ai_reason = str((stage_routes.get(ai_route_id) or {}).get("reason") or "")
             mismatches.append(
@@ -2315,13 +2200,13 @@ def build_template_generation_route_eval_report(
                     "stage_key": spec["stage_key"],
                     "type": (
                         "canonical_ai_not_available"
-                        if stage_id == "T3"
-                        else "ai_raw_not_available"
+                        if stage_id in {"T2", "T3", "T4"}
+                        else "canonical_route_not_available"
                     ),
                     "expected": (
                         "canonical AI route available"
-                        if stage_id == "T3"
-                        else "ai_raw route available for route comparison"
+                        if stage_id in {"T2", "T3", "T4"}
+                        else "canonical route available"
                     ),
                     "observed": (
                         f"{ai_route_id} route is NOT_AVAILABLE"
@@ -2330,34 +2215,6 @@ def build_template_generation_route_eval_report(
                     "route_ids": [ai_route_id],
                 }
             )
-        for route_id, route in stage_routes.items():
-            if route.get("availability") != "NOT_EVALUABLE":
-                continue
-            mismatches.append(
-                {
-                    "id": f"{stage_id}-{route_id.upper()}-ROUTE-MISMATCH-001",
-                    "stage_id": stage_id,
-                    "stage_key": spec["stage_key"],
-                    "type": "route_replay_not_materialized",
-                    "expected": f"{route_id} route can be evaluated or explicitly skipped by stage contract",
-                    "observed": str(route.get("not_evaluable_reason") or "route is not evaluable"),
-                    "route_ids": [route_id],
-                }
-            )
-        merged_route = stage_routes.get("merged")
-        if stage_id in {"T5", "T6", "T7", "POST_T6"} and merged_route is not None:
-            if merged_route.get("availability") == "NOT_AVAILABLE":
-                mismatches.append(
-                    {
-                        "id": f"{stage_id}-MERGED-ROUTE-MISMATCH-001",
-                        "stage_id": stage_id,
-                        "stage_key": spec["stage_key"],
-                        "type": "merged_route_not_available",
-                        "expected": "merged route artifact exists for downstream diagnosis",
-                        "observed": f"{stage_id} merged route artifact is NOT_AVAILABLE",
-                        "route_ids": ["merged"],
-                    }
-                )
     root_causes = [
         {
             "id": mismatch["id"].replace("MISMATCH", "ROOT-CAUSE"),
@@ -2418,87 +2275,41 @@ def _ai_primary_gate_decision(
     mismatches: list[dict[str, Any]],
 ) -> dict[str, Any]:
     stage_decisions: dict[str, dict[str, Any]] = {}
-    mismatches_by_stage: dict[str, list[dict[str, Any]]] = {}
-    for mismatch in mismatches:
-        mismatches_by_stage.setdefault(str(mismatch.get("stage_id")), []).append(mismatch)
-    t3_metrics = stage_metrics.get("T3", {})
-    t3_availability = str(t3_metrics.get("ai_availability") or "NOT_AVAILABLE")
-    stage_decisions["T3"] = {
-        "eligible": t3_availability == "AVAILABLE",
-        "status": "CANONICAL_AI_ONLY" if t3_availability == "AVAILABLE" else "BLOCKED",
-        "authority_mode": "ai",
-        "reason": (
-            "T3 has one canonical AI route"
-            if t3_availability == "AVAILABLE"
-            else f"canonical T3 AI route is {t3_availability}"
-        ),
-        "fallback": "safe_keep",
-    }
-    for stage_id in ("T4",):
+    del mismatches
+    for stage_id in ("T2", "T3", "T4"):
         metrics = stage_metrics.get(stage_id, {})
-        ai_availability = str(metrics.get("ai_availability") or "NOT_AVAILABLE")
-        stage_mismatches = mismatches_by_stage.get(stage_id, [])
-        if ai_availability != "AVAILABLE":
-            stage_decisions[stage_id] = {
-                "eligible": False,
-                "status": "BLOCKED",
-                "authority_mode": "merge",
-                "reason": f"ai_raw is {ai_availability}; AI-primary requires available route evidence",
-                "fallback": "deterministic_code",
-            }
-            continue
-        if stage_mismatches:
-            stage_decisions[stage_id] = {
-                "eligible": False,
-                "status": "BLOCKED",
-                "authority_mode": "merge",
-                "reason": "route-eval still reports stage mismatches; ai_raw >= code_raw is not proven",
-                "mismatch_ids": [mismatch.get("id") for mismatch in stage_mismatches],
-                "fallback": "deterministic_code",
-            }
-            continue
+        availability = str(metrics.get("ai_availability") or "NOT_AVAILABLE")
         stage_decisions[stage_id] = {
-            "eligible": False,
-            "status": "REQUIRES_THREE_SCHOOL_EVIDENCE",
-            "authority_mode": "merge",
+            "eligible": availability == "AVAILABLE",
+            "status": "CANONICAL_AI_ONLY" if availability == "AVAILABLE" else "BLOCKED",
+            "authority_mode": "ai",
             "reason": (
-                "single-run route-eval is clean, but default AI-primary requires "
-                "three-school evidence that ai_raw >= code_raw and merged >= both"
+                f"{stage_id} has one canonical AI route"
+                if availability == "AVAILABLE"
+                else f"canonical {stage_id} AI route is {availability}"
             ),
-            "fallback": "deterministic_code",
+            "fallback": "safe_keep" if stage_id == "T3" else "none",
         }
     return {
         "artifact_type": "template_generation_ai_primary_gate_decision",
-        "artifact_version": "1.0",
-        "default_authority_mode": "merge",
-        "allowed_ai_primary_stages": ["T4"],
+        "artifact_version": "2.0",
+        "default_authority_mode": "ai",
+        "allowed_ai_primary_stages": ["T2", "T3", "T4"],
         "stages": stage_decisions,
     }
 
 
 def _route_mismatch_root_cause_category(mismatch: dict[str, Any]) -> str:
     mismatch_type = str(mismatch.get("type") or "")
-    if mismatch_type == "ai_available_but_merged_equals_code":
-        return "merge_bridge_no_effect"
-    if mismatch_type == "route_replay_not_materialized":
-        return "route_replay_missing"
-    if mismatch_type == "merged_route_not_available":
-        return "downstream_evidence_missing"
     if mismatch_type.startswith("l1_"):
         return "l1_input_contract_gap"
     if mismatch_type.startswith("t4_"):
-        return "t4_layout_hint_consumption_gap"
+        return "t4_ai_layout_contract_gap"
     return "ai_route_missing"
 
 
 def _route_mismatch_owner(mismatch: dict[str, Any]) -> str:
     mismatch_type = str(mismatch.get("type") or "")
-    if mismatch_type == "ai_available_but_merged_equals_code":
-        return "template_generation_agent_bridge_owner"
-    if mismatch_type == "route_replay_not_materialized":
-        return "template_generation_route_eval_owner"
-    if mismatch_type == "merged_route_not_available":
-        return "template_generation_downstream_evidence_owner"
     if mismatch_type.startswith("l1_"):
         return "template_generation_input_contract_owner"
     if mismatch_type.startswith("t4_"):
@@ -2508,18 +2319,6 @@ def _route_mismatch_owner(mismatch: dict[str, Any]) -> str:
 
 def _route_mismatch_fix_action(mismatch: dict[str, Any]) -> str:
     mismatch_type = str(mismatch.get("type") or "")
-    if mismatch_type == "ai_available_but_merged_equals_code":
-        return (
-            "Patch bridge/reconciler so accepted AI observation changes merged output "
-            "or records explicit noop."
-        )
-    if mismatch_type == "route_replay_not_materialized":
-        return (
-            "Implement isolated route replay or mark the route explicitly out of scope "
-            "in the stage contract."
-        )
-    if mismatch_type == "merged_route_not_available":
-        return "Persist or generate the downstream evidence artifact before running route eval."
     if mismatch_type.startswith("l1_"):
         return (
             "Patch L1 input projection, render binding, or bundle gate coverage until "
@@ -2527,10 +2326,10 @@ def _route_mismatch_fix_action(mismatch: dict[str, Any]) -> str:
         )
     if mismatch_type.startswith("t4_"):
         return (
-            "Promote accepted T4 layout hints from advisory observations into "
-            "first-class global_spec/T5/T6 consumption fields."
+            "Fix the T4 AI observation or its identity/materialization contract, then "
+            "republish the canonical global_spec."
         )
-    return "Run Module 1 observation or provide replay bundle before judging AI-primary readiness."
+    return "Run the canonical AI observation stage and republish its final artifact."
 
 
 def _route_candidate(
@@ -2542,22 +2341,7 @@ def _route_candidate(
     filename: Any,
     payload_type: str,
     artifact_type: Any = None,
-    not_evaluable_reason: Any = None,
-    derived_root: Path | None = None,
 ) -> dict[str, Any]:
-    if not_evaluable_reason:
-        return {
-            "route_id": route_id,
-            "stage_key": stage_key,
-            "stage_id": stage_id,
-            "artifact_type": artifact_type,
-            "payload_path": None,
-            "payload_paths": [],
-            "payload_hash": None,
-            "availability": "NOT_EVALUABLE",
-            "origin": "route_eval_contract",
-            "not_evaluable_reason": str(not_evaluable_reason),
-        }
     filenames = (
         [str(item) for item in filename]
         if isinstance(filename, list)
@@ -2567,32 +2351,10 @@ def _route_candidate(
         _route_artifact_path(
             run_dir,
             item,
-            route_id=route_id,
-            stage_id=stage_id,
-            derived_root=derived_root,
         )
         for item in filenames
     ]
     found_paths = [path for path in paths if path is not None]
-    status_payload = _route_status_payload(
-        route_id=route_id,
-        stage_id=stage_id,
-        derived_root=derived_root,
-    )
-    if not found_paths and status_payload is not None:
-        route = status_payload.get("route") or {}
-        return {
-            "route_id": route_id,
-            "stage_key": stage_key,
-            "stage_id": stage_id,
-            "artifact_type": status_payload.get("artifact_type"),
-            "payload_path": str(_route_status_path(route_id, stage_id, derived_root)),
-            "payload_paths": [str(_route_status_path(route_id, stage_id, derived_root))],
-            "payload_hash": sha256_json(status_payload),
-            "availability": str(route.get("availability") or "UNKNOWN"),
-            "origin": route.get("origin"),
-            "reason": route.get("reason") or status_payload.get("reason"),
-        }
     path = found_paths[0] if found_paths else None
     payload: dict[str, Any] = {}
     payload_hash = None
@@ -2604,11 +2366,22 @@ def _route_candidate(
             else sha256_json({item.name: sha256_file(item) for item in found_paths})
         )
         payload = _read_route_payload(found_paths, payload_type)
+        final_availability = payload.get("availability")
+        final_availability = (
+            final_availability if isinstance(final_availability, dict) else {}
+        )
         availability = str(
-            (payload.get("route") or {}).get("availability")
+            final_availability.get("status")
+            or (payload.get("route") or {}).get("availability")
             or ("AVAILABLE" if payload else "UNKNOWN")
         )
     route = payload.get("route") or {}
+    final_availability = payload.get("availability")
+    final_availability = (
+        final_availability if isinstance(final_availability, dict) else {}
+    )
+    lineage = payload.get("lineage")
+    lineage = lineage if isinstance(lineage, dict) else {}
     return {
         "route_id": route_id,
         "stage_key": stage_key,
@@ -2618,8 +2391,8 @@ def _route_candidate(
         "payload_paths": [str(item) for item in found_paths],
         "payload_hash": payload_hash,
         "availability": availability,
-        "origin": route.get("origin"),
-        "reason": route.get("reason"),
+        "origin": route.get("origin") or lineage.get("producer_mode"),
+        "reason": final_availability.get("reason") or route.get("reason"),
         "payload_summary": _route_payload_summary(payload),
     }
 
@@ -2666,6 +2439,163 @@ def _route_candidate_payload(route: dict[str, Any]) -> dict[str, Any]:
     return loaded if isinstance(loaded, dict) else {}
 
 
+def _add_common_route_accuracy(
+    metrics: dict[str, Any],
+    routes: dict[str, dict[str, Any]],
+    *,
+    stage_id: str,
+    expected: dict[str, Any],
+) -> None:
+    """Score every available route against one stage gold and one evaluator."""
+    for route_id in ("ai",):
+        route = routes.get(route_id) or {}
+        if route.get("availability") != "AVAILABLE":
+            continue
+        payload = _route_candidate_payload(route)
+        if not payload:
+            continue
+        if stage_id == "T2":
+            result = _evaluate_t2_route_accuracy(payload, expected)
+        else:
+            result = _evaluate_t3_route_accuracy(payload, expected)
+        metrics[f"{route_id}_accuracy"] = result
+    metrics["primary_metric"] = "unit_f1" if stage_id == "T2" else "exact_action_accuracy"
+
+
+def _evaluate_t4_route_output_contract(
+    routes: dict[str, dict[str, Any]],
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    required_fields = (
+        "section_profiles",
+        "default_font",
+        "page_numbering",
+        "header_footer",
+        "numbering_rules",
+        "flags",
+    )
+    route_results: dict[str, Any] = {}
+    mismatches: list[dict[str, Any]] = []
+    for route_id in ("ai",):
+        route = routes.get(route_id) or {}
+        if route.get("availability") != "AVAILABLE":
+            route_results[route_id] = {
+                "status": "NOT_AVAILABLE",
+                "artifact_type": None,
+                "missing_fields": list(required_fields),
+            }
+            continue
+        payload = _route_candidate_payload(route)
+        missing_fields = [field for field in required_fields if field not in payload]
+        artifact_type = payload.get("artifact_type")
+        status = (
+            "PASS"
+            if artifact_type == "global_spec" and not missing_fields
+            else "FAIL"
+        )
+        route_results[route_id] = {
+            "status": status,
+            "artifact_type": artifact_type,
+            "missing_fields": missing_fields,
+        }
+        if status == "FAIL":
+            mismatches.append(
+                {
+                    "id": f"T4-{route_id.upper()}-OUTPUT-CONTRACT-MISMATCH-001",
+                    "stage_id": "T4",
+                    "stage_key": "t4_global_layout",
+                    "type": "t4_route_output_contract_mismatch",
+                    "expected": {
+                        "artifact_type": "global_spec",
+                        "required_fields": list(required_fields),
+                    },
+                    "observed": {
+                        "artifact_type": artifact_type,
+                        "missing_fields": missing_fields,
+                    },
+                    "route_ids": [route_id],
+                }
+            )
+    available_results = [
+        result
+        for result in route_results.values()
+        if result.get("status") != "NOT_AVAILABLE"
+    ]
+    return {
+        "artifact_type": "global_spec",
+        "required_fields": list(required_fields),
+        "status": (
+            "PASS"
+            if available_results
+            and all(result.get("status") == "PASS" for result in available_results)
+            else "UNKNOWN" if not available_results else "FAIL"
+        ),
+        "routes": route_results,
+    }, mismatches
+
+
+def _add_t4_common_route_accuracy(
+    metrics: dict[str, Any],
+    routes: dict[str, dict[str, Any]],
+    *,
+    report: TemplateGenerationJudgeReport,
+    standard: StageStandardSpec,
+) -> None:
+    """Run the canonical T4 AI final through the stage judge and signed gold."""
+    for route_id in ("ai",):
+        route = routes.get(route_id) or {}
+        if route.get("availability") != "AVAILABLE":
+            continue
+        payload = _route_candidate_payload(route)
+        payload_path = Path(str(route.get("payload_path") or ""))
+        if not payload or not payload_path.exists():
+            continue
+        artifact_hash = str(route.get("payload_hash") or sha256_file(payload_path))
+        artifact = BoundArtifact(
+            artifact_key="global_spec",
+            stage_key="t4_global_layout",
+            stage_id="T4",
+            path=payload_path,
+            sha256=artifact_hash,
+            declared_sha256=artifact_hash,
+            source_kind=f"route_eval.{route_id}",
+            status=Status.PASS,
+            payload=payload,
+            hash_match=True,
+        )
+        check = judge_template_generation_stage(
+            "t4_global_layout",
+            standard=standard,
+            artifact=artifact,
+            standard_quality=report.standard_quality,
+            run_bundle=report.run_bundle,
+        )
+        result = _t4_accuracy_metric(report, check)
+        result.update(
+            {
+                "scoring_contract": "t4_stage_standard_v1",
+                "gold_path": str(standard.path),
+                "gold_sha256": standard.sha256,
+                "route_id": route_id,
+            }
+        )
+        metrics[f"{route_id}_accuracy"] = result
+    metrics["primary_metric"] = "layout_contract_completeness"
+
+
+def _evaluate_t2_route_accuracy(
+    payload: dict[str, Any],
+    expected: dict[str, Any],
+) -> dict[str, Any]:
+    units = payload.get("units")
+    projection = {
+        "units": [unit for unit in (units or []) if isinstance(unit, dict)],
+    }
+    result = _evaluate_ai_unit_accuracy(projection, expected)
+    result["scoring_contract"] = "t2_common_route_v1"
+    result["gold_universe"] = "expected.unit_order"
+    return result
+
+
 def _evaluate_t3_route_accuracy(
     payload: dict[str, Any],
     expected: dict[str, Any],
@@ -2684,13 +2614,11 @@ def _evaluate_t3_route_accuracy(
         legacy.update(
             {
                 "exact_action_accuracy": None,
-                "scoring_contract": "t3_common_route_v1",
+                "scoring_contract": "t3_common_route_v2",
                 "gold_universe": "unavailable",
             }
         )
         return legacy
-
-    predictions = project_t3_actions_by_run_identity(projected)
 
     matches = 0
     missing: list[dict[str, Any]] = []
@@ -2702,10 +2630,22 @@ def _evaluate_t3_route_accuracy(
             for field in ("raw_run_id", "logical_run_id")
             if row.get(field)
         }
-        actions = actions_for_t3_gold_run(predictions, row)
+        identity["target_kind"] = str(row.get("target_kind") or "run")
+        if identity["target_kind"] == "span":
+            identity["start"] = row.get("start")
+            identity["end"] = row.get("end")
+        item_projection = project_t3_gold_item(projected, row)
+        actions = item_projection.actions
         expected_action = str(row["expected_action"])
-        if not actions:
-            missing.append({"expected_action": expected_action, **identity})
+        if not item_projection.coverage_complete or not actions:
+            missing.append(
+                {
+                    "expected_action": expected_action,
+                    "actual_actions": sorted(actions),
+                    "identity_covered": item_projection.identity_covered,
+                    **identity,
+                }
+            )
         elif actions == {expected_action}:
             matches += 1
         else:
@@ -2720,8 +2660,8 @@ def _evaluate_t3_route_accuracy(
                 mixed.append(mismatch)
     total = len(ledger)
     return {
-        "scoring_contract": "t3_common_route_v1",
-        "gold_universe": "expected.run_span_ledger.scored_actions",
+        "scoring_contract": "t3_common_route_v2",
+        "gold_universe": "expected.run_span_ledger.adaptive_scored_actions",
         "gold_count": total,
         "match_count": matches,
         "mismatch_count": len(mismatches),
@@ -2744,17 +2684,11 @@ def _evaluate_ai_unit_accuracy(
     gold_order = [str(unit_id) for unit_id in expected.get("unit_order", []) or []]
     gold_set = set(gold_order)
     observed_order = [
-        str(item.get("unit_id"))
-        for item in observation.get("items", [])
-        if isinstance(item, dict)
-        and item.get("unit_id")
-        and item.get("unit_id") != "unknown_unit"
+        str(unit.get("unit_id"))
+        for unit in observation.get("units", [])
+        if isinstance(unit, dict) and unit.get("unit_id")
     ]
-    observed_unique: list[str] = []
-    for unit_id in observed_order:
-        if unit_id not in observed_unique:
-            observed_unique.append(unit_id)
-    observed_set = set(observed_unique)
+    observed_set = set(observed_order)
     hits = observed_set & gold_set
     precision = len(hits) / len(observed_set) if observed_set else 0.0
     recall = len(hits) / len(gold_set) if gold_set else 0.0
@@ -2765,85 +2699,77 @@ def _evaluate_ai_unit_accuracy(
         "precision": round(precision, 4),
         "recall": round(recall, 4),
         "f1": round(f1, 4),
-        "order_exact_match": observed_unique == gold_order,
+        "order_exact_match": observed_order == gold_order,
         "missing_units": sorted(gold_set - observed_set),
         "extra_units": sorted(observed_set - gold_set),
     }
-    result["page_policy_accuracy"] = _evaluate_ai_unit_page_policy_accuracy(
+    result["page_boundary_accuracy"] = _evaluate_ai_unit_page_boundary_accuracy(
         observation,
         expected,
     )
     return result
 
 
-def _evaluate_ai_unit_page_policy_accuracy(
+def _evaluate_ai_unit_page_boundary_accuracy(
     observation: dict[str, Any],
     expected: dict[str, Any],
 ) -> dict[str, Any]:
-    expected_pages: dict[str, dict[str, Any]] = {}
+    expected_boundaries: dict[str, dict[str, int]] = {}
     for unit in expected.get("units", []) or []:
-        if not isinstance(unit, dict) or not isinstance(unit.get("page"), dict):
+        if not isinstance(unit, dict):
             continue
         unit_id = str(unit.get("unit_id") or "")
-        if unit_id:
-            expected_pages[unit_id] = normalize_page_policy(unit.get("page") or {})
-    if not expected_pages:
+        boundary = _page_boundary(unit.get("boundary"))
+        if unit_id and boundary is not None:
+            expected_boundaries[unit_id] = boundary
+    if not expected_boundaries:
         return {
-            "page_policy_evaluable": False,
-            "page_policy_owner": "T2",
-            "reason": "T2 standard does not provide expected.units[].page",
+            "page_boundary_evaluable": False,
+            "reason": "T2 standard does not provide page-native unit boundaries",
         }
 
-    observed_by_unit: dict[str, dict[str, Any]] = {}
-    for item in observation.get("items", []) or []:
-        if not isinstance(item, dict):
+    observed_boundaries: dict[str, dict[str, int]] = {}
+    for unit in observation.get("units", []) or []:
+        if not isinstance(unit, dict):
             continue
-        unit_id = str(item.get("unit_id") or "")
-        if not unit_id or unit_id == "unknown_unit" or unit_id in observed_by_unit:
-            continue
-        observed_by_unit[unit_id] = item
+        unit_id = str(unit.get("unit_id") or "")
+        boundary = _page_boundary(unit.get("boundary"))
+        if unit_id and boundary is not None and unit_id not in observed_boundaries:
+            observed_boundaries[unit_id] = boundary
 
-    covered_units = 0
-    exact_matches = 0
-    field_total = len(expected_pages) * len(PAGE_POLICY_FIELDS)
-    field_matches = 0
+    exact_match_count = 0
     missing: list[dict[str, Any]] = []
     mismatches: list[dict[str, Any]] = []
-    for unit_id, expected_page in expected_pages.items():
-        item = observed_by_unit.get(unit_id)
-        observed_page = _observation_item_page(item)
-        if observed_page is None:
-            missing.append({"unit_id": unit_id, "expected": _page_fields(expected_page)})
+    for unit_id, expected_boundary in expected_boundaries.items():
+        actual_boundary = observed_boundaries.get(unit_id)
+        if actual_boundary is None:
+            missing.append(
+                {
+                    "unit_id": unit_id,
+                    "expected": expected_boundary,
+                    "reason": "T2 observation does not provide this unit boundary",
+                }
+            )
             continue
-        covered_units += 1
-        unit_mismatches = []
-        for field in PAGE_POLICY_FIELDS:
-            if observed_page.get(field) == expected_page.get(field):
-                field_matches += 1
-            else:
-                unit_mismatches.append(
-                    {
-                        "field": field,
-                        "expected": expected_page.get(field),
-                        "actual": observed_page.get(field),
-                    }
-                )
-        if unit_mismatches:
-            mismatches.append({"unit_id": unit_id, "mismatches": unit_mismatches})
+        if actual_boundary == expected_boundary:
+            exact_match_count += 1
         else:
-            exact_matches += 1
+            mismatches.append(
+                {
+                    "unit_id": unit_id,
+                    "expected": expected_boundary,
+                    "actual": actual_boundary,
+                }
+            )
+    expected_count = len(expected_boundaries)
+    compared_count = expected_count - len(missing)
     return {
-        "page_policy_evaluable": True,
-        "page_policy_owner": "T2",
-        "expected_units": len(expected_pages),
-        "observed_units": covered_units,
-        "coverage": round(covered_units / len(expected_pages), 4)
-        if expected_pages
-        else 0.0,
-        "field_accuracy": round(field_matches / field_total, 4)
-        if field_total
-        else 0.0,
-        "exact_match_count": exact_matches,
+        "page_boundary_evaluable": True,
+        "expected_units": expected_count,
+        "observed_units": compared_count,
+        "coverage": round(compared_count / expected_count, 4),
+        "exact_match_count": exact_match_count,
+        "exact_match_accuracy": round(exact_match_count / expected_count, 4),
         "missing_count": len(missing),
         "mismatch_count": len(mismatches),
         "missing_samples": missing[:10],
@@ -2851,24 +2777,19 @@ def _evaluate_ai_unit_page_policy_accuracy(
     }
 
 
-def _observation_item_page(item: dict[str, Any] | None) -> dict[str, Any] | None:
-    if not isinstance(item, dict):
+def _page_boundary(value: Any) -> dict[str, int] | None:
+    if not isinstance(value, dict):
         return None
-    if isinstance(item.get("page"), dict):
-        return normalize_page_policy(item.get("page") or {})
-    if not any(field in item for field in PAGE_POLICY_FIELDS):
+    start_page = value.get("start_page")
+    end_page = value.get("end_page")
+    if (
+        isinstance(start_page, bool)
+        or isinstance(end_page, bool)
+        or not isinstance(start_page, int)
+        or not isinstance(end_page, int)
+    ):
         return None
-    return normalize_page_policy(
-        {
-            field: item.get(field)
-            for field in PAGE_POLICY_FIELDS
-            if field in item
-        }
-    )
-
-
-def _page_fields(page: dict[str, Any]) -> dict[str, Any]:
-    return {field: page.get(field) for field in PAGE_POLICY_FIELDS}
+    return {"start_page": start_page, "end_page": end_page}
 
 
 def _evaluate_ai_element_accuracy(
@@ -3091,62 +3012,20 @@ def _read_route_payload(paths: list[Path], payload_type: str) -> dict[str, Any]:
 def _route_artifact_path(
     run_dir: Path,
     filename: str,
-    *,
-    route_id: str,
-    stage_id: str,
-    derived_root: Path | None,
 ) -> Path | None:
-    candidates: list[Path] = []
-    if route_id not in {"merged", "shared_input"} and derived_root is not None:
-        candidates.append(derived_root / "route_replay" / route_id / filename)
-        if filename == "template_gap_report.json":
-            candidates.extend(
-                [
-                    derived_root / "route_replay" / route_id / "template_gap" / filename,
-                    derived_root / "route_replay" / route_id / "template_gap" / "artifacts" / filename,
-                ]
-            )
-    if route_id == "ai" and stage_id == "T3":
-        candidates.append(run_dir / filename)
-    if route_id in {"code_raw", "ai_raw"} and stage_id in {"T2", "T3", "T4"}:
-        candidates.append(run_dir / filename)
-    if route_id in {"merged", "shared_input"}:
-        candidates.append(run_dir / filename)
-        if filename == "template_gap_report.json":
-            candidates.extend(
-                [
-                    run_dir.parent / "template_gap" / filename,
-                    run_dir.parent / "template_gap" / "artifacts" / filename,
-                    run_dir.parent.parent / "template_gap" / "artifacts" / filename,
-                ]
-            )
+    candidates = [run_dir / filename]
+    if filename == "template_gap_report.json":
+        candidates.extend(
+            [
+                run_dir.parent / "template_gap" / filename,
+                run_dir.parent / "template_gap" / "artifacts" / filename,
+                run_dir.parent.parent / "template_gap" / "artifacts" / filename,
+            ]
+        )
     for path in candidates:
         if path.exists():
             return path
     return None
-
-
-def _route_status_payload(
-    *,
-    route_id: str,
-    stage_id: str,
-    derived_root: Path | None,
-) -> dict[str, Any] | None:
-    path = _route_status_path(route_id, stage_id, derived_root)
-    if path is None or not path.exists():
-        return None
-    loaded = read_json(path)
-    return loaded if isinstance(loaded, dict) else None
-
-
-def _route_status_path(
-    route_id: str,
-    stage_id: str,
-    derived_root: Path | None,
-) -> Path | None:
-    if derived_root is None:
-        return None
-    return derived_root / "route_replay" / route_id / f"{stage_id.lower()}_route_status.json"
 
 
 def _l1_route_coverage(route: dict[str, Any] | None) -> dict[str, Any]:
@@ -3214,59 +3093,6 @@ def _l1_route_mismatches(route: dict[str, Any] | None) -> list[dict[str, Any]]:
             }
         )
     return mismatches
-
-
-def _t4_hint_consumption(report: TemplateGenerationJudgeReport) -> dict[str, Any]:
-    run_dir = report.run_bundle.source_run_dir
-    hints = _load_run_json(
-        run_dir,
-        "13_agent_t4_hints.json",
-    ) or {}
-    global_spec = report.run_bundle.payload("global_spec") or {}
-    template_spec = report.run_bundle.payload("template_spec") or {}
-    build_manifest = report.run_bundle.payload("build_manifest") or {}
-    section_hints = [
-        item for item in hints.get("section_profile_hints", []) or [] if isinstance(item, dict)
-    ]
-    page_numbering_hints = [
-        item for item in hints.get("page_numbering_hints", []) or [] if isinstance(item, dict)
-    ]
-    section_observation_count = sum(
-        len(profile.get("ai_observations") or [])
-        for profile in global_spec.get("section_profiles", []) or []
-        if isinstance(profile, dict)
-    )
-    template_section_observation_count = sum(
-        len(profile.get("ai_observations") or [])
-        for profile in (template_spec.get("global", {}) or {}).get("section_profiles", []) or []
-        if isinstance(profile, dict)
-    )
-    page_numbering_observation_count = len(
-        (global_spec.get("page_numbering", {}) or {}).get("ai_observations", []) or []
-    )
-    layout_consumption = build_manifest.get("layout_hint_consumption") or {}
-    section_effective = [
-        item
-        for item in layout_consumption.get("section_profile_hints", []) or []
-        if isinstance(item, dict) and item.get("effective_action")
-    ]
-    page_numbering_effective = [
-        item
-        for item in layout_consumption.get("page_numbering_hints", []) or []
-        if isinstance(item, dict) and item.get("effective_action")
-    ]
-    return {
-        "hints_present": bool(hints),
-        "section_profile_hint_count": len(section_hints),
-        "section_profile_recorded_in_global_spec_count": section_observation_count,
-        "section_profile_recorded_in_template_spec_count": template_section_observation_count,
-        "section_profile_effective_action_count": len(section_effective),
-        "section_profile_effective_actions": section_effective,
-        "page_numbering_hint_count": len(page_numbering_hints),
-        "page_numbering_recorded_in_global_spec_count": page_numbering_observation_count,
-        "page_numbering_effective_action_count": len(page_numbering_effective),
-        "page_numbering_effective_actions": page_numbering_effective,
-    }
 
 
 def _t3_residual_gate(run_dir: Path) -> dict[str, Any]:
@@ -3347,7 +3173,7 @@ def _t3_residual_mismatches(gate: dict[str, Any]) -> list[dict[str, Any]]:
                     f"{gate.get('format_annotation_non_instruction_count')} element residual(s), "
                     f"{gate.get('format_annotation_final_docx_count')} final DOCX residual(s)"
                 ),
-                "route_ids": ["merged"],
+                "route_ids": ["ai"],
             }
         )
     if int(gate.get("placeholder_non_instruction_count") or 0) or int(
@@ -3364,7 +3190,7 @@ def _t3_residual_mismatches(gate: dict[str, Any]) -> list[dict[str, Any]]:
                     f"{gate.get('placeholder_non_instruction_count')} element residual(s), "
                     f"{gate.get('placeholder_final_docx_count')} final DOCX residual(s)"
                 ),
-                "route_ids": ["merged"],
+                "route_ids": ["ai"],
             }
         )
     return mismatches
@@ -3417,39 +3243,6 @@ def _regex_samples(pattern: re.Pattern[str], text: str) -> list[str]:
         if len(samples) >= 50:
             break
     return samples
-
-
-def _t4_hint_consumption_mismatches(consumption: dict[str, Any]) -> list[dict[str, Any]]:
-    mismatches: list[dict[str, Any]] = []
-    if consumption.get("section_profile_hint_count") and not consumption.get(
-        "section_profile_effective_action_count"
-    ):
-        mismatches.append(
-            {
-                "id": "T4-HINT-MISMATCH-002",
-                "stage_id": "T4",
-                "stage_key": "t4_global_layout",
-                "type": "t4_section_profile_hint_advisory_only",
-                "expected": "accepted section_profile_hints become first-class layout fields consumed by T5/T6",
-                "observed": "section_profile_hints are recorded as ai_observations without effective T6 action",
-                "route_ids": ["merged"],
-            }
-        )
-    if consumption.get("page_numbering_hint_count") and not consumption.get(
-        "page_numbering_effective_action_count"
-    ):
-        mismatches.append(
-            {
-                "id": "T4-HINT-MISMATCH-003",
-                "stage_id": "T4",
-                "stage_key": "t4_global_layout",
-                "type": "t4_page_numbering_hint_advisory_only",
-                "expected": "accepted page_numbering_hints become first-class page numbering fields consumed by T5/T6",
-                "observed": "page_numbering_hints are recorded as ai_observations without effective T6 action",
-                "route_ids": ["merged"],
-            }
-        )
-    return mismatches
 
 
 def build_template_generation_route_eval_markdown(report: dict[str, Any]) -> str:

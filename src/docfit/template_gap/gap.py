@@ -91,6 +91,8 @@ def evaluate_generated_template_gap(
     result = StageResult(
         stage,
         status,
+        run_status=Status.PASS,
+        quality_status=status,
         findings=findings,
         artifacts={
             "generated_template_tree": tree,
@@ -899,7 +901,7 @@ def _compare_elements(
             )
             continue
 
-        if policy in {"fixed", "manual_only"}:
+        if policy == "fixed":
             if not _query_has_needles(query) or _looks_like_nonvisible_requirement(
                 element
             ):
@@ -3402,7 +3404,7 @@ def _allow_out_of_order_unit_anchor(
 def _unit_anchor_queries(unit: dict[str, Any]) -> list[dict[str, Any]]:
     queries: list[dict[str, Any]] = []
     for element in unit.get("elements", []):
-        if str(element.get("policy") or "") not in {"fixed", "manual_only"}:
+        if str(element.get("policy") or "") != "fixed":
             continue
         query = _match_query_for_element(element)
         if _query_has_needles(query):

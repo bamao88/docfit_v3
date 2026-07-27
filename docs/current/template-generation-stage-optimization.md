@@ -1,12 +1,14 @@
 # 模板生成阶段优化总览
 
+> 迁移状态：本文不再属于 current 长期事实源。当前变化和残留进入 `docs/status/`，具体实施方案进入 `docs/plans/`。本文只保留历史背景，后续不要新增状态或计划。
+
 Last updated: 2026-06-25
 
 > 迁移提示：本文保留 2026-06-22 以前的 00-05 优化地图，当前主线已经切换为
 > `document_facts -> unit_map -> element_spec -> global_spec -> template_spec ->
 > fillable_template + build_manifest`。当前字段、命令和门禁以
 > `docs/current/template-generation.md` 为准；阶段职责、依赖、输入输出和 route
-> 不变量以 `docs/current/template-generation-stage-contracts.md` 为准；本文只作为旧优化背景和兼容视图排查参考。
+> 不变量以 `docs/current/template-generation-architecture.md` 为准；本文只作为旧优化背景和兼容视图排查参考。
 
 一句话结论：这份文档把分散在模板生成主文档和计划文档里的内容收成一张当前可执行地图；它说明每个阶段当前代码已经做到什么、下一步应该改哪里、出了问题先看哪个产物。
 
@@ -41,19 +43,19 @@ Last updated: 2026-06-25
   -> 06 template-gap 检查生成模板是否符合学校标准
 ```
 
-当前 runner 调用链：
+当前 T2 runner 调用链：
 
-```python
-request = build_template_generation_request(...)
-document_facts = inspect_document_facts_docx(source_template_docx)
-unit_map = build_unit_map(document_facts, structure_candidates)
-element_spec = build_element_spec(generation_model)
-global_spec = build_global_spec(document_facts)
-template_spec = build_template_spec(document_facts, unit_map, element_spec, global_spec)
-build_manifest = build_manifest(..., template_spec=template_spec)
+```text
+sealed L1 + real render
+  -> page-first T2 input
+  -> one MiniMax AI page grouping
+  -> strict page coverage validation
+  -> deterministic page-to-L1 materialization
+  -> 02_unit_map.yaml
+  -> T3
 ```
 
-注意：generation model 只属于 `template_generate` 的运行内支撑流程，不再作为独立文件落盘。模板解析权威产物是 `05_template_spec.yaml`；旧 `template_artifact.json` 包装视图已经删除。
+T2 不再构造代码候选，也不进行 comparison、overlay 或 merged 选择。没有 AI、真实渲染或完整页面绑定时，运行明确失败。
 
 ## 阶段产物和文件编号
 
@@ -61,7 +63,7 @@ build_manifest = build_manifest(..., template_spec=template_spec)
 | --- | --- | --- | --- | --- |
 | `00` | `template_generation_request.json`、`00_input_source_template.docx` | `request.py`、`outputs.py` | 后续所有阶段、debug | 本次运行用的是哪份源模板和哪些输入 |
 | `T1` | `01_document_facts.json` | inspector / OOXML 解析 | T2/T4/verifier；旧 source tree 只在运行内派生，不再单独写盘 | 源 DOCX 里实际观察到了什么 |
-| `T2` | `02_unit_map.yaml` | unit mapper | T3/T5/verifier；结构候选只在运行内派生，不再单独写盘 | 单元、边界、来源序号和分页归属 |
+| `T2` | `02.1_t2_input.json`、`02.2_t2_ai_unit_observation.yaml`、`02_unit_map.yaml` | MiniMax AI + 严格 materializer | T3/T5/verifier | AI 页面分组、页面完整覆盖和确定性 L1 绑定 |
 | `T3` | `03_element_spec.yaml` | element classifier | T5/T6/verifier；generation model 只在运行内消费，不再单独写盘 | 元素策略、fill/manual/generated 语义和证据 |
 | `T4` | `04_global_spec.yaml` | global rule builder | T5/T6/verifier | 页面、分节、页眉页脚、页码和编号事实 |
 | `T5` | `05_template_spec.yaml` | spec merger | T6、后续流程、verifier | 模板解析主规格 |
@@ -104,24 +106,24 @@ build_manifest = build_manifest(..., template_spec=template_spec)
 | 改善表格单元格和段落的结构坐标 | 阶段二要合并 label/value 和定位误删 | 每个表格片段能稳定回到 table、row、cell 和 `source_seq` |
 | 保持 `source_seq` 只在阶段一分配 | 后续合并、删除、保留都要引用原序号 | 后续阶段不能重编号或补造序号 |
 
-### 阶段二：候选结构识别
+### 阶段二：AI 页面单元识别
 
 当前真实实现：
 
 | 项 | 当前情况 |
 | --- | --- |
-| 模块 | `src/docfit/template_generation/structure_candidates.py` |
-| 产物 | `template_structure_candidates.json` |
-| 已完成 | 识别候选 unit；生成 logical element；连续说明文字、表格同一行 label/value、跨段落业务句 continuation 可以合并；输出 `candidate_policy`、`role_hint`、`evidence[]`、`source_seq_refs[]`、`source_context` |
-| 不负责 | 不决定最终 `generation_mode`，不生成 slot，不生成 Word action |
+| 模块 | `src/docfit/template_generation/t2_ai.py` 和独立 T2 prompt 资源 |
+| 产物 | AI raw `02.2_t2_ai_unit_observation.yaml`；唯一 final `02_unit_map.yaml` |
+| 已完成 | 按页面图片和客观事实进行一次 AI 分组；严格校验 ID、名称、页面首尾、完整覆盖和连续性；程序派生 source bindings 与固定分页策略 |
+| 不负责 | 不判断元素 Keep/Fill/Delete，不生成 slot，不生成 Word action |
 
 下一步优化：
 
 | 要改什么 | 应该改哪里 | 验收重点 |
 | --- | --- | --- |
-| 固定枚举化 `role_hint` | element policy 规则 | 阶段三不消费自由文本猜测 |
-| 补 `conflicts[]` 和 `open_questions[]` | structure candidates 顶层和 unit/element 层 | 证据不足不伪装成确定策略 |
-| 更明确的 copy-only 内部候选边界 | `_copy_only_unit_elements` | 说明文字可进入 cleanup，填写痕迹只作为证据，不能在阶段二变 slot |
+| 三校人工重签页面 gold | T2 学校标准 | 以真实 render 审核 `start_page/end_page`，不从旧 source 范围自动换算 |
+| MiniMax live 三校验证 | T2 live 入口 | 与 replay 使用同一 schema，记录页面边界和失败样本 |
+| 超长文档窗口化 | 后续独立计划 | 只有真实超过 provider 上限时才引入，不在当前链路静默截断 |
 
 ### 阶段三：生成模板模型与策略
 
@@ -131,10 +133,10 @@ build_manifest = build_manifest(..., template_spec=template_spec)
 | --- | --- |
 | 模块 | `src/docfit/template_generation/generation_model.py` |
 | 产物 | `template_generation_model.json` |
-| 已完成 | 消费阶段二 `template_structure_candidates`；输出 `unit_strategies[]`、`slots[]`、`required_fields[]`、`protected_zones[]`、`cleanup[]`、`unsupported[]`、`unresolved_questions[]` |
+| 已完成 | 从唯一 T2 final 构造中性下游结构，再由 T3 AI 输出元素策略；运行内 generation model 继续承接 T5/T6 所需结构 |
 | 不负责 | 不直接改 Word，不重新解析源 DOCX，不替代 `template-gap` 判定学校合格性 |
 
-当前默认关闭 copy-only：`COPY_ONLY_DEFAULT_UNIT_IDS` 为空，所有单元默认走 `copy_then_patch`。初始源 DOCX 复制仍作为执行底座保留，但不再默认产生 `whole_unit_copy` / `preserve_whole_unit_copy` 策略。
+当前所有单元统一走 `copy_then_patch`。初始源 DOCX 复制仍作为执行底座，运行时不再保留整单元 copy-only 的策略分支。
 
 下一步优化：
 
@@ -189,8 +191,8 @@ build_manifest = build_manifest(..., template_spec=template_spec)
 | --- | --- | --- | --- |
 | 输入文件不对 | `00_input_source_template.docx`、request | `00_input_request` | 调用命令或 profile 绑定 |
 | 源 Word 内容没解析出来 | `01_document_facts.json`，调试时看 `01_source_template_tree.json` | `T1/t1_document_facts` | OOXML inspector 或 T1 artifact 输出 |
-| unit 没识别或边界错 | `02_unit_map.yaml`，调试时看 `02_template_structure_candidates.json` | `T2/t2_unit_pagination` | `structure_candidates.py` |
-| logical element 合并错 | T2 调试视图里的 `entry_refs[]`、`source_seq_refs[]`、`merge` | `T2/t2_unit_pagination` | `_logical_entry_groups` |
+| unit 没识别或页面边界错 | `02.1_t2_input.json`、`02.2_t2_ai_unit_observation.yaml`、`02_unit_map.yaml` | `T2/t2_unit_pagination` | T2 prompt、页面输入或 `t2_ai.py` 契约 |
+| 页面组正确但 source 绑定错 | `02_unit_map.yaml` 的 `page_refs/source_seq_refs/source_refs` | `T2 materializer` | page-to-L1 binding |
 | 源模板元素 12 不该删除 | 先查 `by_source_seq["12"]`，再查 T2/T3/T4/T5 引用链 | `T2/t2_unit_pagination` / `T3/t3_element_policy` / `T4/t4_global_layout` / `T5/t5_template_spec` | 找到第一次把 12 判错的阶段再改 |
 | 应保留的元素生成了 slot | `03_element_spec.yaml` 的 `elements[]` 和 `05_template_spec.yaml` 的 `units[].elements[]` | `T3/t3_element_policy` 或 `T5/t5_template_spec` | 元素策略、源模板责任推断规则或不确定性表达 |
 | spec 对但 Word 没变 | `05_template_spec.yaml`、`06.2_build_manifest.json`、`06.0_copy_source_docx.docx` 与 `06.1_fillable_template.docx` | `T6/build` | builder/executor |
@@ -213,8 +215,8 @@ build_manifest = build_manifest(..., template_spec=template_spec)
 
 | 优先级 | 工作包 | 目标文件 | 状态 |
 | --- | --- | --- | --- |
-| 1 | 补阶段二更深 logical element 合并 | `structure_candidates.py`、`tests/contract/test_template_generate.py` | 已完成；表格 label/value、跨段落 continuation 能合并并保留全部来源序号 |
-| 2 | 阶段三强化源模板责任推断和模板内容责任 | `generation_model.py`、`structure_candidates.py` | copy-only / patch 不只靠全局 unit_id 基线，也不依赖某一次学生源内容台账或学校签收标准 |
+| 1 | T2 AI-only 页面契约 | `t2_ai.py`、T2 prompt、runner、契约测试 | 代码与 replay 已完成；三校页面 gold 和 MiniMax live 待签收 |
+| 2 | 阶段三强化源模板责任推断和模板内容责任 | `generation_model.py`、T3 AI 物化 | copy-only / patch 不依赖学校签收标准或某一次学生内容台账 |
 | 3 | 阶段检查归因落地 | harness/report 层 | 能表达 `input_check`、`output_check`、`first_bad_phase`、下游症状 |
 | 4 | 报告可读性增强 | manifest、pm report、debug index | 人工能从报告直接定位到源模板元素序号和 action |
 

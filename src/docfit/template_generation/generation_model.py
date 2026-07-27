@@ -7,36 +7,50 @@ from typing import Any
 from docfit.core.io import now_iso, sha256_json
 from docfit.template_model import units as template_units
 
+from .constants import INSTRUCTION_MARKERS
 from .plan import _decision_reason
 from .refs import _first_source_ref, _paragraph_index
 from .refs import _source_seq_refs
-from .structure_candidates import _looks_like_instruction, _unit_is_copy_only_by_default
+from .synthesis_policy import should_synthesize_visible_text
 from .text_utils import _dedupe_by_key, _normalize_for_match
+
+
+def _looks_like_instruction(text: str) -> bool:
+    if template_units.contains_instruction_marker(text):
+        return True
+    if any(marker in text for marker in INSTRUCTION_MARKERS):
+        return True
+    return bool(
+        re.search(
+            r"[（(].*(宋体|黑体|楷体|居中|行距|字号|号字|pt).*[）)]",
+            text,
+            re.IGNORECASE,
+        )
+    )
 
 
 def build_template_generation_model(
     request: dict[str, Any],
-    structure_candidates: dict[str, Any],
+    t3_source_structure: dict[str, Any],
     *,
     include_source_instruction_heuristics: bool = True,
 ) -> dict[str, Any]:
-    source_context = structure_candidates.get("source_context", {})
+    source_context = t3_source_structure.get("source_context", {})
     source_entries_by_seq = _source_entries_by_seq(source_context)
     units = _materialize_template_units(
-        structure_candidates.get("units", []),
+        t3_source_structure.get("units", []),
         runs_by_raw=source_context.get("runs_by_raw_run_id", {}),
         source_entries_by_seq=source_entries_by_seq,
         derive_element_spans=include_source_instruction_heuristics,
     )
     paragraphs = source_context.get("paragraphs", [])
-    copy_only_source_refs = _copy_only_unit_source_refs(units)
     instruction_paragraphs = _dedupe_by_key(
         [
             *_instruction_paragraphs_from_units(units),
             *(
                 _instruction_paragraphs_from_source_context(
                     source_context,
-                    excluded_source_refs=copy_only_source_refs,
+                    excluded_source_refs=set(),
                 )
                 if include_source_instruction_heuristics
                 else []
@@ -52,7 +66,7 @@ def build_template_generation_model(
         slots.append(
             {
                 "slot_id": "slot_body_start",
-                "unit_id": "body_main",
+                "owner_scope": "document_body",
                 "element_id": "slot_body_start",
                 "kind": "body_content",
                 "writable": True,
@@ -63,10 +77,10 @@ def build_template_generation_model(
                 "policy": "fill",
             }
         )
-    if not any(region.get("region_id") == "body_main" for region in regions):
+    if not any(region.get("region_id") == "document_body" for region in regions):
         regions.append(
             {
-                "region_id": "body_main",
+                "region_id": "document_body",
                 "kind": "body",
                 "required": True,
                 "anchors": ["slot_body_start"],
@@ -77,7 +91,7 @@ def build_template_generation_model(
         )
     data = {
         "source_template_tree": "source_template_tree.json",
-        "template_structure_candidates": "template_structure_candidates.json",
+        "t3_source_structure": "in-memory:t3_source_structure",
         "page_setup": {"sections": source_context.get("section_rules", [])},
         "styles": source_context.get("style_inventory", []),
         "paragraphs": paragraphs,
@@ -99,16 +113,17 @@ def build_template_generation_model(
         "created_at": now_iso(),
         "input_hashes": {
             "template_docx": request.get("source_template_hash"),
-            "template_structure_candidates": sha256_json(structure_candidates),
+            "t3_source_structure": sha256_json(t3_source_structure),
             **(
-                {"l1": structure_candidates.get("input_hashes", {}).get("l1")}
-                if structure_candidates.get("input_hashes", {}).get("l1")
+                {"l1": t3_source_structure.get("input_hashes", {}).get("l1")}
+                if t3_source_structure.get("input_hashes", {}).get("l1")
                 else {}
             ),
         },
         "provenance": {"template_docx": request.get("source_template_docx")},
         "status_notes": [
-            "units are inferred from source Word structure and deterministic keywords",
+            "unit boundaries come only from validated T2 AI page groups",
+            "source identities are deterministically bound from sealed L1 page facts",
             "formal quality still requires template-gap against accepted standards",
         ],
         "source_context": source_context,
@@ -119,12 +134,13 @@ def build_template_generation_model(
         "protected_zones": data["protected_zones"],
         "cleanup": instruction_paragraphs,
         "unsupported": data["unsupported"],
-        "unresolved_questions": _unresolved_questions_from_candidates(
-            structure_candidates,
+        "unresolved_questions": _unresolved_questions_from_downstream_structure(
+            t3_source_structure,
             unit_strategies,
         ),
         "data": data,
     }
+
 
 def _materialize_template_units(
     candidate_units: list[dict[str, Any]],
@@ -136,11 +152,9 @@ def _materialize_template_units(
     units: list[dict[str, Any]] = []
     for unit in candidate_units:
         materialized = deepcopy(unit)
-        generation_mode = _unit_generation_mode(materialized)
         materialized["elements"] = [
             _materialize_template_element(
                 element,
-                generation_mode=generation_mode,
                 runs_by_raw=runs_by_raw,
                 source_entries_by_seq=source_entries_by_seq,
                 derive_element_spans=derive_element_spans,
@@ -154,7 +168,6 @@ def _materialize_template_units(
 def _materialize_template_element(
     element: dict[str, Any],
     *,
-    generation_mode: str,
     runs_by_raw: dict[str, Any],
     source_entries_by_seq: dict[int, dict[str, Any]],
     derive_element_spans: bool,
@@ -168,11 +181,10 @@ def _materialize_template_element(
     candidate_policy = str(
         element.get("candidate_policy") or element.get("policy") or "fixed"
     )
-    final_policy = _final_policy_for_generation(candidate_policy, generation_mode)
     materialized["candidate_policy"] = candidate_policy
-    materialized["policy"] = final_policy
-    materialized["type"] = _element_type(final_policy)
-    materialized["fill"] = "yes" if final_policy == "fill" else "no"
+    materialized["policy"] = candidate_policy
+    materialized["type"] = _element_type(candidate_policy)
+    materialized["fill"] = "yes" if candidate_policy == "fill" else "no"
     materialized["spans"] = (
         _element_spans(
             materialized,
@@ -254,19 +266,11 @@ def _source_run_texts_for_element(
     return result
 
 
-def _final_policy_for_generation(candidate_policy: str, generation_mode: str) -> str:
-    if generation_mode != "whole_unit_copy":
-        return candidate_policy
-    if candidate_policy in {"remove_instruction", "manual_only"}:
-        return candidate_policy
-    return "fixed"
-
-
 def _element_type(policy: str) -> str:
     return {
         "fill": "fillable",
         "generated": "generated",
-        "manual_only": "manual_only",
+        "fixed": "fixed",
         "remove_instruction": "instruction_text",
     }.get(policy, "fixed_text")
 
@@ -795,102 +799,47 @@ def _build_unit_strategies(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
         unit_id = str(unit.get("unit_id"))
         unit_anchor_ref = _first_source_ref(unit)
         decisions: list[dict[str, Any]] = []
-        generation_mode = _unit_generation_mode(unit)
-        if generation_mode == "whole_unit_copy":
+        for element in unit.get("elements", []):
+            policy = element.get("policy")
+            element_id = element.get("element_id")
+            source_ref = _first_source_ref(element)
+            decisions.extend(_span_decisions(unit_id, element, source_ref=source_ref))
+            if policy == "remove_instruction":
+                decision_type = "remove_instruction_text"
+            elif policy == "fill":
+                decision_type = "create_fillable_slot"
+            elif policy == "generated":
+                decision_type = "create_generated_field_placeholder"
+            elif policy == "fixed" and (
+                source_ref is None
+                and should_synthesize_visible_text(element)
+            ):
+                decision_type = "insert_fixed_text"
+                source_ref = unit_anchor_ref
+            else:
+                continue
             decisions.append(
                 {
-                    "decision_id": f"{unit_id}.keep_whole_unit_copy",
-                    "decision_type": "keep_whole_unit_copy",
+                    "decision_id": f"{unit_id}.{element_id}.{decision_type}",
+                    "decision_type": decision_type,
                     "unit_id": unit_id,
-                    "element_id": None,
-                    "source_ref": unit_anchor_ref,
-                    "source_seq_refs": _source_seq_refs(unit),
-                    "copy_scope": "whole_unit",
-                    "reason": "this unit can be preserved by the initial source DOCX copy",
+                    "element_id": element_id,
+                    "element_name": element.get("name"),
+                    "content": element.get("content") or element.get("name") or "",
+                    "source_ref": source_ref,
+                    "source_seq_refs": _source_seq_refs(element),
+                    "raw_run_ids": element.get("raw_run_ids", []),
+                    "logical_run_ids": element.get("logical_run_ids", []),
+                    "reason": _decision_reason(decision_type),
                 }
             )
-            for element in unit.get("elements", []):
-                element_id = element.get("element_id")
-                source_ref = _first_source_ref(element)
-                decisions.extend(_span_decisions(unit_id, element, source_ref=source_ref))
-                if element.get("policy") == "remove_instruction":
-                    decisions.append(
-                        {
-                            "decision_id": f"{unit_id}.{element_id}.remove_instruction_text",
-                            "decision_type": "remove_instruction_text",
-                            "unit_id": unit_id,
-                            "element_id": element_id,
-                            "element_name": element.get("name"),
-                            "content": element.get("content") or element.get("name") or "",
-                            "source_ref": source_ref,
-                            "source_seq_refs": _source_seq_refs(element),
-                            "raw_run_ids": element.get("raw_run_ids", []),
-                            "logical_run_ids": element.get("logical_run_ids", []),
-                            "reason": _decision_reason("remove_instruction_text"),
-                        }
-                    )
-                elif element.get("policy") == "manual_only":
-                    decisions.append(
-                        {
-                            "decision_id": f"{unit_id}.{element_id}.create_manual_placeholder",
-                            "decision_type": "create_manual_placeholder",
-                            "unit_id": unit_id,
-                            "element_id": element_id,
-                            "element_name": element.get("name"),
-                            "content": element.get("content") or element.get("name") or "",
-                            "source_ref": source_ref,
-                            "source_seq_refs": _source_seq_refs(element),
-                            "raw_run_ids": element.get("raw_run_ids", []),
-                            "logical_run_ids": element.get("logical_run_ids", []),
-                            "reason": _decision_reason("create_manual_placeholder"),
-                        }
-                    )
-        else:
-            for element in unit.get("elements", []):
-                policy = element.get("policy")
-                element_id = element.get("element_id")
-                source_ref = _first_source_ref(element)
-                decisions.extend(_span_decisions(unit_id, element, source_ref=source_ref))
-                if policy == "remove_instruction":
-                    decision_type = "remove_instruction_text"
-                elif policy == "fill":
-                    decision_type = "create_fillable_slot"
-                elif policy == "generated":
-                    decision_type = "create_generated_field_placeholder"
-                elif policy in {"fixed", "manual_only"} and (
-                    source_ref is None
-                    and _should_synthesize_visible_text(element)
-                ):
-                    decision_type = "insert_fixed_text"
-                    source_ref = unit_anchor_ref
-                elif policy == "manual_only":
-                    decision_type = "create_manual_placeholder"
-                else:
-                    continue
-                decisions.append(
-                    {
-                        "decision_id": f"{unit_id}.{element_id}.{decision_type}",
-                        "decision_type": decision_type,
-                        "unit_id": unit_id,
-                        "element_id": element_id,
-                        "element_name": element.get("name"),
-                        "content": element.get("content") or element.get("name") or "",
-                        "source_ref": source_ref,
-                        "source_seq_refs": _source_seq_refs(element),
-                        "raw_run_ids": element.get("raw_run_ids", []),
-                        "logical_run_ids": element.get("logical_run_ids", []),
-                        "reason": _decision_reason(decision_type),
-                    }
-                )
         strategies.append(
             {
                 "unit_id": unit_id,
                 "unit_name": unit.get("name"),
                 "source_policy": unit.get("candidate_policy") or unit.get("policy"),
-                "generation_mode": generation_mode,
-                "generation_policy": "whole_unit_copy"
-                if generation_mode == "whole_unit_copy"
-                else "unit_actions",
+                "generation_mode": "copy_then_patch",
+                "generation_policy": "unit_actions",
                 "copy_source_ref": unit_anchor_ref,
                 "source_seq_refs": _source_seq_refs(unit),
                 "decisions": decisions,
@@ -898,14 +847,6 @@ def _build_unit_strategies(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
     return strategies
-
-
-def _unit_generation_mode(unit: dict[str, Any]) -> str:
-    if _unit_is_copy_only_by_default(str(unit.get("unit_id") or "")) and _first_source_ref(
-        unit
-    ):
-        return "whole_unit_copy"
-    return "copy_then_patch"
 
 
 def _instruction_paragraphs_from_units(units: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -933,15 +874,6 @@ def _instruction_paragraphs_from_units(units: list[dict[str, Any]]) -> list[dict
                     }
                 )
     return paragraphs
-
-
-def _copy_only_unit_source_refs(units: list[dict[str, Any]]) -> set[str]:
-    refs: set[str] = set()
-    for unit in units:
-        if not _unit_is_copy_only_by_default(str(unit.get("unit_id") or "")):
-            continue
-        refs.update(str(ref) for ref in unit.get("source_refs", []) if ref)
-    return refs
 
 
 def _source_entries_by_seq(source_context: dict[str, Any]) -> dict[int, dict[str, Any]]:
@@ -995,12 +927,12 @@ def _instruction_paragraphs_from_source_context(
     return paragraphs
 
 
-def _unresolved_questions_from_candidates(
-    structure_candidates: dict[str, Any],
+def _unresolved_questions_from_downstream_structure(
+    t3_source_structure: dict[str, Any],
     unit_strategies: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     questions: list[dict[str, Any]] = []
-    for item in structure_candidates.get("unknowns", []):
+    for item in t3_source_structure.get("unknowns", []):
         questions.append(
             {
                 "kind": "unknown_source_object",
@@ -1012,51 +944,3 @@ def _unresolved_questions_from_candidates(
     for strategy in unit_strategies:
         questions.extend(strategy.get("unresolved_questions", []))
     return questions
-
-def _should_synthesize_visible_text(element: dict[str, Any]) -> bool:
-    order = element.get("order") or element.get("element_order")
-    if order not in {1, "1"}:
-        return False
-    text = str(element.get("content") or element.get("name") or "").strip()
-    if not text:
-        return False
-    if len(text) > 120:
-        return False
-    normalized = _normalize_for_match(text)
-    if not normalized or _looks_like_nonvisible_requirement(normalized):
-        return False
-    return True
-
-
-def _looks_like_nonvisible_requirement(normalized: str) -> bool:
-    markers = (
-        "页眉",
-        "页脚",
-        "页码",
-        "页边距",
-        "装订线",
-        "纸张",
-        "section",
-        "schoolyaml",
-        "ooxml",
-        "审查口径",
-        "全局规则",
-        "源模板",
-        "源文件",
-        "当前阶段",
-        "目标输出",
-        "生成机制",
-        "标题编号体系",
-        "样式",
-        "字体",
-        "字号",
-        "行距",
-        "大纲级别",
-        "保留学校封面本体",
-        "不属于模板的说明文字",
-        "markdown",
-        "自动化测试",
-        "渲染测试",
-        "验收",
-    )
-    return any(marker in normalized for marker in markers)

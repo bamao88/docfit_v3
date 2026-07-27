@@ -10,6 +10,7 @@ from docfit.core.status import Status, merge_statuses
 from docfit.harness.template_generation_standard_quality import (
     TemplateGenerationStandardSet,
 )
+from docfit.template_generation.verifier import verify_t6_build_artifact
 
 
 @dataclass(frozen=True)
@@ -137,6 +138,7 @@ class TemplateGenerationRunBundle:
     manifest_source: str
     artifacts: dict[str, BoundArtifact] = field(default_factory=dict)
     findings: list[Finding] = field(default_factory=list)
+    observed_t6_findings: list[Finding] = field(default_factory=list)
 
     def artifact_for_stage(self, stage_key: str) -> BoundArtifact | None:
         artifact_key = STAGE_ARTIFACT_KEY.get(stage_key)
@@ -162,6 +164,9 @@ class TemplateGenerationRunBundle:
                 for key, artifact in self.artifacts.items()
             },
             "findings": [finding.to_dict() for finding in self.findings],
+            "observed_t6_findings": [
+                finding.to_dict() for finding in self.observed_t6_findings
+            ],
         }
 
 
@@ -207,6 +212,7 @@ def bind_template_generation_run_bundle(
 
     _check_source_template_hash(bundle, standard_set, findings)
     _check_fillable_template_hash(bundle, findings)
+    _check_observed_t6_effects(bundle, bundle.observed_t6_findings)
     blocking_statuses = [
         finding.status for finding in findings if finding.severity == "blocking"
     ]
@@ -232,7 +238,6 @@ def _load_declared_manifest(
                 "99_template_generation_debug_index.json",
                 "missing",
                 bucket="run_bundle_manifest",
-                severity="advisory",
             )
         )
         return None, {}, "filesystem_scan"
@@ -311,10 +316,23 @@ def _bind_artifact(
 
     actual_sha256 = sha256_file(path)
     declared_sha256 = _declared_sha256_for(path, declared_hashes)
-    hash_match = declared_sha256 is None or declared_sha256 == actual_sha256
-    status = Status.PASS
-    if not hash_match:
-        status = Status.UNKNOWN
+    hash_match = declared_sha256 is not None and declared_sha256 == actual_sha256
+    status = Status.PASS if hash_match else Status.UNKNOWN
+    if declared_sha256 is None:
+        findings.append(
+            _bundle_finding(
+                len(findings) + 1,
+                Status.UNKNOWN,
+                "template_generation_run_bundle_declared_hash_missing",
+                f"Required artifact {spec.artifact_key} has no declared hash",
+                "sha256 declared in 99_template_generation_debug_index.json",
+                "missing",
+                evidence_refs=[str(path)],
+                affected_ids=[spec.artifact_key],
+                bucket="run_bundle_hash",
+            )
+        )
+    elif not hash_match:
         findings.append(
             _bundle_finding(
                 len(findings) + 1,
@@ -370,6 +388,29 @@ def _declared_sha256_for(path: Path, declared_hashes: dict[str, str]) -> str | N
         or declared_hashes.get(str(path))
         or declared_hashes.get(path.as_posix())
     )
+
+
+def _check_observed_t6_effects(
+    bundle: TemplateGenerationRunBundle,
+    findings: list[Finding],
+) -> None:
+    template_spec = bundle.payload("template_spec")
+    build_manifest = bundle.payload("build_manifest")
+    fillable = bundle.artifacts.get("fillable_template_docx")
+    if (
+        not isinstance(template_spec, dict)
+        or not isinstance(build_manifest, dict)
+        or fillable is None
+        or fillable.path is None
+    ):
+        return
+    observed_findings = verify_t6_build_artifact(
+        template_spec,
+        build_manifest,
+        fillable.path,
+        start_index=len(findings) + 1,
+    )
+    findings.extend(observed_findings)
 
 
 def _check_source_template_hash(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import Any, Iterable
 
 
@@ -24,6 +25,15 @@ T3_SPAN_TYPE_TO_CORE_ACTION = {
 }
 
 T3RunIdentity = tuple[str, str]
+
+
+@dataclass(frozen=True)
+class T3GoldItemProjection:
+    """Candidate actions and coverage for one adaptive run/span gold item."""
+
+    actions: frozenset[str]
+    coverage_complete: bool
+    identity_covered: bool
 
 
 def project_t3_actions_by_run_identity(
@@ -114,6 +124,59 @@ def actions_for_t3_gold_run(
     return frozenset()
 
 
+def project_t3_gold_item(
+    items: Iterable[dict[str, Any]],
+    gold_row: dict[str, Any],
+) -> T3GoldItemProjection:
+    """Project candidate items onto one exact adaptive run/span gold identity."""
+
+    candidates = [item for item in items if isinstance(item, dict)]
+    target_kind = str(gold_row.get("target_kind") or "")
+    if not target_kind:
+        target_kind = (
+            "span"
+            if isinstance(gold_row.get("start"), int)
+            and isinstance(gold_row.get("end"), int)
+            else "run"
+        )
+    raw_run_id = str(gold_row.get("raw_run_id") or "")
+    if target_kind == "span" and raw_run_id:
+        start = gold_row.get("start")
+        end = gold_row.get("end")
+        if isinstance(start, int) and isinstance(end, int) and 0 <= start <= end:
+            return _project_t3_range(
+                candidates,
+                raw_run_id=raw_run_id,
+                start=start,
+                end=end,
+            )
+        return T3GoldItemProjection(frozenset(), False, False)
+    if target_kind == "run" and raw_run_id and isinstance(gold_row.get("text"), str):
+        return _project_t3_range(
+            candidates,
+            raw_run_id=raw_run_id,
+            start=0,
+            end=len(str(gold_row.get("text") or "")),
+        )
+
+    projection = project_t3_actions_by_run_identity(candidates)
+    actions = actions_for_t3_gold_run(projection, gold_row)
+    raw_identity = ("raw_run_id", raw_run_id)
+    logical_run_id = str(gold_row.get("logical_run_id") or "")
+    identity_covered = bool(
+        (raw_run_id and raw_identity in projection)
+        or (
+            logical_run_id
+            and ("logical_run_id", logical_run_id) in projection
+        )
+    )
+    return T3GoldItemProjection(
+        actions=actions,
+        coverage_complete=bool(actions),
+        identity_covered=identity_covered,
+    )
+
+
 def t3_core_action(
     value: Any,
     *,
@@ -194,6 +257,127 @@ def _ranges_cover_complete(
         if cursor >= run_length:
             return True
     return cursor >= run_length
+
+
+def _project_t3_range(
+    items: list[dict[str, Any]],
+    *,
+    raw_run_id: str,
+    start: int,
+    end: int,
+) -> T3GoldItemProjection:
+    actions: set[str] = set()
+    action_ranges: list[tuple[int, int]] = []
+    identity_ranges: list[tuple[int, int]] = []
+    for item in items:
+        item_names_run = ("raw_run_id", raw_run_id) in _run_identities(item)
+        parent_action = t3_core_action(item)
+        matching_spans = [
+            span
+            for span in _dict_items(item.get("spans"))
+            if ("raw_run_id", raw_run_id)
+            in _run_identities(span, include_char_ranges=True)
+        ]
+        if not item_names_run and not matching_spans:
+            continue
+
+        exact_span_ranges: list[tuple[int, int]] = []
+        legacy_full_span = False
+        for span in matching_spans:
+            span_action = t3_core_action(span, allow_span_type=True)
+            ranges = _char_ranges_for_identity(
+                span,
+                ("raw_run_id", raw_run_id),
+            )
+            if not ranges:
+                legacy_full_span = True
+                identity_ranges.append((start, end))
+                if span_action:
+                    actions.add(span_action)
+                    action_ranges.append((start, end))
+                continue
+            for range_start, range_end in ranges:
+                overlap = _range_overlap(
+                    range_start,
+                    range_end,
+                    start=start,
+                    end=end,
+                )
+                if overlap is None:
+                    continue
+                exact_span_ranges.append(overlap)
+                identity_ranges.append(overlap)
+                if span_action:
+                    actions.add(span_action)
+                    action_ranges.append(overlap)
+
+        if legacy_full_span:
+            continue
+        if item_names_run:
+            # The parent owns all characters not claimed by exact spans.  Its
+            # identity still covers the complete target even when its policy is
+            # unknown; action coverage requires a mapped parent action.
+            identity_ranges.append((start, end))
+            if parent_action and not _ranges_cover_interval(
+                exact_span_ranges,
+                start=start,
+                end=end,
+            ):
+                actions.add(parent_action)
+                action_ranges.append((start, end))
+
+    return T3GoldItemProjection(
+        actions=frozenset(actions),
+        coverage_complete=_ranges_cover_interval(
+            action_ranges,
+            start=start,
+            end=end,
+        ),
+        identity_covered=_ranges_cover_interval(
+            identity_ranges,
+            start=start,
+            end=end,
+        ),
+    )
+
+
+def _range_overlap(
+    range_start: int,
+    range_end: int,
+    *,
+    start: int,
+    end: int,
+) -> tuple[int, int] | None:
+    overlap_start = max(range_start, start)
+    overlap_end = min(range_end, end)
+    if overlap_start < overlap_end:
+        return overlap_start, overlap_end
+    if start == end == overlap_start == overlap_end:
+        return overlap_start, overlap_end
+    return None
+
+
+def _ranges_cover_interval(
+    ranges: list[tuple[int, int]],
+    *,
+    start: int,
+    end: int,
+) -> bool:
+    if start == end:
+        return bool(ranges) and any(
+            range_start <= start <= range_end
+            for range_start, range_end in ranges
+        )
+    cursor = start
+    for range_start, range_end in sorted(ranges):
+        if range_end <= cursor:
+            continue
+        if range_start > cursor:
+            return False
+        cursor = max(cursor, range_end)
+        if cursor >= end:
+            return True
+    return cursor >= end
 
 
 def _dict_items(value: Any) -> list[dict[str, Any]]:

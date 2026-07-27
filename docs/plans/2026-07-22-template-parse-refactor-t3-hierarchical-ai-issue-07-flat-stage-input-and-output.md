@@ -87,7 +87,8 @@ Observed：
 
 - sealed L1 的当前表格投影没有 `gridSpan/vMerge`、嵌套表和完整空 cell/多段落 cell 事实；重复 run 身份只能安全标记为 merge alias + manual review，不能宣称合并单元格已完整建模；
 - TOC field 对象与其展开 paragraph 仍是并列成员，没有 field→paragraph 所有权，live 模型会在目录单元过度下钻。
-- 三校已签 gold 的评分粒度仍是一条 raw run 一个动作，无法表达同一 run 内的混合 span 动作；当前兼容评分将其记为 run conflict，span 级准确率仍需要独立人审 gold 才能闭环。
+- 三校 T3 gold 已迁移到 `adaptive_run_or_span` 契约，2743 条既有动作均补齐 exact run identity 和原始 text，计分器与 verifier 已能精确评价 run/span。2026-07-23 代理结合冻结 DOCX、Word 页面和 sealed L1 facts 审查了 76 / 50 / 37 个候选：145 个保持整 run，18 个 mixed run 物化为 77 条 exact span，北大 3 个原 `unknown` 已拆为明确动作。代理审查不代替人工签核，三校在完整 scored universe 由人工确认前保持 `PARTIAL`。
+- 2026-07-23 用户确认湖南农大工作区中的 DOCX 是纠错后的 canonical source。active source hash 已从 `6d66a292…` 重绑定到 `776649b4…`；source-seq 与逻辑 run 文本不变，T2 边界保持。T3 既有字符级动作已投影到 674 个新 raw run，并通过新 L1 packet 完整覆盖校验；这关闭了 source hash/identity 不一致，但不替代完整 scored universe 的人工签核。
 
 因此本 issue 保持 `implemented_in_part`；Accuracy Promotion Gate 未运行出合规三校 candidate，不关闭问题，也不迁移 canonical 文档。
 

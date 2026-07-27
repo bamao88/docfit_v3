@@ -47,7 +47,8 @@ def test_t2_prompt_does_not_inject_unit_dictionary() -> None:
 
     assert prompt["glossary"] == ""
     assert "- cover (封面)" not in system
-    assert "T2 的目标" in system
+    assert "以页面为最小对象" in system
+    assert prompt["allowed_labels"] == {}
     assert "允许标签集" in system
 
 

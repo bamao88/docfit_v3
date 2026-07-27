@@ -161,7 +161,7 @@ def core_action_contract() -> dict:
     return {
         "primary_metric": "exact_action_accuracy",
         "scored_ledger": "run_span_ledger",
-        "gold_granularity": "raw_run",
+        "gold_granularity": "adaptive_run_or_span",
         "gold_source_field": "expected_action",
         "owned_structure_layers": ["body_flow"],
         "allowed_actions": ["keep", "fill", "delete"],
@@ -317,19 +317,25 @@ def test_t3_gold_accuracy_scores_only_t3_owned_core_action() -> None:
                 "core_action_contract": core_action_contract(),
                 "run_span_ledger": [
                     {
+                        "target_kind": "run",
                         "raw_run_id": "p_0001.r_001",
+                        "text": "封面",
                         "source_seq": 1,
                         "unit_id": "cover",
                         "expected_action": "keep",
                     },
                     {
+                        "target_kind": "run",
                         "raw_run_id": "p_0002.r_001",
+                        "text": "正文",
                         "source_seq": 2,
                         "unit_id": "body_main",
                         "expected_action": "delete",
                     },
                     {
+                        "target_kind": "run",
                         "raw_run_id": "word_header1_xml.p_0001.r_001",
+                        "text": "",
                         "source_seq": 3,
                         "expected_action": "delete",
                     },
@@ -394,13 +400,17 @@ def test_t3_gold_accuracy_ignores_subtype_and_same_action_grouping() -> None:
                 "core_action_contract": core_action_contract(),
                 "run_span_ledger": [
                     {
+                        "target_kind": "run",
                         "raw_run_id": "p_0001.r_001",
+                        "text": "封面",
                         "source_seq": 1,
                         "unit_id": "cover",
                         "expected_action": "keep",
                     },
                     {
+                        "target_kind": "run",
                         "raw_run_id": "p_0002.r_001",
+                        "text": "正文",
                         "source_seq": 2,
                         "unit_id": "body_main",
                         "expected_action": "fill",
@@ -455,13 +465,17 @@ def test_t3_gold_accuracy_excludes_unknown_but_treats_delete_as_unsafe() -> None
                 "core_action_contract": core_action_contract(),
                 "run_span_ledger": [
                     {
+                        "target_kind": "run",
                         "raw_run_id": "p_0001.r_001",
+                        "text": "封面",
                         "source_seq": 1,
                         "unit_id": "cover",
                         "expected_action": "keep",
                     },
                     {
+                        "target_kind": "run",
                         "raw_run_id": "p_0002.r_001",
+                        "text": "正文",
                         "source_seq": 2,
                         "unit_id": "body_main",
                         "expected_action": "unknown",
@@ -541,13 +555,17 @@ def test_t3_gold_accuracy_reports_mixed_span_actions_as_run_conflict() -> None:
                 "core_action_contract": core_action_contract(),
                 "run_span_ledger": [
                     {
+                        "target_kind": "run",
                         "raw_run_id": "p_0001.r_001",
+                        "text": "封面",
                         "source_seq": 1,
                         "unit_id": "cover",
                         "expected_action": "keep",
                     },
                     {
+                        "target_kind": "run",
                         "raw_run_id": "p_0002.r_001",
+                        "text": "正文",
                         "source_seq": 2,
                         "unit_id": "body_main",
                         "expected_action": "fill",
@@ -561,11 +579,167 @@ def test_t3_gold_accuracy_reports_mixed_span_actions_as_run_conflict() -> None:
         source_template_hash="sha256:template",
     )
 
-    assert report["scope"]["prediction_projection"] == "span_preferred_raw_run"
+    assert report["scope"]["prediction_projection"] == "exact_adaptive_run_or_span"
     assert report["metrics"]["exact_action_accuracy"] == 0.5
     assert report["metrics"]["conflicted_run_count"] == 1
     assert report["metrics"]["mixed_span_run_count"] == 1
     assert report["metrics"]["mixed_span_raw_run_ids"] == ["p_0001.r_001"]
+
+
+def test_t3_gold_accuracy_scores_adaptive_span_items_exactly() -> None:
+    gold_units, audit = build_t3_gold_upstream(
+        signed_t2_standard(),
+        packet=atomic_packet(),
+        gold_source="standards/school/t2.standard.yaml",
+        source_template_hash="sha256:template",
+    )
+    report = evaluate_t3_gold_accuracy(
+        {
+            "source_render_hash": "sha256:render",
+            "input_contract_hash": "sha256:l1",
+            "items": [
+                {
+                    "unit_id": "cover",
+                    "policy": "fixed",
+                    "raw_run_ids": ["p_0001.r_001"],
+                    "spans": [
+                        {
+                            "policy": "fixed",
+                            "char_ranges": [
+                                {
+                                    "raw_run_id": "p_0001.r_001",
+                                    "start": 0,
+                                    "end": 1,
+                                }
+                            ],
+                        },
+                        {
+                            "policy": "fill",
+                            "char_ranges": [
+                                {
+                                    "raw_run_id": "p_0001.r_001",
+                                    "start": 1,
+                                    "end": 2,
+                                }
+                            ],
+                        },
+                    ],
+                },
+                {
+                    "unit_id": "body_main",
+                    "policy": "fill",
+                    "raw_run_ids": ["p_0002.r_001"],
+                },
+            ],
+        },
+        t3_standard={
+            "stage_id": "T3",
+            "standard_id": "school-v1-t3",
+            "standard_state": "signed_active",
+            "accepted_source_facts": {
+                "template_docx_sha256": "sha256:template",
+            },
+            "expected": {
+                "core_action_contract": core_action_contract(),
+                "run_span_ledger": [
+                    {
+                        "target_kind": "span",
+                        "raw_run_id": "p_0001.r_001",
+                        "start": 0,
+                        "end": 1,
+                        "text": "封",
+                        "source_seq": 1,
+                        "unit_id": "cover",
+                        "expected_action": "keep",
+                    },
+                    {
+                        "target_kind": "span",
+                        "raw_run_id": "p_0001.r_001",
+                        "start": 1,
+                        "end": 2,
+                        "text": "面",
+                        "source_seq": 1,
+                        "unit_id": "cover",
+                        "expected_action": "fill",
+                    },
+                    {
+                        "target_kind": "run",
+                        "raw_run_id": "p_0002.r_001",
+                        "text": "正文",
+                        "source_seq": 2,
+                        "unit_id": "body_main",
+                        "expected_action": "fill",
+                    },
+                ],
+            },
+        },
+        packet=atomic_packet(),
+        gold_unit_observation=gold_units,
+        gold_input_audit=audit,
+        source_template_hash="sha256:template",
+    )
+
+    assert report["metrics"]["gold_ledger_run_count"] == 2
+    assert report["metrics"]["gold_atomic_item_count"] == 3
+    assert report["metrics"]["exact_action_accuracy"] == 1.0
+    assert report["metrics"]["conflicted_run_count"] == 0
+
+
+def test_t3_gold_accuracy_rejects_span_gold_with_silent_gap() -> None:
+    gold_units, audit = build_t3_gold_upstream(
+        signed_t2_standard(),
+        packet=atomic_packet(),
+        gold_source="standards/school/t2.standard.yaml",
+        source_template_hash="sha256:template",
+    )
+
+    with pytest.raises(T3GoldUpstreamError, match="does not cover"):
+        evaluate_t3_gold_accuracy(
+            {
+                "source_render_hash": "sha256:render",
+                "input_contract_hash": "sha256:l1",
+                "items": [],
+            },
+            t3_standard={
+                "stage_id": "T3",
+                "standard_id": "school-v1-t3",
+                "standard_state": "signed_active",
+                "accepted_source_facts": {
+                    "template_docx_sha256": "sha256:template",
+                },
+                "expected": {
+                    "core_action_contract": core_action_contract(),
+                    "run_span_ledger": [
+                        {
+                            "target_kind": "span",
+                            "raw_run_id": "p_0001.r_001",
+                            "start": 0,
+                            "end": 1,
+                            "text": "封",
+                            "expected_action": "keep",
+                        },
+                        {
+                            "target_kind": "span",
+                            "raw_run_id": "p_0001.r_001",
+                            "start": 1,
+                            "end": 1,
+                            "text": "",
+                            "expected_action": "fill",
+                        },
+                        {
+                            "target_kind": "run",
+                            "raw_run_id": "p_0002.r_001",
+                            "text": "正文",
+                            "expected_action": "fill",
+                        },
+                    ],
+                },
+            },
+            packet=atomic_packet(),
+            gold_unit_observation=gold_units,
+            gold_input_audit=audit,
+            source_template_hash="sha256:template",
+        )
 
 
 def test_t3_gold_accuracy_rejects_without_passing_input_audit() -> None:

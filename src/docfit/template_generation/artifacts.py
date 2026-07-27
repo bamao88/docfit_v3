@@ -7,9 +7,15 @@ from typing import Any
 from docfit.core.io import now_iso, sha256_json
 
 from .stage_inputs import l1_artifact_hash
+from .final_results import (
+    FinalStageResult,
+    conservative_availability,
+    publish_final_stage_result,
+    require_final_stage_result,
+)
 
-from .constants import FILLABLE_LABELS, FILLABLE_MARKERS, MANUAL_ONLY_MARKERS
-from .page_policy import normalize_page_policy, page_start_projection
+from .constants import FILLABLE_LABELS, FILLABLE_MARKERS
+from .page_policy import normalize_unit_page_policy
 from .refs import _paragraph_index, _part_name
 
 
@@ -39,76 +45,6 @@ def source_tree_from_document_facts(document_facts: dict[str, Any]) -> dict[str,
         "indexes": document_facts.get("indexes", {}),
         "warnings": document_facts.get("warnings", []),
         "data": data,
-    }
-
-
-def build_unit_map(
-    document_facts: dict[str, Any],
-    structure_candidates: dict[str, Any],
-    *,
-    l1_hash: str | None = None,
-) -> dict[str, Any]:
-    section_profiles = _section_profiles_from_facts(document_facts)
-    units: list[dict[str, Any]] = []
-    for unit in structure_candidates.get("units", []):
-        source_seq_refs = list(unit.get("source_seq_refs", []))
-        confidence = _unit_confidence(unit)
-        flags = _unit_flags(unit, confidence=confidence)
-        page = normalize_page_policy(
-            unit.get("page", {}),
-            document_start=int(unit.get("order") or 0) <= 10,
-        )
-        mapped_unit = {
-            "unit_id": unit.get("unit_id"),
-            "name": unit.get("name"),
-            "order": unit.get("order"),
-            "status": unit.get("status", "required"),
-            "label_status": unit.get("label_status"),
-            "canonical_label_id": unit.get("canonical_label_id"),
-            "raw_title": unit.get("raw_title"),
-            "normalized_title": unit.get("normalized_title"),
-            "display_name": unit.get("display_name"),
-            "source_range": unit.get("source_range", {}),
-            "source_seq_range": unit.get("source_seq_range", {}),
-            "source_refs": unit.get("source_refs", []),
-            "source_seq_refs": source_seq_refs,
-            "page": page,
-            "page_start": _page_start_for_unit({**unit, "page": page}),
-            "section_profile": _section_profile_for_unit(
-                section_profiles,
-                source_seq_refs,
-                source_refs=unit.get("source_refs", []),
-            ),
-            "confidence": confidence,
-            "flags": flags,
-            "anchors": unit.get("anchors", []),
-            "evidence": unit.get("evidence", []),
-        }
-        if unit.get("container"):
-            mapped_unit["container"] = unit.get("container")
-        units.append(mapped_unit)
-    flags = [
-        *_map_flags(document_facts, structure_candidates),
-        *[
-            flag
-            for mapped_unit in units
-            for flag in mapped_unit.get("flags", [])
-        ],
-    ]
-    return {
-        "artifact_type": "unit_map",
-        "artifact_version": "1.1",
-        "producer": {"name": "docfit-template-generate", "version": "0.3.0"},
-        "created_at": now_iso(),
-        "input_hashes": {
-            "document_facts": sha256_json(document_facts),
-            "template_structure_candidates": sha256_json(structure_candidates),
-            **({"l1": l1_hash} if l1_hash else {}),
-        },
-        "units": units,
-        "flags": flags,
-        "open_questions": _unit_map_open_questions(structure_candidates, flags),
-        "taxonomy_review_queue": structure_candidates.get("taxonomy_review_queue", []),
     }
 
 
@@ -158,9 +94,9 @@ def build_element_spec(generation_model: dict[str, Any]) -> dict[str, Any]:
                 spec["flags"].append(confidence_flag)
                 flags.append(confidence_flag)
             if policy == "generated":
-                spec["generated"] = {"field_type": _generated_field_type(element, unit_id)}
-            if policy == "manual_only":
-                spec["manual_semantics"] = _manual_semantics(element)
+                spec["generated"] = {
+                    "field_type": _generated_field_type(element, unit)
+                }
             if policy == "fill" and not spec["fill_source"]:
                 flags.append(
                     {
@@ -200,35 +136,68 @@ def build_element_spec(generation_model: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_global_spec(
-    document_facts: dict[str, Any],
-    *,
-    l1_hash: str | None = None,
-) -> dict[str, Any]:
-    data = document_facts.get("data", {})
-    section_profiles = _section_profiles_from_facts(document_facts)
-    return {
-        "artifact_type": "global_spec",
-        "artifact_version": "1.1",
-        "producer": {"name": "docfit-template-generate", "version": "0.3.0"},
-        "created_at": now_iso(),
-        "input_hashes": {
-            "document_facts": sha256_json(document_facts),
-            **({"l1": l1_hash} if l1_hash else {}),
-        },
-        "section_profiles": section_profiles,
-        "default_font": _default_font_from_facts(document_facts),
-        "page_numbering": _page_numbering_from_profiles(section_profiles),
-        "header_footer": data.get("headers_footers", []),
-        "numbering_rules": {
-            "definitions": data.get("numbering_definitions", []),
-            "refs": data.get("numbering_refs", []),
-        },
-        "flags": _global_flags(document_facts, section_profiles),
-    }
-
-
 def build_template_spec(
+    l1_final: FinalStageResult,
+    t2_final: FinalStageResult,
+    t3_final: FinalStageResult,
+    t4_final: FinalStageResult,
+) -> FinalStageResult:
+    l1_result = require_final_stage_result(
+        l1_final,
+        stage_id="L1",
+        artifact_type="template_generation_l1_input_contract",
+        artifact_name="01.5_l1_input_contract.json",
+    )
+    unit_result = require_final_stage_result(
+        t2_final,
+        stage_id="T2",
+        artifact_type="unit_map",
+        artifact_name="02_unit_map.yaml",
+        expected_l1_hash=l1_result.sha256,
+    )
+    element_result = require_final_stage_result(
+        t3_final,
+        stage_id="T3",
+        artifact_type="element_spec",
+        artifact_name="03_element_spec.yaml",
+        expected_l1_hash=l1_result.sha256,
+    )
+    global_result = require_final_stage_result(
+        t4_final,
+        stage_id="T4",
+        artifact_type="global_spec",
+        artifact_name="04_global_spec.yaml",
+        expected_l1_hash=l1_result.sha256,
+    )
+    payload = _build_template_spec_payload(
+        l1_result.payload,
+        unit_result.payload,
+        element_result.payload,
+        global_result.payload,
+    )
+    availability, reason = conservative_availability(
+        unit_result,
+        element_result,
+        global_result,
+    )
+    return publish_final_stage_result(
+        payload,
+        stage_id="T5",
+        artifact_type="template_spec",
+        artifact_name="05_template_spec.yaml",
+        availability=availability,
+        reason=reason,
+        producer_mode="code",
+        input_refs={
+            "l1": l1_result.input_ref(),
+            "t2_final": unit_result.input_ref(),
+            "t3_final": element_result.input_ref(),
+            "t4_final": global_result.input_ref(),
+        },
+    )
+
+
+def _build_template_spec_payload(
     l1_input_contract: dict[str, Any],
     unit_map: dict[str, Any],
     element_spec: dict[str, Any],
@@ -247,13 +216,14 @@ def build_template_spec(
             section_profile_refs,
             fallback=str(unit.get("section_profile") or "section_unknown"),
         )
+        page_policy = normalize_unit_page_policy(
+            unit.get("page_policy"),
+            document_start=unit_index == 0,
+        )
         units.append(
             {
-                **unit,
-                "page": normalize_page_policy(
-                    unit.get("page", {}),
-                    document_start=int(unit.get("order") or 0) <= 10,
-                ),
+                **{key: value for key, value in unit.items() if key != "page"},
+                "page_policy": page_policy,
                 "section_profile": primary_section_profile,
                 "section_profile_refs": section_profile_refs,
                 "elements": sorted(
@@ -279,6 +249,9 @@ def build_template_spec(
         },
         "input_hashes": {
             "l1": l1_artifact_hash(l1_input_contract),
+            "document_facts": l1_input_contract.get("input_hashes", {}).get(
+                "document_facts"
+            ),
             "unit_map": sha256_json(unit_map),
             "element_spec": sha256_json(element_spec),
             "global_spec": sha256_json(global_spec),
@@ -288,25 +261,6 @@ def build_template_spec(
         "review_flags": review_flags,
         "review_decisions": [],
     }
-
-
-def _page_start_for_unit(unit: dict[str, Any]) -> str:
-    return page_start_projection(
-        unit.get("page") or {},
-        unit_order=int(unit.get("order") or 0),
-    )
-
-
-def _section_profile_for_unit(
-    section_profiles: list[dict[str, Any]],
-    source_seq_refs: list[int],
-    *,
-    source_refs: list[str] | None = None,
-) -> str:
-    refs = _section_profile_refs_for_source_seq_refs(source_seq_refs, section_profiles)
-    if not refs:
-        refs = _section_profile_refs_for_source_refs(source_refs or [], section_profiles)
-    return _primary_section_profile_from_refs(refs, fallback="section_unknown")
 
 
 def bind_units_to_section_profiles(
@@ -356,458 +310,6 @@ def bind_units_to_section_profiles(
         "bindings_by_unit_id": bindings_by_unit_id,
         "bindings_by_unit_index": bindings_by_unit_index,
         "flags": flags,
-    }
-
-
-def _section_profiles_from_facts(document_facts: dict[str, Any]) -> list[dict[str, Any]]:
-    data = document_facts.get("data", {})
-    sections = list(data.get("sections", []))
-    if not sections:
-        return [_unknown_section_profile()]
-
-    boundaries = _section_boundaries_from_facts(document_facts)
-    parts_by_name = {
-        str(part.get("part_name")): part
-        for part in data.get("headers_footers", [])
-        if part.get("part_name")
-    }
-    profiles: list[dict[str, Any]] = []
-    for index, section in enumerate(sections, start=1):
-        profile_id = f"section_{index:03d}"
-        boundary = boundaries.get(index, _unknown_boundary(section.get("source_ref")))
-        effective_refs = list(section.get("effective_references", []))
-        page_fields = _page_fields_for_section(document_facts, boundary, effective_refs)
-        page_numbering = _section_page_numbering(
-            section,
-            boundary=boundary,
-            effective_refs=effective_refs,
-            page_fields=page_fields,
-        )
-        flags = []
-        if boundary.get("status") == "UNKNOWN":
-            flags.append(
-                {
-                    "flag_id": f"{profile_id}.boundary_unknown",
-                    "type": "section_boundary_unknown",
-                    "status": "UNKNOWN",
-                    "source_ref": section.get("source_ref"),
-                    "affected_ids": [profile_id],
-                    "reason": "section boundary source_seq range could not be determined",
-                }
-            )
-        if page_numbering.get("display", {}).get("status") == "missing_evidence":
-            flags.append(
-                {
-                    "flag_id": f"{profile_id}.page_numbering_missing_evidence",
-                    "type": "section_page_numbering_missing_evidence",
-                    "status": "UNKNOWN",
-                    "source_ref": section.get("source_ref"),
-                    "affected_ids": [f"{profile_id}.page_numbering"],
-                    "reason": "section page numbering evidence could not be checked",
-                }
-            )
-        profiles.append(
-            {
-                "section_profile_id": profile_id,
-                "source_ref": section.get("source_ref"),
-                "boundary": boundary,
-                "page_setup": section,
-                "header_footer_refs": section.get("header_footer_refs", {}),
-                "header_footer": {
-                    "references": list(section.get("references", [])),
-                    "effective_references": effective_refs,
-                    "parts": _header_footer_parts_for_refs(effective_refs, parts_by_name),
-                },
-                "page_numbering": page_numbering,
-                "flags": flags,
-            }
-        )
-    return profiles
-
-
-def _unknown_section_profile() -> dict[str, Any]:
-    return {
-        "section_profile_id": "section_unknown",
-        "source_ref": None,
-        "boundary": _unknown_boundary(None),
-        "page_setup": "UNKNOWN",
-        "header_footer_refs": {},
-        "header_footer": {
-            "references": [],
-            "effective_references": [],
-            "parts": [],
-        },
-        "page_numbering": {
-            "declared": {"status": "missing_evidence"},
-            "fields": [],
-            "display": {
-                "status": "missing_evidence",
-                "has_page_field": False,
-                "confidence": "low",
-                "checked_scopes": {},
-            },
-        },
-        "flags": [
-            {
-                "flag_id": "section_unknown.boundary_unknown",
-                "type": "section_boundary_unknown",
-                "status": "UNKNOWN",
-                "affected_ids": ["section_unknown"],
-                "reason": "document sections could not be parsed",
-            }
-        ],
-    }
-
-
-def _section_boundaries_from_facts(document_facts: dict[str, Any]) -> dict[int, dict[str, Any]]:
-    sections = list(document_facts.get("data", {}).get("sections", []))
-    items = _body_source_seq_items(document_facts)
-    paragraph_indices = [
-        int(item["paragraph_index"])
-        for item in items
-        if item.get("paragraph_index") is not None
-    ]
-    section_paragraph_indices = [
-        int(paragraph_index)
-        for section in sections
-        if (paragraph_index := _int_or_none(section.get("paragraph_index"))) is not None
-    ]
-    min_paragraph = min(paragraph_indices) if paragraph_indices else None
-    max_paragraph = max(
-        [*paragraph_indices, *section_paragraph_indices],
-        default=None,
-    )
-    boundaries: dict[int, dict[str, Any]] = {}
-    previous_end: int | None = None
-    for index, section in enumerate(sections, start=1):
-        section_end = _int_or_none(section.get("paragraph_index"))
-        end_reason = "sectPr" if section_end is not None else "body_sectPr"
-        if section_end is not None:
-            end_paragraph = section_end
-        elif max_paragraph is not None and previous_end is not None:
-            end_paragraph = max(max_paragraph, previous_end + 1)
-        else:
-            end_paragraph = max_paragraph
-        start_paragraph = (
-            previous_end + 1
-            if previous_end is not None
-            else min_paragraph
-        )
-        section_items = _items_in_paragraph_range(
-            items,
-            start_paragraph=start_paragraph,
-            end_paragraph=end_paragraph,
-        )
-        source_seq_refs = [
-            int(item["source_seq"])
-            for item in section_items
-            if item.get("source_seq") is not None
-        ]
-        evidence_refs = _dedupe_str(
-            [
-                section.get("source_ref"),
-                section_items[0].get("source_ref") if section_items else None,
-                section_items[-1].get("source_ref") if section_items else None,
-            ]
-        )
-        detected = (
-            start_paragraph is not None
-            and end_paragraph is not None
-            and bool(source_seq_refs)
-        )
-        boundary = {
-            "status": "detected" if detected else "UNKNOWN",
-            "start_paragraph_index": start_paragraph,
-            "end_paragraph_index": end_paragraph,
-            "start_source_seq": min(source_seq_refs) if source_seq_refs else None,
-            "end_source_seq": max(source_seq_refs) if source_seq_refs else None,
-            "end_reason": end_reason,
-            "confidence": "high" if detected else "low",
-            "evidence_refs": evidence_refs,
-        }
-        boundaries[index] = boundary
-        if end_paragraph is not None:
-            previous_end = end_paragraph
-    return boundaries
-
-
-def _body_source_seq_items(document_facts: dict[str, Any]) -> list[dict[str, Any]]:
-    items: list[dict[str, Any]] = []
-    for item in document_facts.get("body_flow", []):
-        source_ref = str(item.get("source_ref") or "")
-        part_name = str(item.get("part_name") or _part_name(source_ref))
-        if part_name != "word/document.xml":
-            continue
-        source_seq = _int_or_none(item.get("source_seq"))
-        if source_seq is None:
-            continue
-        paragraph_index = _flow_paragraph_index(item)
-        items.append(
-            {
-                "source_seq": source_seq,
-                "source_ref": source_ref,
-                "paragraph_index": paragraph_index,
-            }
-        )
-    return sorted(items, key=lambda item: int(item["source_seq"]))
-
-
-def _flow_paragraph_index(item: dict[str, Any]) -> int | None:
-    source_ref = str(item.get("source_ref") or "")
-    paragraph_index = _paragraph_index(source_ref)
-    if paragraph_index is not None:
-        return paragraph_index
-    paragraph_id = str(item.get("paragraph_id") or "")
-    if paragraph_id.startswith("p_"):
-        return _int_or_none(paragraph_id.removeprefix("p_"))
-    return None
-
-
-def _items_in_paragraph_range(
-    items: list[dict[str, Any]],
-    *,
-    start_paragraph: int | None,
-    end_paragraph: int | None,
-) -> list[dict[str, Any]]:
-    if start_paragraph is None or end_paragraph is None:
-        return []
-    return [
-        item
-        for item in items
-        if item.get("paragraph_index") is not None
-        and start_paragraph <= int(item["paragraph_index"]) <= end_paragraph
-    ]
-
-
-def _unknown_boundary(source_ref: Any) -> dict[str, Any]:
-    return {
-        "status": "UNKNOWN",
-        "start_paragraph_index": None,
-        "end_paragraph_index": None,
-        "start_source_seq": None,
-        "end_source_seq": None,
-        "end_reason": "UNKNOWN",
-        "confidence": "low",
-        "evidence_refs": _dedupe_str([source_ref]),
-    }
-
-
-def _header_footer_parts_for_refs(
-    effective_refs: list[dict[str, Any]],
-    parts_by_name: dict[str, dict[str, Any]],
-) -> list[dict[str, Any]]:
-    parts = []
-    seen: set[str] = set()
-    for ref in effective_refs:
-        part_name = str(ref.get("part_name") or "")
-        if not part_name or part_name in seen:
-            continue
-        part = parts_by_name.get(part_name)
-        if not part:
-            continue
-        text = str(part.get("text") or "")
-        parts.append(
-            {
-                "part_name": part_name,
-                "kind": part.get("kind") or ref.get("kind"),
-                "source_ref": part.get("source_ref") or part_name,
-                "text_hash": _text_hash(text),
-            }
-        )
-        seen.add(part_name)
-    return parts
-
-
-def _section_page_numbering(
-    section: dict[str, Any],
-    *,
-    boundary: dict[str, Any],
-    effective_refs: list[dict[str, Any]],
-    page_fields: list[dict[str, Any]],
-) -> dict[str, Any]:
-    declared = _declared_page_numbering(section)
-    has_page_field = any(_is_page_field(field) for field in page_fields)
-    checked_scopes = _checked_scopes(boundary, effective_refs)
-    if has_page_field:
-        display_status = "detected"
-        confidence = "high"
-    elif declared.get("status") == "detected":
-        display_status = "declared_only"
-        confidence = "medium"
-    elif boundary.get("status") == "detected" or effective_refs:
-        display_status = "no_page_field"
-        confidence = "high"
-    else:
-        display_status = "missing_evidence"
-        confidence = "low"
-    return {
-        "declared": declared,
-        "fields": page_fields,
-        "display": {
-            "status": display_status,
-            "has_page_field": has_page_field,
-            "inferred_format": declared.get("format") or ("decimal" if has_page_field else None),
-            "confidence": confidence,
-            "checked_scopes": checked_scopes,
-            "evidence_refs": _dedupe_str(
-                [
-                    *(field.get("source_ref") for field in page_fields),
-                    *checked_scopes.get("evidence_refs", []),
-                ]
-            ),
-        },
-        "flags": [],
-    }
-
-
-def _declared_page_numbering(section: dict[str, Any]) -> dict[str, Any]:
-    page_numbering = section.get("page_numbering") or {}
-    if not page_numbering:
-        return {"status": "not_declared"}
-    source_ref = section.get("source_ref")
-    return {
-        "status": "detected",
-        "format": page_numbering.get("format"),
-        "start": page_numbering.get("start"),
-        "source_ref": f"{source_ref}/pgNumType" if source_ref else None,
-    }
-
-
-def _page_fields_for_section(
-    document_facts: dict[str, Any],
-    boundary: dict[str, Any],
-    effective_refs: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    fields = document_facts.get("data", {}).get("fields", [])
-    effective_part_names = {
-        str(ref.get("part_name") or "")
-        for ref in effective_refs
-        if ref.get("part_name")
-    }
-    page_fields = []
-    seen: set[str] = set()
-    for field in fields:
-        if not _is_page_numbering_field(field):
-            continue
-        part_name = str(field.get("part_name") or "")
-        in_effective_part = part_name in effective_part_names
-        in_body_boundary = (
-            part_name == "word/document.xml"
-            and _field_overlaps_boundary(field, boundary)
-        )
-        if not (in_effective_part or in_body_boundary):
-            continue
-        source_ref = str(field.get("source_ref") or "")
-        if source_ref in seen:
-            continue
-        page_fields.append(_page_field_spec(field))
-        seen.add(source_ref)
-    return page_fields
-
-
-def _field_overlaps_boundary(field: dict[str, Any], boundary: dict[str, Any]) -> bool:
-    start_paragraph = _int_or_none(boundary.get("start_paragraph_index"))
-    end_paragraph = _int_or_none(boundary.get("end_paragraph_index"))
-    field_start = _int_or_none(field.get("paragraph_index"))
-    if start_paragraph is None or end_paragraph is None or field_start is None:
-        return False
-    field_end = _int_or_none(field.get("end_paragraph_index")) or field_start
-    return start_paragraph <= field_end and field_start <= end_paragraph
-
-
-def _is_page_numbering_field(field: dict[str, Any]) -> bool:
-    field_type = str(field.get("field_type") or "").upper()
-    instruction = str(field.get("instruction") or field.get("field_code") or "").upper()
-    return field_type in {"PAGE", "NUMPAGES"} or instruction.startswith("PAGE")
-
-
-def _is_page_field(field: dict[str, Any]) -> bool:
-    field_type = str(field.get("field_type") or "").upper()
-    instruction = str(field.get("instruction") or field.get("field_code") or "").upper()
-    return field_type == "PAGE" or instruction.startswith("PAGE")
-
-
-def _page_field_spec(field: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "field_type": field.get("field_type"),
-        "kind": field.get("kind"),
-        "instruction": field.get("instruction") or field.get("field_code"),
-        "part_name": field.get("part_name"),
-        "paragraph_index": field.get("paragraph_index"),
-        "end_paragraph_index": field.get("end_paragraph_index"),
-        "source_ref": field.get("source_ref"),
-    }
-
-
-def _checked_scopes(
-    boundary: dict[str, Any],
-    effective_refs: list[dict[str, Any]],
-) -> dict[str, Any]:
-    header_footer_parts = sorted(
-        {
-            str(ref.get("part_name"))
-            for ref in effective_refs
-            if ref.get("part_name")
-        }
-    )
-    evidence_refs = _dedupe_str(
-        [
-            *boundary.get("evidence_refs", []),
-            *(ref.get("source_ref") for ref in effective_refs),
-        ]
-    )
-    return {
-        "body_source_seq_range": {
-            "start": boundary.get("start_source_seq"),
-            "end": boundary.get("end_source_seq"),
-        },
-        "header_footer_parts": header_footer_parts,
-        "evidence_refs": evidence_refs,
-    }
-
-
-def _page_numbering_from_profiles(section_profiles: list[dict[str, Any]]) -> dict[str, Any]:
-    display_statuses = [
-        str(profile.get("page_numbering", {}).get("display", {}).get("status") or "missing_evidence")
-        for profile in section_profiles
-    ]
-    fields_by_section = {
-        str(profile.get("section_profile_id")): [
-            field.get("source_ref")
-            for field in profile.get("page_numbering", {}).get("fields", [])
-        ]
-        for profile in section_profiles
-    }
-    formats = _dedupe_str(
-        [
-            profile.get("page_numbering", {}).get("declared", {}).get("format")
-            for profile in section_profiles
-            if profile.get("page_numbering", {}).get("declared", {}).get("format")
-        ]
-    )
-    if not section_profiles or "missing_evidence" in display_statuses:
-        status = "UNKNOWN"
-    elif all(status == "no_page_field" for status in display_statuses):
-        status = "none"
-    elif len(formats) > 1 or len(set(display_statuses)) > 1:
-        status = "mixed"
-    else:
-        status = "single"
-    sections_with_page_field = sum(
-        1
-        for profile in section_profiles
-        if profile.get("page_numbering", {}).get("display", {}).get("has_page_field")
-    )
-    return {
-        "status": status,
-        "summary": {
-            "section_count": len(section_profiles),
-            "sections_with_page_field": sections_with_page_field,
-            "sections_without_page_field": len(section_profiles) - sections_with_page_field,
-            "display_statuses": sorted(set(display_statuses)),
-            "formats": formats,
-        },
-        "field_refs_by_section": fields_by_section,
     }
 
 
@@ -944,46 +446,6 @@ def _primary_section_profile_from_refs(
     return str(best.get("section_profile_id") or fallback)
 
 
-def _unit_confidence(unit: dict[str, Any]) -> str:
-    confidence = str(unit.get("confidence") or "").lower()
-    if confidence in {"high", "medium", "low"}:
-        return confidence
-    if unit.get("source_refs"):
-        return "medium"
-    return "low"
-
-
-def _unit_flags(unit: dict[str, Any], *, confidence: str) -> list[dict[str, Any]]:
-    flags = list(unit.get("flags", []))
-    confidence_flag = _confidence_flag(
-        flag_id=f"{unit.get('unit_id')}.confidence_needs_review",
-        type_="unit_confidence_needs_review",
-        confidence=confidence,
-        reason_subject=f"unit {unit.get('unit_id')}",
-        source_ref=(unit.get("source_refs") or [None])[0],
-        affected_id=str(unit.get("unit_id") or ""),
-    )
-    if confidence_flag is not None:
-        flags.append(confidence_flag)
-    if not unit.get("source_refs"):
-        flags.append(
-            {
-                "type": "unit_source_missing",
-                "status": "UNKNOWN",
-                "reason": "unit has no source range",
-            }
-        )
-    if _page_start_for_unit(unit) == "UNKNOWN":
-        flags.append(
-            {
-                "type": "page_start_unknown",
-                "status": "UNKNOWN",
-                "reason": "unit page start could not be determined from source facts",
-            }
-        )
-    return flags
-
-
 def _element_confidence(policy: str, content: Any, role_hint: str) -> str:
     """Grade evidence strength for an element's FINAL (canonical) policy.
 
@@ -1006,8 +468,6 @@ def _element_confidence(policy: str, content: Any, role_hint: str) -> str:
     if policy == "instruction_remove":
         # Only assigned upstream when an instruction marker / format annotation fired.
         return "high"
-    if policy == "manual_only":
-        return "high" if any(marker in text for marker in MANUAL_ONLY_MARKERS) else "medium"
     if policy == "generated":
         return "high"
     if policy == "fill":
@@ -1043,70 +503,11 @@ def _confidence_flag(
     }
 
 
-def _map_flags(
-    document_facts: dict[str, Any],
-    structure_candidates: dict[str, Any],
-) -> list[dict[str, Any]]:
-    flags: list[dict[str, Any]] = []
-    for item in document_facts.get("unknown_objects", []):
-        flags.append(
-            {
-                "type": "unknown_visible_object",
-                "status": "UNKNOWN",
-                "source_ref": item.get("source_ref"),
-                "reason": item.get("reason", "unknown visible object"),
-            }
-        )
-    for item in structure_candidates.get("unknowns", []):
-        flags.append(
-            {
-                "type": "unit_discovery_unknown",
-                "status": "UNKNOWN",
-                "source_ref": item.get("source_ref"),
-                "reason": item.get("reason"),
-            }
-        )
-    return flags
-
-
-def _open_questions_from_flags(flags: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [
-        {
-            "question_id": f"q_{index:03d}",
-            "kind": "flag",
-            "source_ref": flag.get("source_ref"),
-            "reason": flag.get("reason"),
-            "status": flag.get("status", "UNKNOWN"),
-        }
-        for index, flag in enumerate(flags, start=1)
-    ]
-
-
-def _unit_map_open_questions(
-    structure_candidates: dict[str, Any],
-    flags: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    questions = [
-        dict(question)
-        for question in structure_candidates.get("open_questions", [])
-    ]
-    offset = len(questions)
-    for index, question in enumerate(_open_questions_from_flags(flags), start=1):
-        questions.append(
-            {
-                **question,
-                "question_id": question.get("question_id") or f"q_{offset + index:03d}",
-            }
-        )
-    return questions
-
-
 def _canonical_policy(policy: str) -> str:
     return {
         "fixed": "fixed",
         "fill": "fill",
         "generated": "generated",
-        "manual_only": "manual_only",
         "remove_instruction": "instruction_remove",
         "template_default": "template_default",
         # unknown 只属于 T3 判断层；生成 element_spec 时已进入执行层，
@@ -1121,13 +522,12 @@ def _role_for_element(element: dict[str, Any], policy: str) -> str:
         "instruction_candidate": "template_instruction",
         "student_field_candidate": "student_content",
         "generated_field_candidate": "generated_field",
-        "manual_field_candidate": "manual_field",
         "fixed_text_candidate": "template_fixed",
         "copy_region_candidate": "template_fixed",
     }.get(role_hint, {
         "fill": "student_content",
         "generated": "generated_field",
-        "manual_only": "manual_field",
+        "fixed": "template_fixed",
         "instruction_remove": "template_instruction",
     }.get(policy, "template_fixed"))
 
@@ -1135,66 +535,32 @@ def _role_for_element(element: dict[str, Any], policy: str) -> str:
 def _fill_source_for_policy(policy: str, element: dict[str, Any]) -> str | None:
     if policy == "fill":
         return "student_content"
-    if policy == "manual_only":
-        return "manual"
     if policy == "generated":
         return "generated_field"
     return None
 
 
-def _generated_field_type(element: dict[str, Any], unit_id: str) -> str:
+def _generated_field_type(
+    element: dict[str, Any],
+    unit: dict[str, Any],
+) -> str:
     text = str(element.get("content") or element.get("name") or "").lower()
     if "seq" in text or "编号" in text:
         return "SEQ"
     if "页码" in text or "page" in text:
         return "PAGE"
-    if unit_id == "toc" or "目录" in text or "toc" in text:
+    unit_name = re.sub(
+        r"\s+",
+        "",
+        str(unit.get("unit_name") or unit.get("name") or "").lower(),
+    )
+    if (
+        unit_name in {"目录", "tableofcontents"}
+        or "目录" in text
+        or "toc" in text
+    ):
         return "TOC"
     return "FIELD_PLACEHOLDER"
-
-
-def _manual_semantics(element: dict[str, Any]) -> str:
-    content = str(element.get("content") or element.get("name") or "").strip()
-    return content or "manual human input required"
-
-
-def _default_font_from_facts(document_facts: dict[str, Any]) -> dict[str, Any]:
-    for run in document_facts.get("runs", []):
-        style = run.get("effective_style") or {}
-        if style.get("font_names") or style.get("font_size_pt"):
-            return {
-                "font_names": style.get("font_names", []),
-                "font_size_pt": style.get("font_size_pt"),
-                "source_run_id": run.get("raw_run_id"),
-            }
-    return {"status": "UNKNOWN"}
-
-
-def _global_flags(
-    document_facts: dict[str, Any],
-    section_profiles: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    flags = []
-    if not document_facts.get("data", {}).get("sections"):
-        flags.append(
-            {
-                "type": "sections_missing",
-                "status": "UNKNOWN",
-                "reason": "document sections could not be parsed",
-            }
-        )
-    if _page_numbering_from_profiles(section_profiles).get("status") == "UNKNOWN":
-        flags.append(
-            {
-                "flag_id": "global.page_numbering_missing_evidence",
-                "type": "page_numbering_missing_evidence",
-                "status": "UNKNOWN",
-                "source_ref": None,
-                "affected_ids": ["global.page_numbering"],
-                "reason": "one or more sections lack enough evidence for page numbering facts",
-            }
-        )
-    return flags
 
 
 def _int_or_none(value: Any) -> int | None:

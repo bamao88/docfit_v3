@@ -2,10 +2,12 @@
 status: active
 owner: template-generation
 created: 2026-06-25
-last_updated: 2026-07-17
+last_updated: 2026-07-26
 ---
 
 # 模板解析重构 issue 迭代索引
+
+> 文档职责：本文只保存模板解析 issue/plan 的历史迭代链。当前变化、缺陷、影响和闭环状态以 `docs/status/INDEX.md` 为准。
 
 本文只维护阶段 issue 的命名和迭代链路，避免多轮优化后混淆“上一轮 issue”“上一轮优化文档”和“当前残余 issue”。
 
@@ -69,11 +71,19 @@ next_plan: ...
 | 08 | optimization plan | `docs/plans/2026-07-10-template-parse-refactor-t1l1-input-contract-plan-08-l1-projection-bundle-gate.md` | verified | 三校迁移前后真实 API 无明显回退报告 PASS；最终代码固定 replay 的 T1-T6 语义全等、T6 identity failure=0、canonical L1 hash 可重算。 |
 | 09 | issue | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-issue-09-ai-raw-not-merged.md` | draft | 同 run AI raw 已经 AVAILABLE 且 hash 对齐，但 T2 schema 拒绝、T3 manual review、T4 advisory-only 导致 AI 未进入 merged 权威产物。 |
 | 09 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-plan-09-ai-raw-to-merged.md` | draft | 修 T2 bridge collection/kind、T3 executable overlay、T4 merged global_spec evidence，并用 hunannongye replay 验证每层 accepted/merged。 |
-| 10 | issue | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-issue-10-t4-observation-downstream-dead-end.md` | draft | T4 accepted observation（含 vision 明点识别）只落 `agent_observation_hints`，生产代码零读取者；T4 AI 观察对最终产物零影响。 |
-| 10 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-plan-10-t4-ai-primary-layout-consumption.md` | draft | T4 转 AI 为主：明点输入补齐（承接 issue-08 T4 切片）、accepted 观察升为 merged 一等字段、T5/T6 消费、三路线门禁。 |
+| 10 | issue | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-issue-10-t4-observation-downstream-dead-end.md` | superseded | T4 hint 死端事实已由 Issue 13 的 AI-only 权威模型取代。 |
+| 10 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-plan-10-t4-ai-primary-layout-consumption.md` | superseded | 原 AI-primary + deterministic fallback + merged 方案已被 Plan 13 的唯一 AI final 取代。 |
 | 11 | issue | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-issue-11-unit-pagination-signal-loss.md` | draft | T2 signed standard 已有四维分页策略，但 runtime page 可全空；T5/T6 双轨消费且 T2 judge 对空 page 仍 PASS/SIGNABLE。 |
-| 11 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-plan-11-unit-pagination-alignment.md` | implemented_in_part | 已落 canonical page、T2 page audit、T2 AI page proposal、T5/T6 单一消费链和 manifest provenance；湖南农大离线 judge 已从空 page 假 PASS 转为 `t2_page_policy_mismatch` FAIL，三校/最终 Word/live route 仍待验。 |
-| — | direction proposal | `docs/plans/2026-07-03-template-parse-refactor-ai-primary-staged-migration-proposal.md` | draft | 分阶段转 AI 为主：T4/T3 先行（deterministic 转校验/兜底），T2 保持 merge；三路线评测 ai_raw ≥ code_raw 作为晋升门禁。 |
+| 11 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-plan-11-unit-pagination-alignment.md` | implemented_in_part | 已落 canonical page、T2 page audit、T2 AI page proposal、T5/T6 单一消费链和 manifest provenance；三校离线生成/judge 与最终 Word template-gap 已跑，人工 T2-style page policy 注入已证明 T5/T6/T7 可消费并更新 DOCX；仍因真实 T2 `t2_page_policy_mismatch` 未 verified，live route 需显式授权。 |
+| 12 | issue | `docs/plans/2026-07-24-template-parse-refactor-t2-page-exclusive-units-issue-12-source-boundary-model-conflict.md` | implemented_in_part | AI-only 页面生产链已解决旧 source 边界与同页单元冲突；学校页面 gold 和 live 验收仍待闭环。 |
+| 12 | implementation plan | `docs/plans/2026-07-24-template-parse-refactor-t2-page-exclusive-units-plan-12-exclusive-contiguous-page-contract.md` | implemented_in_part | 页图优先、严格 page-range 输出、确定性 source binding 和固定分页策略已落代码；三校 gold/verifier、MiniMax live 与最终 Word 验收待完成。 |
+| 13 | issue | `docs/plans/2026-07-26-template-parse-refactor-t4-ai-only-issue-13-multi-route-authority-conflict.md` | superseded | T4 AI-only 清理已落地，但“required T4 final”目标被 Issue 14 的 copy-first 跳过决策取代。 |
+| 13 | implementation plan | `docs/plans/2026-07-26-template-parse-refactor-t4-ai-only-plan-13-single-ai-final.md` | superseded | 唯一 AI final 是历史中间态；不再补三校 T4 live/gold。 |
+| 14 | issue | `docs/plans/2026-07-26-template-parse-refactor-t4-skip-issue-14-copy-first-stage-has-no-execution-effect.md` | impact_confirmed | copy-first 已保留源全局版式，T4 final 没有产生 T6 版式动作却阻塞 availability。 |
+| 14 | implementation plan | `docs/plans/2026-07-26-template-parse-refactor-t4-skip-plan-14-remove-required-stage-and-preserve-source-layout.md` | approved | 跳过 T4，以 L1 section 基线、T5 确定性绑定、T6 preservation 和 T7/POST_T6 最终验证接管上下游责任。 |
+| 15 | issue | `docs/plans/2026-07-26-template-parse-refactor-t1l1-fact-foundation-issue-15-leaf-identity-and-split-artifacts.md` | impact_confirmed | Plan 08 后续能力缺口：T1 尚未形成正文/全局/render 三组件，L1 尚无叶子级 `source_atom_seq`、membership、text-address 和 locator 契约。 |
+| 15 | implementation plan | `docs/plans/2026-07-26-template-parse-refactor-t1l1-fact-foundation-plan-15-centralize-facts-and-preserve-stage-inputs.md` | draft | 把分散客观事实集中到三组件 T1 与 sealed L1；现有 T2/T3 stage-input shape 和 T5/T6/T7 业务逻辑保持，T4 仅兼容，gold 最后由 Plan 03 接管。 |
+| — | direction proposal | `docs/plans/2026-07-03-template-parse-refactor-ai-primary-staged-migration-proposal.md` | superseded | T2/T3 AI-only 仍由 Plan 12/07 管理；T4 已由 Plan 14 改为暂停并跳过。 |
 
 ## Template generation full-chain capability closure
 
@@ -107,6 +117,8 @@ next_plan: ...
 | 01 | issue | `docs/plans/2026-07-03-template-parse-refactor-stage-standards-issue-01-incomplete-stage-standards.md` | draft | T1-T5 标准文件存在且 judge 可 PASS，但 T3 未覆盖人审元素/run-span 级标准，T6/T7 仍无阶段标准，最终 template-gap FAIL 无法回链 |
 | 01 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-stage-standards-plan-01-stage-standard-completeness-audit.md` | draft | 先新增标准完整性审计：final_template 已有元素清单但 T3 标准缺元素覆盖时降级为 UNKNOWN/NOT_SIGNABLE，并输出四层诊断 |
 | 02 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-stage-standards-plan-02-t3-run-span-standard-fill.md` | implemented | 补齐三校 T3 `element_expectations` 与 `run_span_ledger`，以人审 final_template 为标准，以真实 T1/T3 artifact 绑定 run/span 证据 |
+| 03 | issue | `docs/plans/2026-07-25-template-parse-refactor-stage-standards-issue-03-duplicated-gold-sources.md` | impact_confirmed | 每校 final 与 T1–T5 六份 gold/standard 独立维护，重复 source/review/unit 事实并产生 hash 与语义漂移风险 |
+| 03 | implementation plan | `docs/plans/2026-07-25-template-parse-refactor-stage-standards-plan-03-canonical-gold-stage-projections.md` | draft | 每校收敛为一份 `school_template.gold.yaml`；阶段评测使用确定性投影视图，shadow parity 后原子切流并删除旧事实源 |
 
 ## Run bundle contract
 
@@ -131,3 +143,5 @@ next_plan: ...
 | 05 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-t3-element-policy-plan-06-run-span-subelement-policy-ai-primary.md` | draft | 与 issue-06 共用综合 plan-06；依赖 Plan 08，按 L1+T2 构造 run/span/视觉输入并做完整 merged/T6 精确消费；issue-05 为 also_resolves |
 | 06 | issue | `docs/plans/2026-07-02-template-parse-refactor-t3-element-policy-issue-06-placeholder-span-granularity.md` | draft | `□` / `××` / `……` placeholder-like 文本缺少子 span 粒度；典型字段行被整段标为 fixed，扫描命中 66 个非删除元素 |
 | 06 | optimization plan | `docs/plans/2026-07-03-template-parse-refactor-t3-element-policy-plan-06-run-span-subelement-policy-ai-primary.md` | draft | 综合 plan：L1 run/span/视觉 Stage Input、同形 code/AI decisions、span coverage、完整 merged、T6 精确动作和 AI-primary 真实门禁；同时覆盖 issue-05 |
+| 07 | issue | `docs/plans/2026-07-22-template-parse-refactor-t3-hierarchical-ai-issue-07-flat-stage-input-and-output.md` | implemented_in_part | 层级树、稀疏覆盖和精确消费已实施；L1 merge/field 所有权和三校准确率仍未闭环。 |
+| 07 | optimization plan | `docs/plans/2026-07-22-template-parse-refactor-t3-hierarchical-ai-plan-07-stage-input-sparse-decisions.md` | implemented_in_part | 正式 live/replay 已切 hierarchy；真实结构门禁通过，Accuracy Promotion Gate 因 baseline 与 live 调用放大未验证。 |

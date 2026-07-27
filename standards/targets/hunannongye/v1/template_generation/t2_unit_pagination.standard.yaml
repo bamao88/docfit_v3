@@ -12,7 +12,7 @@ legacy_compatibility: false
 review_metadata:
   reviewed_by: user-reviewed-source-fact-packet
   review_source: docs/human/real-core-v0-review-packet.md#source-hunannongye
-  source_docx_sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
+  source_docx_sha256: sha256:776649b4af9cfef3a50e859490dd75f1061bfcc2ca2aac20181f73e2bb0361a6
   change_reason: split T2 unit and pagination standard from the legacy structure discovery stage contract
   auto_update_allowed: false
 accepted_source_facts:
@@ -21,7 +21,8 @@ accepted_source_facts:
   source_section_id: hunannongye
   source_section_sha256: sha256:e3a0d411c694df992467c6dfc009125192be56ba265a3e240405879fc5d264b3
   template_docx: inputs/targets/hunannongye/raw/source_template.docx
-  template_docx_sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
+  template_docx_sha256: sha256:776649b4af9cfef3a50e859490dd75f1061bfcc2ca2aac20181f73e2bb0361a6
+  review_packet_scope: historical_semantic_review_preserved_through_source_rebind
   upstream_template_generation_final: ../template_quality/final_template.expected.yaml
 scope:
   - unit_detection
@@ -33,7 +34,7 @@ gold_coverage:
   unit_detection: expected.unit_order and expected.units[].unit_id
   unit_order: expected.unit_order
   unit_boundary: expected.units[].boundary.source_seq_range or source_ref_range
-  unit_page_policy: expected.units[].page
+  unit_page_policy: expected.units[].page_policy
 gold_review_notes:
   - Boundary gold was manually assigned from accepted source template body_flow/source_ref facts, not copied from any generated unit_map.
   - Source-seq ranges include unit-local format/instruction prefaces when they belong to the school template unit.
@@ -70,33 +71,29 @@ expected:
         expected_end: before_next_unit
         source_seq_range:
           start: 1
-          end: 17
-      page:
-        page_break: document_start
-        page_isolation: true
-        allow_multi_page: false
-        keep_together: true
-      notes: 封面是学校固定模板块；附件标题和格式说明只作识别证据，不进入最终正文。
+          end: 16
+      page_policy:
+        start: document_start
+        scope: single_page_exclusive
+      notes: 封面是学校固定模板块；附件标题和格式说明只作识别证据，不进入最终正文。source_seq=17 是诚信声明页页顶固定行，不属于封面。
     - unit_id: integrity_statement
       name: 诚信声明
-      status: manual_only
-      policy: manual_only
+      status: fixed
+      policy: fixed
       anchors:
-        title_aliases: [诚信声明, 诚 信 声 明]
-        start_title: 诚 信 声 明
+        title_aliases: [诚信声明, 诚 信 声 明, 湖南农业大学全日制普通本科生毕业论文（设计）]
+        start_title: 湖南农业大学全日制普通本科生毕业论文（设计）
         stop_before: 目录
       boundary:
         expected_start: anchor_based
         expected_end: before_next_unit
         source_seq_range:
-          start: 18
+          start: 17
           end: 21
-      page:
-        page_break: true
-        page_isolation: true
-        allow_multi_page: false
-        keep_together: true
-      notes: 固定声明页，签名和日期空位不得自动填写。
+      page_policy:
+        start: new_page
+        scope: single_page_exclusive
+      notes: 固定声明页从页顶“湖南农业大学全日制普通本科生毕业论文（设计）”开始；签名和日期空位不得自动填写。
     - unit_id: toc
       name: 目录
       status: required
@@ -112,11 +109,9 @@ expected:
           start: 22
           end: 49
         anchor_source_seq: 24
-      page:
-        page_break: true
-        page_isolation: true
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: page_range_exclusive
       notes: 目录条目中的摘要、正文、参考文献、致谢、附录等文字不得打开新顶层单元。
     - unit_id: body_title_block
       name: 正文题名信息
@@ -132,11 +127,9 @@ expected:
         source_seq_range:
           start: 50
           end: 56
-      page:
-        page_break: true
-        page_isolation: false
-        allow_multi_page: false
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: shareable_flow
       notes: 该单元随正文首页出现在目录后；当前阶段不自动填元数据。
     - unit_id: abstract_cn
       name: 中文摘要
@@ -152,11 +145,9 @@ expected:
         source_seq_range:
           start: 57
           end: 59
-      page:
-        page_break: false
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: same_page_allowed
+        scope: shareable_flow
       notes: 带占位符和括号格式说明的“摘 要”仍是中文摘要边界。
     - unit_id: abstract_en
       name: 英文摘要
@@ -172,11 +163,9 @@ expected:
         source_seq_range:
           start: 60
           end: 67
-      page:
-        page_break: false
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: same_page_allowed
+        scope: shareable_flow
       notes: 英文题名、Student、Tutor、Abstract、Key words 属于英文摘要单元。
     - unit_id: body_main
       name: 正文主体
@@ -192,11 +181,9 @@ expected:
         source_seq_range:
           start: 68
           end: 89
-      page:
-        page_break: false
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: same_page_allowed
+        scope: shareable_flow
       notes: 农理工类和文法经管类标题体系都属于正文内部结构，不得切成后置表单。
     - unit_id: references
       name: 参考文献
@@ -212,11 +199,9 @@ expected:
         source_seq_range:
           start: 90
           end: 93
-      page:
-        page_break: false
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: same_page_allowed
+        scope: shareable_flow
       notes: 参考文献不得吞并致谢、附录或后置固定表单。
     - unit_id: acknowledgement
       name: 致谢
@@ -232,11 +217,9 @@ expected:
         source_seq_range:
           start: 94
           end: 96
-      page:
-        page_break: false
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: same_page_allowed
+        scope: shareable_flow
       notes: 草稿或审阅输出默认保留；正式删除需人工确认。
     - unit_id: appendix
       name: 附录
@@ -252,16 +235,14 @@ expected:
         source_seq_range:
           start: 97
           end: 102
-      page:
-        page_break: false
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: same_page_allowed
+        scope: shareable_flow
       notes: 源模板说明没有附录可不标注，但审阅稿默认保留占位。
     - unit_id: design_task
       name: 毕业设计任务书
-      status: manual_only
-      policy: manual_only
+      status: fixed
+      policy: fixed
       anchors:
         title_aliases: [毕业设计任务书, 毕业论文任务书, 任务书]
         start_title: 毕业设计任务书
@@ -272,16 +253,14 @@ expected:
         source_seq_range:
           start: 103
           end: 142
-      page:
-        page_break: true
-        page_isolation: true
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: page_range_exclusive
       notes: 学校固定表单，保留表格结构和签名日期区。
     - unit_id: proposal
       name: 开题报告
-      status: manual_only
-      policy: manual_only
+      status: fixed
+      policy: fixed
       anchors:
         title_aliases: [开题报告]
         start_title: 开题报告
@@ -292,16 +271,14 @@ expected:
         source_seq_range:
           start: 143
           end: 180
-      page:
-        page_break: true
-        page_isolation: true
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: page_range_exclusive
       notes: 学校固定表单，不自动填意见、签名或日期。
     - unit_id: proposal_record
       name: 开题论证记录表
-      status: manual_only
-      policy: manual_only
+      status: fixed
+      policy: fixed
       anchors:
         title_aliases: [开题论证记录表]
         start_title: 开题论证记录表
@@ -312,16 +289,14 @@ expected:
         source_seq_range:
           start: 181
           end: 212
-      page:
-        page_break: true
-        page_isolation: true
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: page_range_exclusive
       notes: 学校固定记录表，签名和论证地点日期不得单独掉页。
     - unit_id: defense_record
       name: 答辩记录表
-      status: manual_only
-      policy: manual_only
+      status: fixed
+      policy: fixed
       anchors:
         title_aliases: [答辩记录表, 答 辩 记 录 表]
         start_title: 答辩记录表
@@ -332,16 +307,14 @@ expected:
         source_seq_range:
           start: 213
           end: 259
-      page:
-        page_break: true
-        page_isolation: true
-        allow_multi_page: true
-        keep_together: local_groups_only
-      notes: 学校固定记录表，答辩质疑、记录、成员签名和日期均 manual_only。
+      page_policy:
+        start: new_page
+        scope: page_range_exclusive
+      notes: 学校固定记录表，答辩质疑、记录、成员签名和日期均 fixed。
     - unit_id: topic_change_approval
       name: 题目变更审批表
-      status: manual_only
-      policy: manual_only
+      status: fixed
+      policy: fixed
       anchors:
         title_aliases: [题目变更审批表, 题目变更]
         start_title: 题目变更审批表
@@ -352,16 +325,14 @@ expected:
         source_seq_range:
           start: 260
           end: 284
-      page:
-        page_break: true
-        page_isolation: true
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: page_range_exclusive
       notes: 学校固定审批表，意见和签名区不得拆成普通正文。
     - unit_id: grade_form
       name: 成绩评定表
-      status: manual_only
-      policy: manual_only
+      status: fixed
+      policy: fixed
       anchors:
         title_aliases: [成绩评定表]
         start_title: 成绩评定表
@@ -372,12 +343,10 @@ expected:
         source_seq_range:
           start: 285
           end: 320
-      page:
-        page_break: true
-        page_isolation: true
-        allow_multi_page: true
-        keep_together: local_groups_only
-      notes: 学校固定成绩评定表，成绩、评语、委员会意见、签名日期均 manual_only。
+      page_policy:
+        start: new_page
+        scope: page_range_exclusive
+      notes: 学校固定成绩评定表，成绩、评语、委员会意见、签名日期均 fixed。
 dimensions:
   - dimension_id: template_generation.t2.artifact_under_test
     required: true

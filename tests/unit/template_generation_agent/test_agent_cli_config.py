@@ -38,16 +38,14 @@ def test_cli_live_without_packet_requests_auto_render_packet(monkeypatch, tmp_pa
             str(source),
             "--out",
             str(tmp_path / "out"),
-            "--agent-live",
+            "--agent-observe-live",
         ],
     )
 
     assert result.exit_code == 0, result.output
     agent_config = captured["agent_config"]
-    assert agent_config.transport == "replay"
     assert agent_config.observation_mode == "live"
     assert agent_config.render_packet_path is None
-    assert agent_config.allow_live_without_render_packet is True
 
 
 def test_cli_llm_is_simple_live_observation_opt_in(monkeypatch, tmp_path) -> None:
@@ -87,57 +85,8 @@ def test_cli_llm_is_simple_live_observation_opt_in(monkeypatch, tmp_path) -> Non
     assert result.exit_code == 0, result.output
     agent_config = captured["agent_config"]
     assert agent_config.enabled is True
-    assert agent_config.transport == "replay"
     assert agent_config.observation_mode == "live"
     assert agent_config.observation_t3_concurrency == 4
-    assert agent_config.allow_live_without_render_packet is True
-
-
-def test_legacy_agent_provider_cli_is_rejected(tmp_path) -> None:
-    source = tmp_path / "template.docx"
-    Document().save(source)
-
-    result = CliRunner().invoke(
-        cli_main.app,
-        [
-            "eval",
-            "template-generate",
-            "--template",
-            str(source),
-            "--out",
-            str(tmp_path / "out"),
-            "--agent-provider",
-            "kimi",
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "direct transports were removed" in result.output
-
-
-def test_legacy_agent_replay_cli_is_rejected(tmp_path) -> None:
-    source = tmp_path / "template.docx"
-    replay = tmp_path / "legacy_replay.json"
-    Document().save(source)
-    replay.write_text("{}", encoding="utf-8")
-
-    result = CliRunner().invoke(
-        cli_main.app,
-        [
-            "eval",
-            "template-generate",
-            "--template",
-            str(source),
-            "--out",
-            str(tmp_path / "out"),
-            "--agent-replay",
-            str(replay),
-        ],
-    )
-
-    assert result.exit_code != 0
-    assert "removed layered-submission agent" in result.output
-    assert "path; use --agent-observation-replay" in result.output
 
 
 def test_template_observe_cli_always_routes_to_live_stage_runner(monkeypatch, tmp_path) -> None:
@@ -175,7 +124,7 @@ def test_template_observe_cli_always_routes_to_live_stage_runner(monkeypatch, tm
     assert "llm_mode = live_api" in result.output
 
 
-def test_canonical_template_generate_defaults_to_explicit_off(monkeypatch, tmp_path) -> None:
+def test_canonical_template_generate_defaults_to_minimax_live(monkeypatch, tmp_path) -> None:
     source = tmp_path / "template.docx"
     Document().save(source)
     captured = {}
@@ -209,7 +158,9 @@ def test_canonical_template_generate_defaults_to_explicit_off(monkeypatch, tmp_p
     )
 
     assert result.exit_code == 0, result.output
-    assert captured["agent_config"].enabled is False
+    assert captured["agent_config"].enabled is True
+    assert captured["agent_config"].observation_mode == "live"
+    assert captured["agent_config"].text_provider == "minimax"
     assert captured["run_context"]["entrypoint"] == "cli.template.generate"
 
 
@@ -286,6 +237,49 @@ def test_canonical_t3_stage_requires_pinned_upstream_by_default(
     assert captured["ai_mode"] == "live"
     assert captured["with_upstream"] is True
     assert captured["entrypoint"] == "cli.template.stage.t3"
+
+
+def test_canonical_t3_stage_forwards_signed_gold_standard(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    source = tmp_path / "template.docx"
+    Document().save(source)
+    standard = tmp_path / "t2.standard.yaml"
+    standard.write_text("stage_id: T2\nstandard_state: signed_active\n", encoding="utf-8")
+    t3_standard = tmp_path / "t3.standard.yaml"
+    t3_standard.write_text(
+        "stage_id: T3\nstandard_state: signed_active\n",
+        encoding="utf-8",
+    )
+    captured = {}
+
+    def fake_stage(**kwargs):
+        captured.update(kwargs)
+        return {"stage": "T3", "ai_mode": "live"}
+
+    monkeypatch.setattr(cli_main, "run_template_observation_stage", fake_stage)
+    result = CliRunner().invoke(
+        cli_main.app,
+        [
+            "template",
+            "stage",
+            "t3",
+            "--template",
+            str(source),
+            "--out",
+            str(tmp_path / "stage"),
+            "--t2-gold-standard",
+            str(standard),
+            "--t3-gold-standard",
+            str(t3_standard),
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["t2_gold_standard_path"] == standard
+    assert captured["t3_gold_standard_path"] == t3_standard
+    assert captured["with_upstream"] is False
 
 
 def test_template_inspect_is_read_only(monkeypatch, tmp_path) -> None:

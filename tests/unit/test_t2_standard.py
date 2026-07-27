@@ -30,6 +30,9 @@ def test_t2_standard_loader_reads_three_school_unit_order_and_boundary_gold() ->
         assert standard["verifier_state"] == "configured"
         assert standard["gate_enabled"] is True
         assert standard["gold_coverage"]["unit_boundary"]
+        assert standard["gold_coverage"]["unit_page_policy"] == (
+            "expected.units[].page_policy"
+        )
         assert expected_ids
         assert expected_ids == expected_ids_from_units
         assert all(
@@ -37,6 +40,7 @@ def test_t2_standard_loader_reads_three_school_unit_order_and_boundary_gold() ->
             or unit.get("boundary", {}).get("source_ref_range")
             for unit in expected_units
         )
+        assert all(unit.get("page_policy") for unit in expected_units)
 
 
 def test_t2_standard_audit_passes_matching_unit_order_with_gate_disabled() -> None:
@@ -84,23 +88,21 @@ def test_t2_standard_audit_enforces_enabled_gate() -> None:
     assert audit["missing_unit_ids"] == ["body_main"]
 
 
-def test_t2_standard_audit_fails_empty_page_policy() -> None:
+def test_t2_standard_audit_fails_empty_unit_page_policy() -> None:
     standard = _standard(["cover"], gate_enabled=True)
-    standard["expected"]["units"][0]["page"] = {
-        "page_break": "document_start",
-        "page_isolation": True,
-        "allow_multi_page": False,
-        "keep_together": True,
+    standard["expected"]["units"][0]["page_policy"] = {
+        "start": "document_start",
+        "scope": "page_range_exclusive",
     }
     audit = audit_unit_map_against_t2_standard(
-        {"units": [{"unit_id": "cover", "page": {}}]},
+        {"units": [{"unit_id": "cover", "page_policy": {}}]},
         standard,
     )
 
     assert audit["audit_status"] == "FAIL"
     assert audit["gate_status"] == "FAIL"
     assert audit["page_policy_failures"][0]["shape_errors"] == [
-        "page must be a non-empty object"
+        "page_policy must be a non-empty object"
     ]
     assert any(
         finding["type"] == "t2_page_policy_mismatch"
@@ -108,31 +110,20 @@ def test_t2_standard_audit_fails_empty_page_policy() -> None:
     )
 
 
-def test_t2_standard_audit_compares_page_policy_fields() -> None:
+def test_t2_standard_audit_compares_unit_page_policy_fields() -> None:
     standard = _standard(["cover"], gate_enabled=True)
-    standard["expected"]["units"][0]["page"] = {
-        "page_break": "document_start",
-        "page_isolation": True,
-        "allow_multi_page": False,
-        "keep_together": True,
+    standard["expected"]["units"][0]["page_policy"] = {
+        "start": "document_start",
+        "scope": "page_range_exclusive",
     }
     audit = audit_unit_map_against_t2_standard(
         {
             "units": [
                 {
                     "unit_id": "cover",
-                    "page": {
-                        "page_break": "document_start",
-                        "page_isolation": True,
-                        "allow_multi_page": False,
-                        "keep_together": True,
-                        "decision": {
-                            "origin": "both",
-                            "confidence": "high",
-                            "evidence_refs": ["word/document.xml:p[1]"],
-                            "conflict_status": "none",
-                            "proposal_ids": [],
-                        },
+                    "page_policy": {
+                        "start": "document_start",
+                        "scope": "page_range_exclusive",
                     },
                 }
             ]
@@ -287,6 +278,42 @@ def test_t2_standard_audit_reports_source_seq_range_mismatch() -> None:
             "field": "source_seq_range",
             "expected": {"start": 1, "end": 3},
             "actual": {"start": 2, "end": 4},
+        },
+        {
+            "field": "source_seq_refs",
+            "expected": [1, 2, 3],
+            "actual": [2, 3, 4],
+            "missing_source_seq_refs": [1],
+            "unexpected_source_seq_refs": [4],
+            "duplicate_source_seq_refs": [],
+        }
+    ]
+    assert any(
+        finding["type"] == "t2_standard_source_range_mismatch"
+        for finding in audit["findings"]
+    )
+
+
+def test_t2_standard_audit_reports_source_seq_ownership_gap() -> None:
+    standard = _standard(["cover"], gate_enabled=True)
+    standard["expected"]["units"][0]["boundary"] = {
+        "source_seq_range": {"start": 1, "end": 3}
+    }
+
+    audit = audit_unit_map_against_t2_standard(
+        _unit_map_with_refs({"cover": [1, 3]}),
+        standard,
+    )
+
+    assert audit["audit_status"] == "FAIL"
+    assert audit["source_range_failures"][0]["mismatches"] == [
+        {
+            "field": "source_seq_refs",
+            "expected": [1, 2, 3],
+            "actual": [1, 3],
+            "missing_source_seq_refs": [2],
+            "unexpected_source_seq_refs": [],
+            "duplicate_source_seq_refs": [],
         }
     ]
     assert any(

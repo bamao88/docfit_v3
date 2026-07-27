@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from docfit.template_generation.agent.packet import build_template_agent_render_packet
-from docfit.template_generation.artifacts import build_unit_map
+from docfit.template_generation.artifacts import source_tree_from_document_facts
 from docfit.template_generation.generation_model import build_template_generation_model
 from docfit.template_generation.artifacts import build_element_spec
 
@@ -78,10 +78,8 @@ def structure_candidates() -> dict[str, Any]:
 
 def packet() -> dict[str, Any]:
     facts = document_facts()
-    candidates = structure_candidates()
     return build_template_agent_render_packet(
         document_facts=facts,
-        structure_candidates=candidates,
     )
 
 
@@ -89,19 +87,52 @@ def round0_artifacts(tmp_path: Path) -> dict[str, Any]:
     facts = document_facts()
     candidates = structure_candidates()
     req = request(tmp_path)
-    unit_map = build_unit_map(facts, candidates)
+    unit_map = {
+        "artifact_type": "unit_map",
+        "units": [
+            {
+                "unit_id": "cover",
+                "unit_name": "封面",
+                "order": 1,
+                "source_seq_refs": [1],
+                "source_refs": ["word/document.xml:p[1]"],
+                "boundary": {"start_page": 1, "end_page": 1},
+                "page_policy": {
+                    "start": "document_start",
+                    "scope": "page_range_exclusive",
+                },
+            },
+            {
+                "unit_id": "body_main",
+                "unit_name": "正文",
+                "order": 2,
+                "source_seq_refs": [2, 3, 4],
+                "source_refs": [
+                    "word/document.xml:p[2]",
+                    "word/document.xml:p[3]",
+                    "word/document.xml:p[4]",
+                ],
+                "boundary": {"start_page": 2, "end_page": 2},
+                "page_policy": {
+                    "start": "new_page",
+                    "scope": "page_range_exclusive",
+                },
+            },
+        ],
+        "flags": [],
+    }
     generation_model = build_template_generation_model(req, candidates)
     element_spec = build_element_spec(generation_model)
     return {
         "request": req,
         "document_facts": facts,
+        "source_tree": source_tree_from_document_facts(facts),
         "structure_candidates": candidates,
         "unit_map": unit_map,
         "generation_model": generation_model,
         "element_spec": element_spec,
         "packet": build_template_agent_render_packet(
             document_facts=facts,
-            structure_candidates=candidates,
         ),
     }
 
@@ -114,13 +145,6 @@ def layered_submission(source_render_hash: str, *, layers: dict[str, Any]) -> di
         "round_id": "round_001",
         "model": "fixture",
         "layers": {
-            "t2": {
-                "unit_candidates": [],
-                "block_candidates": [],
-                "boundary_adjustments": [],
-                "open_questions": [],
-                **layers.get("t2", {}),
-            },
             "t4": {
                 "section_profile_hints": [],
                 "page_numbering_hints": [],

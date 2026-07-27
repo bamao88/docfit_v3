@@ -27,7 +27,7 @@ from docfit.template_generation.agent.config import (
     effective_text_provider,
     effective_vision_provider,
 )
-from docfit.template_generation.agent.observation_orchestrate import (
+from docfit.template_generation.agent.observation_stage import (
     run_live_template_observation_stage,
     run_template_observation_stage,
 )
@@ -82,20 +82,18 @@ def _canonical_agent_config(
             raise typer.BadParameter("--llm is an alias for --ai live and conflicts with this --ai mode")
         mode = "live"
     if mode == "off":
-        if replay is not None or bundle is not None:
-            raise typer.BadParameter("--replay/--bundle require the matching --ai mode")
-        return AgentConfig(enabled=False)
+        raise typer.BadParameter(
+            "T2 is AI-only; use --ai live, --ai replay, or --ai bundle"
+        )
     if mode == "live":
         env_config = agent_config_from_env() or AgentConfig(enabled=False)
         if replay is not None or bundle is not None:
             raise typer.BadParameter("--ai live cannot consume --replay or --bundle")
         return AgentConfig(
             enabled=True,
-            transport="replay",
             observation_mode="live",
             observation_t3_concurrency=4,
             observation_cache_dir=cache_dir,
-            allow_live_without_render_packet=True,
             model=model or env_config.model,
             text_provider=effective_text_provider(env_config),  # type: ignore[arg-type]
             vision_provider=effective_vision_provider(env_config),  # type: ignore[arg-type]
@@ -108,7 +106,6 @@ def _canonical_agent_config(
             raise typer.BadParameter("--ai replay cannot consume --bundle")
         return AgentConfig(
             enabled=True,
-            transport="replay",
             observation_mode="replay",
             observation_transcript_path=replay,
             observation_t3_concurrency=4,
@@ -120,7 +117,6 @@ def _canonical_agent_config(
         raise typer.BadParameter("--ai bundle cannot consume --replay")
     return AgentConfig(
         enabled=True,
-        transport="replay",
         observation_mode="bundle",
         observation_bundle_path=bundle,
         model=model,
@@ -131,13 +127,13 @@ def _canonical_agent_config(
 def template_generate(
     template: Path = typer.Option(..., "--template", exists=True),
     out: Path = typer.Option(..., "--out"),
-    ai: AIMode = typer.Option(AIMode.off, "--ai", case_sensitive=False),
+    ai: AIMode = typer.Option(AIMode.live, "--ai", case_sensitive=False),
     llm: bool = typer.Option(False, "--llm", help="Compatibility alias for --ai live."),
     replay: Path | None = typer.Option(None, "--replay", exists=True),
     bundle: Path | None = typer.Option(None, "--bundle", exists=True),
     model: str | None = typer.Option(None, "--model"),
 ) -> None:
-    """Generate a fillable template; deterministic/offline by default."""
+    """Generate a fillable template; T2 uses MiniMax live by default."""
 
     agent_config = _canonical_agent_config(
         ai=ai,
@@ -166,7 +162,7 @@ def template_verify(
     template: Path = typer.Option(..., "--template", exists=True),
     out: Path = typer.Option(..., "--out"),
     template_version: str = typer.Option("v1", "--template-version"),
-    ai: AIMode = typer.Option(AIMode.off, "--ai", case_sensitive=False),
+    ai: AIMode = typer.Option(AIMode.live, "--ai", case_sensitive=False),
     llm: bool = typer.Option(False, "--llm", help="Compatibility alias for --ai live."),
     replay: Path | None = typer.Option(None, "--replay", exists=True),
     bundle: Path | None = typer.Option(None, "--bundle", exists=True),
@@ -208,6 +204,8 @@ def _template_stage_command(
     bundle: Path | None,
     t2_route: str,
     t2_artifact: Path | None,
+    t2_gold_standard: Path | None,
+    t3_gold_standard: Path | None,
     with_upstream: bool,
 ) -> None:
     if (run is None) == (template is None):
@@ -233,6 +231,8 @@ def _template_stage_command(
             bundle_path=bundle,
             t2_route=t2_route,
             t2_artifact_path=t2_artifact,
+            t2_gold_standard_path=t2_gold_standard,
+            t3_gold_standard_path=t3_gold_standard,
             with_upstream=with_upstream,
             entrypoint=f"cli.template.stage.{stage}",
         )
@@ -253,6 +253,8 @@ def _stage_options(
     bundle: Path | None,
     t2_route: str,
     t2_artifact: Path | None,
+    t2_gold_standard: Path | None,
+    t3_gold_standard: Path | None,
     with_upstream: bool,
 ) -> None:
     _template_stage_command(
@@ -265,6 +267,8 @@ def _stage_options(
         bundle=bundle,
         t2_route=t2_route,
         t2_artifact=t2_artifact,
+        t2_gold_standard=t2_gold_standard,
+        t3_gold_standard=t3_gold_standard,
         with_upstream=with_upstream,
     )
 
@@ -278,7 +282,20 @@ def template_stage_t2(
     replay: Path | None = typer.Option(None, "--replay", exists=True),
     bundle: Path | None = typer.Option(None, "--bundle", exists=True),
 ) -> None:
-    _stage_options("t2", run, template, out, ai, replay, bundle, "ai_raw", None, False)
+    _stage_options(
+        "t2",
+        run,
+        template,
+        out,
+        ai,
+        replay,
+        bundle,
+        "ai_raw",
+        None,
+        None,
+        None,
+        False,
+    )
 
 
 @template_stage_app.command("t3")
@@ -289,8 +306,20 @@ def template_stage_t3(
     ai: AIMode = typer.Option(AIMode.live, "--ai", case_sensitive=False),
     replay: Path | None = typer.Option(None, "--replay", exists=True),
     bundle: Path | None = typer.Option(None, "--bundle", exists=True),
-    t2_route: str = typer.Option("ai_raw", "--t2-route"),
+    t2_route: str = typer.Option("final", "--t2-route"),
     t2_artifact: Path | None = typer.Option(None, "--t2-artifact", exists=True),
+    t2_gold_standard: Path | None = typer.Option(
+        None,
+        "--t2-gold-standard",
+        exists=True,
+        help="Signed T2 standard used to build and validate a T3-only gold input.",
+    ),
+    t3_gold_standard: Path | None = typer.Option(
+        None,
+        "--t3-gold-standard",
+        exists=True,
+        help="Signed T3 standard used to score only T3 run policy accuracy.",
+    ),
     with_upstream: bool = typer.Option(False, "--with-upstream"),
 ) -> None:
     _stage_options(
@@ -303,6 +332,8 @@ def template_stage_t3(
         bundle,
         t2_route,
         t2_artifact,
+        t2_gold_standard,
+        t3_gold_standard,
         with_upstream,
     )
 
@@ -316,7 +347,20 @@ def template_stage_t4(
     replay: Path | None = typer.Option(None, "--replay", exists=True),
     bundle: Path | None = typer.Option(None, "--bundle", exists=True),
 ) -> None:
-    _stage_options("t4", run, template, out, ai, replay, bundle, "ai_raw", None, False)
+    _stage_options(
+        "t4",
+        run,
+        template,
+        out,
+        ai,
+        replay,
+        bundle,
+        "ai_raw",
+        None,
+        None,
+        None,
+        False,
+    )
 
 
 @template_app.command("inspect")
@@ -347,14 +391,21 @@ def template_inspect(
                 "01.6_t2_l1_stage_input.json",
                 "01.8_t4_l1_stage_input.json",
             ],
-            "t2": ["02.0_t2_code_unit_map.yaml", "02.2_t2_ai_unit_observation.yaml", "02.3_t2_merged_unit_map.yaml"],
+            "t2": [
+                "02.1_t2_input.json",
+                "02.2_t2_ai_unit_observation.yaml",
+                "02_unit_map.yaml",
+            ],
             "t3": [
                 "03.0_t3_hierarchical_stage_input.json",
                 "03.1_t3_ai_element_observation.yaml",
                 "03.1.5_t3_sparse_decision_trace.json",
                 "03_element_spec.yaml",
             ],
-            "t4": ["04.0_t4_code_global_spec.yaml", "04.1_t4_ai_layout_observation.yaml", "04.2_t4_merged_global_spec.yaml"],
+            "t4": [
+                "04.1_t4_ai_layout_observation.yaml",
+                "04_global_spec.yaml",
+            ],
             "t5": ["05_template_spec.yaml"],
             "t6": ["06.1_fillable_template.docx", "06.2_build_manifest.json"],
             "t7": ["07_verification_report.json"],
@@ -369,7 +420,6 @@ def template_inspect(
 def _agent_config_from_cli(
     *,
     llm: bool,
-    agent_replay: Path | None,
     agent_render_packet: Path | None,
     agent_observation_bundle: Path | None,
     agent_observation_replay: Path | None,
@@ -377,21 +427,7 @@ def _agent_config_from_cli(
     agent_max_rounds: int,
     agent_max_tokens: int,
     agent_temperature: float,
-    agent_provider: str,
-    agent_live: bool,
 ) -> AgentConfig | None:
-    if agent_replay is not None:
-        raise typer.BadParameter(
-            "--agent-replay used the removed layered-submission agent path; "
-            "use --agent-observation-replay for Module 1 observation replay"
-        )
-    if agent_provider != "replay":
-        raise typer.BadParameter(
-            "--agent-provider direct transports were removed; configure "
-            "DOCFIT_TEMPLATE_AGENT_TEXT_PROVIDER for --agent-observe-live"
-        )
-    if agent_live:
-        agent_observe_live = True
     if (
         agent_render_packet is not None
         and agent_observation_bundle is None
@@ -418,12 +454,10 @@ def _agent_config_from_cli(
 
     if not any(
         [
-            agent_replay is not None,
             agent_render_packet is not None,
             agent_observation_bundle is not None,
             agent_observation_replay is not None,
             agent_observe_live,
-            agent_live,
         ]
     ):
         return agent_config_from_env()
@@ -437,19 +471,14 @@ def _agent_config_from_cli(
         observation_mode = "live"
     return AgentConfig(
         enabled=True,
-        transport="replay",
         max_rounds=agent_max_rounds,
         max_tokens=agent_max_tokens,
         temperature=agent_temperature,
-        transcript_path=agent_replay,
         render_packet_path=agent_render_packet,
         observation_bundle_path=agent_observation_bundle,
         observation_mode=observation_mode,  # type: ignore[arg-type]
         observation_transcript_path=agent_observation_replay,
         observation_t3_concurrency=4 if llm else 1,
-        allow_live_without_render_packet=(
-            (agent_live or agent_observe_live) and agent_render_packet is None
-        ),
     )
 
 
@@ -472,7 +501,6 @@ def eval_template_generate(
         "--llm",
         help="Call the live T2/T3 text and T4 vision APIs; default is offline.",
     ),
-    agent_replay: Path | None = typer.Option(None, "--agent-replay", exists=True),
     agent_render_packet: Path | None = typer.Option(None, "--agent-render-packet", exists=True),
     agent_observation_bundle: Path | None = typer.Option(None, "--agent-observation-bundle", exists=True),
     agent_observation_replay: Path | None = typer.Option(None, "--agent-observation-replay", exists=True),
@@ -480,13 +508,10 @@ def eval_template_generate(
     agent_max_rounds: int = typer.Option(4, "--agent-max-rounds"),
     agent_max_tokens: int = typer.Option(4000, "--agent-max-tokens"),
     agent_temperature: float = typer.Option(1.0, "--agent-temperature"),
-    agent_provider: str = typer.Option("replay", "--agent-provider"),
-    agent_live: bool = typer.Option(False, "--agent-live"),
 ) -> None:
     _echo_compatibility_alias("template generate")
     agent_config = _agent_config_from_cli(
         llm=llm,
-        agent_replay=agent_replay,
         agent_render_packet=agent_render_packet,
         agent_observation_bundle=agent_observation_bundle,
         agent_observation_replay=agent_observation_replay,
@@ -494,8 +519,6 @@ def eval_template_generate(
         agent_max_rounds=agent_max_rounds,
         agent_max_tokens=agent_max_tokens,
         agent_temperature=agent_temperature,
-        agent_provider=agent_provider,
-        agent_live=agent_live,
     )
     result = run_template_generate_eval(
         _root(),
@@ -517,7 +540,6 @@ def eval_template_generation_full(
         "--llm",
         help="Call the live T2/T3 text and T4 vision APIs; default is offline.",
     ),
-    agent_replay: Path | None = typer.Option(None, "--agent-replay", exists=True),
     agent_render_packet: Path | None = typer.Option(None, "--agent-render-packet", exists=True),
     agent_observation_bundle: Path | None = typer.Option(None, "--agent-observation-bundle", exists=True),
     agent_observation_replay: Path | None = typer.Option(None, "--agent-observation-replay", exists=True),
@@ -525,13 +547,10 @@ def eval_template_generation_full(
     agent_max_rounds: int = typer.Option(4, "--agent-max-rounds"),
     agent_max_tokens: int = typer.Option(4000, "--agent-max-tokens"),
     agent_temperature: float = typer.Option(1.0, "--agent-temperature"),
-    agent_provider: str = typer.Option("replay", "--agent-provider"),
-    agent_live: bool = typer.Option(False, "--agent-live"),
 ) -> None:
     _echo_compatibility_alias("template verify")
     agent_config = _agent_config_from_cli(
         llm=llm,
-        agent_replay=agent_replay,
         agent_render_packet=agent_render_packet,
         agent_observation_bundle=agent_observation_bundle,
         agent_observation_replay=agent_observation_replay,
@@ -539,8 +558,6 @@ def eval_template_generation_full(
         agent_max_rounds=agent_max_rounds,
         agent_max_tokens=agent_max_tokens,
         agent_temperature=agent_temperature,
-        agent_provider=agent_provider,
-        agent_live=agent_live,
     )
     result = run_template_generation_full_eval(
         _root(),

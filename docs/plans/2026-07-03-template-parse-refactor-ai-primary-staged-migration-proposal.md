@@ -1,11 +1,15 @@
 ---
-status: draft
+status: superseded
 owner: template-generation
 stage: T2T3T4
 topic: ai-primary-migration
 doc_type: direction_proposal
 created: 2026-07-03
-last_updated: 2026-07-03
+last_updated: 2026-07-26
+superseded_by:
+  - docs/plans/2026-07-24-template-parse-refactor-t2-page-exclusive-units-plan-12-exclusive-contiguous-page-contract.md
+  - docs/plans/2026-07-22-template-parse-refactor-t3-hierarchical-ai-plan-07-stage-input-sparse-decisions.md
+  - docs/plans/2026-07-26-template-parse-refactor-t4-ai-only-plan-13-single-ai-final.md
 related_issues:
   - docs/plans/2026-07-01-template-parse-refactor-t3-element-policy-issue-05-inline-style-instruction-fixed-merge.md
   - docs/plans/2026-07-02-template-parse-refactor-t3-element-policy-issue-06-placeholder-span-granularity.md
@@ -22,6 +26,9 @@ related_plans:
 ---
 
 # 方向提案：T2/T3/T4 分阶段转 AI 为主（deterministic code 转校验/兜底）
+
+> 2026-07-26：本方向提案已被 T2 Plan 12、T3 Plan 07 和 T4 Plan 13 的
+> AI-only 单一 final 契约取代；其中 deterministic fallback 和三路线晋升门禁不再有效。
 
 ## 背景与决策
 

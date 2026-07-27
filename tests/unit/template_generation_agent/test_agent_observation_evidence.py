@@ -19,7 +19,6 @@ from .helpers import document_facts
 def clean_packet() -> dict[str, Any]:
     return build_template_agent_render_packet(
         document_facts=document_facts(),
-        structure_candidates={},
     )
 
 
@@ -55,10 +54,9 @@ def test_firewall_ignores_string_values_like_task_lists() -> None:
 def test_t2_evidence_is_firewall_clean_and_whitelisted() -> None:
     packet = clean_packet()
     view = build_t2_evidence(packet)
-    assert view["rows"], "expected non-empty evidence rows"
-    allowed = set(EVIDENCE_FIELD_WHITELIST["t2"])
-    for row in view["rows"]:
-        assert set(row).issubset(allowed)
+    assert view["scope"] == "t2_page_groups"
+    assert view["page_packets"] == []
+    assert_firewall_clean(view)
 
 
 def test_t2_evidence_projects_compact_page_and_break_facts_without_local_paths() -> None:
@@ -141,19 +139,16 @@ def test_t2_evidence_projects_compact_page_and_break_facts_without_local_paths()
 
     assert view["render_available"] is True
     assert view["document_summary"] == {"source_seq_count": 2, "page_count": 2}
-    assert view["page_summary"] == [
-        {"page_no": 1, "first_source_seq": 1, "last_source_seq": 1, "text_items": 1},
-        {"page_no": 2, "first_source_seq": 2, "last_source_seq": 2, "text_items": 1},
-    ]
-    assert view["rows"][0]["text_facts"] == {
+    assert [page["page_no"] for page in view["page_packets"]] == [1, 2]
+    assert view["page_packets"][0]["content"][0]["text_facts"] == {
         "alignment": "center",
         "dominant_bold": True,
     }
-    assert view["rows"][1]["page_position"] == {
+    assert view["page_packets"][1]["content"][0]["page_position"] == {
         "starts_new_rendered_page": True,
         "page_top_ratio": 0.05,
     }
-    assert view["break_facts"] == [
+    assert view["page_packets"][0]["break_facts"] == [
         {
             "index": 1,
             "kind": "section",
@@ -190,14 +185,17 @@ def test_t2_evidence_does_not_infer_rendered_page_position_from_projection() -> 
     view = build_t2_evidence(clean_packet())
 
     assert view["render_available"] is False
-    assert view["page_summary"] == []
+    assert view["page_packets"] == []
     assert view["visual_evidence"] == []
-    assert all("page_position" not in row for row in view["rows"])
 
 
 def test_t2_evidence_marks_only_page_start_and_aligns_body_section_to_last_seq() -> None:
     packet = clean_packet()
     packet["render_status"] = "real_render"
+    packet["render_artifacts"] = {
+        "page_count": 1,
+        "clean_page_images": [{"page_no": 1, "path": "/tmp/page-1.png"}],
+    }
     packet["page_text_index"] = [
         {"source_seq": 1, "order": 1, "page_no": 1, "text": "第一行"},
         {"source_seq": 2, "order": 2, "page_no": 1, "text": "第二行"},
@@ -216,9 +214,10 @@ def test_t2_evidence_marks_only_page_start_and_aligns_body_section_to_last_seq()
 
     view = build_t2_evidence(packet)
 
-    assert view["rows"][0]["page_position"] == {"starts_new_rendered_page": True}
-    assert "page_position" not in view["rows"][1]
-    assert view["break_facts"][0]["after_source_seq"] == 2
+    rows = view["page_packets"][0]["content"]
+    assert rows[0]["page_position"] == {"starts_new_rendered_page": True}
+    assert "page_position" not in rows[1]
+    assert view["page_packets"][0]["break_facts"][0]["after_source_seq"] == 2
 
 
 def test_t4_evidence_marks_render_unavailable_for_projection_fallback() -> None:
@@ -266,7 +265,6 @@ def test_t4_evidence_includes_layout_fields_headers_and_breaks() -> None:
     ]
     packet = build_template_agent_render_packet(
         document_facts=facts,
-        structure_candidates={},
     )
 
     view = build_t4_evidence(packet)

@@ -13,6 +13,10 @@ import re
 from typing import Any
 
 from docfit.core.io import now_iso, sha256_json
+from docfit.template_generation.final_results import (
+    FinalStageResult,
+    require_final_stage_result,
+)
 
 from .t3_hierarchical_contract import (
     T3_STAGE_INPUT_VERSION,
@@ -29,21 +33,28 @@ _CELL_ID_RE = re.compile(r"^(?P<table>.+)\.r_(?P<row>\d+)\.c_(?P<column>\d+)$")
 def build_t3_hierarchical_stage_input(
     packet: dict[str, Any],
     *,
-    t2_unit_result: dict[str, Any],
+    t2_final: FinalStageResult,
 ) -> dict[str, Any]:
     """Build the complete node tree used by sparse T3 traversal.
 
-    ``packet`` is the L1-derived agent packet. ``t2_unit_result`` is the single
-    final T2 result selected for this run. The returned artifact is deterministic
+    ``packet`` is the L1-derived agent packet. ``t2_final`` is the single
+    published T2 result selected for this run. The returned artifact is deterministic
     apart from its audit timestamp; ``tree_hash`` excludes that timestamp.
     """
 
-    t2_items = [
+    final_result = require_final_stage_result(
+        t2_final,
+        stage_id="T2",
+        artifact_type="unit_map",
+        artifact_name="02_unit_map.yaml",
+        expected_l1_hash=packet.get("input_contract_hash") or None,
+    )
+    t2_units = [
         item
-        for item in t2_unit_result.get("items", []) or []
+        for item in final_result.payload.get("units", []) or []
         if isinstance(item, dict)
     ]
-    unit_projections = _project_t2_units(t2_items)
+    unit_projections = _project_t2_units(t2_units)
     packet_rows = [
         row for row in packet.get("page_text_index", []) or [] if isinstance(row, dict)
     ]
@@ -93,7 +104,8 @@ def build_t3_hierarchical_stage_input(
         "contract": {
             "l1_hash": packet.get("input_contract_hash"),
             "source_render_hash": packet.get("source_render_hash"),
-            "t2_route_hash": sha256_json(t2_items),
+            "t2_final": final_result.input_ref(),
+            "t2_final_hash": final_result.sha256,
             "stage_input_version": T3_STAGE_INPUT_VERSION,
         },
         "unit_roots": unit_roots,
@@ -129,6 +141,8 @@ def _project_t2_units(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "unit_id": unit_id,
                 "source_seq_refs": _ints(item.get("source_seq_refs")),
                 "source_ref_refs": _source_ref_refs(item),
+                "boundary": deepcopy(item.get("boundary") or {}),
+                "page_nos": _unit_page_nos(item),
                 "neighbor_context": {
                     "previous_unit_id": _unit_id_at(items, index - 1),
                     "next_unit_id": _unit_id_at(items, index + 1),
@@ -136,6 +150,22 @@ def _project_t2_units(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             }
         )
     return projections
+
+
+def _unit_page_nos(item: dict[str, Any]) -> list[int]:
+    boundary = item.get("boundary")
+    if isinstance(boundary, dict):
+        start = _as_int(boundary.get("start_page"))
+        end = _as_int(boundary.get("end_page"))
+        if start is not None and end is not None and 1 <= start <= end:
+            return list(range(start, end + 1))
+    return sorted(
+        {
+            page_no
+            for value in item.get("page_refs", []) or []
+            if (page_no := _as_int(str(value).removeprefix("page:"))) is not None
+        }
+    )
 
 
 def _unit_id_at(items: list[dict[str, Any]], index: int) -> str | None:
@@ -250,8 +280,9 @@ def _build_unit_tree(
     missing_seqs = sorted(set(requested_seqs) - {seq for seq in existing_seqs if seq is not None})
     missing_objects = sorted(set(requested_object_refs) - set(objects_by_ref))
     children = {str(node.get("ref")): node for node in nodes}
-    member_leaf_refs = _member_union(direct_refs, children)
-    pages = _pages(rows)
+    member_leaf_refs = _member_union(direct_refs, children) or [root_ref]
+    pages = _pages(rows) or _ints(unit_projection.get("page_nos"))
+    visual_rows = rows or [{"page_no": page_no} for page_no in pages]
     root_completeness = _with_descendant_completeness(
         _completeness(
             children_complete=not missing_seqs and not missing_objects,
@@ -280,6 +311,7 @@ def _build_unit_tree(
         facts={
             "unit_id": unit_id,
             "t2_result_ref": unit_projection.get("result_ref"),
+            "boundary": deepcopy(unit_projection.get("boundary") or {}),
             "ordered_text": [
                 {"source_seq": row.get("source_seq"), "text": row.get("text", "")}
                 for row in rows
@@ -289,7 +321,7 @@ def _build_unit_tree(
         completeness=root_completeness,
         visual_evidence=_visual_evidence(
             ref=root_ref,
-            rows=rows,
+            rows=visual_rows,
             images_by_page=images_by_page,
             render_status=packet.get("render_status"),
         ),

@@ -10,6 +10,8 @@ from collections import Counter
 from copy import deepcopy
 from typing import Any
 
+from docfit.template_generation.t3_action_projection import project_t3_gold_item
+
 from .packet import packet_source_seq_set
 
 
@@ -294,26 +296,11 @@ def evaluate_t3_gold_accuracy(
         if isinstance(item, dict)
         and str(item.get("raw_run_id") or "") in owned_raw_ids
     ]
-    raw_id_counts = Counter(str(item.get("raw_run_id") or "") for item in expected_rows)
-    duplicate_raw_ids = sorted(
-        raw_run_id
-        for raw_run_id, count in raw_id_counts.items()
-        if raw_run_id and count > 1
+    _validate_t3_adaptive_gold_ledger(
+        expected_rows,
+        owned_raw_ids=owned_raw_ids,
+        packet=packet,
     )
-    if duplicate_raw_ids:
-        raise T3GoldUpstreamError(
-            "signed T3 run ledger must contain one gold row per raw run: "
-            f"duplicates={duplicate_raw_ids[:100]}"
-        )
-    expected_by_raw = {
-        str(item.get("raw_run_id") or ""): item for item in expected_rows
-    }
-    missing_ledger_raw_ids = sorted(owned_raw_ids - set(expected_by_raw))
-    if missing_ledger_raw_ids:
-        raise T3GoldUpstreamError(
-            "signed T3 run ledger does not cover every T3-owned raw run: "
-            f"missing={missing_ledger_raw_ids[:100]}"
-        )
 
     invalid_gold_actions = [
         {
@@ -323,7 +310,8 @@ def evaluate_t3_gold_accuracy(
                 expectation.get(gold_source_field),
             ),
         }
-        for raw_run_id, expectation in expected_by_raw.items()
+        for expectation in expected_rows
+        if (raw_run_id := str(expectation.get("raw_run_id") or ""))
         if _t3_core_action(
             expectation.get("expected_action", expectation.get(gold_source_field)),
             policy_to_action=policy_to_action,
@@ -338,9 +326,9 @@ def evaluate_t3_gold_accuracy(
             f"rows={invalid_gold_actions[:100]}"
         )
 
-    unknown_by_raw = {
-        raw_run_id: expectation
-        for raw_run_id, expectation in expected_by_raw.items()
+    unknown_rows = [
+        expectation
+        for expectation in expected_rows
         if _t3_core_action(
             expectation.get("expected_action", expectation.get(gold_source_field)),
             policy_to_action=policy_to_action,
@@ -348,15 +336,19 @@ def evaluate_t3_gold_accuracy(
             unknown_action=unknown_action,
         )
         == unknown_action
-    }
-    scored_expected_by_raw = {
-        raw_run_id: expectation
-        for raw_run_id, expectation in expected_by_raw.items()
-        if raw_run_id not in unknown_by_raw
-    }
+    ]
+    scored_expected_rows = [
+        expectation
+        for expectation in expected_rows
+        if expectation not in unknown_rows
+    ]
 
-    claims = _t3_prediction_claims(observation)
-    expected_count = len(scored_expected_by_raw)
+    candidate_items = [
+        item
+        for item in observation.get("items", []) or []
+        if isinstance(item, dict)
+    ]
+    expected_count = len(scored_expected_rows)
     covered_count = 0
     covered_unknown_count = 0
     correct_action_count = 0
@@ -371,7 +363,8 @@ def evaluate_t3_gold_accuracy(
     true_delete_count = 0
     expected_delete_count = 0
 
-    for raw_run_id, expectation in scored_expected_by_raw.items():
+    for expectation in scored_expected_rows:
+        raw_run_id = str(expectation.get("raw_run_id") or "")
         expected_action = _t3_core_action(
             expectation.get("expected_action", expectation.get(gold_source_field)),
             policy_to_action=policy_to_action,
@@ -385,31 +378,25 @@ def evaluate_t3_gold_accuracy(
         expected_action_counts[expected_action] += 1
         if expected_action == "delete":
             expected_delete_count += 1
-        raw_claims = claims.get(raw_run_id, [])
-        actions = {
-            _t3_core_action(
-                item.get("policy"),
-                policy_to_action=policy_to_action,
-                allowed_actions=set(allowed_actions),
-                unknown_action=unknown_action,
-            )
-            for item in raw_claims
-            if item.get("policy")
-        }
-        actions.discard("")
+        projection = project_t3_gold_item(candidate_items, expectation)
+        actions = set(projection.actions)
         unit_metrics = unit_counts.setdefault(expected_unit, Counter())
         unit_metrics["expected"] += 1
-        if raw_claims:
+        if projection.identity_covered:
             covered_count += 1
             unit_metrics["covered"] += 1
         if len(actions) > 1:
             conflict_count += 1
             mixed_span_raw_run_ids.append(raw_run_id)
             unit_metrics["conflicted"] += 1
-        predicted_action = next(iter(actions)) if len(actions) == 1 else ""
+        predicted_action = (
+            next(iter(actions))
+            if projection.coverage_complete and len(actions) == 1
+            else ""
+        )
         if predicted_action in allowed_actions:
             predicted_action_counts[predicted_action] += 1
-        elif predicted_action == unknown_action:
+        elif projection.identity_covered and not actions:
             predicted_unknown_count += 1
         action_correct = predicted_action == expected_action
         if action_correct:
@@ -424,21 +411,12 @@ def evaluate_t3_gold_accuracy(
 
     # unknown gold 不进入 keep/fill/delete 准确率分母，但它仍然受删除安全门约束。
     # 任何对 unknown run 的 delete 预测都是违反“不确定则保留”原则。
-    for raw_run_id in unknown_by_raw:
-        raw_claims = claims.get(raw_run_id, [])
-        if raw_claims:
+    for expectation in unknown_rows:
+        raw_run_id = str(expectation.get("raw_run_id") or "")
+        projection = project_t3_gold_item(candidate_items, expectation)
+        if projection.identity_covered:
             covered_unknown_count += 1
-        actions = {
-            _t3_core_action(
-                item.get("policy"),
-                policy_to_action=policy_to_action,
-                allowed_actions=set(allowed_actions),
-                unknown_action=unknown_action,
-            )
-            for item in raw_claims
-            if item.get("policy")
-        }
-        if "delete" in actions:
+        if "delete" in projection.actions:
             false_delete_raw_ids.append(raw_run_id)
 
     per_action: dict[str, dict[str, Any]] = {}
@@ -476,11 +454,15 @@ def evaluate_t3_gold_accuracy(
         }
         for unit_id, values in sorted(unit_counts.items())
     }
+    false_delete_raw_ids = list(dict.fromkeys(false_delete_raw_ids))
+    mixed_span_raw_run_ids = list(dict.fromkeys(mixed_span_raw_run_ids))
     predicted_delete_count = true_delete_count + len(false_delete_raw_ids)
     return {
         "artifact_type": "t3_gold_accuracy_report",
-        "artifact_version": "2.2",
+        "artifact_version": "2.3",
         "standard_id": t3_standard.get("standard_id"),
+        "gold_contract_version": t3_standard.get("gold_contract_version"),
+        "gold_status": t3_standard.get("gold_status"),
         "primary_metric": "exact_action_accuracy",
         "source_template_hash": source_template_hash,
         "input_contract_hash": packet.get("input_contract_hash"),
@@ -495,7 +477,8 @@ def evaluate_t3_gold_accuracy(
             "unknown_execution_fallback": unknown_execution_fallback,
             "uncertain_delete_forbidden": True,
             "grouping_invariant": True,
-            "prediction_projection": "span_preferred_raw_run",
+            "gold_granularity": "adaptive_run_or_span",
+            "prediction_projection": "exact_adaptive_run_or_span",
             "owned_structure_layers": ["body_flow"],
             "excluded_non_body_raw_run_count": len(
                 {
@@ -509,12 +492,20 @@ def evaluate_t3_gold_accuracy(
             ),
         },
         "metrics": {
-            "gold_ledger_run_count": len(expected_by_raw),
+            "gold_ledger_run_count": len(
+                {str(item.get("raw_run_id") or "") for item in expected_rows}
+            ),
+            "gold_atomic_item_count": len(expected_rows),
             "gold_run_count": expected_count,
-            "excluded_unknown_gold_run_count": len(unknown_by_raw),
-            "excluded_unknown_gold_raw_run_ids": sorted(unknown_by_raw)[:100],
+            "scored_atomic_item_count": expected_count,
+            "excluded_unknown_gold_run_count": len(unknown_rows),
+            "excluded_unknown_gold_atomic_item_count": len(unknown_rows),
+            "excluded_unknown_gold_raw_run_ids": sorted(
+                {str(item.get("raw_run_id") or "") for item in unknown_rows}
+            )[:100],
             "covered_unknown_gold_run_count": covered_unknown_count,
             "covered_run_count": covered_count,
+            "covered_atomic_item_count": covered_count,
             "coverage": round(_safe_ratio(covered_count, expected_count), 4),
             "conflicted_run_count": conflict_count,
             "mixed_span_run_count": len(mixed_span_raw_run_ids),
@@ -532,8 +523,11 @@ def evaluate_t3_gold_accuracy(
             "per_unit": per_unit,
             "deletion_safety": {
                 "expected_delete_runs": expected_delete_count,
+                "expected_delete_atomic_items": expected_delete_count,
                 "predicted_delete_runs": predicted_delete_count,
+                "predicted_delete_atomic_items": predicted_delete_count,
                 "true_delete_runs": true_delete_count,
+                "true_delete_atomic_items": true_delete_count,
                 "false_delete_runs": len(false_delete_raw_ids),
                 "missed_delete_runs": expected_delete_count - true_delete_count,
                 "delete_precision": round(
@@ -549,45 +543,6 @@ def evaluate_t3_gold_accuracy(
             },
         },
     }
-
-
-def _t3_prediction_claims(
-    observation: dict[str, Any],
-) -> dict[str, list[dict[str, str]]]:
-    claims: dict[str, list[dict[str, str]]] = {}
-    for item in observation.get("items", []) or []:
-        if not isinstance(item, dict):
-            continue
-        unit_id = str(item.get("unit_id") or "")
-        parent_policy = _canonical_t3_policy(item.get("policy"))
-        span_raw_ids: set[str] = set()
-        for span in item.get("spans", []) or []:
-            if not isinstance(span, dict):
-                continue
-            span_policy = _canonical_t3_policy(span.get("policy"))
-            raw_run_ids = {
-                str(raw_run_id)
-                for raw_run_id in span.get("raw_run_ids", []) or []
-                if raw_run_id
-            }
-            raw_run_ids.update(
-                str(char_range.get("raw_run_id") or "")
-                for char_range in span.get("char_ranges", []) or []
-                if isinstance(char_range, dict) and char_range.get("raw_run_id")
-            )
-            for raw_run_id in raw_run_ids:
-                span_raw_ids.add(raw_run_id)
-                claims.setdefault(raw_run_id, []).append(
-                    {"policy": span_policy, "unit_id": unit_id}
-                )
-        for raw_run_id_value in item.get("raw_run_ids", []) or []:
-            raw_run_id = str(raw_run_id_value or "")
-            if not raw_run_id or raw_run_id in span_raw_ids:
-                continue
-            claims.setdefault(raw_run_id, []).append(
-                {"policy": parent_policy, "unit_id": unit_id}
-            )
-    return claims
 
 
 def _canonical_t3_policy(value: Any) -> str:
@@ -615,6 +570,11 @@ def _core_action_contract(
     if contract.get("scored_ledger") != "run_span_ledger":
         raise T3GoldUpstreamError(
             "T3 core action contract must score expected.run_span_ledger"
+        )
+    if contract.get("gold_granularity") != "adaptive_run_or_span":
+        raise T3GoldUpstreamError(
+            "T3 core action contract gold_granularity must be "
+            "adaptive_run_or_span"
         )
     allowed_actions = [
         str(item) for item in contract.get("allowed_actions", []) or [] if item
@@ -691,6 +651,128 @@ def _t3_core_action(
     if label in allowed_actions:
         return label
     return policy_to_action.get(_canonical_t3_policy(label), "")
+
+
+def _validate_t3_adaptive_gold_ledger(
+    rows: list[dict[str, Any]],
+    *,
+    owned_raw_ids: set[str],
+    packet: dict[str, Any],
+) -> None:
+    raw_texts = _packet_raw_run_texts(packet)
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        raw_run_id = str(row.get("raw_run_id") or "")
+        if not raw_run_id:
+            raise T3GoldUpstreamError(
+                "adaptive T3 gold item is missing raw_run_id"
+            )
+        grouped.setdefault(raw_run_id, []).append(row)
+    missing = sorted(owned_raw_ids - set(grouped))
+    if missing:
+        raise T3GoldUpstreamError(
+            "signed T3 adaptive ledger does not cover every T3-owned raw run: "
+            f"missing={missing[:100]}"
+        )
+
+    errors: list[dict[str, Any]] = []
+    for raw_run_id, items in grouped.items():
+        raw_text = raw_texts.get(raw_run_id)
+        if raw_text is None:
+            errors.append(
+                {"raw_run_id": raw_run_id, "error": "raw run text is unavailable"}
+            )
+            continue
+        run_items = [item for item in items if item.get("target_kind") == "run"]
+        span_items = [item for item in items if item.get("target_kind") == "span"]
+        invalid_kinds = [
+            item.get("target_kind")
+            for item in items
+            if item.get("target_kind") not in {"run", "span"}
+        ]
+        if invalid_kinds or (run_items and span_items):
+            errors.append(
+                {
+                    "raw_run_id": raw_run_id,
+                    "error": "run and span gold shapes cannot be mixed",
+                    "target_kinds": [item.get("target_kind") for item in items],
+                }
+            )
+            continue
+        if run_items:
+            if len(run_items) != 1 or str(run_items[0].get("text") or "") != raw_text:
+                errors.append(
+                    {
+                        "raw_run_id": raw_run_id,
+                        "error": "run gold must be unique and preserve exact raw text",
+                    }
+                )
+            continue
+        if len(span_items) < 2:
+            errors.append(
+                {
+                    "raw_run_id": raw_run_id,
+                    "error": "mixed run gold requires at least two span items",
+                }
+            )
+            continue
+        cursor = 0
+        for item in sorted(
+            span_items,
+            key=lambda value: (
+                value.get("start") if isinstance(value.get("start"), int) else -1,
+                value.get("end") if isinstance(value.get("end"), int) else -1,
+            ),
+        ):
+            start = item.get("start")
+            end = item.get("end")
+            if (
+                not isinstance(start, int)
+                or not isinstance(end, int)
+                or start != cursor
+                or start < 0
+                or end <= start
+                or end > len(raw_text)
+                or str(item.get("text") or "") != raw_text[start:end]
+            ):
+                errors.append(
+                    {
+                        "raw_run_id": raw_run_id,
+                        "error": "span gold must be contiguous, bounded, and text exact",
+                        "start": start,
+                        "end": end,
+                    }
+                )
+                break
+            cursor = end
+        if cursor != len(raw_text):
+            errors.append(
+                {
+                    "raw_run_id": raw_run_id,
+                    "error": "span gold does not cover the complete raw run",
+                    "covered_end": cursor,
+                    "run_text_length": len(raw_text),
+                }
+            )
+    if errors:
+        raise T3GoldUpstreamError(
+            "signed T3 adaptive ledger is invalid: "
+            f"errors={errors[:100]}"
+        )
+
+
+def _packet_raw_run_texts(packet: dict[str, Any]) -> dict[str, str]:
+    result: dict[str, str] = {}
+    for row in packet.get("page_text_index", []) or []:
+        if not isinstance(row, dict):
+            continue
+        for run in (row.get("style_details") or {}).get("runs", []) or []:
+            if isinstance(run, dict) and run.get("raw_run_id"):
+                result[str(run["raw_run_id"])] = str(run.get("text") or "")
+    for run in (packet.get("run_index") or {}).get("raw_runs", []) or []:
+        if isinstance(run, dict) and run.get("raw_run_id"):
+            result[str(run["raw_run_id"])] = str(run.get("text") or "")
+    return result
 
 
 def _safe_ratio(numerator: int, denominator: int) -> float:

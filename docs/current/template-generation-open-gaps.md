@@ -2,6 +2,8 @@
 
 Last updated: 2026-06-25
 
+> 迁移状态：本文已停止作为当前缺口入口。未闭环变化和缺陷统一进入 `docs/status/INDEX.md` 与 `docs/status/active/`，具体修改方案进入 `docs/plans/`。本文只保留历史 gap 编号参考。
+
 > 迁移提示：本文记录的是旧 `generated_template.docx` / 00-05 链路下的待核实差距。
 > 当前生成入口已经产出 `06.1_fillable_template.docx`、`05_template_spec.yaml` 和
 > `07_verification_report.json`。继续核实差距时应先看新的 T1-T6 first_bad_stage，
@@ -38,7 +40,7 @@ Last updated: 2026-06-25
 | ID | 待核实差距 | 当前证据 | 可能 first_bad_stage | 需要核实的问题 |
 | --- | --- | --- | --- | --- |
 | TG-GAP-001 | 源模板 unit 发现粒度可能过粗 | 湖南农业真实运行中，T2 识别的 unit 仍粗；gap 标准中可定位或期望的后置单元包括 `design_task`、`proposal`、`proposal_record`、`defense_record`、`topic_change_approval`、`grade_form` 等更细单元 | `T2/t2_unit_pagination` | 源模板里这些表单标题和表格边界是否足以自动拆成独立 unit？如果足够，应该补通用 unit 发现规则；如果不足，应写入不确定性 |
-| TG-GAP-002 | 固定/可填/manual/generated 策略仍需要更细标准对照 | 当前 `element_spec` 已表达 policy/fill_source/manual_semantics，但还没有接入三校 T3 标准 verifier | `T3/t3_element_policy` | 哪些单元只靠源模板就能判断为固定、人工填写、学生内容或系统生成？哪些必须进入 review flags？ |
+| TG-GAP-002 | 固定/可填/generated 策略仍需要更细标准对照 | 当前 `element_spec` 已表达 policy/fill_source/generated 字段，但还没有接入三校 T3 标准 verifier | `T3/t3_element_policy` | 哪些单元只靠源模板就能判断为固定、学生内容或系统生成？哪些必须进入 review flags？ |
 | TG-GAP-003 | `review_flags[]` / `open_questions[]` 仍需和标准聚合 | 已部分修正：`unit_map`、`element_spec`、`global_spec` 的低/中置信和内联 `UNKNOWN` 会进入 `verification_report`；但 review queue 和 gold 比对仍未完成，最终 gap 的 UNKNOWN 还没有全部前移 | `T2/t2_unit_pagination` / `T3/t3_element_policy` / `T5/t5_template_spec` | 哪些 UNKNOWN 应该在解析阶段提前暴露为证据不足？哪些只能由最终 gap 暴露？ |
 | TG-GAP-004 | 页面/分节规则还需要接入 T4 标准 | 本次 gap 有 16 个 `template_generation_page_rule_mismatch`；需要判断 `04_global_spec.yaml` 是否已有可解析分页/分节证据，以及 T6 是否正确构建 | `T4/t4_global_layout` / `T6/build` | 源模板中是否存在可解析的分页/分节证据？如果有，T6 为什么没有构建出来？如果没有，是否应登记不确定性？ |
 | TG-GAP-005 | 样式修正能力不足或责任边界不清 | 本次 gap 有 6 个 `template_generation_style_mismatch` 和 6 个 `template_generation_style_unverified` | `T1/document_facts` / `T4/t4_global_layout` / `T6/build` / `06_final_template_gap` | 这些样式差异是源模板本身不符合目标、构建阶段没有修样式，还是 inspector 不能证明？ |

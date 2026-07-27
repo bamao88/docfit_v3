@@ -4,7 +4,10 @@ import json
 
 from docfit.core.io import sha256_json
 from docfit.template_generation.input_contract import build_l1_input_contract
-from docfit.template_generation.stage_inputs import l1_artifact_hash
+from docfit.template_generation.stage_inputs import (
+    build_agent_stage_packet,
+    l1_artifact_hash,
+)
 
 
 def test_l1_input_contract_projects_text_objects_layout_and_visual_facts() -> None:
@@ -127,6 +130,36 @@ def test_l1_input_contract_projects_text_objects_layout_and_visual_facts() -> No
     assert l1_artifact_hash(contract) == sha256_json(persisted)
     assert l1_artifact_hash(contract) == l1_artifact_hash(persisted)
 
+    agent_packet = build_agent_stage_packet(contract)
+    agent_row = agent_packet["page_text_index"][0]
+    assert agent_row["kind"] == "paragraph"
+    assert agent_row["paragraph_id"] == "p_0001"
+    assert agent_row["style_details"].get("paragraph", {}) == {}
+    assert agent_row["style_details"]["runs"] == [
+        {
+            "raw_run_id": "p_0001.r_001",
+            "logical_run_id": "p_0001.lr_001",
+            "text": "封面",
+            "source_ref": "word/document.xml:p[1]/r[1]",
+            "effective_style": {
+                "font_names": ["黑体"],
+                "font_size_pt": 16.0,
+                "bold": True,
+            },
+        }
+    ]
+    field_object = next(
+        item
+        for item in agent_packet["object_fact_index"]
+        if item.get("object_type") == "field"
+    )
+    assert field_object == {
+        "object_id": "field:word/header1.xml:p[1]",
+        "object_type": "field",
+        "source_ref": "word/header1.xml:p[1]",
+        "field_type": "PAGE",
+    }
+
 
 def test_l1_input_contract_marks_missing_render_and_unbound_objects() -> None:
     facts = {
@@ -170,7 +203,6 @@ def test_l1_input_contract_excludes_ai_and_quality_semantics() -> None:
     serialized = repr(contract)
     for forbidden in (
         "ai_unit_observation",
-        "observation_bridge",
         "candidate_policy",
         "accepted_decision",
         "judge_status",

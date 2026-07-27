@@ -357,8 +357,7 @@ class MinimaxTextResponder:
         )
 
     def fetch_layout(self, *, evidence: dict[str, Any]) -> dict[str, Any]:
-        del evidence
-        return {"section_profiles": []}
+        return self._complete("t4", evidence)
 
     def _complete(
         self,
@@ -409,7 +408,11 @@ class MinimaxTextResponder:
                 )
             return cached
 
-        empty: dict[str, Any] = {} if stage == "t3_hierarchy" else {"items": []}
+        empty: dict[str, Any] = (
+            {}
+            if stage == "t3_hierarchy"
+            else ({"units": []} if stage == "t2" else {"section_profiles": []})
+        )
         error: str | None = None
         payload = empty
         skipped_due_usage_limit = self._usage_limit_state.is_exhausted("minimax")
@@ -445,7 +448,7 @@ class MinimaxTextResponder:
         else:
             payload["_observation_error"] = error
         if self._progress:
-            n = len(payload.get("items", []) or [])
+            n = len(payload.get("units", payload.get("items", [])) or [])
             flag = f" ERROR={error}" if error else ""
             print(f"  [{time.monotonic() - started:5.1f}s] {tag:26s} raw={n}{flag}", file=sys.stderr, flush=True)
         if self._record is not None:

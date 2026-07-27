@@ -6,7 +6,7 @@ ai_may_edit: false
 files:
   - path: raw/source_template.docx
     role: source_template
-    sha256: sha256:6d66a2926ff170055840730f9273fccccfeb45df31cc877afc013d551b12d989
+    sha256: sha256:776649b4af9cfef3a50e859490dd75f1061bfcc2ca2aac20181f73e2bb0361a6
   - path: raw/source_review.md
     role: human_review_source
     sha256: sha256:65bb89715ad40cc8e2948f65441312d3da7efb56b5973d8f2c4c507c177c9794

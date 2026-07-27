@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 import xml.etree.ElementTree as ET
 from zipfile import ZipFile
 
@@ -11,11 +11,10 @@ from docfit.core.status import Status, merge_statuses
 from docfit.ooxml.package import is_valid_docx
 
 from .page_policy import (
-    PAGE_POLICY_FIELDS,
-    page_policy_has_unknown,
-    page_policy_known_values,
-    page_policy_shape_errors,
+    UNIT_PAGE_POLICY_FIELDS,
+    unit_page_policy_shape_errors,
 )
+from .docx_effects import inspect_docx_layout_effects
 from .stage_inputs import l1_artifact_hash
 
 
@@ -67,6 +66,19 @@ def verify_template_parse_build(
     findings.extend(l1_trace_findings)
     next_index += len(l1_trace_findings)
 
+    final_chain_findings, final_chain_statuses = _verify_final_result_chain(
+        document_facts=document_facts,
+        l1_input_contract=l1_input_contract,
+        unit_map=unit_map,
+        element_spec=element_spec,
+        global_spec=global_spec,
+        template_spec=template_spec,
+        build_manifest=build_manifest,
+        start_index=next_index,
+    )
+    findings.extend(final_chain_findings)
+    next_index += len(final_chain_findings)
+
     t6_findings = _verify_t6_build(
         template_spec,
         build_manifest,
@@ -77,8 +89,20 @@ def verify_template_parse_build(
     stage_reports.append(
         _stage_report("T6", build_manifest, _status_for_findings(t6_findings))
     )
+    for stage_report in stage_reports:
+        chain_status = final_chain_statuses.get(str(stage_report.get("stage") or ""))
+        if chain_status is None:
+            continue
+        stage_report["status"] = merge_statuses(
+            [Status(str(stage_report["status"])), chain_status]
+        ).value
 
-    status = merge_statuses([_status_for_findings(findings)])
+    status = merge_statuses(
+        [
+            _status_for_findings(findings),
+            *[Status(str(item["status"])) for item in stage_reports],
+        ]
+    )
     first_bad_stage = _first_bad_stage(stage_reports)
     report = {
         "artifact_type": "verification_report",
@@ -145,7 +169,6 @@ def _verify_l1_input_contract(
         field
         for field in (
             "ai_observation_bundle",
-            "observation_bridge",
             "candidate_policy",
             "accepted_decision",
             "judge_status",
@@ -201,6 +224,7 @@ def _verify_l1_trace_chain(
             artifact.get("input_hashes", {}).get("l1")
             or artifact.get("route", {}).get("l1_hash")
             or artifact.get("l1_input_contract_ref", {}).get("hash")
+            or artifact.get("input_refs", {}).get("l1", {}).get("sha256")
         )
         if observed == expected_l1_hash:
             continue
@@ -219,6 +243,181 @@ def _verify_l1_trace_chain(
         )
         next_index += 1
     return findings
+
+
+def _verify_final_result_chain(
+    *,
+    document_facts: dict[str, Any],
+    l1_input_contract: dict[str, Any],
+    unit_map: dict[str, Any],
+    element_spec: dict[str, Any],
+    global_spec: dict[str, Any],
+    template_spec: dict[str, Any],
+    build_manifest: dict[str, Any],
+    start_index: int,
+) -> tuple[list[Finding], dict[str, Status]]:
+    artifacts = {
+        "T1": document_facts,
+        "L1": l1_input_contract,
+        "T2": unit_map,
+        "T3": element_spec,
+        "T4": global_spec,
+        "T5": template_spec,
+        "T6": build_manifest,
+    }
+    expected_refs = {
+        "L1": {"t1": sha256_json(document_facts)},
+        "T2": {"l1": sha256_json(l1_input_contract)},
+        "T3": {
+            "l1": sha256_json(l1_input_contract),
+            "t2_final": sha256_json(unit_map),
+        },
+        "T4": {"l1": sha256_json(l1_input_contract)},
+        "T5": {
+            "l1": sha256_json(l1_input_contract),
+            "t2_final": sha256_json(unit_map),
+            "t3_final": sha256_json(element_spec),
+            "t4_final": sha256_json(global_spec),
+        },
+        "T6": {
+            "l1": sha256_json(l1_input_contract),
+            "t5_final": sha256_json(template_spec),
+        },
+    }
+    findings: list[Finding] = []
+    statuses: dict[str, Status] = {}
+    next_index = start_index
+
+    def add(
+        stage: str,
+        status: Status,
+        type_: str,
+        message: str,
+        expected: str,
+        observed: str,
+    ) -> None:
+        nonlocal next_index
+        findings.append(
+            make_finding(
+                next_index,
+                "template_generate",
+                status,
+                type_,
+                message,
+                expected,
+                observed,
+                affected_ids=[stage],
+                root_cause_bucket="template_final_result_chain",
+            )
+        )
+        statuses[stage] = merge_statuses(
+            [statuses.get(stage, Status.PASS), status]
+        )
+        next_index += 1
+
+    for stage, artifact in artifacts.items():
+        availability = artifact.get("availability")
+        if artifact.get("result_role") != "final" or not isinstance(
+            availability, dict
+        ):
+            add(
+                stage,
+                Status.FAIL,
+                "stage_final_contract_missing",
+                f"{stage} business output must be a published final result",
+                "result_role=final and structured availability",
+                repr(
+                    {
+                        "result_role": artifact.get("result_role"),
+                        "availability": availability,
+                    }
+                ),
+            )
+            continue
+        availability_status = str(availability.get("status") or "")
+        if availability_status == "NOT_AVAILABLE":
+            add(
+                stage,
+                Status.UNKNOWN,
+                "stage_final_not_available",
+                f"{stage} final is not available for downstream quality claims",
+                "availability.status=AVAILABLE",
+                str(availability.get("reason") or "NOT_AVAILABLE"),
+            )
+        elif availability_status != "AVAILABLE":
+            add(
+                stage,
+                Status.FAIL,
+                "stage_final_availability_invalid",
+                f"{stage} final availability must use the canonical enum",
+                "AVAILABLE or NOT_AVAILABLE",
+                availability_status,
+            )
+
+    for stage, refs in expected_refs.items():
+        observed_refs = artifacts[stage].get("input_refs") or {}
+        for ref_name, expected_hash in refs.items():
+            observed_hash = (observed_refs.get(ref_name) or {}).get("sha256")
+            if observed_hash == expected_hash:
+                continue
+            add(
+                stage,
+                Status.FAIL,
+                "stage_final_input_hash_mismatch",
+                f"{stage} final must bind the current {ref_name} artifact",
+                expected_hash,
+                str(observed_hash),
+            )
+
+    _verify_availability_edge(
+        artifacts,
+        add=add,
+        upstream_stages=("T2",),
+        downstream_stage="T3",
+    )
+    _verify_availability_edge(
+        artifacts,
+        add=add,
+        upstream_stages=("T2", "T3", "T4"),
+        downstream_stage="T5",
+    )
+    _verify_availability_edge(
+        artifacts,
+        add=add,
+        upstream_stages=("T5",),
+        downstream_stage="T6",
+    )
+    return findings, statuses
+
+
+def _verify_availability_edge(
+    artifacts: dict[str, dict[str, Any]],
+    *,
+    add: Callable[[str, Status, str, str, str, str], None],
+    upstream_stages: tuple[str, ...],
+    downstream_stage: str,
+) -> None:
+    upstream_unavailable = [
+        stage
+        for stage in upstream_stages
+        if ((artifacts[stage].get("availability") or {}).get("status"))
+        != "AVAILABLE"
+    ]
+    downstream_availability = (
+        artifacts[downstream_stage].get("availability") or {}
+    ).get("status")
+    if upstream_unavailable and downstream_availability == "AVAILABLE":
+        add(
+            downstream_stage,
+            Status.FAIL,
+            "stage_final_availability_upgrade",
+            (
+                f"{downstream_stage} cannot upgrade required unavailable "
+                "upstream finals"
+            ),
+            "NOT_AVAILABLE",
+            f"AVAILABLE with unavailable upstream={upstream_unavailable}",
+        )
 
 
 def _verify_t1_document_facts(
@@ -496,52 +695,87 @@ def _verify_t2_unit_map(unit_map: dict[str, Any], *, start_index: int) -> list[F
         )
         next_index += 1
     unit_ids = [str(unit.get("unit_id") or "") for unit in units]
-    if "body_main" not in unit_ids:
+    if len(unit_ids) != len(set(unit_ids)):
         findings.append(
             make_finding(
                 next_index,
                 "template_generate",
                 Status.FAIL,
-                "unit_map_required_unit_missing",
-                "T2 must identify required body_main unit",
-                "body_main",
+                "unit_map_unit_id_duplicate",
+                "T2 unit_id must be unique within one document",
+                "unique unit_id values",
                 repr(unit_ids),
-                root_cause_bucket="template_t2_required_unit_gap",
+                root_cause_bucket="template_t2_page_contract_gap",
             )
         )
         next_index += 1
-    for unit in units:
+    page_count = unit_map.get("page_count")
+    expected_start = 1
+    for unit_index, unit in enumerate(units):
         unit_id = str(unit.get("unit_id") or "")
-        page_errors = page_policy_shape_errors(unit.get("page"))
-        if page_errors:
+        boundary = unit.get("boundary") or {}
+        start_page = boundary.get("start_page")
+        end_page = boundary.get("end_page")
+        boundary_valid = (
+            isinstance(page_count, int)
+            and page_count > 0
+            and isinstance(start_page, int)
+            and not isinstance(start_page, bool)
+            and isinstance(end_page, int)
+            and not isinstance(end_page, bool)
+            and start_page == expected_start
+            and start_page <= end_page <= page_count
+        )
+        if not boundary_valid:
             findings.append(
                 make_finding(
                     next_index,
                     "template_generate",
                     Status.FAIL,
-                    "unit_map_page_policy_invalid",
-                    "T2 must emit canonical page policy for each unit",
-                    ",".join(PAGE_POLICY_FIELDS),
-                    "; ".join(page_errors),
+                    "unit_map_page_boundary_invalid",
+                    "T2 units must cover rendered pages once in contiguous order",
+                    (
+                        f"unit {unit_index + 1} starts at {expected_start} "
+                        f"within page_count={page_count}"
+                    ),
+                    repr(boundary),
+                    affected_ids=[unit_id] if unit_id else [],
+                    root_cause_bucket="template_t2_page_contract_gap",
+                )
+            )
+            next_index += 1
+        elif isinstance(end_page, int):
+            expected_start = end_page + 1
+        unit_page_errors = unit_page_policy_shape_errors(unit.get("page_policy"))
+        if unit_page_errors:
+            findings.append(
+                make_finding(
+                    next_index,
+                    "template_generate",
+                    Status.FAIL,
+                    "unit_map_unit_page_policy_invalid",
+                    "T2 must emit canonical page_policy for each unit",
+                    ",".join(UNIT_PAGE_POLICY_FIELDS),
+                    "; ".join(unit_page_errors),
                     affected_ids=[unit_id] if unit_id else [],
                     root_cause_bucket="template_t2_page_policy_gap",
                 )
             )
             next_index += 1
-        if not unit.get("page_start"):
-            findings.append(
-                make_finding(
-                    next_index,
-                    "template_generate",
-                    Status.UNKNOWN,
-                    "unit_map_page_start_missing",
-                    "T2 must make page_start explicit or UNKNOWN",
-                    "page_start",
-                    str(unit.get("unit_id")),
-                    root_cause_bucket="template_t2_page_rule_gap",
-                )
+    if units and isinstance(page_count, int) and expected_start != page_count + 1:
+        findings.append(
+            make_finding(
+                next_index,
+                "template_generate",
+                Status.FAIL,
+                "unit_map_page_coverage_incomplete",
+                "T2 final unit must end on the final rendered page",
+                str(page_count),
+                str(expected_start - 1),
+                root_cause_bucket="template_t2_page_contract_gap",
             )
-            next_index += 1
+        )
+        next_index += 1
     findings.extend(_flag_findings(unit_map.get("flags", []), start_index=next_index, stage="T2"))
     return findings
 
@@ -557,7 +791,6 @@ def _verify_t3_element_spec(
         "fixed",
         "template_default",
         "fill",
-        "manual_only",
         "generated",
         "instruction_remove",
     }
@@ -591,21 +824,6 @@ def _verify_t3_element_spec(
                     stable_id,
                     affected_ids=[stable_id],
                     root_cause_bucket="template_t3_fill_source_gap",
-                )
-            )
-            next_index += 1
-        if policy == "manual_only" and not element.get("manual_semantics"):
-            findings.append(
-                make_finding(
-                    next_index,
-                    "template_generate",
-                    Status.FAIL,
-                    "element_spec_manual_semantics_missing",
-                    "T3 manual_only element must declare human-fill semantics",
-                    "manual_semantics",
-                    stable_id,
-                    affected_ids=[stable_id],
-                    root_cause_bucket="template_t3_manual_gap",
                 )
             )
             next_index += 1
@@ -824,6 +1042,14 @@ def _verify_t4_global_spec(
     return findings
 
 
+def verify_t4_global_spec_artifact(
+    global_spec: dict[str, Any],
+    *,
+    start_index: int = 1,
+) -> list[Finding]:
+    return _verify_t4_global_spec(global_spec, start_index=start_index)
+
+
 def _verify_t5_template_spec(
     template_spec: dict[str, Any],
     *,
@@ -888,17 +1114,17 @@ def _verify_t5_template_spec(
     }
     for unit in template_spec.get("units", []):
         unit_id = str(unit.get("unit_id") or "")
-        page_errors = page_policy_shape_errors(unit.get("page"))
-        if page_errors:
+        unit_page_errors = unit_page_policy_shape_errors(unit.get("page_policy"))
+        if unit_page_errors:
             findings.append(
                 make_finding(
                     next_index,
                     "template_generate",
                     Status.FAIL,
-                    "template_spec_unit_page_policy_invalid",
-                    "T5 must preserve canonical T2 page policy on each unit",
-                    ",".join(PAGE_POLICY_FIELDS),
-                    "; ".join(page_errors),
+                    "template_spec_unit_page_policy_invalid_v2",
+                    "T5 must preserve canonical T2 page_policy on each unit",
+                    ",".join(UNIT_PAGE_POLICY_FIELDS),
+                    "; ".join(unit_page_errors),
                     affected_ids=[unit_id] if unit_id else [],
                     root_cause_bucket="template_t5_page_policy_gap",
                 )
@@ -981,6 +1207,14 @@ def _verify_t5_template_spec(
     return findings
 
 
+def verify_t5_template_spec_artifact(
+    template_spec: dict[str, Any],
+    *,
+    start_index: int = 1,
+) -> list[Finding]:
+    return _verify_t5_template_spec(template_spec, start_index=start_index)
+
+
 def _verify_t6_build(
     template_spec: dict[str, Any],
     build_manifest: dict[str, Any],
@@ -1038,7 +1272,7 @@ def _verify_t6_build(
         str(element.get("stable_id"))
         for unit in template_spec.get("units", [])
         for element in unit.get("elements", [])
-        if element.get("policy") in {"fill", "manual_only"}
+        if element.get("policy") == "fill"
     }
     manifest_tags = {
         str(slot.get("sdt_tag"))
@@ -1076,6 +1310,67 @@ def _verify_t6_build(
             )
         )
         next_index += 1
+    observed_effects = inspect_docx_layout_effects(fillable_template_docx)
+    declared_effects = build_manifest.get("observed_layout_effects")
+    if observed_effects.get("status") != Status.PASS.value:
+        findings.append(
+            make_finding(
+                next_index,
+                "template_generate",
+                Status.UNKNOWN,
+                "fillable_template_layout_effects_unobservable",
+                "T6 must re-open the final DOCX and observe layout effects",
+                "observable final DOCX layout properties",
+                str(observed_effects.get("reason") or observed_effects.get("status")),
+                root_cause_bucket="template_t6_effect_observation_gap",
+            )
+        )
+        next_index += 1
+    elif isinstance(declared_effects, dict) and declared_effects != observed_effects:
+        findings.append(
+            make_finding(
+                next_index,
+                "template_generate",
+                Status.FAIL,
+                "build_manifest_layout_effect_observation_mismatch",
+                "T6 manifest observations must match a fresh read of the final DOCX",
+                repr(observed_effects),
+                repr(declared_effects),
+                root_cause_bucket="template_t6_effect_observation_gap",
+            )
+        )
+        next_index += 1
+
+    executed_actions = [
+        action
+        for action in build_manifest.get("actions_executed", []) or []
+        if isinstance(action, dict)
+    ]
+    executed_by_id = {
+        str(action.get("action_id")): action
+        for action in executed_actions
+        if action.get("action_id")
+    }
+    effect_expectations = _page_action_effect_expectations(executed_actions)
+    effect_gaps = _page_action_effect_gaps(observed_effects, effect_expectations)
+    if effect_gaps:
+        findings.append(
+            make_finding(
+                next_index,
+                "template_generate",
+                Status.FAIL,
+                "fillable_template_page_action_effect_missing",
+                "Every executed page action must have an observable effect in the final DOCX",
+                repr(effect_expectations),
+                repr(effect_gaps),
+                affected_ids=[
+                    str(item.get("action_id") or item.get("action_type"))
+                    for item in effect_gaps
+                ],
+                root_cause_bucket="template_t6_page_action_false_green",
+            )
+        )
+        next_index += 1
     page_policy_results = build_manifest.get("page_policy_results") or []
     results_by_unit = {
         str(item.get("unit_id") or ""): item
@@ -1084,9 +1379,8 @@ def _verify_t6_build(
     }
     for unit in template_spec.get("units", []):
         unit_id = str(unit.get("unit_id") or "")
-        page = unit.get("page") or {}
-        known_values = page_policy_known_values(page)
-        if known_values and unit_id not in results_by_unit:
+        page_policy = unit.get("page_policy") or {}
+        if unit_id not in results_by_unit:
             findings.append(
                 make_finding(
                     next_index,
@@ -1094,7 +1388,7 @@ def _verify_t6_build(
                     Status.FAIL,
                     "build_page_policy_result_missing",
                     "T6 must report a result for each known T2 page policy",
-                    repr(known_values),
+                    repr(page_policy),
                     "missing",
                     affected_ids=[unit_id] if unit_id else [],
                     root_cause_bucket="template_t6_page_policy_drop",
@@ -1104,7 +1398,7 @@ def _verify_t6_build(
             continue
         result = results_by_unit.get(unit_id)
         if result is not None and result.get("status") == "manual_review":
-            status = Status.UNKNOWN if page_policy_has_unknown(page) else Status.FAIL
+            status = Status.UNKNOWN if "unknown" in page_policy.values() else Status.FAIL
             findings.append(
                 make_finding(
                     next_index,
@@ -1119,7 +1413,189 @@ def _verify_t6_build(
                 )
             )
             next_index += 1
+        if result is not None:
+            result_status = str(result.get("status") or "")
+            allowed_statuses = {"executed", "no_action_required", "already_satisfied"}
+            if result_status not in allowed_statuses | {"manual_review"}:
+                findings.append(
+                    make_finding(
+                        next_index,
+                        "template_generate",
+                        Status.UNKNOWN,
+                        "build_page_policy_result_not_final",
+                        "T6 page policy result must be a final observed state",
+                        repr(sorted(allowed_statuses)),
+                        result_status or "missing",
+                        affected_ids=[unit_id] if unit_id else [],
+                        root_cause_bucket="template_t6_page_policy_review",
+                    )
+                )
+                next_index += 1
+            if result_status == "executed":
+                executed_ids = [
+                    str(action_id)
+                    for action_id in result.get("executed_action_ids", []) or []
+                    if action_id
+                ]
+                missing_action_ids = [
+                    action_id for action_id in executed_ids if action_id not in executed_by_id
+                ]
+                if not executed_ids or missing_action_ids:
+                    findings.append(
+                        make_finding(
+                            next_index,
+                            "template_generate",
+                            Status.FAIL,
+                            "build_page_policy_execution_evidence_missing",
+                            "Executed page policy results must resolve to executed actions",
+                            "non-empty executed_action_ids bound to actions_executed",
+                            repr(missing_action_ids or executed_ids),
+                            affected_ids=[unit_id] if unit_id else [],
+                            root_cause_bucket="template_t6_page_action_false_green",
+                        )
+                    )
+                    next_index += 1
     return findings
+
+
+def verify_t6_build_artifact(
+    template_spec: dict[str, Any],
+    build_manifest: dict[str, Any],
+    fillable_template_docx: Path,
+    *,
+    start_index: int = 1,
+) -> list[Finding]:
+    return _verify_t6_build(
+        template_spec,
+        build_manifest,
+        fillable_template_docx,
+        start_index=start_index,
+    )
+
+
+def _page_action_effect_expectations(
+    actions: list[dict[str, Any]],
+) -> dict[str, Any]:
+    page_actions = [
+        action for action in actions if action.get("action_type") == "insert_page_break_before_unit"
+    ]
+    section_actions = [
+        action for action in actions if action.get("action_type") == "insert_section_break_before_unit"
+    ]
+    keep_actions = [
+        action for action in actions if action.get("action_type") == "set_keep_together_unit"
+    ]
+    keep_output_refs = [
+        ref
+        for action in keep_actions
+        for ref in _action_output_refs(action)
+    ]
+    return {
+        "page_break_count": len(page_actions),
+        "section_break_count": len(section_actions),
+        "keep_next_ref_count": len(
+            [ref for ref in keep_output_refs if "keepWithNext" in ref]
+        ),
+        "keep_lines_ref_count": len(
+            [ref for ref in keep_output_refs if "keepLines" in ref]
+        ),
+        "actions": [
+            {
+                "action_id": action.get("action_id"),
+                "action_type": action.get("action_type"),
+                "expected_refs": _action_output_refs(action),
+            }
+            for action in [*page_actions, *section_actions, *keep_actions]
+        ],
+    }
+
+
+def _page_action_effect_gaps(
+    observed: dict[str, Any],
+    expected: dict[str, Any],
+) -> list[dict[str, Any]]:
+    if observed.get("status") != Status.PASS.value:
+        return [{"action_type": "all", "reason": "final_docx_unobservable"}]
+    exact_gaps = _page_action_exact_effect_gaps(observed, expected)
+    if exact_gaps:
+        return exact_gaps
+    comparisons = [
+        (
+            "insert_page_break_before_unit",
+            expected["page_break_count"],
+            int(observed.get("observable_page_break_count") or 0),
+        ),
+        (
+            "insert_section_break_before_unit",
+            expected["section_break_count"],
+            int(observed.get("paragraph_section_break_count") or 0),
+        ),
+        (
+            "set_keep_together_unit.keepNext",
+            expected["keep_next_ref_count"],
+            int(observed.get("keep_with_next_count") or 0),
+        ),
+        (
+            "set_keep_together_unit.keepLines",
+            expected["keep_lines_ref_count"],
+            int(observed.get("keep_together_count") or 0),
+        ),
+    ]
+    return [
+        {"action_type": action_type, "expected_minimum": minimum, "observed": actual}
+        for action_type, minimum, actual in comparisons
+        if minimum > actual
+    ]
+
+
+def _page_action_exact_effect_gaps(
+    observed: dict[str, Any],
+    expected: dict[str, Any],
+) -> list[dict[str, Any]]:
+    observed_refs_by_action_type = {
+        "insert_page_break_before_unit": set(observed.get("page_break_refs", []) or []),
+        "insert_section_break_before_unit": set(observed.get("section_break_refs", []) or []),
+        "set_keep_together_unit": set(observed.get("keep_effect_refs", []) or []),
+    }
+    gaps: list[dict[str, Any]] = []
+    for action in expected.get("actions", []) or []:
+        action_type = str(action.get("action_type") or "")
+        expected_refs = [
+            str(ref)
+            for ref in action.get("expected_refs", []) or []
+            if ref
+        ]
+        if not expected_refs:
+            gaps.append(
+                {
+                    "action_id": action.get("action_id"),
+                    "action_type": action_type,
+                    "reason": "executed page action has no output_ref",
+                }
+            )
+            continue
+        observed_refs = observed_refs_by_action_type.get(action_type, set())
+        missing_refs = [
+            ref for ref in expected_refs if ref not in observed_refs
+        ]
+        if missing_refs:
+            gaps.append(
+                {
+                    "action_id": action.get("action_id"),
+                    "action_type": action_type,
+                    "missing_refs": missing_refs,
+                }
+            )
+    return gaps
+
+
+def _action_output_refs(action: dict[str, Any]) -> list[str]:
+    output_ref = str(action.get("output_ref") or "")
+    return [
+        ref.strip()
+        for ref in output_ref.split(";")
+        if ref.strip()
+    ]
 
 
 def _duplicate_id_findings(
@@ -1159,7 +1635,7 @@ def _flag_findings(
 ) -> list[Finding]:
     findings: list[Finding] = []
     for offset, flag in enumerate(flags):
-        status = Status(str(flag.get("status") or "UNKNOWN"))
+        status = Status(str(flag.get("status") or "UNKNOWN").upper())
         findings.append(
             make_finding(
                 start_index + offset,

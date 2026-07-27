@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from docfit.core.io import sha256_file, write_json, write_yaml
+from docx import Document
+
+from docfit.core.io import read_json, sha256_file, write_json, write_yaml
 from docfit.harness.template_generation_run_bundle import (
     bind_template_generation_run_bundle,
 )
@@ -30,7 +32,7 @@ def test_run_bundle_binds_ordered_artifacts_and_hashes(tmp_path: Path) -> None:
     assert bundle.findings == []
 
 
-def test_run_bundle_allows_missing_debug_index_with_finding(tmp_path: Path) -> None:
+def test_run_bundle_marks_missing_debug_index_unknown(tmp_path: Path) -> None:
     standard_set = _write_standard_set(tmp_path, "sha256:source")
     run_dir = _write_run_bundle(tmp_path, "sha256:source", include_debug_index=False)
 
@@ -39,12 +41,15 @@ def test_run_bundle_allows_missing_debug_index_with_finding(tmp_path: Path) -> N
         standard_set=standard_set,
     )
 
-    assert bundle.status.value == "PASS"
+    assert bundle.status.value == "UNKNOWN"
     assert bundle.manifest_source == "filesystem_scan"
     assert {
         finding.type for finding in bundle.findings
-    } == {"template_generation_run_bundle_missing_debug_index"}
-    assert bundle.findings[0].severity == "advisory"
+    } >= {
+        "template_generation_run_bundle_missing_debug_index",
+        "template_generation_run_bundle_declared_hash_missing",
+    }
+    assert all(finding.severity == "blocking" for finding in bundle.findings)
 
 
 def test_run_bundle_marks_source_hash_mismatch_unknown(tmp_path: Path) -> None:
@@ -60,6 +65,59 @@ def test_run_bundle_marks_source_hash_mismatch_unknown(tmp_path: Path) -> None:
     assert any(
         finding.type == "template_generation_run_bundle_source_hash_mismatch"
         for finding in bundle.findings
+    )
+
+
+def test_run_bundle_marks_single_missing_declared_hash_unknown(tmp_path: Path) -> None:
+    standard_set = _write_standard_set(tmp_path, "sha256:source")
+    run_dir = _write_run_bundle(tmp_path, "sha256:source", include_debug_index=True)
+    index_path = run_dir / "99_template_generation_debug_index.json"
+    debug_index = read_json(index_path)
+    debug_index["files"] = [
+        item
+        for item in debug_index["files"]
+        if item.get("name") != "03_element_spec.yaml"
+    ]
+    write_json(index_path, debug_index)
+
+    bundle = bind_template_generation_run_bundle(run_dir, standard_set=standard_set)
+
+    assert bundle.status.value == "UNKNOWN"
+    assert bundle.artifacts["element_spec"].hash_match is False
+    assert any(
+        finding.type == "template_generation_run_bundle_declared_hash_missing"
+        and "element_spec" in finding.affected_ids
+        for finding in bundle.findings
+    )
+
+
+def test_run_bundle_reobserves_t6_instead_of_trusting_manifest(tmp_path: Path) -> None:
+    standard_set = _write_standard_set(tmp_path, "sha256:source")
+    run_dir = _write_run_bundle(tmp_path, "sha256:source", include_debug_index=True)
+    manifest_path = run_dir / "06.2_build_manifest.json"
+    manifest = read_json(manifest_path)
+    manifest["actions_executed"] = [
+        {
+            "action_id": "a_page_001",
+            "action_type": "insert_page_break_before_unit",
+            "status": "executed",
+            "output_ref": "word/document.xml:p[1]/pageBreakBefore",
+        }
+    ]
+    write_json(manifest_path, manifest)
+    index_path = run_dir / "99_template_generation_debug_index.json"
+    debug_index = read_json(index_path)
+    for item in debug_index["files"]:
+        if item.get("name") == manifest_path.name:
+            item["sha256"] = sha256_file(manifest_path)
+    write_json(index_path, debug_index)
+
+    bundle = bind_template_generation_run_bundle(run_dir, standard_set=standard_set)
+
+    assert bundle.status.value == "PASS"
+    assert any(
+        finding.type == "fillable_template_page_action_effect_missing"
+        for finding in bundle.observed_t6_findings
     )
 
 
@@ -175,7 +233,9 @@ def _write_run_bundle(
     write_yaml(run_dir / "04_global_spec.yaml", {"artifact_type": "global_spec", "section_profiles": []})
     write_yaml(run_dir / "05_template_spec.yaml", {"artifact_type": "template_spec", "units": []})
     fillable = run_dir / "06.1_fillable_template.docx"
-    fillable.write_bytes(b"fake docx bytes")
+    document = Document()
+    document.add_paragraph("正文")
+    document.save(fillable)
     write_json(
         run_dir / "06.2_build_manifest.json",
         {

@@ -812,6 +812,607 @@ def test_t3_element_expectations_and_run_span_ledger_fail_on_policy_gap(
     }
 
 
+def test_t3_core_action_gold_ignores_policy_subtype_and_element_grouping(
+    tmp_path: Path,
+) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t3_element_policy",
+        "T3",
+        "element_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "unit_order": ["cover"],
+            "core_action_contract": _t3_core_action_contract(),
+            "element_policy_contract": {
+                "allowed_policies": [
+                    "template_default",
+                    "fill",
+                    "fixed",
+                    "generated",
+                    "instruction_remove",
+                ],
+            },
+            "run_span_ledger": [
+                {
+                    "raw_run_id": "p_0001.r_001",
+                    "logical_run_id": "p_0001.lr_001",
+                    "unit_id": "original_gold_unit",
+                    "expected_action": "keep",
+                },
+                {
+                    "raw_run_id": "p_0002.r_001",
+                    "logical_run_id": "p_0002.lr_001",
+                    "unit_id": "original_gold_unit",
+                    "expected_action": "fill",
+                },
+                {
+                    "raw_run_id": "p_0003.r_001",
+                    "logical_run_id": "p_0003.lr_001",
+                    "unit_id": "original_gold_unit",
+                    "expected_action": "unknown",
+                    "execution_fallback_action": "keep",
+                },
+            ],
+        },
+    )
+    artifact = _element_spec_artifact(
+        tmp_path,
+        [
+            {
+                "stable_id": "cover.e_001",
+                "element_id": "e_001",
+                "unit_id": "cover",
+                "policy": "template_default",
+                "raw_run_ids": ["p_0001.r_001"],
+                "logical_run_ids": ["p_0001.lr_001"],
+            },
+            {
+                "stable_id": "cover.e_002",
+                "element_id": "e_002",
+                "unit_id": "cover",
+                "policy": "fill",
+                "raw_run_ids": ["p_0002.r_001"],
+                "logical_run_ids": ["p_0002.lr_001"],
+            },
+            {
+                "stable_id": "cover.e_003",
+                "element_id": "e_003",
+                "unit_id": "cover",
+                "policy": "generated",
+                "raw_run_ids": ["p_0002.r_001"],
+                "logical_run_ids": ["p_0002.lr_001"],
+            },
+            {
+                "stable_id": "cover.e_004",
+                "element_id": "e_004",
+                "unit_id": "cover",
+                "policy": "fixed",
+                "raw_run_ids": ["p_0003.r_001"],
+                "logical_run_ids": ["p_0003.lr_001"],
+            },
+        ],
+    )
+
+    check = judge_template_generation_stage(
+        "t3_element_policy",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t3_element_policy"),
+        run_bundle=_bundle(Status.PASS, {"element_spec": artifact}),
+    )
+
+    assert check.status == Status.PASS
+    assert check.audit["core_action_accuracy"] == 1.0
+    assert check.audit["core_action_gold_count"] == 2
+    assert check.audit["core_action_unknown_gold_count"] == 1
+    assert check.audit["unknown_execution_fallback_gaps"] == []
+    assert check.audit["core_action_match_count"] == 2
+    assert check.audit["run_span_ledger_gaps"] == []
+
+
+def test_t3_core_action_gold_scores_adaptive_spans_by_exact_range(
+    tmp_path: Path,
+) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t3_element_policy",
+        "T3",
+        "element_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "unit_order": ["cover"],
+            "core_action_contract": _t3_core_action_contract(),
+            "element_policy_contract": {
+                "allowed_policies": ["fixed", "fill"],
+            },
+            "run_span_ledger": [
+                {
+                    "target_kind": "span",
+                    "raw_run_id": "p_0001.r_001",
+                    "start": 0,
+                    "end": 2,
+                    "text": "标签",
+                    "expected_action": "keep",
+                },
+                {
+                    "target_kind": "span",
+                    "raw_run_id": "p_0001.r_001",
+                    "start": 2,
+                    "end": 4,
+                    "text": "示例",
+                    "expected_action": "fill",
+                },
+            ],
+        },
+    )
+    artifact = _element_spec_artifact(
+        tmp_path,
+        [
+            {
+                "stable_id": "cover.e_001",
+                "element_id": "e_001",
+                "unit_id": "cover",
+                "policy": "fixed",
+                "raw_run_ids": ["p_0001.r_001"],
+                "spans": [
+                    {
+                        "policy": "fixed",
+                        "char_ranges": [
+                            {
+                                "raw_run_id": "p_0001.r_001",
+                                "start": 0,
+                                "end": 2,
+                            }
+                        ],
+                    },
+                    {
+                        "policy": "fill",
+                        "char_ranges": [
+                            {
+                                "raw_run_id": "p_0001.r_001",
+                                "start": 2,
+                                "end": 4,
+                            }
+                        ],
+                    },
+                ],
+            }
+        ],
+    )
+
+    check = judge_template_generation_stage(
+        "t3_element_policy",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t3_element_policy"),
+        run_bundle=_bundle(Status.PASS, {"element_spec": artifact}),
+    )
+
+    assert check.status == Status.PASS
+    assert check.audit["core_action_gold_count"] == 2
+    assert check.audit["core_action_accuracy"] == 1.0
+    assert check.audit["run_span_ledger_gaps"] == []
+
+
+def test_t3_core_action_gold_fails_only_when_core_action_is_wrong(
+    tmp_path: Path,
+) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t3_element_policy",
+        "T3",
+        "element_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "unit_order": ["cover"],
+            "core_action_contract": _t3_core_action_contract(),
+            "element_policy_contract": {
+                "allowed_policies": ["fixed", "instruction_remove"],
+            },
+            "run_span_ledger": [
+                {
+                    "raw_run_id": "p_0001.r_001",
+                    "logical_run_id": "p_0001.lr_001",
+                    "expected_action": "delete",
+                }
+            ],
+        },
+    )
+    artifact = _element_spec_artifact(
+        tmp_path,
+        [
+            {
+                "stable_id": "cover.e_001",
+                "element_id": "e_001",
+                "unit_id": "cover",
+                "policy": "fixed",
+                "raw_run_ids": ["p_0001.r_001"],
+                "logical_run_ids": ["p_0001.lr_001"],
+            }
+        ],
+    )
+
+    check = judge_template_generation_stage(
+        "t3_element_policy",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t3_element_policy"),
+        run_bundle=_bundle(Status.PASS, {"element_spec": artifact}),
+    )
+
+    assert check.status == Status.FAIL
+    assert check.audit["core_action_accuracy"] == 0.0
+    assert check.audit["run_span_ledger_gaps"]
+
+
+def test_t3_unknown_gold_fails_if_execution_policy_is_delete(tmp_path: Path) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t3_element_policy",
+        "T3",
+        "element_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "unit_order": ["cover"],
+            "core_action_contract": _t3_core_action_contract(),
+            "element_policy_contract": {
+                "allowed_policies": ["fixed", "instruction_remove"],
+            },
+            "run_span_ledger": [
+                {
+                    "raw_run_id": "p_0001.r_001",
+                    "logical_run_id": "p_0001.lr_001",
+                    "expected_action": "unknown",
+                    "execution_fallback_action": "keep",
+                }
+            ],
+        },
+    )
+    artifact = _element_spec_artifact(
+        tmp_path,
+        [
+            {
+                "stable_id": "cover.e_001",
+                "element_id": "e_001",
+                "unit_id": "cover",
+                "policy": "instruction_remove",
+                "raw_run_ids": ["p_0001.r_001"],
+                "logical_run_ids": ["p_0001.lr_001"],
+            }
+        ],
+    )
+
+    check = judge_template_generation_stage(
+        "t3_element_policy",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t3_element_policy"),
+        run_bundle=_bundle(Status.PASS, {"element_spec": artifact}),
+    )
+
+    assert check.status == Status.FAIL
+    assert check.audit["core_action_gold_count"] == 0
+    assert check.audit["core_action_unknown_gold_count"] == 1
+    assert check.audit["unknown_execution_fallback_gaps"]
+    assert "t3_unknown_execution_fallback_mismatch" in {
+        finding.type for finding in check.findings
+    }
+
+
+def test_t1_empty_fact_containers_cannot_pass_required_check_ledger(tmp_path: Path) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t1_document_facts",
+        "T1",
+        "document_facts",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "artifact_type": "document_facts",
+            "source_fact_contract": {
+                "required_top_level_fields": ["artifact_type", "body_flow", "runs", "data"],
+                "required_data_groups": ["sections"],
+                "ooxml_fact_policy": {
+                    "preserve_visible_text": True,
+                    "preserve_run_boundaries": True,
+                },
+            },
+            "forbidden_semantic_fields": ["unit_id", "policy"],
+        },
+    )
+    artifact = BoundArtifact(
+        artifact_key="document_facts",
+        stage_key="t1_document_facts",
+        stage_id="T1",
+        path=tmp_path / "01_document_facts.json",
+        sha256="sha256:artifact",
+        declared_sha256="sha256:artifact",
+        source_kind="ordered_top_level",
+        status=Status.PASS,
+        payload={
+            "artifact_type": "document_facts",
+            "body_flow": [],
+            "runs": [],
+            "data": {"sections": []},
+        },
+        hash_match=True,
+    )
+
+    check = judge_template_generation_stage(
+        "t1_document_facts",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t1_document_facts"),
+        run_bundle=_bundle(Status.PASS, {"document_facts": artifact}),
+    )
+
+    assert check.audit_status == "UNKNOWN"
+    assert check.status == Status.UNKNOWN
+    assert check.audit["required_check_ledger"]["status"] == "UNKNOWN"
+    assert any(finding.type == "t1_required_fact_evidence_missing" for finding in check.findings)
+
+
+def test_t3_rejects_policy_outside_signed_ontology(tmp_path: Path) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t3_element_policy",
+        "T3",
+        "element_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "unit_order": ["cover"],
+            "element_policy_contract": {
+                "allowed_policies": ["fixed", "fill", "instruction_remove"],
+            },
+        },
+    )
+    artifact = _element_spec_artifact(
+        tmp_path,
+        [
+            {
+                "stable_id": "cover.e_001",
+                "element_id": "e_001",
+                "unit_id": "cover",
+                "policy": "totally_invalid",
+            }
+        ],
+    )
+
+    check = judge_template_generation_stage(
+        "t3_element_policy",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t3_element_policy"),
+        run_bundle=_bundle(Status.PASS, {"element_spec": artifact}),
+    )
+
+    assert check.audit_status == "FAIL"
+    assert check.status == Status.FAIL
+    assert any(finding.type == "t3_policy_not_allowed" for finding in check.findings)
+
+
+def test_unconsumed_standard_field_forces_unknown(tmp_path: Path) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t3_element_policy",
+        "T3",
+        "element_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={"unit_order": [], "future_requirement": {"must_be_checked": True}},
+    )
+    artifact = _element_spec_artifact(tmp_path, [])
+
+    check = judge_template_generation_stage(
+        "t3_element_policy",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t3_element_policy"),
+        run_bundle=_bundle(Status.PASS, {"element_spec": artifact}),
+    )
+
+    assert check.audit_status == "UNKNOWN"
+    assert check.status == Status.UNKNOWN
+    assert check.audit["required_check_ledger"]["unconsumed_standard_paths"] == [
+        "expected.future_requirement.must_be_checked"
+    ]
+
+
+def test_t4_rejects_bogus_layout_semantics(tmp_path: Path) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t4_global_layout",
+        "T4",
+        "global_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "unit_order": ["cover"],
+            "layout_policy": {
+                "page_policy_source": "t2.standard.yaml",
+                "document_start_units": ["cover"],
+                "standalone_units": ["cover"],
+                "flowing_units": [],
+            },
+            "global_layout_contract": {
+                "artifact_type": "global_spec",
+                "section_profiles_required": True,
+                "section_profile_ids_unique": True,
+                "section_boundaries_must_trace_to_source_seq": True,
+                "page_numbering_display_status_required": True,
+                "detected_page_numbering_requires_page_field_evidence": True,
+                "no_page_field_requires_checked_scope": True,
+                "header_footer_refs_must_resolve_to_parsed_parts": True,
+                "numbering_rules_must_be_preserved_from_document_facts": True,
+                "must_not_change_t2_unit_order": True,
+            },
+        },
+    )
+    payload = {
+        "artifact_type": "global_spec",
+        "section_profiles": [
+            {
+                "section_profile_id": "duplicate",
+                "source_ref": "word/document.xml:p[1]/sectPr",
+                "boundary": {"status": "detected"},
+                "page_numbering": {"display": {"status": "detected"}, "fields": []},
+                "header_footer": {"effective_references": []},
+            },
+            {
+                "section_profile_id": "duplicate",
+                "source_ref": "word/document.xml:body/sectPr",
+                "boundary": {"status": "detected"},
+                "page_numbering": {"display": {"status": "detected"}, "fields": []},
+                "header_footer": {"effective_references": []},
+            },
+        ],
+        "page_numbering": {"status": "bogus"},
+        "header_footer": [],
+        "numbering_rules": {"definitions": ["bogus"], "refs": []},
+    }
+    artifact = _bound_artifact(tmp_path, "global_spec", "t4_global_layout", "T4", payload)
+    unit_map = _bound_artifact(
+        tmp_path,
+        "unit_map",
+        "t2_unit_pagination",
+        "T2",
+        {"artifact_type": "unit_map", "units": [{"unit_id": "cover"}]},
+    )
+    document_facts = _bound_artifact(
+        tmp_path,
+        "document_facts",
+        "t1_document_facts",
+        "T1",
+        {"artifact_type": "document_facts", "data": {"numbering_definitions": [], "numbering_refs": []}},
+    )
+
+    check = judge_template_generation_stage(
+        "t4_global_layout",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t4_global_layout"),
+        run_bundle=_bundle(
+            Status.PASS,
+            {"global_spec": artifact, "unit_map": unit_map, "document_facts": document_facts},
+        ),
+    )
+
+    assert check.audit_status == "FAIL"
+    assert check.status == Status.FAIL
+    assert {finding.type for finding in check.findings} >= {
+        "global_spec_duplicate_section_profile_id",
+        "global_spec_page_numbering_detected_without_page_field",
+        "t4_numbering_rules_not_preserved",
+    }
+
+
+def test_t5_rejects_wrong_hashes_and_unresolved_section_refs(tmp_path: Path) -> None:
+    standard = _stage_standard(
+        tmp_path,
+        "t5_template_spec",
+        "T5",
+        "template_spec",
+        verifier_state="configured",
+        gate_enabled=True,
+        expected={
+            "unit_order": ["cover"],
+            "template_spec_contract": {
+                "artifact_type": "template_spec",
+                "merge_inputs": ["document_facts", "unit_map", "element_spec", "global_spec"],
+                "required_input_hashes": ["document_facts", "unit_map", "element_spec", "global_spec"],
+                "must_preserve_unit_order": True,
+                "unit_ids_must_be_unique_except_reviewed_other": True,
+                "every_unit_must_have_section_profile_refs": True,
+                "unit_section_refs_must_resolve_to_global_section_profiles": True,
+                "unit_section_ranges_must_overlap_unit_source_seq_range": True,
+                "fill_elements_must_preserve_fill_source": True,
+                "review_flags_must_not_be_dropped": True,
+                "no_word_action_execution": True,
+                "downstream_owner_for_docx_build": "T6",
+            },
+        },
+    )
+    document_facts = _bound_artifact(tmp_path, "document_facts", "t1_document_facts", "T1", {"artifact_type": "document_facts"})
+    unit_map = _bound_artifact(
+        tmp_path,
+        "unit_map",
+        "t2_unit_pagination",
+        "T2",
+        {
+            "artifact_type": "unit_map",
+            "units": [
+                {
+                    "unit_id": "cover",
+                    "page_policy": {
+                        "start": "document_start",
+                        "scope": "page_range_exclusive",
+                    },
+                }
+            ],
+            "flags": [],
+        },
+    )
+    element_spec = _bound_artifact(
+        tmp_path,
+        "element_spec",
+        "t3_element_policy",
+        "T3",
+        {"artifact_type": "element_spec", "elements": [{"stable_id": "cover.e_001", "unit_id": "cover", "policy": "fill", "fill_source": "student_input"}], "flags": []},
+    )
+    global_payload = {"artifact_type": "global_spec", "section_profiles": [{"section_profile_id": "section_001"}], "flags": []}
+    global_spec = _bound_artifact(tmp_path, "global_spec", "t4_global_layout", "T4", global_payload)
+    payload = {
+        "artifact_type": "template_spec",
+        "input_hashes": {key: "sha256:wrong" for key in ("document_facts", "unit_map", "element_spec", "global_spec")},
+        "global": global_payload,
+        "units": [
+            {
+                "unit_id": "cover",
+                "page_policy": {
+                    "start": "document_start",
+                    "scope": "page_range_exclusive",
+                },
+                "source_seq_refs": [1],
+                "section_profile_refs": [{"section_profile_id": "missing", "overlap_source_seq_range": {"start": 1, "end": 1}}],
+                "elements": [],
+            }
+        ],
+        "review_flags": [],
+    }
+    artifact = _bound_artifact(tmp_path, "template_spec", "t5_template_spec", "T5", payload)
+
+    check = judge_template_generation_stage(
+        "t5_template_spec",
+        standard=standard,
+        artifact=artifact,
+        standard_quality=_quality("t5_template_spec"),
+        run_bundle=_bundle(
+            Status.PASS,
+            {
+                "template_spec": artifact,
+                "document_facts": document_facts,
+                "unit_map": unit_map,
+                "element_spec": element_spec,
+                "global_spec": global_spec,
+            },
+        ),
+    )
+
+    assert check.audit_status == "FAIL"
+    assert check.status == Status.FAIL
+    assert {finding.type for finding in check.findings} >= {
+        "t5_input_hash_mismatch",
+        "template_spec_unit_section_profile_ref_missing",
+        "t5_element_binding_mismatch",
+    }
+
+
 def _stage_standard(
     tmp_path: Path,
     stage_key: str,
@@ -855,6 +1456,53 @@ def _element_spec_artifact(
         source_kind="ordered_top_level",
         status=Status.PASS,
         payload={"artifact_type": "element_spec", "elements": elements},
+        hash_match=True,
+    )
+
+
+def _t3_core_action_contract() -> dict:
+    return {
+        "primary_metric": "exact_action_accuracy",
+        "scored_ledger": "run_span_ledger",
+        "gold_granularity": "adaptive_run_or_span",
+        "gold_source_field": "expected_action",
+        "owned_structure_layers": ["body_flow"],
+        "allowed_actions": ["keep", "fill", "delete"],
+        "policy_to_action": {
+            "fixed": "keep",
+            "template_default": "keep",
+            "template_default_optional": "keep",
+            "fill": "fill",
+            "generated": "fill",
+            "instruction_remove": "delete",
+            "remove_instruction": "delete",
+        },
+        "grouping_invariant": True,
+        "subtype_policy_accuracy": "out_of_scope",
+        "unknown_action": "unknown",
+        "unknown_scoring": "excluded_from_primary",
+        "unknown_execution_fallback": "keep",
+        "uncertain_delete_forbidden": True,
+    }
+
+
+def _bound_artifact(
+    tmp_path: Path,
+    artifact_key: str,
+    stage_key: str,
+    stage_id: str,
+    payload: dict,
+) -> BoundArtifact:
+    return BoundArtifact(
+        artifact_key=artifact_key,
+        stage_key=stage_key,
+        stage_id=stage_id,
+        path=tmp_path / f"{artifact_key}.json",
+        sha256=f"sha256:{artifact_key}",
+        declared_sha256=f"sha256:{artifact_key}",
+        source_kind="ordered_top_level",
+        status=Status.PASS,
+        payload=payload,
         hash_match=True,
     )
 

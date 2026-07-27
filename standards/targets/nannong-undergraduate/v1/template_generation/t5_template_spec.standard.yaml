@@ -69,7 +69,7 @@ expected:
     downstream_owner_for_docx_build: T6
     notes:
       - T5 是模板解析主规格，不执行 Word 修改；可填模板构建动作归 T6。
-      - 南农本科声明页必须保持 manual_only 边界，学术成果、附录和致谢不得丢失为 other。
+      - 南农本科声明页必须保持 fixed 边界，学术成果、附录和致谢不得丢失为 other。
 dimensions:
   - dimension_id: template_generation.t5.artifact_under_test
     required: true

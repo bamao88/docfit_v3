@@ -1,5 +1,5 @@
 ---
-status: draft
+status: superseded
 owner: template-generation
 stage: T4
 topic: agent-proposal
@@ -17,7 +17,10 @@ previous_optimization:
   summary: Plan 09 Phase 3 计划让 accepted T4 observation 进入 merged global_spec 的 evidence；但其完成信号仍停在 agent_observation_hints 可审计层面，没有任何下游消费者读取该字段。
 next_plan: docs/plans/2026-07-03-template-parse-refactor-t2t3t4-agent-proposal-plan-10-t4-ai-primary-layout-consumption.md
 created: 2026-07-03
-last_updated: 2026-07-03
+last_updated: 2026-07-26
+superseded_by:
+  id: T2T3T4-AGENT-ISSUE-13
+  doc: docs/plans/2026-07-26-template-parse-refactor-t4-ai-only-issue-13-multi-route-authority-conflict.md
 related_code:
   - src/docfit/template_generation/runner.py
   - src/docfit/template_generation/plan.py
@@ -31,6 +34,9 @@ cross_issue:
 ---
 
 # T2/T3/T4 Agent Issue 10：T4 accepted observation 无下游消费者（agent_observation_hints 死端）
+
+> 2026-07-26：本 issue 被 Issue 13 取代。用户决定 T4 直接收敛为 AI-only，
+> 不再通过 merged/hint bridge 解决消费问题。
 
 ## 与相邻 issue 的边界
 

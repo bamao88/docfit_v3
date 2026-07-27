@@ -307,7 +307,7 @@ Stop gate：Word 无法可靠执行的 full-unit keep 必须降级为 best-effor
 
 ## Implementation Status
 
-2026-07-17 状态：`implemented_in_part`。
+2026-07-20 状态：`implemented_in_part`。
 
 已落地：
 
@@ -318,6 +318,10 @@ Stop gate：Word 无法可靠执行的 full-unit keep 必须降级为 best-effor
 - T6 pagination planner 改为读取 `template_spec.units[].page`，并生成 page break、isolation 后继断页和 keep-together best-effort action。
 - build manifest 保留 `page_policy_results`、page action provenance、proposal ids、evidence refs 和 keep-together 结果。
 - route-eval 对 T2 AI observation 增加 page policy coverage / field accuracy；T4 仍明确不评估单元分页。
+- T5 document-start 规范化改为按单元 index 判断；非首个 `order<=10` 单元不再被误升为 `document_start`。
+- T6 boundary planner 对同一 `source_ref` 的 page break / next-page section break 做去重，section break 优先并记录它同时满足的 page-policy owner。
+- T6 keep-together 改为非侵入式 Word 控制：单元内段落使用 `keepLines` 和非末段 `keepNext`，表格块补 `cantSplit`；不通过字体、行距、边距、行高压缩来强制塞进一页。
+- T6 final DOCX effect verifier 从 count-only 升级为 action `output_ref` 精确检查，避免“分页插错段落但数量对了”的假绿。
 
 已验证：
 
@@ -327,11 +331,21 @@ Stop gate：Word 无法可靠执行的 full-unit keep 必须降级为 best-effor
 - `uv run python -m compileall -q src/docfit/template_generation src/docfit/harness/template_generation_judge_reports.py`：通过。
 - 湖南农大真实离线生成：`/tmp/docfit-t2-pagination-impl-20260717-hunannongye`，`02_unit_map.yaml` 中 16 个单元 page 均非空，`05_template_spec.yaml` 无 page 丢失，`06.2_build_manifest.json` 有 16 条 `page_policy_results`。
 - 湖南农大 judge：`/tmp/docfit-t2-pagination-impl-20260717-hunannongye-judge-r2`，`t2_unit_pagination=FAIL` 且 finding 为 `t2_page_policy_mismatch`，证明原先“空 page 仍 PASS”的假绿已消失。
+- 南农真实离线生成：`/tmp/docfit-t2-pagination-impl-20260718-nannong-undergraduate`，11 个 T2 单元 page 均非空，T5 无 page 丢失，manifest 有 11 条 `page_policy_results`（6 executed、5 manual_review）；judge 输出 `/tmp/docfit-t2-pagination-impl-20260718-nannong-undergraduate-judge`，first bad stage 为 T2，finding 包含 `t2_page_policy_mismatch`。
+- 北大真实离线生成：`/tmp/docfit-t2-pagination-impl-20260718-pku-graduate`，12 个 T2 单元 page 均非空，T5 无 page 丢失，manifest 有 12 条 `page_policy_results`（10 executed、2 manual_review）；judge 输出 `/tmp/docfit-t2-pagination-impl-20260718-pku-graduate-judge`，first bad stage 为 T2，finding 为 `t2_page_policy_mismatch`。
+- 最终 Word/template-gap 检查已跑：
+  - `/tmp/docfit-t2-pagination-impl-20260718-hunannongye-template-gap`：FAIL + UNKNOWN；page-related checks 同时有 PASS/FAIL/UNKNOWN，说明最终 Word 层可评但学校级分页未满足。
+  - `/tmp/docfit-t2-pagination-impl-20260718-nannong-undergraduate-template-gap`：FAIL + UNKNOWN；page-related checks 为 35 PASS、3 FAIL、4 UNKNOWN。
+  - `/tmp/docfit-t2-pagination-impl-20260718-pku-graduate-template-gap`：FAIL + UNKNOWN；page-related checks 为 10 PASS、18 FAIL、3 UNKNOWN。
+- 人工 T2-style 分页策略注入验证：`uv run pytest -q tests/unit/test_template_generation_artifacts.py::test_injected_t2_page_policy_drives_t5_t6_manifest_and_docx_effects` 通过；注入 `cover/toc/abstract_cn/body_main` 的完整 canonical page 后，T5 保留，T6 生成并执行 page break、section break、keep-together，manifest 写入 `page_policy_results`，最终 DOCX 可观察到对应 OOXML effect。
+- 相关回归：`uv run pytest -q tests/unit/test_template_generation_artifacts.py tests/unit/test_t2_unit_map.py tests/contract/test_template_generate.py tests/contract/test_template_generation_standard_judge.py`：55 passed。
+- T5/T6 无损分页控制回归：`uv run pytest -q tests/unit/test_t2_unit_map.py tests/unit/test_template_generation_artifacts.py tests/unit/test_template_generation_stage_verifiers.py tests/contract/test_template_generation_standard_judge.py tests/contract/test_template_generate.py`：78 passed。
+- 编译检查：`uv run python -m compileall -q src/docfit/template_generation tests/unit/test_template_generation_artifacts.py`：通过。
 
 未标 `verified` 的原因：
 
-- 仅跑了湖南农大真实离线样本；南农和北大真实样本、最终 Word page OOXML/render 证据尚未全跑。
-- 当前离线路径没有 live T2 AI page evidence，多数 page 字段仍是 `unknown`，正确进入 review，但还不能证明学校级分页策略全满足。
+- 三校真实离线样本和最终 Word/template-gap 已在 2026-07-18 跑过，但尚未在 2026-07-20 的 T5/T6 无损分页控制加固后刷新；真实 T2 page policy 仍与 signed standard 不一致。剩余主缺口仍是 T2 生产者不能补齐 `page_isolation`、`allow_multi_page` 和 `keep_together` 等学校级语义。
+- 当前离线路径没有 live T2 AI page evidence，多数非机械 page 字段仍是 `unknown`，正确进入 review，但还不能证明学校级分页策略全满足。
 - live API route 仍需显式授权；本轮未做真实模型调用。
 
 ## 变更记录
@@ -341,3 +355,5 @@ Stop gate：Word 无法可靠执行的 full-unit keep 必须降级为 best-effor
 | 2026-07-03 | 初稿：page hint、merged 调和、plan 消费、最终页隔离门禁。 |
 | 2026-07-16 | 基于当前代码、48 个相关单测和湖南农大真实离线 run 重写：T2 四维 canonical contract、T5 单一汇总、T6 从 T5 执行、judge 假绿修复和最终 Word 分层验收。 |
 | 2026-07-17 | implemented_in_part：落地 canonical page、T2 standard/page verifier、T2 AI page proposal、T5/T6 单一消费链、manifest provenance 和 route-eval page 指标；湖南农大真实离线 judge 已从假 PASS 转为 `t2_page_policy_mismatch` FAIL。 |
+| 2026-07-18 | parked verification：补跑南农、北大真实离线生成/judge 和三校最终 Word template-gap；T2/T5 page 不再为空，T6 对机械分页有执行结果，但三校仍因 T2 page policy mismatch 和最终 Word page FAIL/UNKNOWN 保持 `implemented_in_part`。 |
+| 2026-07-20 | T5/T6 downstream hardening：按无损分页原则修 T5 首页判定、T6 page/section 边界去重、keep-together 非侵入式执行、表格 `cantSplit` 和 action-ref 级最终 DOCX 验收；相关回归 78 passed，仍待刷新三校真实样本。 |

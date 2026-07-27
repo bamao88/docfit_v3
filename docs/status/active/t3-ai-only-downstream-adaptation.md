@@ -1,118 +1,139 @@
 ---
-status: impact_confirmed
+status: implemented
 owner: template-generation
-stage: T3/T5/T6/T7/POST_T6
+stage: T1/L1/T2/T3/T4/T5/T6/T7
 created: 2026-07-23
-last_updated: 2026-07-23
+last_updated: 2026-07-24
 plan: T3-HIERARCHICAL-AI-PLAN-07
 ---
 
-# T3 AI-only 对下游的影响与适配
+# 模板生成单一 Final 结果链
 
 ## 当前结论
 
-T3 已收敛为一条 AI canonical 路线：输入为 sealed L1 加本次运行唯一 T2 最终结果，最终输出只有 `03_element_spec.yaml`。`03.1` observation、`03.1.5` sparse trace 和 `12_t3_materialization_trace.json` 都是自检证据，不是平行结果。
+模板生成业务链已经改为统一 Final Publisher 边界：T2/T3/T4 只保留 AI observation 和一个带 `result_role=final` 的 canonical 结果，下一阶段不再识别或选择 Code/Merge 路线。
 
-本次只完成 T3 内部清理和长期契约更新；T5/T6/T7、route replay、judge 与历史 run 的实现适配不在本次修改范围。本状态项记录它们目前受到的具体影响和后续完成信号。
+这次修改把原来的“T3 AI-only 下游适配”提升为所有模板生成阶段共同规则。业务含义是：以后 T2 从 merged 改为 AI-only 或 Code-only，只需要修改 T2 内部 publisher；T3 仍只读取稳定的 `02_unit_map.yaml`。
 
-## 新的单链契约
+## Expected vs Observed
 
-一次完整运行只能形成下面一条顺序链：
+### Expected
 
 ```text
-sealed L1
-  -> T2 final unit_map + availability
-  -> T3 final element_spec + availability
-  -> T4 final global_spec + availability
-  -> T5 final template_spec + availability
-  -> T6 final DOCX/build_manifest + availability
-  -> T7/POST_T6
+stage internal candidates
+  -> schema / identity / availability validation
+  -> Final Publisher
+  -> one canonical final
+  -> downstream consumer
 ```
 
-每个阶段可以在内部保留候选、原始观察或比较证据，但下一阶段只能读取该阶段已选择的一个最终结果。任何 required upstream 为 `NOT_AVAILABLE`，下游不得因为文件存在、safe Keep 可执行或 schema 完整而自动恢复为 `AVAILABLE`。
+跨阶段输入必须满足：
 
-## 契约变化
+- `stage_id`、`result_role=final` 和 `artifact_type` 正确；
+- availability 是 `AVAILABLE` 或 `NOT_AVAILABLE`；
+- L1 和直接上游 hash 与本次运行一致；
+- consumer 不按 `route_id`、`producer_mode`、AI/Code/Merge 分支；
+- required upstream 不可用时，availability 不得在下游自动恢复。
 
-| 接口 | 旧假设 | 当前 T3 契约 | 下游适配 |
-| --- | --- | --- | --- |
-| T3 输入 | L1 兼容输入或某条并行 T2 route | `03.0_t3_hierarchical_stage_input.json`，绑定 L1 与唯一 T2 final | T5 之前的编排必须证明 T3 input 的 T2 hash 等于本次 T2 final hash |
-| T3 route | `code_raw` / `ai_raw` / `merged` | 只有 `ai` | evaluator、judge、报告删除 T3 Code/Merge 卡片和 merge delta |
-| T3 最终结果 | Code、AI、Merged 多份 element spec | 只有 `03_element_spec.yaml` | 所有消费者只解析这一个文件 |
-| T3 availability | 可由 merged 或 fallback 隐式补齐 | `03_element_spec.yaml#/route/availability` 是唯一权威 | T5 原样记录；T6/T7 按 required-upstream 规则阻断或降级 |
-| T3 程序产物 | proposal、decision、overlay 可被当成执行结果 | observation/sparse/materialization trace 只作自检 | 不允许从 trace 重新生成第二份策略结果 |
-| T3 失败行为 | 回退 Code policy | safe Keep，route 仍为 `NOT_AVAILABLE` | 下游可生成审阅预览，但不得宣称 T3 可用或质量通过 |
+### 变更前 observed
 
-## 当前已确认的下游缺口
+- T3 可以直接接收 `ai_unit_observation`；
+- T6 元素动作主要从运行内 `generation_model.unit_strategies` 生成，而不是只从 T5；
+- `02.3_t2_merged_unit_map.yaml`、`04.2_t4_merged_global_spec.yaml` 既像候选证据又像业务输入；
+- T5/T6 虽记录若干 hash，但没有统一强类型 final 边界；
+- AI observation、普通 dict 和 canonical final 在接口上难以区分，误传时可能静默运行。
 
-### T5：template_spec 合并
+## 已实施
 
-当前 `build_template_spec` 会复制 T3 elements 并记录 `element_spec` hash，但没有保存 T2/T3/T4 各自的 `route_id`、availability 和 reason。它因此无法证明 `template_spec` 的 availability 是三个唯一最终上游结果的保守合并。
+### 统一 final 契约
 
-需要适配：
+新增 `FinalStageResult` 和 Final Publisher。canonical payload 统一写入：
 
-1. 在 `template_spec` 增加结构化 `upstream_results`，至少记录 T2/T3/T4 artifact hash、route id、availability 和 reason。
-2. `template_spec.route.availability` 使用 required upstream 的保守合并；T3 `NOT_AVAILABLE` 时 T5 不得标成 `AVAILABLE`。
-3. T5 verifier 校验记录的 T3 hash 等于实际 `03_element_spec.yaml`，且 route id 只能为 `ai`。
-4. T5 不读取 `t3_materialization_trace` 生成或覆盖 element policy；trace 只用于诊断。
+```yaml
+stage_id: T2
+result_role: final
+artifact_type: unit_map
+availability:
+  status: AVAILABLE
+  reason: null
+input_refs: {}
+lineage:
+  producer_mode: merged
+  selected_from: []
+```
 
-### T6：Word 动作计划与执行
+消费者边界会拒绝候选 observation、缺少 final metadata 的普通 dict、错误 artifact type、错误阶段或不匹配的 L1 hash。
 
-当前动作计划的大部分元素动作仍从运行内 `generation_model.unit_strategies` 生成，只有分页优先读取 `template_spec`。这会让 T3 canonical element policy 与实际 Word 动作之间缺少单一权威消费证明。
+### 业务消费链
 
-需要适配：
+| Consumer | 唯一业务输入 |
+| --- | --- |
+| T3 | T2 final `02_unit_map.yaml` + sealed L1 facts |
+| T5 | T2 final + T3 final + T4 final；L1 仅做 hash/identity 校验 |
+| T6 plan/manifest | T5 final `05_template_spec.yaml`；L1 仅做物理身份解析 |
+| T7 final | T6 final，并记录 T5/T6 hash refs |
 
-1. T3 相关的 Keep/Fill/Delete/Generated 动作只从 T5 `template_spec.units[].elements[]` 构造。
-2. 每条动作保留 `element_id`、run/span identities、T3 decision trace ref 和 T3 input hash。
-3. T3 availability 为 `NOT_AVAILABLE` 时，只允许 copy、安全 Keep 和明确的非 T3 动作；禁止扩大删除、替换或生成字段。
-4. build manifest 记录 action 的 upstream stage、artifact hash、availability 和执行前置条件。
-5. T6 fresh observation 验证最终 DOCX 效果，不能用“action 已执行”代替效果证据。
+T3/T4 仍按真实 DAG 工作：T3 依赖 T2 final，T4 可与 T3 并行，T5 汇合三个 final。这里的“唯一输入”指每条业务边只有一个 canonical final，不是强行把并行阶段改成假串行。
 
-### T7：运行验证
+### 稳定产物与 hash 链
 
-当前 T3 verifier 检查 policy 枚举和必需字段，T5 verifier 检查合并后的元素字段，但没有验证 availability 从 T3 到 T5/T6 的连续传递。
+稳定 canonical 文件为：
 
-需要适配：
+```text
+01_document_facts.json
+01.5_l1_input_contract.json
+02_unit_map.yaml
+03_element_spec.yaml
+04_global_spec.yaml
+05_template_spec.yaml
+06.1_fillable_template.docx + 06.2_build_manifest.json
+07_verification_report.json
+```
 
-1. 增加 availability chain 检查：T3 → T5 → T6 不得从 `NOT_AVAILABLE` 升为 `AVAILABLE`。
-2. 校验 T3 final 的 L1 hash、T2 final hash和 T5 记录的 T3 artifact hash。
-3. 自检 trace 中有 unmatched claim、conflict、unmaterialized object 或 fallback 时，报告具体 owner；不把 trace 计作第二条 route。
-4. first-bad-stage 在 T3 不可用或 hash 不一致时停在 T3/T5 边界，不归因给最终 Word 渲染。
+当前 hash 链为：
 
-### Route replay、judge 和报告
+```text
+T2 final
+  -> T3 Stage Input
+  -> T3 final
+T2/T3/T4 final
+  -> T5 final
+T5 final
+  -> T6 build manifest final
+T5/T6 final
+  -> T7 final
+```
 
-当前 route replay 的 `code_raw` T5 会同时读取 Code T2/T4 与 canonical AI-only T3，再把结果命名为 `code_raw`；judge 的通用查找仍允许 T3 `code_raw` / `ai_raw`。这不是 T3 内部残留，但会让报告误读为“完整 Code 路线包含一个 Code T3”。
+T2/T3/T4 的 Code/AI/Merge 编号候选已经退出；仅保留各阶段 AI raw 证据和稳定 canonical final。
 
-需要适配：
+### availability
 
-1. T2/T4 route replay 把 T3 表达为共享的 canonical upstream，不再生成或展示 T3 Code/Merge route。
-2. 路线名称表达真实组合，例如 T2/T4 route tuple + `t3=ai`，或者只展示每阶段最终结果链；不能把混合来源简写成全链 `code_raw`。
-3. T3 stage card 只允许 route id `ai`，不计算 merge consumption 和 merge delta。
-4. T3 `NOT_AVAILABLE` 时所有依赖它的 T5/T6 replay 明确 `NOT_AVAILABLE`。
+- T5 对 T2/T3/T4 final 做保守合并；
+- T6 和 T7 继续传播 T5/T6 availability；
+- `NOT_AVAILABLE` 时仍可复制源文件、创建产品固定 body slot 或输出安全预览，但不能据此宣称上游语义可用，也不能生成依赖不可用 T3 policy 的删除、替换或字段动作。
 
-### 历史产物与兼容读取
+## 验证证据
 
-历史 `test_outputs/` 中的 T3 Code/Merged、comparison、`01.7` 或 overlay 文件保留为历史证据，不作为当前实现残留，也不能被新 run 自动发现为正式输入。读取旧 run 时应显式标记 legacy artifact，并只映射到报告，不映射回当前业务链。
+- final contract、候选拒绝、hash ref、availability 单测；
+- T3 hierarchical/sparse/observation pipeline 聚焦测试；
+- 反例：AI unit observation 与 T2 final 故意不同，T3 unit roots 只使用 final；
+- T5/T6 计划与 manifest 测试，证明动作从 T5 elements 生成；
+- T7 反例：直接上游 hash 不一致或 availability 被升级时，输出结构化 finding 并影响 stage status/first bad stage；
+- 完整 template-generate 契约测试，校验 canonical 文件、availability 和 T5→T6 hash。
+- 湖南农大真实模板 AI-off 全链：`/private/tmp/docfit_final_chain_20260724`。run manifest 中 T1/L1/T2/T4 为 `AVAILABLE`，T3/T5/T6/T7 保守保持 `NOT_AVAILABLE`，直接上游 hash 全部可重算；整体 `quality_status=FAIL` 和 `first_bad_stage=T2` 属于既有学校质量结果，不是 final 链断裂。
 
-## 适配顺序
+本状态记录的是本轮实现落地，不代表 T3 真实准确率、三校 gold 或最终学校质量已经 verified。
 
-1. 先给 T5 增加 `upstream_results` 和 availability 保守合并。
-2. 再让 T6 的 T3 动作完全从 T5 canonical elements 生成。
-3. 补 T7 hash/availability/first-bad-stage 验证。
-4. 最后收敛 route replay、judge、报告和旧 run reader。
+## Remaining
 
-这个顺序可以先建立业务数据链，再修展示和历史兼容，避免报告先变而执行仍消费旧权威。
+以下属于诊断和质量闭环残留，不再阻塞业务链使用 final：
+
+1. 历史 run reader 仍需显式标记 legacy candidate，不把旧 `02.3`/`04.2` 自动映射为当前 final。
+2. 三校真实运行、T3/T4 accuracy 和最终 Word 质量仍按 Plan 07、Plan 13 及其他 active status 验收。
 
 ## 完成信号
 
-- 同一 run 中 T3 stage input 的 T2 hash 与 T2 final hash 完全一致。
-- T5 只记录一个 T3 final，并保存其 hash、`route_id=ai` 和 availability。
-- T3 `NOT_AVAILABLE` 反例中，T5/T6/T7 不会恢复为 `AVAILABLE`，且不会产生 T3 删除/替换动作。
-- T6 manifest 的每个 T3 动作都能追溯到 `03_element_spec.yaml` 的唯一 element/run/span identity。
-- T3 stage card 只有 AI canonical 指标，无 Code/Merged route 和 merge delta。
-- 新 run 不写入、不读取 `01.7_t3_l1_compatibility_input.json`、`03.0_t3_unit_windows.json`、observation bundle `unit_windows`、T3 layered proposal、`agent_t3_overlay` 或 T3 Code/Merged element spec。
+本项进入 `verified` 前还需：
 
-## 本次边界
-
-- 已完成：T3 兼容输入、proposal/schema、flat pipeline、overlay 清理；T3 materialization self-check；长期文档同步。
-- 未完成：上述 T5/T6/T7/route replay/judge 代码适配和端到端 availability 反例。
-- 不在本项修改：T2/T4 自身的 Code/AI/Merged 设计与质量。
+- route/judge/report 残留扫描证明没有候选被重新接回业务链；
+- 关联 Plan 07、状态索引和长期架构/测试文档保持一致。

@@ -7,7 +7,8 @@ from typer.testing import CliRunner
 
 from docfit.cli.main import app
 from docfit.convert.orchestrator import run_template_generate_eval
-from docfit.core.io import read_json, sha256_file, write_yaml
+from docfit.core.io import read_json, sha256_file, write_json, write_yaml
+from docfit.template_generation.agent.config import AgentConfig
 
 
 def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
@@ -20,7 +21,12 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     _write_demo_standard_set(tmp_path, sha256_file(source))
     bundle_root = tmp_path / "test_outputs/debug/template_generation/demo-school-run"
     run_dir = bundle_root / "eval_runs/template_generate"
-    run_template_generate_eval(tmp_path, source, run_dir)
+    run_template_generate_eval(
+        tmp_path,
+        source,
+        run_dir,
+        agent_config=_ai_replay_config(tmp_path),
+    )
 
     out_dir = bundle_root / "eval_runs/template_generation_judge"
     result = CliRunner().invoke(
@@ -79,8 +85,8 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
         assert (out_dir / f"{report_name}.md").exists()
     assert (out_dir / "template_generation_root_cause_report.json").exists()
     assert (out_dir / "template_generation_root_cause_report.md").exists()
-    assert (out_dir / "template_agent_bridge_standard_acceptance.json").exists()
-    assert (out_dir / "template_agent_bridge_standard_acceptance.md").exists()
+    assert not (out_dir / "template_agent_bridge_standard_acceptance.json").exists()
+    assert not (out_dir / "template_agent_bridge_standard_acceptance.md").exists()
     assert (out_dir / "template_generation_route_eval_report.json").exists()
     assert (out_dir / "template_generation_route_eval_report.md").exists()
 
@@ -91,7 +97,6 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     unit_quality = read_json(out_dir / "02_unit_map_standard_quality_report.json")
     unit_diff = read_json(out_dir / "02_unit_map_standard_diff_report.json")
     root_cause_report = read_json(out_dir / "template_generation_root_cause_report.json")
-    bridge_acceptance = read_json(out_dir / "template_agent_bridge_standard_acceptance.json")
     route_eval = read_json(out_dir / "template_generation_route_eval_report.json")
     l1_contract = read_json(run_dir / "01.5_l1_input_contract.json")
     fillable_quality = read_json(
@@ -141,9 +146,6 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     assert unit_diff["fix_plan"][0]["action"].startswith("Implement or configure")
     assert root_cause_report["report_kind"] == "root_cause_report"
     assert len(root_cause_report["mismatches"]) == len(judge_report["mismatches"])
-    assert bridge_acceptance["report_kind"] == "agent_bridge_standard_acceptance"
-    assert bridge_acceptance["bridge_present"] is False
-    assert "bridged_output_accuracy" in bridge_acceptance
     assert route_eval["artifact_type"] == "template_generation_route_eval_report"
     assert l1_contract["artifact_type"] == "template_generation_l1_input_contract"
     assert "source_text_index" in l1_contract
@@ -152,7 +154,7 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     assert "visual_page_index" in l1_contract
     assert "run_index" in l1_contract
     assert "bundle_gate_view" not in l1_contract
-    assert len(route_eval["routes"]) == 21
+    assert len(route_eval["routes"]) == 9
     assert set(route_eval["stage_metrics"]) == {
         "T1",
         "L1",
@@ -166,40 +168,48 @@ def test_template_generation_judge_cli_writes_bundle_stage_checks_and_reports(
     }
     assert route_eval["stage_metrics"]["L1"]["coverage"]["available"] is True
     assert route_eval["stage_metrics"]["T3"]["route_availability"] == {
-        "ai": "NOT_AVAILABLE"
+        "ai": "AVAILABLE"
     }
-    assert route_eval["stage_metrics"]["T6"]["route_availability"]["merged"] == "AVAILABLE"
-    assert route_eval["stage_metrics"]["POST_T6"]["route_availability"]["merged"] == "AVAILABLE"
-    assert route_eval["stage_metrics"]["T5"]["route_availability"]["code_raw"] == (
-        "NOT_AVAILABLE"
-    )
-    assert route_eval["stage_metrics"]["T5"]["route_availability"]["ai_raw"] in {
-        "NOT_AVAILABLE",
-        "OUT_OF_SCOPE",
+    assert route_eval["stage_metrics"]["T4"]["route_availability"] == {
+        "ai": "AVAILABLE"
+    }
+    assert route_eval["stage_metrics"]["T5"]["route_availability"] == {
+        "canonical": "AVAILABLE"
+    }
+    assert route_eval["stage_metrics"]["T6"]["route_availability"] == {
+        "canonical": "AVAILABLE"
+    }
+    assert route_eval["stage_metrics"]["POST_T6"]["route_availability"] == {
+        "canonical": "AVAILABLE"
     }
     t2_ai_route = next(
         route
         for route in route_eval["routes"]
-        if route["stage_id"] == "T2" and route["route_id"] == "ai_raw"
+        if route["stage_id"] == "T2" and route["route_id"] == "ai"
     )
-    assert t2_ai_route["availability"] == "NOT_AVAILABLE"
-    assert "no AI observation bundle" in t2_ai_route["reason"]
-    assert t2_ai_route["payload_summary"]["item_count"] == 0
-    assert "no AI observation bundle" in route_eval["stage_metrics"]["T2"]["route_reasons"]["ai_raw"]
-    ai_not_available = [
-        mismatch
+    assert t2_ai_route["availability"] == "AVAILABLE"
+    assert route_eval["stage_metrics"]["T2"]["route_availability"] == {
+        "ai": "AVAILABLE"
+    }
+    assert not any(
+        mismatch["stage_id"] == "T2"
+        and mismatch["type"] == "canonical_ai_not_available"
         for mismatch in route_eval["mismatches"]
-        if mismatch["stage_id"] == "T2" and mismatch["type"] == "ai_raw_not_available"
-    ][0]
-    assert "no AI observation bundle" in ai_not_available["observed"]
+    )
     assert "mismatches" in route_eval
     assert "root_causes" in route_eval
     assert "owner_assignments" in route_eval
     assert "fix_plan" in route_eval
     assert fillable_quality["stage_id"] == "T6"
     assert fillable_quality["stage_key"] == "t6_fillable_template"
-    assert fillable_quality["comparison_scope"] == "run_bundle_artifact_binding"
+    assert fillable_quality["comparison_scope"] == (
+        "run_bundle_binding_and_final_docx_observation"
+    )
     assert fillable_quality["standard_acceptance_status"] == "PASS"
+    assert not any(
+        finding["type"] == "build_page_policy_needs_review"
+        for finding in fillable_quality["findings"]
+    )
 
 
 def test_template_generation_standard_quality_cli_supports_profile(
@@ -304,102 +314,52 @@ def test_template_generation_full_cli_writes_gap_judge_and_full_summary(
     assert "next_optimization_targets" in quality_report
 
 
-def test_route_eval_reports_t4_layout_hint_consumption_gaps(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.chdir(tmp_path)
-    source = tmp_path / "inputs/targets/demo-school/raw/source_template.docx"
-    _write_source_docx(source, ["封面", "正文"])
-    _write_demo_standard_set(tmp_path, sha256_file(source))
-    from docfit.template_generation.agent.packet import build_template_agent_render_packet
-    from docfit.template_generation.artifacts import source_tree_from_document_facts
-    from docfit.template_generation.source_tree import inspect_document_facts_docx
-    from docfit.template_generation.structure_candidates import build_template_structure_candidates
-    from docfit.core.io import write_json
-
-    facts = inspect_document_facts_docx(source)
-    candidates = build_template_structure_candidates(source_tree_from_document_facts(facts))
-    packet = build_template_agent_render_packet(
-        document_facts=facts,
-        structure_candidates=candidates,
-        source_template_docx=source,
-    )
-    packet["render_status"] = "real_render"
-    packet["render_artifacts"]["render_status"] = "real_render"
-    packet_path = tmp_path / "packet.json"
-    bundle_path = tmp_path / "observation_bundle.json"
-    write_json(packet_path, packet)
+def _ai_replay_config(tmp_path: Path) -> AgentConfig:
+    replay = tmp_path / "t2-ai-replay.json"
     write_json(
-        bundle_path,
+        replay,
         {
-            "artifact_type": "ai_observation_bundle",
-            "source_render_hash": packet["source_render_hash"],
-            "model": "fixture",
-            "ai_unit_observation": {
-                "artifact_type": "ai_unit_observation",
-                "items": [],
-                "quality_report": {"demotions": []},
-            },
-            "ai_element_observation": {
-                "artifact_type": "ai_element_observation",
-                "items": [],
-                "quality_report": {"demotions": []},
-            },
-            "ai_layout_observation": {
-                "artifact_type": "ai_layout_observation",
-                "items": [
+            "t2": [
+                {
+                    "units": [
+                        {
+                            "unit_id": "template_pages",
+                            "unit_name": "模板页面",
+                            "boundary": {"start_page": 1, "end_page": 1},
+                        }
+                    ]
+                }
+            ],
+            "t3": {},
+            "t4": {
+                "section_profiles": [
                     {
-                        "section_profile_id": "section_1",
-                        "source_seq_refs": [1],
-                        "confidence": "high",
+                        "section_profile_id": "section_001",
+                        "source_ref": "word/document.xml:body/sectPr",
+                        "boundary": {
+                            "start_source_seq": 1,
+                            "end_source_seq": 3,
+                            "confidence": "high",
+                        },
+                        "page_setup": {},
+                        "header_footer": [],
+                        "page_numbering": {},
+                        "evidence_refs": [
+                            {"page_no": 1, "render_target_id": "page:1"}
+                        ],
                     }
                 ],
-                "abstain": False,
-                "quality_report": {"demotions": []},
+                "page_numbering": {"status": "unknown"},
+                "header_footer": [],
+                "numbering_rules": [],
             },
         },
     )
-    run_dir = tmp_path / "runs/template_generate"
-    generate_result = CliRunner().invoke(
-        app,
-        [
-            "eval",
-            "template-generate",
-            "--template",
-            str(source),
-            "--out",
-            str(run_dir),
-            "--agent-render-packet",
-            str(packet_path),
-            "--agent-observation-bundle",
-            str(bundle_path),
-        ],
+    return AgentConfig(
+        enabled=True,
+        observation_mode="replay",
+        observation_transcript_path=replay,
     )
-    assert generate_result.exit_code == 0, generate_result.output
-    out_dir = tmp_path / "runs/template_generation_judge"
-    judge_result = CliRunner().invoke(
-        app,
-        [
-            "eval",
-            "template-generation-judge",
-            "--school",
-            "demo-school",
-            "--run",
-            str(run_dir),
-            "--out",
-            str(out_dir),
-        ],
-    )
-    assert judge_result.exit_code == 0, judge_result.output
-
-    route_eval = read_json(out_dir / "template_generation_route_eval_report.json")
-    consumption = route_eval["stage_metrics"]["T4"]["hint_consumption"]
-    assert consumption["section_profile_hint_count"] == 1
-    assert consumption["page_numbering_hint_count"] == 0
-    assert consumption["section_profile_effective_action_count"] == 1
-    assert consumption["page_numbering_effective_action_count"] == 0
-    mismatch_types = {
-        mismatch["type"] for mismatch in route_eval["mismatches"]
-    }
-    assert "t4_section_profile_hint_advisory_only" not in mismatch_types
 
 
 def _write_source_docx(path: Path, paragraphs: list[str]) -> None:
@@ -442,9 +402,7 @@ def _write_demo_standard_set(root: Path, source_hash: str) -> None:
             "school_id": "demo-school",
             "expected": {
                 "units": [
-                    {"unit_id": "cover"},
-                    {"unit_id": "toc"},
-                    {"unit_id": "body_main"},
+                    {"unit_id": "template_pages"},
                 ]
             },
         },
@@ -503,8 +461,16 @@ def _write_demo_standard_set(root: Path, source_hash: str) -> None:
             "t2_unit_pagination",
             "unit_map",
             {
-                "unit_order": ["cover", "toc", "body_main"],
-                "units": [{"unit_id": "cover"}, {"unit_id": "toc"}, {"unit_id": "body_main"}],
+                "unit_order": ["template_pages"],
+                "units": [
+                    {
+                        "unit_id": "template_pages",
+                        "page_policy": {
+                            "start": "document_start",
+                            "scope": "page_range_exclusive",
+                        },
+                    },
+                ],
             },
         ),
         (
@@ -512,11 +478,11 @@ def _write_demo_standard_set(root: Path, source_hash: str) -> None:
             "t3_element_policy",
             "element_spec",
             {
-                "unit_order": ["cover", "toc", "body_main"],
+                "unit_order": ["template_pages"],
                 "policy_groups": {
-                    "fixed_units": ["cover"],
-                    "generated_units": ["toc"],
-                    "fill_units": ["body_main"],
+                    "fixed_units": ["template_pages"],
+                    "generated_units": [],
+                    "fill_units": [],
                 },
                 "element_policy_contract": {
                     "required_fields_by_policy": {
@@ -531,7 +497,7 @@ def _write_demo_standard_set(root: Path, source_hash: str) -> None:
             "t4_global_layout",
             "global_spec",
             {
-                "unit_order": ["cover", "toc", "body_main"],
+                "unit_order": ["template_pages"],
                 "global_layout_contract": {
                     "artifact_type": "global_spec",
                     "section_profiles_required": True,
@@ -543,7 +509,7 @@ def _write_demo_standard_set(root: Path, source_hash: str) -> None:
             "t5_template_spec",
             "template_spec",
             {
-                "unit_order": ["cover", "toc", "body_main"],
+                "unit_order": ["template_pages"],
                 "template_spec_contract": {
                     "required_input_hashes": [
                         "document_facts",

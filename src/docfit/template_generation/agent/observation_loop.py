@@ -2,17 +2,17 @@
 
 三阶段 pass，每阶段产物即终稿（不 patch 代码结构）：
 
-  Pass-T2 : clean evidence 全文压缩 → 自一致性 N 投票 → 物化 → ai_unit_observation
-  Pass-T3 : 从【AI 自己的最终 T2 结果】构建分层输入 → 稀疏判断 → ai_element_observation
-  Pass-T4 : 真实页图（否则 abstain） → 物化 → ai_layout_observation
+  Pass-T2 : 真实页图 + 逐页客观事实 → 单次 AI 页面分组 → 严格校验
+  Pass-T3 : 从【T2 Final Publisher 的唯一结果】构建分层输入 → 稀疏判断 → ai_element_observation
+  Pass-T4 : 真实页图 + sealed L1 事实 → 单次 AI 布局判断 → 严格物化
 
 编排只认一个 ``responder`` 抽象：
 
   - ``ReplayResponder``（确定性回归护栏）从 transcript 取原始 payload；
   - ``LiveResponder``（真实模型，见 observation_live）逐阶段调用 OpenAI 兼容端点。
 
-关键：T3 prompt 依赖 T2 的真实输出（AI 自己的单元），所以 live 必须在 T2 调用拿到
-结果后再发 T3——这正是 responder 内联在编排里、而非预先攒好整包 transcript 的原因。
+关键：T3 prompt 只能依赖 T2 final，不能接收 AI observation 或任一内部 route
+candidate。所有调用都通过唯一的 AI T2 publisher 进入 T3。
 """
 
 from __future__ import annotations
@@ -21,17 +21,26 @@ import time
 from typing import Any, Protocol
 
 from docfit.core.io import now_iso, sha256_json
+from docfit.template_generation.final_results import (
+    AVAILABLE,
+    NOT_AVAILABLE,
+    FinalStageResult,
+)
+from docfit.template_generation.t2_ai import (
+    T2AIContractError,
+    materialize_t2_ai_observation,
+    publish_t2_ai_final,
+    require_t2_page_packet,
+)
 
 from .evidence import build_t2_evidence, build_t4_evidence
 from .observation_config import ObservationConfig, ObservationConfigError
 from .observation_materialize import (
     materialize_layout_observation,
-    materialize_unit_observation,
 )
 from .observation_schema import (
     OBSERVATION_SCHEMA_VERSION,
     PROMPT_CONTRACT_VERSION,
-    UNKNOWN_UNIT_ID,
 )
 from .packet import packet_source_seq_set
 from .t3_hierarchical_input import (
@@ -110,16 +119,14 @@ def run_observation_pipeline(
     ``t3_concurrency`` > 1 时按单元并发跑 T3（各单元窗口独立），缩短 live 墙钟。
     """
 
-    config = config or ObservationConfig(enabled=True)
-    if config.self_consistency_samples < 1:
-        raise ObservationConfigError("observation self_consistency_samples must be >= 1")
+    config = config or ObservationConfig()
     if responder is None:
         responder = ReplayResponder(transcript or {})
 
     timing: dict[str, float] = {}
     pipeline_start = time.monotonic()
 
-    # --- Pass-T2：全文压缩 → 自一致性投票 → 物化 ---
+    # --- Pass-T2：逐页图像与客观事实 → 单次 AI 页面分组 → 严格物化 ---
     t2_start = time.monotonic()
     unit_observation, t2_consistency, t2_evidence = run_t2_observation(
         packet=packet,
@@ -128,10 +135,16 @@ def run_observation_pipeline(
     )
     timing["t2_seconds"] = round(time.monotonic() - t2_start, 2)
 
-    # --- Pass-T3：从 AI 自己的最终 T2 结果构建唯一分层输入 → 物化 ---
+    # --- Final-T2：唯一 AI publisher；T3 不认识 candidate route。 ---
+    t2_final = publish_t2_ai_final(
+        unit_observation,
+        packet=packet,
+    )
+
+    # --- Pass-T3：只从 T2 final 构建唯一分层输入 → 物化 ---
     t3_start = time.monotonic()
     element_observation, t3_stage_input = run_t3_observation(
-        ai_unit_observation=unit_observation,
+        t2_final=t2_final,
         responder=responder,
         packet=packet,
         config=config,
@@ -139,19 +152,16 @@ def run_observation_pipeline(
     )
     timing["t3_seconds"] = round(time.monotonic() - t3_start, 2)
 
-    # --- Pass-T4：Track A 确定性版式(T1 分节事实) + 渲染 per-seq page_no
-    # + Track B 视觉逐页读图(MiniMax M3, 有 vision_responder 且有页图时) ---
+    # --- Pass-T4：AI 是唯一布局语义来源；代码只提供证据与物化校验。 ---
     t4_start = time.monotonic()
-    replay_layout_payload = (
-        responder.fetch_layout(evidence=build_t4_evidence(packet))
-        if isinstance(responder, ReplayResponder)
-        else None
-    )
+    t4_evidence = build_t4_evidence(packet)
+    raw_layout_payload = responder.fetch_layout(evidence=t4_evidence)
     layout_observation, t4_evidence = run_t4_observation(
         packet=packet,
         config=config,
         vision_responder=vision_responder,
-        raw_payload=replay_layout_payload,
+        raw_payload=raw_layout_payload,
+        evidence=t4_evidence,
     )
     timing["t4_seconds"] = round(time.monotonic() - t4_start, 2)
     timing["total_seconds"] = round(time.monotonic() - pipeline_start, 2)
@@ -164,8 +174,8 @@ def run_observation_pipeline(
         "source_render_hash": packet.get("source_render_hash"),
         "input_contract_hash": packet.get("input_contract_hash"),
         "model": config.model,
-        "self_consistency_samples": config.self_consistency_samples,
         "ai_unit_observation": unit_observation,
+        "t2_final_result": t2_final.payload,
         "ai_element_observation": element_observation,
         "ai_layout_observation": layout_observation,
         "t3_hierarchical_stage_input": t3_stage_input,
@@ -188,17 +198,15 @@ def run_t2_observation(
 ) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     """Run only the T2 live/replay observation pass."""
 
-    if config.self_consistency_samples < 1:
-        raise ObservationConfigError("observation self_consistency_samples must be >= 1")
+    require_t2_page_packet(packet)
     evidence = build_t2_evidence(packet)
     samples = responder.fetch_units(
         evidence=evidence,
-        n_samples=config.self_consistency_samples,
+        n_samples=1,
     )
     observation, consistency = _run_t2(
         samples=samples,
         packet=packet,
-        valid_seq=packet_source_seq_set(packet),
         model=config.model,
     )
     observation["input_contract_hash"] = packet.get("input_contract_hash")
@@ -208,16 +216,16 @@ def run_t2_observation(
 def run_t3_observation(
     *,
     packet: dict[str, Any],
-    ai_unit_observation: dict[str, Any],
+    t2_final: FinalStageResult,
     responder: ObservationResponder,
     config: ObservationConfig,
     concurrency: int = 1,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Run only T3 from the selected AI-produced final T2 result."""
+    """Run only T3 from the selected published final T2 result."""
 
     observation, stage_input = _run_t3(
         responder=responder,
-        t2_unit_result=ai_unit_observation,
+        t2_final=t2_final,
         packet=packet,
         valid_seq=packet_source_seq_set(packet),
         model=config.model,
@@ -227,16 +235,72 @@ def run_t3_observation(
     return observation, stage_input
 
 
+def _unavailable_t3_observation(
+    *,
+    packet: dict[str, Any],
+    model: str,
+    stage_input: dict[str, Any],
+    reason: str,
+) -> dict[str, Any]:
+    return {
+        "artifact_type": "ai_element_observation",
+        "schema_version": OBSERVATION_SCHEMA_VERSION,
+        "prompt_contract_version": PROMPT_CONTRACT_VERSION,
+        "stage": "t3",
+        "source_render_hash": packet.get("source_render_hash"),
+        "model": model,
+        "created_at": now_iso(),
+        "stage_input_ref": {
+            "artifact_version": stage_input.get("artifact_version"),
+            "tree_hash": stage_input.get("tree_hash"),
+            "contract": dict(stage_input.get("contract") or {}),
+        },
+        "coverage": {
+            "total": len(packet_source_seq_set(packet)),
+            "owned_source_seq": [],
+            "unknown_source_seq": sorted(packet_source_seq_set(packet)),
+        },
+        "items": [],
+        "object_items": [],
+        "unknown_items": [],
+        "open_questions": [
+            {
+                "question_id": "q_t3_required_t2_final_unavailable",
+                "blocking_level": "blocking",
+                "reason": reason,
+            }
+        ],
+        "abstain": True,
+        "self_consistency": None,
+        "sparse_decisions": [],
+        "atomic_coverage": [],
+        "sparse_call_records": [],
+        "quality_report": {
+            "availability": NOT_AVAILABLE,
+            "reason": reason,
+            "t2_final_hash": (stage_input.get("contract") or {}).get(
+                "t2_final_hash"
+            ),
+            "decision_call_count": 0,
+            "coverage_validation": {
+                "valid": False,
+                "errors": [{"type": "required_t2_final_unavailable", "message": reason}],
+            },
+        },
+    }
+
+
 def run_t4_observation(
     *,
     packet: dict[str, Any],
     config: ObservationConfig,
     vision_responder: Any = None,
     raw_payload: dict[str, Any] | None = None,
+    evidence: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Run only T4; a live vision responder consumes the rendered page images."""
+    """Materialize one AI T4 answer and optional per-page visual evidence."""
 
-    evidence = build_t4_evidence(packet)
+    evidence = evidence or build_t4_evidence(packet)
     render_available = bool(evidence.get("render_available"))
     page_observations: list[dict[str, Any]] = []
     if vision_responder is not None and render_available:
@@ -281,102 +345,26 @@ def _run_t2(
     *,
     samples: list[dict[str, Any]],
     packet: dict[str, Any],
-    valid_seq: set[int],
     model: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     if not samples:
-        observation = materialize_unit_observation([], packet=packet, model=model)
-        return observation, {"samples": 0, "agreement": {}}
-
-    if len(samples) == 1:
-        observation = materialize_unit_observation(
-            list(samples[0].get("items", []) or []), packet=packet, model=model
+        raise T2AIContractError("T2 AI returned no output")
+    if len(samples) != 1:
+        raise T2AIContractError(
+            f"T2 accepts exactly one AI output, got {len(samples)}"
         )
-        return observation, {"samples": 1, "agreement": {}}
-
-    voted_items, consistency = _vote_units(samples, valid_seq=valid_seq)
-    observation = materialize_unit_observation(
-        voted_items, packet=packet, model=model, self_consistency=consistency
+    observation = materialize_t2_ai_observation(
+        samples[0],
+        packet=packet,
+        model=model,
     )
-    return observation, consistency
-
-
-def _vote_units(
-    samples: list[dict[str, Any]],
-    *,
-    valid_seq: set[int],
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """每 source_seq 跨样本多数投票 unit_id；ratio→confidence，平票→unknown。"""
-
-    total = len(samples)
-    votes: dict[int, dict[str, int]] = {seq: {} for seq in valid_seq}
-    for sample in samples:
-        for item in sample.get("items", []) or []:
-            unit_id = str(item.get("unit_id") or "")
-            for seq in _ints(item.get("source_seq_refs")):
-                if seq in votes:
-                    votes[seq][unit_id] = votes[seq].get(unit_id, 0) + 1
-
-    seq_to_unit: dict[int, str] = {}
-    agreement: dict[str, float] = {}
-    for seq in sorted(valid_seq):
-        tally = votes.get(seq, {})
-        if not tally:
-            # 无人认领的 seq 直接 unknown；不写进 agreement（避免 0.0 噪声）。
-            seq_to_unit[seq] = UNKNOWN_UNIT_ID
-            continue
-        top_count = max(tally.values())
-        leaders = [unit_id for unit_id, count in tally.items() if count == top_count]
-        ratio = top_count / total
-        if len(leaders) != 1 or ratio < 0.5:
-            seq_to_unit[seq] = UNKNOWN_UNIT_ID
-        else:
-            seq_to_unit[seq] = leaders[0]
-        agreement[str(seq)] = round(ratio, 3)
-
-    items = _group_contiguous(seq_to_unit, agreement)
-    consistency = {
-        "samples": total,
-        "agreement": agreement,
-        "rule": ">=0.8 high / >=0.5 medium / tie or <0.5 unknown",
-    }
-    return items, consistency
-
-
-def _group_contiguous(
-    seq_to_unit: dict[int, str],
-    agreement: dict[str, float],
-) -> list[dict[str, Any]]:
-    """把连续且同 unit_id 的 source_seq 合并成 item，confidence 由一致率定档。"""
-
-    items: list[dict[str, Any]] = []
-    current: dict[str, Any] | None = None
-    for seq in sorted(seq_to_unit):
-        unit_id = seq_to_unit[seq]
-        if unit_id == UNKNOWN_UNIT_ID:
-            current = None
-            continue
-        ratio = agreement.get(str(seq), 0.0)
-        confidence = "high" if ratio >= 0.8 else "medium"
-        if current and current["unit_id"] == unit_id and seq == current["source_seq_refs"][-1] + 1:
-            current["source_seq_refs"].append(seq)
-            current["_ratios"].append(ratio)
-        else:
-            current = {"unit_id": unit_id, "source_seq_refs": [seq], "_ratios": [ratio], "confidence": confidence}
-            items.append(current)
-    # 整 item confidence = 段内最低档（保守）。
-    for item in items:
-        ratios = item.pop("_ratios", [1.0])
-        worst = min(ratios)
-        item["confidence"] = "high" if worst >= 0.8 else "medium"
-        item["order"] = item["source_seq_refs"][0]
-    return items
+    return observation, {"samples": 1, "mode": "single_ai_output"}
 
 
 def _run_t3(
     *,
     responder: ObservationResponder,
-    t2_unit_result: dict[str, Any],
+    t2_final: FinalStageResult,
     packet: dict[str, Any],
     valid_seq: set[int],
     model: str,
@@ -385,7 +373,7 @@ def _run_t3(
     del valid_seq, concurrency
     stage_input = build_t3_hierarchical_stage_input(
         packet,
-        t2_unit_result=t2_unit_result,
+        t2_final=t2_final,
     )
     validation = validate_t3_hierarchical_stage_input(stage_input)
     if not validation["valid"]:
@@ -396,6 +384,16 @@ def _run_t3(
         raise ObservationConfigError(
             f"T3 hierarchical Stage Input validation failed: {messages}"
         )
+    if t2_final.availability != AVAILABLE:
+        return _unavailable_t3_observation(
+            packet=packet,
+            model=model,
+            stage_input=stage_input,
+            reason=(
+                "T3 did not call AI because required T2 final is "
+                f"{t2_final.availability}: {t2_final.reason or 'no reason supplied'}"
+            ),
+        ), stage_input
     trace = run_t3_sparse_traversal(
         stage_input,
         decide=lambda evidence, node, unit_id: _fetch_t3_sparse_decision(
@@ -469,12 +467,15 @@ def _quality_report(
 
 def _stage_quality(observation: dict[str, Any]) -> dict[str, Any]:
     coverage = observation.get("coverage", {})
+    unit_count = len(
+        observation.get("units", observation.get("items", [])) or []
+    )
     return {
         "abstain": observation.get("abstain"),
         "owned": len(coverage.get("owned_source_seq", [])),
         "unknown": len(coverage.get("unknown_source_seq", [])),
         "total": coverage.get("total"),
-        "items": len(observation.get("items", [])),
+        "items": unit_count,
         "demotions": len(observation.get("quality_report", {}).get("demotions", [])),
     }
 
@@ -482,20 +483,11 @@ def _stage_quality(observation: dict[str, Any]) -> dict[str, Any]:
 def _scope_summary(view: dict[str, Any]) -> dict[str, Any]:
     return {
         "scope": view.get("scope"),
-        "rows": len(view.get("rows", [])),
+        "pages": len(view.get("page_packets", [])),
+        "rows": sum(
+            len(page.get("content", []))
+            for page in view.get("page_packets", [])
+            if isinstance(page, dict)
+        ),
         "hash": sha256_json(view),
     }
-
-
-def _ints(values: Any) -> list[int]:
-    if not isinstance(values, list):
-        return []
-    result: list[int] = []
-    for value in values:
-        if isinstance(value, bool):
-            continue
-        if isinstance(value, int):
-            result.append(value)
-        elif isinstance(value, str) and value.strip().lstrip("-").isdigit():
-            result.append(int(value))
-    return result

@@ -567,6 +567,17 @@ def _stage_standard_schema_findings(
                 start_index=start_index + len(findings),
             )
         )
+        if (
+            stage.gate_enabled
+            or stage.raw.get("gold_contract_version")
+            or stage.expected.get("run_span_ledger")
+        ):
+            findings.extend(
+                _t3_gold_contract_findings(
+                    stage,
+                    start_index=start_index + len(findings),
+                )
+            )
     return findings
 
 
@@ -622,6 +633,185 @@ def _t3_element_expectation_findings(
                 stage=stage.stage_key,
                 bucket="standard_incomplete",
             )
+        )
+    return findings
+
+
+def _t3_gold_contract_findings(
+    stage: StageStandardSpec,
+    *,
+    start_index: int,
+) -> list[Finding]:
+    findings: list[Finding] = []
+
+    def add(type_: str, message: str, expected: Any, actual: Any) -> None:
+        findings.append(
+            _quality_finding(
+                start_index + len(findings),
+                type_,
+                message,
+                expected,
+                actual,
+                stage=stage.stage_key,
+                bucket="t3_gold_contract",
+            )
+        )
+
+    if stage.raw.get("gold_contract_version") != "t3-adaptive-run-span-gold-1.0":
+        add(
+            "t3_gold_contract_version_invalid",
+            "T3 gold must declare the adaptive run/span contract version",
+            "t3-adaptive-run-span-gold-1.0",
+            stage.raw.get("gold_contract_version"),
+        )
+    gold_status = str(stage.raw.get("gold_status") or "")
+    if gold_status not in {"VERIFIED", "PARTIAL", "DISPUTED", "MISSING"}:
+        add(
+            "t3_gold_status_invalid",
+            "T3 gold_status must use the canonical gold lifecycle",
+            ["VERIFIED", "PARTIAL", "DISPUTED", "MISSING"],
+            gold_status or "missing",
+        )
+    elif gold_status != "VERIFIED":
+        add(
+            "t3_gold_not_verified",
+            "T3 gold is not fully human-reviewed for the declared scored universe",
+            "VERIFIED",
+            gold_status,
+        )
+    review = stage.raw.get("review_metadata")
+    review = review if isinstance(review, dict) else {}
+    for field in ("reviewed_by", "reviewed_at", "review_source", "change_reason"):
+        if not review.get(field):
+            add(
+                "t3_gold_review_metadata_incomplete",
+                f"T3 gold review_metadata.{field} is required",
+                f"non-empty review_metadata.{field}",
+                review.get(field),
+            )
+    if review.get("auto_update_allowed") is not False:
+        add(
+            "t3_gold_auto_update_not_forbidden",
+            "T3 gold must forbid automatic candidate-to-gold updates",
+            False,
+            review.get("auto_update_allowed"),
+        )
+    accepted = stage.raw.get("accepted_source_facts")
+    accepted = accepted if isinstance(accepted, dict) else {}
+    upstream_hash = str(accepted.get("upstream_t2_standard_sha256") or "")
+    if not upstream_hash.startswith("sha256:") or len(upstream_hash) != 71:
+        add(
+            "t3_gold_upstream_hash_missing",
+            "T3 isolated gold must bind the frozen upstream T2 standard hash",
+            "sha256:<64 hex>",
+            upstream_hash or "missing",
+        )
+    contract = stage.expected.get("core_action_contract")
+    contract = contract if isinstance(contract, dict) else {}
+    if contract.get("gold_granularity") != "adaptive_run_or_span":
+        add(
+            "t3_gold_granularity_invalid",
+            "T3 gold must use adaptive run-or-span identities",
+            "adaptive_run_or_span",
+            contract.get("gold_granularity"),
+        )
+
+    ledger = stage.expected.get("run_span_ledger")
+    if not isinstance(ledger, list):
+        return findings
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    item_errors: list[dict[str, Any]] = []
+    for index, item in enumerate(ledger):
+        if not isinstance(item, dict):
+            item_errors.append({"index": index, "error": "item is not a mapping"})
+            continue
+        raw_run_id = str(item.get("raw_run_id") or "")
+        target_kind = str(item.get("target_kind") or "")
+        text = item.get("text")
+        action = str(item.get("expected_action") or "")
+        if (
+            not raw_run_id
+            or target_kind not in {"run", "span"}
+            or not isinstance(text, str)
+            or action not in {"keep", "fill", "delete", "unknown"}
+        ):
+            item_errors.append(
+                {
+                    "index": index,
+                    "raw_run_id": raw_run_id,
+                    "target_kind": target_kind,
+                    "expected_action": action,
+                    "error": "missing or invalid required adaptive gold fields",
+                }
+            )
+            continue
+        if action == "unknown" and (
+            not item.get("unknown_reason")
+            or item.get("execution_fallback_action") != "keep"
+        ):
+            item_errors.append(
+                {
+                    "index": index,
+                    "raw_run_id": raw_run_id,
+                    "error": "unknown gold requires a reason and keep fallback",
+                }
+            )
+        grouped.setdefault(raw_run_id, []).append(item)
+
+    shape_errors: list[dict[str, Any]] = []
+    for raw_run_id, items in grouped.items():
+        run_items = [item for item in items if item.get("target_kind") == "run"]
+        span_items = [item for item in items if item.get("target_kind") == "span"]
+        if run_items:
+            if len(run_items) != 1 or span_items:
+                shape_errors.append(
+                    {
+                        "raw_run_id": raw_run_id,
+                        "error": "one run item or multiple span items are allowed, not both",
+                    }
+                )
+            continue
+        if len(span_items) < 2:
+            shape_errors.append(
+                {
+                    "raw_run_id": raw_run_id,
+                    "error": "span-shaped gold requires at least two items",
+                }
+            )
+            continue
+        cursor = 0
+        for item in sorted(
+            span_items,
+            key=lambda value: (
+                value.get("start") if isinstance(value.get("start"), int) else -1,
+                value.get("end") if isinstance(value.get("end"), int) else -1,
+            ),
+        ):
+            start = item.get("start")
+            end = item.get("end")
+            if (
+                not isinstance(start, int)
+                or not isinstance(end, int)
+                or start != cursor
+                or end <= start
+                or len(str(item.get("text") or "")) != end - start
+            ):
+                shape_errors.append(
+                    {
+                        "raw_run_id": raw_run_id,
+                        "start": start,
+                        "end": end,
+                        "error": "span items must be contiguous and text-length exact",
+                    }
+                )
+                break
+            cursor = end
+    if item_errors or shape_errors:
+        add(
+            "t3_gold_adaptive_ledger_invalid",
+            "T3 run_span_ledger does not satisfy the adaptive identity contract",
+            "all run/span items are complete, unique, and structurally valid",
+            (item_errors + shape_errors)[:100],
         )
     return findings
 

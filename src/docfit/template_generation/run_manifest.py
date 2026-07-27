@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from docfit.core.io import now_iso, sha256_file, write_json
+from docfit.core.io import now_iso, sha256_file, sha256_json, write_json
 from docfit.core.models import StageResult
 
 from .agent.config import AgentConfig, live_provider_summary
@@ -19,9 +19,7 @@ def ai_mode_from_agent_config(config: AgentConfig | None) -> str:
         return "live"
     if config.observation_mode == "replay":
         return "replay"
-    if config.transcript_path is not None:
-        return "legacy_replay"
-    return str(config.observation_mode or config.transport)
+    return str(config.observation_mode or "off")
 
 
 def write_template_run_manifest(
@@ -78,9 +76,12 @@ def write_template_run_manifest(
         "api_failures": list(api_trace.get("failures") or []),
         "api_trace": api_trace,
         "status": result.status.value,
+        "run_status": (result.run_status or result.status).value,
+        "quality_status": (result.quality_status or result.status).value,
         "output_artifacts": {
             key: str(path) for key, path in sorted(result.artifact_paths.items())
         },
+        "final_results": _final_result_refs(result.artifacts),
         **(extra or {}),
     }
     path = out_dir / "run_manifest.json"
@@ -96,3 +97,24 @@ def _provider_summary(config: AgentConfig | None) -> list[str]:
     if mode in {"replay", "bundle"}:
         return [mode]
     return []
+
+
+def _final_result_refs(artifacts: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    refs: dict[str, dict[str, Any]] = {}
+    for payload in artifacts.values():
+        if not isinstance(payload, dict) or payload.get("result_role") != "final":
+            continue
+        stage_id = str(payload.get("stage_id") or "")
+        if not stage_id:
+            continue
+        availability = payload.get("availability")
+        refs[stage_id] = {
+            "artifact_type": payload.get("artifact_type"),
+            "sha256": sha256_json(payload),
+            "availability": (
+                availability.get("status")
+                if isinstance(availability, dict)
+                else None
+            ),
+        }
+    return dict(sorted(refs.items()))

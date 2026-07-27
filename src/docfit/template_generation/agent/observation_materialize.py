@@ -1,15 +1,6 @@
-"""物化校验闸门：让产物“无论模型质量都良构”。
+"""T4 layout-observation materialization gates.
 
-逐 item 跑 5 道确定性闸门，越界即降级 unknown 并写 ``quality_report.demotions``
-（也是 Module 2 的冲突种子）：
-
-  ② 标签闭合：unit_id∈taxonomy、policy∈7（含 unknown）、confidence∈3、field_type∈4；越界 → 降级
-  ③ 证据绑定：source_seq_refs 必须存在于 render packet；未绑定 → 降级
-  ④ 必填规则（镜像 ontology）：fill→fill_source、generated→field_type
-  ⑤ 覆盖/不重叠：owned=∪存活 item.refs；同一 seq 被争用时高 confidence 留、平票判 contested→unknown
-
-① schema 形状校验 + source_render_hash 对齐由 observation_schema / loop 负责。
-空/垃圾响应也产 schema-valid 产物（全 unknown，abstain=true）。
+T2 has its own page-native exact contract in :mod:`docfit.template_generation.t2_ai`.
 """
 
 from __future__ import annotations
@@ -18,99 +9,15 @@ from typing import Any
 
 from docfit.core.io import now_iso
 from .observation_schema import (
-    ALLOWED_UNIT_IDS,
     CONFIDENCE_LEVELS,
     OBSERVATION_SCHEMA_VERSION,
     PROMPT_CONTRACT_VERSION,
-    UNKNOWN_UNIT_ID,
     compute_coverage,
     open_questions_from,
 )
 from .packet import packet_source_seq_set
 
 _CONFIDENCE_RANK = {"high": 3, "medium": 2, "low": 1}
-_UNIT_PAGE_START_VALUES = {"document_start", "new_page", "same_page_allowed", "unknown"}
-_UNIT_PAGE_SCOPE_VALUES = {
-    "single_page_exclusive",
-    "page_range_exclusive",
-    "shareable_flow",
-    "unknown",
-}
-def materialize_unit_observation(
-    raw_items: list[dict[str, Any]],
-    *,
-    packet: dict[str, Any],
-    model: str = "replay",
-    self_consistency: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    valid_seq = packet_source_seq_set(packet)
-    demotions: list[dict[str, Any]] = []
-    survivors: list[dict[str, Any]] = []
-    unknown_items: list[dict[str, Any]] = []
-
-    for index, raw in enumerate(raw_items):
-        item_id = str(raw.get("unit_id") or f"unit_{index:03d}")
-        unit_id = str(raw.get("unit_id") or "")
-        confidence = _normalize_confidence(raw.get("confidence"))
-        # ② 标签闭合
-        if unit_id not in ALLOWED_UNIT_IDS:
-            unknown_items.append(_as_unknown(raw, reason="unit_id not in taxonomy"))
-            demotions.append(_demotion(item_id, "C-LABEL-CLOSURE", f"unit_id {unit_id!r} not in taxonomy"))
-            continue
-        # ③ 证据绑定
-        refs = _ints(raw.get("source_seq_refs"))
-        bound = [seq for seq in refs if seq in valid_seq]
-        if not bound:
-            unknown_items.append(_as_unknown(raw, reason="no evidence binding"))
-            demotions.append(_demotion(item_id, "C-EVIDENCE-BIND", "source_seq_refs not in render packet"))
-            continue
-        unbound = sorted(set(refs) - valid_seq)
-        if unbound:
-            demotions.append(_demotion(item_id, "C-EVIDENCE-BIND", f"dropped unbound source_seq {unbound}"))
-        survivors.append(
-            {
-                "unit_id": unit_id,
-                "name": raw.get("name"),
-                "order": raw.get("order", index),
-                "source_seq_refs": sorted(bound),
-                **_unit_page_fields(raw),
-                "confidence": confidence,
-                "anchors": raw.get("anchors", []),
-                "evidence_refs": raw.get("evidence_refs", []),
-                "flags": raw.get("flags", []),
-                "ai_rationale": raw.get("ai_rationale"),
-            }
-        )
-
-    # ⑤ 覆盖/不重叠
-    items = _sort_unit_items_by_source_seq(
-        _resolve_overlap(survivors, unknown_items, demotions)
-    )
-    coverage = compute_coverage(items, all_source_seq=valid_seq)
-    return _envelope(
-        "ai_unit_observation",
-        packet=packet,
-        model=model,
-        items=items,
-        unknown_items=unknown_items,
-        coverage=coverage,
-        demotions=demotions,
-        self_consistency=self_consistency,
-    )
-
-
-def _unit_page_fields(raw: dict[str, Any]) -> dict[str, Any]:
-    page_policy = raw.get("page_policy")
-    if not isinstance(page_policy, dict):
-        return {"page_policy": {"start": "unknown", "scope": "unknown"}}
-    start = page_policy.get("start")
-    scope = page_policy.get("scope")
-    return {
-        "page_policy": {
-            "start": str(start) if start in _UNIT_PAGE_START_VALUES else "unknown",
-            "scope": str(scope) if scope in _UNIT_PAGE_SCOPE_VALUES else "unknown",
-        }
-    }
 
 
 def materialize_layout_observation(
@@ -127,11 +34,7 @@ def materialize_layout_observation(
     survivors: list[dict[str, Any]] = []
     unknown_items: list[dict[str, Any]] = []
 
-    # Track A：从确定性全局版式事实构造 section_profile（无需图/模型，不会幻觉）。
-    global_facts = packet.get("global_layout_facts", {}) or {}
-    survivors.extend(_deterministic_global_profiles(global_facts, valid_seq))
-
-    # Track B：视觉分页只在有真实页图时用模型输出；无图则该子项弃权，但不整体 abstain。
+    # T4 语义只来自 AI。没有真实渲染时，原始输出不能升级为布局决定。
     visual_abstained = not render_available
     if not render_available:
         if raw_payload.get("section_profiles"):
@@ -140,18 +43,16 @@ def materialize_layout_observation(
             _demotion(
                 "layout_visual",
                 "C-LAYOUT-VISUAL-ABSTAIN",
-                "no real_render page images; visual per-unit sub-scope abstained (Track B)",
+                "no real_render page images; T4 AI layout decision is unavailable",
             )
         )
-        items = _resolve_overlap(survivors, unknown_items, demotions, id_key="section_profile_id")
         observation = _finalize_layout(
             packet=packet,
             model=model,
-            items=items,
+            items=[],
             unknown_items=unknown_items,
-            coverage=compute_coverage(items, all_source_seq=valid_seq),
+            coverage=compute_coverage([], all_source_seq=valid_seq),
             demotions=demotions,
-            global_facts=global_facts,
             raw_payload=raw_payload,
             visual_abstained=visual_abstained,
             page_observations=page_observations,
@@ -176,11 +77,13 @@ def materialize_layout_observation(
         survivors.append(
             {
                 "section_profile_id": profile_id,
+                "source_ref": raw.get("source_ref"),
                 "boundary": {
                     "start_source_seq": start,
                     "end_source_seq": end,
                     "confidence": _normalize_confidence(boundary.get("confidence")),
                 },
+                "confidence": _normalize_confidence(boundary.get("confidence")),
                 "source_seq_refs": list(range(start, end + 1)),
                 "page_setup": raw.get("page_setup"),
                 "header_footer": raw.get("header_footer"),
@@ -197,49 +100,10 @@ def materialize_layout_observation(
         unknown_items=unknown_items,
         coverage=compute_coverage(items, all_source_seq=valid_seq),
         demotions=demotions,
-        global_facts=global_facts,
         raw_payload=raw_payload,
         visual_abstained=False,
         page_observations=page_observations,
     )
-
-
-def _deterministic_global_profiles(
-    global_facts: dict[str, Any],
-    valid_seq: set[int],
-) -> list[dict[str, Any]]:
-    """Track A：把 T1 分节事实确定性地转成 section_profile（不问模型，不幻觉）。
-
-    源事实里分节没有 source_seq 边界（paragraph_index 为空）；单分节则覆盖全文，
-    多分节则各建 profile 但不硬绑 seq（边界要靠 Track B 页图，见修复计划）。
-    """
-
-    sections = global_facts.get("sections") or []
-    if not sections:
-        return []
-    single = len(sections) == 1
-    profiles: list[dict[str, Any]] = []
-    for index, section in enumerate(sections):
-        if not isinstance(section, dict):
-            continue
-        profiles.append(
-            {
-                "section_profile_id": f"section_{section.get('index', index)}",
-                "source": "deterministic_facts",
-                "confidence": "high",
-                "page_setup": {
-                    "page_margins": section.get("page_margins"),
-                    "page_size": section.get("page_size"),
-                },
-                "page_numbering": section.get("page_numbering"),
-                "header_footer": section.get("references", []),
-                "source_seq_refs": sorted(valid_seq) if single else [],
-                "boundary_source": (
-                    "single_section_covers_document" if single else "unknown_from_facts_needs_render"
-                ),
-            }
-        )
-    return profiles
 
 
 def _finalize_layout(
@@ -250,7 +114,6 @@ def _finalize_layout(
     unknown_items: list[dict[str, Any]],
     coverage: dict[str, Any],
     demotions: list[dict[str, Any]],
-    global_facts: dict[str, Any],
     raw_payload: dict[str, Any],
     visual_abstained: bool,
     page_observations: list[dict[str, Any]] | None = None,
@@ -265,16 +128,16 @@ def _finalize_layout(
         demotions=demotions,
         self_consistency=None,
     )
-    # 有确定性全局 profile 就不整体 abstain；只标视觉子项是否弃权。
     observation["abstain"] = not items
     observation["visual_abstained"] = visual_abstained
     observation["default_font"] = raw_payload.get("default_font")
-    observation["header_footer"] = global_facts.get("header_footer", [])
+    observation["page_numbering"] = raw_payload.get("page_numbering")
+    observation["header_footer"] = raw_payload.get("header_footer", [])
     observation["numbering_rules"] = raw_payload.get("numbering_rules", [])
-    observation["numbering_definition_count"] = global_facts.get("numbering_definition_count", 0)
+    if raw_payload.get("_observation_error"):
+        observation["_observation_error"] = raw_payload["_observation_error"]
 
-    # Track B(确定性)：有真实页图渲染时，page_layout_index 带 per-seq 真实 page_no
-    # （pdftotext 版面），据此给出确定性页结构——无需模型视觉，不幻觉。
+    # 页码映射只用于把 AI 决定绑定回已封存的 render 事实，不产生 T4 语义。
     if not visual_abstained:
         page_map = {
             seq: page
@@ -286,7 +149,7 @@ def _finalize_layout(
             if seq is not None and page is not None
         }
         pages = sorted(set(page_map.values()))
-        observation["page_structure_source"] = "deterministic_pdf_layout"
+        observation["page_structure_source"] = "sealed_render_binding"
         observation["page_count"] = len(pages)
         observation["page_map"] = {str(k): v for k, v in sorted(page_map.items())}
         for profile in observation["items"]:
@@ -296,7 +159,7 @@ def _finalize_layout(
         observation["page_structure_source"] = "unavailable_no_render"
         observation["page_count"] = None
 
-    # Track B 视觉：逐页读图观察 + 从中聚合页眉脚/页码显示策略。
+    # 逐页视觉观察是同一次 T4 AI 判断的补充证据。
     pages = page_observations or []
     observation["page_observations"] = pages
     if pages:
@@ -364,22 +227,6 @@ def _resolve_overlap(
     return result
 
 
-def _sort_unit_items_by_source_seq(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    sorted_items = sorted(
-        items,
-        key=lambda item: (
-            _min_source_seq(item),
-            str(item.get("unit_id") or ""),
-        ),
-    )
-    return [{**item, "order": index} for index, item in enumerate(sorted_items)]
-
-
-def _min_source_seq(item: dict[str, Any]) -> int:
-    refs = _ints(item.get("source_seq_refs"))
-    return min(refs) if refs else 10**12
-
-
 def _has_layout_evidence(evidence_refs: list[Any]) -> bool:
     for ref in evidence_refs or []:
         if isinstance(ref, dict) and ref.get("page_no") is not None and ref.get("render_target_id"):
@@ -425,7 +272,7 @@ def _envelope(
 
 
 def _as_unknown(raw: dict[str, Any], *, reason: str) -> dict[str, Any]:
-    return {**raw, "unit_id": UNKNOWN_UNIT_ID, "demotion_reason": reason}
+    return {**raw, "unit_id": "unknown_unit", "demotion_reason": reason}
 
 
 def _demotion(item_id: str, check_id: str, reason: str) -> dict[str, Any]:

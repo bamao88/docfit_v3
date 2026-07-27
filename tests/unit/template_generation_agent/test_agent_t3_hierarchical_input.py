@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 
+from docfit.template_generation.final_results import publish_final_stage_result
 from docfit.template_generation.agent.t3_hierarchical_input import (
     build_t3_hierarchical_stage_input,
     nodes_by_ref,
@@ -17,17 +18,23 @@ from .t3_hierarchical_fixtures import (
 )
 
 
-def _t2_result(*items: dict) -> dict:
-    return {
-        "artifact_type": "ai_unit_observation",
-        "items": list(items),
-    }
+def _t2_result(*items: dict):
+    return publish_final_stage_result(
+        {
+            "artifact_type": "unit_map",
+            "units": list(items),
+        },
+        stage_id="T2",
+        artifact_type="unit_map",
+        artifact_name="02_unit_map.yaml",
+        producer_mode="fixture",
+    )
 
 
 def test_hierarchical_input_builds_unit_table_row_cell_paragraph_run_span_tree() -> None:
     artifact = build_t3_hierarchical_stage_input(
         table_packet(),
-        t2_unit_result=_t2_result(t2_unit_result_item()),
+        t2_final=_t2_result(t2_unit_result_item()),
     )
 
     validation = validate_t3_hierarchical_stage_input(artifact)
@@ -69,7 +76,7 @@ def test_run_text_is_partitioned_into_policy_neutral_exact_span_children() -> No
     row["style_details"]["runs"][0]["text"] = row["text"]
     artifact = build_t3_hierarchical_stage_input(
         packet,
-        t2_unit_result=_t2_result(
+        t2_final=_t2_result(
             {**t2_unit_result_item(), "source_seq_refs": [7]}
         ),
     )
@@ -91,7 +98,7 @@ def test_run_text_is_partitioned_into_policy_neutral_exact_span_children() -> No
 def test_node_evidence_contains_only_target_and_direct_children() -> None:
     artifact = build_t3_hierarchical_stage_input(
         table_packet(),
-        t2_unit_result=_t2_result(t2_unit_result_item()),
+        t2_final=_t2_result(t2_unit_result_item()),
     )
 
     evidence = t3_node_evidence(artifact, target_ref="table:tbl_0001")
@@ -120,7 +127,7 @@ def test_table_cut_across_t2_units_is_incomplete_and_fails_unique_identity() -> 
 
     artifact = build_t3_hierarchical_stage_input(
         table_packet(),
-        t2_unit_result=_t2_result(first, second),
+        t2_final=_t2_result(first, second),
     )
     validation = validate_t3_hierarchical_stage_input(artifact)
 
@@ -137,7 +144,7 @@ def test_missing_run_facts_are_explicitly_incomplete() -> None:
 
     artifact = build_t3_hierarchical_stage_input(
         packet,
-        t2_unit_result=_t2_result(t2_unit_result_item()),
+        t2_final=_t2_result(t2_unit_result_item()),
     )
     nodes = nodes_by_ref(artifact)
 
@@ -163,7 +170,7 @@ def test_duplicate_run_identity_across_cells_becomes_incomplete_merge_alias() ->
 
     artifact = build_t3_hierarchical_stage_input(
         packet,
-        t2_unit_result=_t2_result(t2_unit_result_item()),
+        t2_final=_t2_result(t2_unit_result_item()),
     )
 
     assert validate_t3_hierarchical_stage_input(artifact) == {"valid": True, "errors": []}
@@ -197,7 +204,7 @@ def test_real_visual_descriptor_binds_target_bbox_hash_and_attachment() -> None:
 
     artifact = build_t3_hierarchical_stage_input(
         packet,
-        t2_unit_result=_t2_result(t2_unit_result_item()),
+        t2_final=_t2_result(t2_unit_result_item()),
     )
     visual = nodes_by_ref(artifact)["table:tbl_0001"]["visual_evidence"][0]
 
@@ -213,7 +220,7 @@ def test_source_object_without_source_seq_remains_an_atomic_leaf() -> None:
     t2_item = toc_t2_unit_result_item()
     artifact = build_t3_hierarchical_stage_input(
         packet,
-        t2_unit_result=_t2_result(t2_item),
+        t2_final=_t2_result(t2_item),
     )
 
     assert validate_t3_hierarchical_stage_input(artifact)["valid"] is True
@@ -223,3 +230,30 @@ def test_source_object_without_source_seq_remains_an_atomic_leaf() -> None:
     assert object_node["source_kind"] == "field"
     assert object_node["member_leaf_refs"] == [object_node["ref"]]
     assert object_node["source_seq_refs"] == []
+
+
+def test_page_only_t2_unit_remains_an_atomic_visual_leaf() -> None:
+    packet = table_packet()
+    item = {
+        **t2_unit_result_item(),
+        "unit_id": "toc",
+        "source_seq_refs": [],
+        "source_refs": [],
+        "boundary": {"start_page": 2, "end_page": 3},
+        "page_refs": ["page:2", "page:3"],
+    }
+
+    artifact = build_t3_hierarchical_stage_input(
+        packet,
+        t2_final=_t2_result(item),
+    )
+
+    assert validate_t3_hierarchical_stage_input(artifact) == {
+        "valid": True,
+        "errors": [],
+    }
+    root = nodes_by_ref(artifact)["unit:toc"]
+    assert root["child_refs"] == []
+    assert root["member_leaf_refs"] == ["unit:toc"]
+    assert root["source_seq_refs"] == []
+    assert root["page_nos"] == [2, 3]

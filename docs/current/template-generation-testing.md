@@ -1,8 +1,8 @@
 # 模板生成测试与评测契约
 
-Last updated: 2026-07-23
+Last updated: 2026-07-26
 
-本文是模板生成整体与 T1/L1/T2-T7/POST_T6 测试、评测和完成标准的唯一长期事实源。旧评测、阶段标准和单阶段 gold 说明中的长期规则应逐步迁入本文。
+本文是模板生成整体与 T1/L1/T2-T7/POST_T6 测试、评测和完成标准的唯一长期事实源。T4 当前暂停并从生产链跳过；本文保留其编号和重新启用条件，不为暂停阶段设置生产 gold、route 或 required gate。旧评测、阶段标准和单阶段 gold 说明中的长期规则应逐步迁入本文。
 
 本文按测试对象组织：先定义整个模板生成流程，再依次定义 T1、L1、T2-T7 和 POST_T6。每个阶段在一张测试卡里集中说明输入、gold、route、指标、CLI 和报告。当前实现覆盖与未闭环项统一见 `docs/status/INDEX.md`。
 
@@ -12,7 +12,7 @@ Last updated: 2026-07-23
 
 - `isolated` 使用阶段冻结输入，衡量当前阶段自身准确度；`cascade` 使用真实上游输出，观察误差传递。
 - 阶段冻结输入位于 `inputs/targets/<target_id>/fixtures/template_generation/<stage_id>/`，并由 `fixture_manifest.yaml` 记录来源、版本和 hash。
-- T2/T4 的 code、AI、merged 使用同一份冻结输入、同一份 gold 和同一套指标；merged 是阶段主结论。T3 只有 AI canonical route，不生成 Code/Merged 结果。
+- T2/T3 都只有 AI 判断主权和一个 canonical final，不生成 Code/Merged 结果；T4 暂停且没有 canonical final。
 
 ### 1.1 Gold 的职责和评分边界
 
@@ -46,7 +46,7 @@ Gold 只保存本阶段 canonical 最终输出的正确答案、精确身份和�
 | `school_id`、模板版本 | 绑定学校和模板版本 |
 | gold contract/schema version | 说明 scored item 的字段和计分语义 |
 | 源 DOCX 路径与 sha256 | 绑定人工审核时看到的源模板 |
-| isolated 上游输入或上游 gold 的 hash | 保证被测 route 绑定同一份已冻结输入；T2/T4 还据此保证三路可比 |
+| isolated 上游输入或上游 gold 的 hash | 保证被测 AI canonical 输出绑定同一份已冻结输入 |
 | `gold_status` | 表示 gold 内容是否已完整人工复核 |
 | `review_metadata` | 审核人、审核时间、审核来源和变更原因 |
 | label/value universe | 声明本阶段允许进入 scored 字段的值 |
@@ -59,12 +59,12 @@ Gold 只保存本阶段 canonical 最终输出的正确答案、精确身份和�
 ### 1.3 Gold 计分共同规则
 
 1. Gold 文件保存答案和评分契约，不保存某次运行计算出的 accuracy/F1 数值。
-2. T2/T4 的 code_raw、ai_raw、merged 必须先归一化为该阶段同一 canonical scored item，再和同一份 gold 比较；T3 只归一化唯一 AI canonical 输出。
+2. T2/T3 只归一化各自唯一的 AI canonical 输出，再和本阶段同一份 gold 比较。
 3. 每个 scored item 只能有一个最终 expected value；重复、重叠或互相冲突的 gold 使该项不可评分。
 4. 缺失预测按错误处理；非法或无法绑定的预测按错误并单独报告 binding mismatch。
 5. `unknown` 不进入主准确率分母，但必须计入 gold coverage 和 unknown 数量；不得通过大量标记 unknown 提高表面准确率。
 6. 定位、trace、schema、必需字段和输入完整性可以作为独立合同门禁，但不得混入业务标签准确率。
-7. T2/T4 route 报告必须分别给出 code、AI、merged 指标和 merged delta；T3 只报告 AI canonical 指标。route 不可用时明确 `NOT_AVAILABLE`，不能借用其他 route 的结果，也不能用 safe Keep 把不可用提升为可用。
+7. T2/T3 route 报告只给出 AI canonical 指标、final availability 和确定性物化自检。AI 不可用时明确 `NOT_AVAILABLE`，不能借用已删除的 Code/Merge 结果，也不能用物化 shell 把不可用提升为可用。T4 在报告中只能标为 `SKIPPED/RESERVED`，不得参与 route availability 或质量聚合。
 
 Gold 内容状态统一为：
 
@@ -76,6 +76,19 @@ Gold 内容状态统一为：
 | `MISSING` | 当前阶段没有所需 gold |
 
 `standard_state` 表示文件生命周期，`gold_status` 表示内容可信度。报告同时记录两者；gold_status 不是 `VERIFIED` 时，完整质量结论为 `UNKNOWN`。
+
+### 1.4 Final 链合同测试
+
+阶段准确率之外，所有跨阶段边必须通过以下合同测试：
+
+1. 正式业务消费者拒绝缺少 `stage_id`、`result_role=final`、合法 `artifact_type` 或结构化 availability 的普通字典和候选产物；1.5 节的命名调试适配不属于这项正式 Final 链验收。
+2. 候选与 final 内容故意不同时，下游结果必须只随 final 改变；例如 AI observation 与 `02_unit_map.yaml` 不同时，T3 unit roots 必须来自后者。
+3. 每个 final 的直接 `input_refs.*.sha256` 必须等于同一运行中真实上游 final 的 hash；T3 还必须绑定真实 Stage Input hash。
+4. T2/T3 required final 为 `NOT_AVAILABLE` 时，T5/T6/T7 不得恢复为 `AVAILABLE`。允许安全预览和与上游语义无关的保守动作，但不能产生依赖不可用语义的删除、替换或生成动作；T4 跳过不属于 unavailable。
+5. T6 动作源残留扫描必须证明不再读取 `generation_model.unit_strategies`、T2/T3 route candidate 或 AI observation，也不得读取历史 T4 artifact 生成版式动作。
+6. run manifest 必须列出 canonical final hash/availability；候选文件只进入诊断索引。
+
+单个 schema 测试或 artifact 存在不能替代上述反例和完整链测试。
 
 阶段测试统一目标入口为：
 
@@ -95,16 +108,38 @@ docfit template stage verify --stage <stage_id>
 
 报告公共字段为：测试模式、target/version、输入路径与 hash、gold 路径/hash/status、`run_status`、`quality_status`、route 指标、阶段指标、blockers 和 evidence。
 
-统一阶段入口和报告目前是目标契约；当前 `docfit template stage t2|t3|t4` 只是 AI observation 调试入口。
+统一阶段入口和报告目前是目标契约；当前启用的 AI observation 调试范围只包括 `docfit template stage t2|t3`。T4 入口在迁移完成后必须删除或明确返回“阶段已暂停”，不能继续调用模型或生成正式形态产物。
+
+### 1.5 AI observation 调试入口的判定边界
+
+`docfit template stage t2|t3` 以及兼容的 `eval template-observe` 用于拆阶段观察 prompt、模型返回和物化过程，不等同于 `template verify`、正式 isolated/cascade 验收或完整模板生成。
+
+其中 `docfit template stage t3 --t2-artifact <path>` 允许操作者固定 T3 的上游：
+
+- 传入当前运行的 canonical `02_unit_map.yaml` 时，按已有 T2 final 使用；
+- 传入 `ai_unit_observation` 时，先按 T2 page-native 契约物化为本地 T2 final；
+- 传入仅含 `artifact_type=unit_map` 和 `units[]` 的普通映射时，把它视为操作者提供的调试 fixture，只在本次进程内补 final 元数据，不重新运行 T2 AI，也不要求重新执行 page-native 完整覆盖校验。
+
+第三种行为是为了单独试验 T3 对指定单元范围的处理，属于有意兼容能力。代码检查、架构审查和缺口扫描不得仅因这个调试分支能包装普通 `unit_map` 就登记生产缺陷。只有出现以下情况时才应报告问题：
+
+- 普通 `unit_map` 从该命名调试边界泄漏到 `template verify`、完整模板生成或正式 Final 链；
+- 调试产物被用来宣称 T2 正确、T3 正式准确率通过或整链质量通过；
+- 官方 isolated/cascade 验收没有使用已签收 T2 gold 物化的 final 或同一次运行的 canonical T2 final。
+
+因此，调试命令的“能运行”只证明 T3 可在操作者指定的范围上被观察，不是任何阶段的质量完成信号。
+
+代码边界回归必须同时检查：完整模板生成只导入正式 observation runtime；正式
+runtime 不导入单阶段调试模块；普通 `unit_map` 的本地包装带有
+`producer_mode=debug_fixture`，且正式 Final 消费者仍拒绝未发布的普通映射。
 
 ## 2. 整个模板生成流程
 
 | 项目 | 测试契约 |
 | --- | --- |
-| 目标 | 从学校源模板运行 T1、L1、T2-T7 和 POST_T6，判断最终可填 Word 是否符合学校标准，并定位最早失败阶段 |
+| 目标 | 从学校源模板运行 T1、L1、T2、T3、T5-T7 和 POST_T6（T4 明确跳过），判断最终可填 Word 是否符合学校标准，并定位最早失败阶段 |
 | 输入 | `--school`、`inputs/targets/<target_id>/raw/source_template.docx`、`--template-version`、AI mode；AI 可使用 live、replay 或 bundle |
 | Gold | `template_generation/t1_document_facts.standard.yaml`、`t2_unit_pagination.standard.yaml`、`t3_element_policy.standard.yaml`、`t4_global_layout.standard.yaml`、`t5_template_spec.standard.yaml`，以及 `template_quality/final_template.expected.yaml` |
-| 指标 | `run_status`、`quality_status`、stage statuses、`first_bad_stage`、T2/T4 三路准确率与 merge delta、T3 AI canonical 准确率、最终 gap、证据覆盖 |
+| 指标 | `run_status`、`quality_status`、stage statuses、`first_bad_stage`、T2/T3 AI canonical 准确率、源版式 preservation、最终 gap、证据覆盖 |
 | CLI | 当前入口：`docfit template verify`；兼容入口：`docfit eval template-generation-full` |
 | 报告 | `full_summary.json/.md`；包含输入和 gold 身份、各阶段 stage card、route 准确率、first bad stage、blockers、owner、evidence 和最终 gap |
 
@@ -115,11 +150,11 @@ uv run docfit template verify \
   --school hunannongye \
   --template inputs/targets/hunannongye/raw/source_template.docx \
   --template-version v1 \
-  --ai off \
+  --ai live \
   --out /private/tmp/docfit_template_verify_hunannongye
 ```
 
-AI 模式替换为 `--ai live`、`--ai replay --replay path/to/transcript.json` 或 `--ai bundle --bundle path/to/observation_bundle.json`。
+T2 是 AI-only，因此完整流程不接受 `--ai off`。可用模式为 `--ai live`、`--ai replay --replay path/to/transcript.json` 或 `--ai bundle --bundle path/to/observation_bundle.json`。
 
 ## 3. T1：源 DOCX 事实
 
@@ -153,16 +188,16 @@ AI 模式替换为 `--ai live`、`--ai replay --replay path/to/transcript.json` 
 
 | 项目 | T2 测试契约 |
 | --- | --- |
-| 目标 | 验证单元识别、顺序、边界、source_seq 归属和分页策略 |
-| Isolated 输入 | 冻结的 `t2_l1_stage_input`；当前全流程对应 `01.6_t2_l1_stage_input.json` |
-| Cascade 输入 | 某次 template-generate 的真实 L1/T2 stage input |
-| 输出 | `02.0_t2_code_unit_map.yaml`、`02.2_t2_ai_unit_observation.yaml`、`02.3_t2_merged_unit_map.yaml` |
-| Gold | `template_generation/t2_unit_pagination.standard.yaml`；只评分 unit identity/order/boundary/source attribution/page_policy 最终值 |
-| Route | `code_raw`、`ai_raw`、`merged`；merged 为主结论 |
-| 指标 | 主指标 `unit_f1`；precision/recall/F1、order exact match、boundary accuracy、source_seq attribution coverage、page_policy coverage/field accuracy/exact match、missing/extra units |
-| Route 对比 | `code_accuracy`、`ai_accuracy`、`merged_accuracy`、`merged_vs_code_delta`、`merged_vs_ai_delta`、route availability、merge consumption |
-| CLI | 目标入口：`docfit template stage verify --stage t2 --input-mode isolated --fixture .../t2 --routes code_raw,ai_raw,merged` |
-| 报告 | 开头展示三路准确率和两个 delta；各 route 保存完整 T2 子指标、mismatches、gold/hash 和证据 |
+| 目标 | 验证 AI 是否把真实渲染页切成正确、连续且完整的顶层页面单元 |
+| Isolated 输入 | 冻结的 page-first T2 input：真实页图和每页客观 L1 事实 |
+| Cascade 输入 | 某次 template-generate 的 `02.1_t2_input.json` |
+| 输出 | AI raw `02.2_t2_ai_unit_observation.yaml`；唯一 final `02_unit_map.yaml` |
+| Gold | `template_generation/t2_unit_pagination.standard.yaml`；新标准只评分 unit identity/name/order 和 `start_page/end_page` |
+| Route | 仅 `ai`；没有 code、comparison、overlay 或 merged 路线 |
+| 指标 | unit precision/recall/F1、order exact match、page boundary exact match、page ownership coverage、gap/overlap、missing/extra units |
+| 确定性检查 | page range 到 L1 source binding、固定 `page_policy` 和 T3 root 传递 |
+| CLI | `docfit template stage verify --stage t2 ... --routes ai`；完整生成默认使用 MiniMax live，也可显式 replay/bundle |
+| 报告 | 展示 AI canonical accuracy、页面边界 mismatch、final availability 和 materializer 自检 |
 
 ### 5.1 T2 Gold 内容
 
@@ -170,20 +205,18 @@ T2 gold 只回答：
 
 1. 模板中有哪些 unit；
 2. unit 的顺序；
-3. 每个 unit 覆盖哪些源节点；
-4. 每个 unit 的 `page_policy.start/scope` 最终标签。
+3. 每个 unit 的人可读名称；
+4. 每个 unit 覆盖的真实渲染页面首尾。
 
 T2 scored 字段为：
 
 | Gold 字段 | 含义 | 指标 |
 | --- | --- | --- |
 | `expected.unit_order`、`units[].unit_id` | unit 集合和顺序 | unit precision/recall/F1、order exact match |
-| `units[].boundary.source_seq_range` 或 `source_ref_range` | unit 起止边界 | boundary accuracy |
-| 由 boundary 推导的 source 归属 | 每个源节点属于哪个 unit | source attribution accuracy/coverage |
-| `units[].page_policy.start` | unit 如何开始 | field accuracy |
-| `units[].page_policy.scope` | unit 是否可与相邻内容共享页面范围 | field accuracy |
+| `units[].unit_name` | 页面组的人可读名称 | name mismatch |
+| `units[].boundary.start_page/end_page` | 包含首尾的真实渲染页范围 | page boundary exact match、page ownership coverage、gap/overlap |
 
-`name`、anchors、notes 和 source text 可以用于人工审核和 mismatch 定位，但不进入主准确率。T2 gold 不记录元素 Keep/Fill/Delete、T4 全局版式、T6 的 page break/section break 动作，也不记录 AI 如何发现 unit。
+source refs、固定 `page_policy`、anchors 和 notes 可以用于派生检查或人工定位，但不属于 AI gold。T2 gold 不记录元素 Keep/Fill/Delete、T4 全局版式、T6 的 page break/section break 动作，也不记录 AI 如何发现 unit。
 
 最小示例：
 
@@ -192,27 +225,29 @@ expected:
   unit_order: [cover, toc, abstract_cn]
   units:
     - unit_id: cover
+      unit_name: 封面
       boundary:
-        source_seq_range: {start: 1, end: 16}
-      page_policy:
-        start: document_start
-        scope: single_page_exclusive
+        start_page: 1
+        end_page: 1
 ```
+
+三校现有人工标准仍保存的是旧 source 边界审阅证据，尚未经过真实页面 gold 的人工重签。它们不能被自动转换成页面 gold，也不能作为本轮 AI 准确率通过的证据；完成迁移前，三校 T2 页面质量门禁保持待签收。
 
 ## 6. T3：元素与策略
 
 | 项目 | T3 测试契约 |
 | --- | --- |
 | 目标 | 验证每个最终 atomic run/span 的 keep、fill、delete 标签 |
-| Isolated 输入 | 冻结的 L1/T3 facts packet，加上由 T2 gold 物化的固定 unit map；不使用某次 T2 actual |
+| Isolated 输入 | 冻结的 sealed L1/T3 facts packet，加上由已签收 T2 gold 物化并发布为 `result_role=final` 的固定 `02_unit_map.yaml`；不使用某次 T2 actual |
 | Cascade 输入 | 同一次完整运行的 sealed L1 加唯一 T2 最终结果；availability 随 T2 最终结果进入 T3 |
-| 输出 | 输入审计 `03.0_t3_hierarchical_stage_input.json`；AI 原始证据 `03.1_t3_ai_element_observation.yaml`；稀疏自检 `03.1.5_t3_sparse_decision_trace.json`；唯一正式结果 `03_element_spec.yaml`；物化自检 `12_t3_materialization_trace.json` |
+| 输出 | 输入审计 `03.0_t3_hierarchical_stage_input.json`；AI 原始证据 `03.1_t3_ai_element_observation.yaml`；稀疏自检 `03.1.5_t3_sparse_decision_trace.json`；有 gold 时输出 `03.3_t3_gold_accuracy_report.json`；唯一正式结果 `03_element_spec.yaml`；物化自检 `12_t3_materialization_trace.json` |
 | Gold | `template_generation/t3_element_policy.standard.yaml`；atomic action gold 按动作统一的 run 或混合 run 内 span 评分 |
-| Route | 仅 `ai`；`03_element_spec.yaml` 为 canonical 最终结果 |
-| 指标 | 主指标 `exact_action_accuracy`；Keep/Fill/Delete precision/recall/F1、`action_macro_f1`、atomic coverage、conflict count 和 false delete |
-| Route 对比 | 无 Code/Merge 对比和 merge delta；报告 `ai_accuracy`、route availability 和 canonical materialization self-check |
+| Route | 仅 AI authority；`03_element_spec.yaml` 以 `stage_id=T3`、`result_role=final` 和顶层 availability 作为 canonical 标识，lineage 只用于诊断 |
+| 质量指标 | 主指标 `exact_action_accuracy`；Keep/Fill/Delete precision/recall/F1、`action_macro_f1`、per-unit accuracy、gold/prediction coverage、conflict、unknown 和 deletion safety |
+| 过程与合同指标 | T2 final/L1/Stage Input hash、tree/schema validity、decision call/预算、direct/inherited/fallback/contested、atomic coverage、demotion、run claim/materialization 和 final availability |
+| Route 对比 | 无 T3 Code/Merge 对比和 merge delta；报告 AI canonical accuracy、final availability 和 materialization self-check |
 | CLI | 目标入口：`docfit template stage verify --stage t3 --input-mode isolated --fixture .../t3 --routes ai` |
-| 报告 | AI canonical atomic action accuracy、各动作指标、run/span mismatch、gold-input audit；tree/schema/coverage/materialization trace 作为独立合同检查 |
+| 报告 | AI canonical atomic action accuracy、各动作/单元/误删指标、run/span mismatch、gold-input audit；tree/schema/coverage/traversal/materialization/final chain 作为独立合同检查 |
 
 ### 6.1 T3 Gold 内容
 
@@ -275,71 +310,89 @@ T3 AI 可以在 unit/table/row/cell/paragraph/run/span 任一合法层级产生�
 
 代理可以基于与 gold hash 一致的冻结 DOCX、Word 可视页面和 sealed L1 facts 完成候选动作审查，并把结果记录在独立的 `delegated_review_metadata` 中。该证据可以消除候选队列、形成正式 run/span scored item，但不能冒充人工签核：在人工确认审核人和时间以前，`review_metadata.reviewed_at` 保持为空、`gold_status` 保持 `PARTIAL`，完整质量结论仍为 `UNKNOWN`。只有人工复核完整 scored universe 后才能晋升为 `VERIFIED`。
 
-## 7. T4：全局版式
+### 6.2 T3 准确率指标
 
-| 项目 | T4 测试契约 |
-| --- | --- |
-| 目标 | 验证页面、分节、页眉页脚、页码、编号和视觉版式规则 |
-| Isolated 输入 | 冻结的 `t4_l1_stage_input`、render 页面和页面绑定；当前全流程对应 `01.8_t4_l1_stage_input.json` |
-| Cascade 输入 | 某次 template-generate 的真实 L1/render 输出 |
-| 输出 | 三路正式输出为 `04.0_t4_code_global_spec.yaml`、`04.1.5_t4_ai_global_spec.yaml`、`04.2_t4_merged_global_spec.yaml`，均遵守 `global_spec` 契约；`04.1_t4_ai_layout_observation.yaml` 仅保留为 AI 原始证据 |
-| Gold | `template_generation/t4_global_layout.standard.yaml`；只评分 T4 拥有的 section/page setup/header-footer/page-numbering/numbering 最终值 |
-| Route | `code_raw`、`ai_raw`、`merged`；merged 为主结论 |
-| 指标 | 主指标 `layout_accuracy`；section detection/boundary、page setup、header/footer、page numbering 和 numbering definition 字段准确率 |
-| Route 对比 | `code_accuracy`、`ai_accuracy`、`merged_accuracy`、两个 delta、route availability、merge consumption |
-| CLI | 目标入口：`docfit template stage verify --stage t4 --input-mode isolated --fixture .../t4 --routes code_raw,ai_raw,merged` |
-| 报告 | 三路 layout accuracy、各版式维度、两个 delta 和 mismatch samples；视觉证据覆盖、unknown 和输入完整性作为独立审计 |
+`03.3_t3_gold_accuracy_report.json` 只在 gold-input audit 通过后生成。评测前必须同时证明：
 
-### 7.1 T4 Gold 内容
+- T2 gold 来自当前源模板 hash 对应的签收标准；
+- gold unit 对 T3 拥有的 packet 范围构成精确分区，无重复、缺失或额外 source/object；
+- observation 的 L1 input hash 和 source render hash 与冻结 packet 一致；
+- `run_span_ledger` 覆盖所有 T3-owned raw run，run item 原文完全一致，mixed run 的 span 连续、无重叠、无缺口并覆盖完整原文。
 
-T4 gold 只回答 `global_spec` 中由 T4 负责的最终版式值：
+准确率报告固定区分以下指标：
 
-| Scored 对象 | Scored 字段 |
-| --- | --- |
-| section profile | section identity、边界和归属 |
-| page setup | 页面尺寸、方向、上下左右边距及其他批准字段 |
-| header/footer | 是否存在、适用范围、part/ref 绑定和批准的显示策略 |
-| page numbering | 是否显示、格式、起始值、适用 section/range |
-| numbering definition | 编号层级、格式、起始值和必要绑定 |
+| 指标组 | 字段 | 含义 |
+| --- | --- | --- |
+| Scored universe | `gold_ledger_run_count`、`gold_atomic_item_count`、`scored_atomic_item_count` | 人工 gold 覆盖的 raw run 和 adaptive run/span 原子项规模 |
+| Unknown | `excluded_unknown_gold_*`、`covered_unknown_gold_run_count`、`predicted_unknown_run_count` | unknown 不进入主准确率分母，但仍受误删安全门约束 |
+| Coverage | `covered_run_count`、`covered_atomic_item_count`、`coverage` | prediction 是否完整覆盖应评分原子项；缺失预测按错误处理 |
+| Conflict | `conflicted_run_count`、`mixed_span_run_count`、`mixed_span_raw_run_ids` | 同一评分身份是否出现多个动作或混合 span |
+| 主质量 | `exact_action_accuracy`、`action_macro_f1` | 每个 adaptive run/span 的 exact action 和 Keep/Fill/Delete 宏 F1 |
+| 分动作 | `per_action.keep/fill/delete` | expected、predicted、correct、precision、recall、F1 |
+| 分单元 | `per_unit` | 每个 unit 的 expected、covered、conflicted 和 action accuracy |
+| 删除安全 | `deletion_safety` | true/false/missed delete、precision/recall、false-delete ids 和 `hard_gate_zero_false_delete` |
 
-T4 gold 必须用 L1 中稳定的 section/source/page/header/footer/numbering 身份绑定 expected value。视觉截图、bbox、识别理由和 confidence 可以作为审核证据，但不进入 `layout_accuracy`。
+`exact_action_accuracy` 只评价最终 Keep/Fill/Delete，不评价 AI 在哪一层停止、调用多少次、element 怎样分组、role/fill subtype 或 trace 文字。同一组 canonical atomic actions 必须得到相同准确率。
 
-T2 的 `unit_order` 和 `page_policy` 是 T4 isolated 测试的冻结上游输入，不是 T4 自身业务标签。T4 standard 可以保留它们的 hash 或 binding audit，证明使用了正确的 T2 gold，但不得把 T2 unit/page_policy 正确性重复计入 T4 主准确率。
+### 6.3 T3 过程、安全和物化指标
 
-最小示意：
+过程指标不能代替业务准确率，但必须解释“输入是否完整、AI 怎样到达结果、哪些动作被安全降级、最后输出是否真的消费判断”。
 
-```yaml
-expected:
-  section_profiles:
-    - section_ref: section_001
-      boundary:
-        start_source_seq: 1
-        end_source_seq: 16
-      page_setup:
-        orientation: portrait
-        margin_top_pt: 72
-        margin_bottom_pt: 72
+| 边界 | 必查字段或指标 | 失败含义 |
+| --- | --- | --- |
+| Final input | T2 `stage_id/result_role/artifact_type`、L1 hash、T2 final hash/availability | T3 使用了 candidate、旧 observation 或错误运行的上游 |
+| Stage Input | `tree_hash`、unit roots、父子关系、reachable nodes、member leaf union、completeness、firewall | 层级树、身份或事实输入不可信，不能进入语义判断 |
+| Sparse traversal | `limits.max_depth/max_calls`、`call_count`、decisions、call records | 调用预算、停止层级或 provider 失败不可解释 |
+| Atomic coverage | `validation.valid/errors`、expected member count、missing/overlap/extra member | 某个原子身份无结果、被多次覆盖或越界认领 |
+| Resolution | `resolution_counts.direct/inherited/fallback/contested` | 判断来自直接叶、上层继承、安全降级还是冲突 |
+| Observation quality | owned/unknown/object counts、mixed-span count、demotions、open questions、decision call count | AI 结果不能完整、无损地投影到执行身份 |
+| Materialization | observation/accepted/fallback/object item count、source/claimed/matched raw-run count、safe-Keep claims | AI observation 是否真正进入 canonical element materializer |
+| Residual | unmatched claims、unclaimed source runs、conflicting raw runs、unmaterialized object refs | 输入、判断或结构 shell 之间仍有未闭合身份 |
+| Final chain | `input_refs.l1/t2_final/t3_stage_input`、availability、before/after hash、final artifact hash | T3 final 不能证明来自本次唯一输入或发生 availability 升级 |
 
-  page_numbering:
-    - section_ref: section_002
-      display: true
-      format: decimal
-      start: 1
-```
+每个 atomic leaf 的 `decision_status` 与 `resolution` 必须分别统计；`accepted` 不等于 `direct`，`fallback` 也不能被混入普通 Keep。任何非法动作、越界 child、低置信 Delete、缺 fill source、provider 失败、预算耗尽、coverage overlap 或不完整 mixed span，都必须保留具体原因并只降级为 safe Keep。
 
-Prompt、模型选择页、视觉调用次数、推理过程，以及 T6 最终使用何种 OOXML 动作，不属于 T4 gold。
+### 6.4 T3 final 输出合同
+
+`03_element_spec.yaml` 的合同检查至少覆盖：
+
+- 顶层 `stage_id=T3`、`result_role=final`、`artifact_type=element_spec`；
+- availability 只能是 `AVAILABLE/NOT_AVAILABLE`，且 required upstream 不可用时不能升级；
+- `input_refs` 精确绑定 sealed L1、`02_unit_map.yaml` 和 `03.0_t3_hierarchical_stage_input.json`；
+- lineage 只能解释 AI observation 来源，不允许下游据此选择 route；
+- 每个 element 有稳定 element/unit/source/raw-run/logical-run 身份和 authoritative content；
+- policy 属于 canonical ontology，fill/generated/instruction-remove 的条件字段完整；
+- agent trace 能回到 decision/member/resolution；safe fallback 不伪装成 accepted；
+- mixed、局部不完整或冲突 span 不得扩大为 Delete/Fill，执行语义必须为 safe Keep；
+- AI 完全不可用时允许生成审阅用 element shell，但 final availability 必须保持 `NOT_AVAILABLE`。
+
+T3 final schema/trace 完整只证明结果可绑定、可审计，不证明学校模板质量通过。`gold_status=PARTIAL`、false delete、准确率未达门槛或真实 Word 效果未闭环时，阶段质量仍为 `UNKNOWN/FAIL`。
+
+## 7. T4：暂停阶段
+
+T4 当前不运行，因此没有 isolated/cascade AI 测试、route、canonical final、`layout_accuracy` 或 required gold。报告必须把 T4 标为 `SKIPPED/RESERVED`，不能把历史 `04_*` 文件存在解释为当前阶段通过，也不能因文件缺失把完整生成判为失败。
+
+原 T4 关心的版式质量分到三个可执行验证面：
+
+| 验证面 | 事实源 | 必须证明 |
+| --- | --- | --- |
+| L1 源版式事实完整性 | 源 DOCX、L1 `layout_fact_index` | section、页面设置、页眉页脚、fields、breaks、styles 和 numbering 可追踪，身份和 coverage 明确 |
+| T6 源版式保护 | 源 DOCX、最终 DOCX、build manifest | copy/edit 没有静默丢失或错误改写 `sectPr`、页面设置、header/footer relationship、PAGE field、styles 和 numbering |
+| POST_T6 最终学校质量 | 最终 DOCX、学校签收标准 | 最终页面、页眉页脚、页码和视觉版式满足学校要求 |
+
+历史 `template_generation/t4_global_layout.standard.yaml` 在迁移期只能作为历史审查材料；完成消费者迁移后应删除或归档，不能继续作为 required stage gold。未来只有在 T4 重新启用并产生可执行版式动作时，才重新建立 T4 gold 和 isolated/cascade 评测。
 
 ## 8. T5：主规格合并
 
 | 项目 | T5 测试契约 |
 | --- | --- |
-| 目标 | 验证 T2 单元、T3 元素和 T4 版式是否被无损合并为可执行 template spec |
-| Isolated 输入 | 冻结的 T2 最终 unit map、T3 唯一 AI canonical element spec、T4 最终 global spec 和 L1 identity/hash；每份输入都带 availability |
-| Cascade 输入 | 同一次完整运行的真实 T2/T3/T4/L1 输出 |
+| 目标 | 验证 T2 单元和 T3 元素是否被无损合并，并正确绑定 L1 源 section/版式保护身份 |
+| Isolated 输入 | 冻结的 T2 final unit map、T3 final element spec 和 L1 identity/hash/layout facts；T2/T3 带 `result_role=final`、hash 和 availability |
+| Cascade 输入 | 同一次完整运行的真实 T2/T3/L1 输出 |
 | 输出 | `05_template_spec.yaml` |
 | Gold | `template_generation/t5_template_spec.standard.yaml`；覆盖主规格合并契约 |
 | Route | code-only；`routes.code` |
-| 指标 | 主指标 `merge_contract_accuracy`；unit precision/recall/F1/order、unit-element binding、unit-section binding、输入 hash/trace、review flags 和缺失上游字段 |
+| 指标 | 主指标 `merge_contract_accuracy`；final-input rejection、unit precision/recall/F1/order、unit-element binding、unit-section binding、输入 hash/trace、availability 保守合并、review flags 和缺失上游字段 |
 | CLI | 目标入口：`docfit template stage verify --stage t5 --input-mode isolated --fixture .../t5 --routes code` |
 | 报告 | code accuracy、各 binding 指标、hash/trace 完整度、mismatches 和 evidence |
 
@@ -348,12 +401,12 @@ Prompt、模型选择页、视觉调用次数、推理过程，以及 T6 最终�
 | 项目 | T6 测试契约 |
 | --- | --- |
 | 目标 | 验证 T5 动作是否准确作用到源 DOCX，并在最终 Word 中留下可观察效果 |
-| Isolated 输入 | 源 DOCX package、冻结的 T5 template spec 和 L1 identity resolver/hash |
+| Isolated 输入 | 源 DOCX package、冻结的 T5 final template spec 和 L1 identity resolver/hash；不得另传 T2/T3/generation_model 或历史 T4 artifact 作为动作源 |
 | Cascade 输入 | 某次完整运行的真实 T5/L1 和源 DOCX |
 | 输出 | `06.1_fillable_template.docx`、`06.2_build_manifest.json` |
 | Gold | 当前使用构建动作契约和最终 DOCX fresh observation；无学校独立 gold，gold_status=`MISSING` |
 | Route | code-only；`routes.code` |
-| 指标 | 主指标 `execution_effect_accuracy`；动作成功率、delete/keep/fill/generated 效果、分页/分节/keep 效果、manifest 与 fresh observation 一致性、未执行动作 |
+| 指标 | 主指标 `execution_effect_accuracy`；T5-only action source、动作成功率、delete/keep/fill/generated 效果、分页/分节/keep 效果、manifest 与 fresh observation 一致性、availability 连续性和未执行动作 |
 | CLI | 目标入口：`docfit template stage verify --stage t6 --input-mode isolated --fixture .../t6 --routes code` |
 | 报告 | execution effect accuracy、动作分类结果、fresh observation、manifest mismatch、blockers 和 evidence |
 
@@ -367,7 +420,7 @@ Prompt、模型选择页、视觉调用次数、推理过程，以及 T6 最终�
 | 输出 | `07_verification_report.json` |
 | Gold | 当前使用 verification contract；无学校独立 gold，gold_status=`MISSING` |
 | Route | code-only；`routes.code` |
-| 指标 | 主指标 `verification_coverage`；T1-T6 检查覆盖、hash/identity/引用/动作对账、first_bad_stage、UNKNOWN 数量和假绿阻断 |
+| 指标 | 主指标 `verification_coverage`；T1-T6 检查覆盖、final hash/availability chain、identity/引用/动作对账、first_bad_stage、UNKNOWN 数量和假绿阻断 |
 | CLI | 目标入口：`docfit template stage verify --stage t7 --input-mode isolated --fixture .../t7 --routes code` |
 | 报告 | verification coverage、上游检查状态、first_bad_stage、未验证项、假绿阻断和 evidence |
 
@@ -405,3 +458,7 @@ Gold contract 或 scored 字段变化还必须：
 | 2026-07-23 | 增加公共 Gold 契约；明确 T2/T3/T4 只评分本阶段最终 canonical 输出，T3 采用 adaptive run/span atomic action gold，不评价分层决策路径；T4 上游 T2 绑定不重复计入 T4 准确率。 |
 | 2026-07-23 | 明确代理 Word 审查可以形成待人工确认的 scored item，但不能代替人工签核或把 `PARTIAL` 自动晋升为 `VERIFIED`。 |
 | 2026-07-23 | T3 收敛为唯一 AI canonical route；删除 T3 Code/Merged 测试面，程序检查改为 schema/identity/coverage/materialization self-check，availability 随唯一最终输出向下传递。 |
+| 2026-07-25 | 补全 T3 final 上游绑定、分层动作与 stop-or-descend 过程指标、adaptive run/span 准确率字段、deletion safety，以及 `03_element_spec.yaml` 的 final 输出合同。 |
+| 2026-07-26 | 明确 `template stage t3 --t2-artifact` 是命名调试适配器；普通 `unit_map` 的本地 final 包装属于有意调试能力，不作为生产缺陷或质量通过证据。 |
+| 2026-07-26 | T4 收敛为唯一 AI canonical route；删除 T4 Code/Merged/hint bridge 测试面，AI 弃权或身份不匹配时 final 保持 `NOT_AVAILABLE`。 |
+| 2026-07-26 | copy-first 路线决定暂停并跳过 T4；取消 T4 route/final/gold gate，把版式质量拆到 L1 源事实、T6 preservation 和 T7/POST_T6 最终 Word 验证。 |

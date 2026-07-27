@@ -1,5 +1,5 @@
 ---
-status: draft
+status: superseded
 owner: template-generation
 stage: T4
 topic: agent-proposal
@@ -14,10 +14,16 @@ previous_plan:
 related_direction:
   doc: docs/plans/2026-07-03-template-parse-refactor-ai-primary-staged-migration-proposal.md
 created: 2026-07-03
-last_updated: 2026-07-03
+last_updated: 2026-07-26
+superseded_by:
+  id: T2T3T4-AGENT-PLAN-13
+  doc: docs/plans/2026-07-26-template-parse-refactor-t4-ai-only-plan-13-single-ai-final.md
 ---
 
 # T2/T3/T4 Agent Plan 10：T4 明点转 AI 为主 —— 输入补齐 + merged 一等字段 + 下游消费
+
+> 2026-07-26：本 plan 被 Plan 13 取代。最新目标不再保留 deterministic fallback
+> 和 merged 路线，而是由唯一 AI observation 发布唯一 T4 final。
 
 ## Summary
 

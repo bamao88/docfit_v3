@@ -1,6 +1,14 @@
-# `docs/plans/` 命名约定
+# `docs/plans/` 实施计划维护规则
 
-本目录放实施计划、阶段 issue 和优化方案。历史文件命名较乱，**新建文档统一加日期前缀**；旧文件不批量重命名。
+本目录放问题事实、实施计划和历史优化方案。当前变化、缺陷、影响范围和闭环状态统一由 `docs/status/` 管理；本目录不再承担全局状态看板职责。历史文件命名较乱，**新建文档统一加日期前缀**；旧文件不批量重命名。
+
+进入本目录前先检查：
+
+- `docs/current/README.md`：当前系统或阶段契约的事实源；
+- `docs/status/README.md` 和 `docs/status/INDEX.md`：问题是否已经登记、影响哪些阶段、当前是否闭环；
+- 本 README：是否需要独立 issue/plan，以及具体文档怎样维护。
+
+关系是：status 追踪影响与闭环，issue 记录问题事实，plan 承载具体执行契约。不要用 plan index、progress 文档或最终回复代替 status。
 
 ## 新建文件
 
@@ -75,6 +83,8 @@ Plan 是同一轮工作的唯一执行契约。不要为同一个 issue/plan 再
 
 ## 状态与 Git 追踪
 
+这里的状态描述单个 issue/plan 的执行状态；项目当前问题和跨阶段影响仍以 `docs/status/INDEX.md` 为入口。issue/plan 状态变化时，应同步关联状态项，避免出现 plan 已完成但影响未验证，或状态已关闭但 plan 仍显示 implementing。
+
 推荐状态：
 
 ```text
@@ -128,7 +138,7 @@ Residual:
 
 其他主题同样加日期前缀，用语义化 kebab-case 即可。
 
-索引类文件（本 README、`template-parse-refactor-issue-index.md`）不加日期前缀。
+索引类文件（本 README、`template-parse-refactor-issue-index.md`）不加日期前缀。`template-parse-refactor-issue-index.md` 只保存模板解析历史迭代链，不作为当前状态总入口。
 
 ## 迭代链
 

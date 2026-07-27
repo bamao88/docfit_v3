@@ -1,5 +1,7 @@
 # DocFit Status
 
+> 本文件是 2026-07-11 的历史状态快照，不再维护。当前变化、缺陷、影响范围和闭环情况统一见 `docs/status/INDEX.md`；具体状态证据见 `docs/status/active/` 和 `docs/status/closed/`。
+
 Last updated: 2026-07-11
 
 一句话结论：模板生成 L1 输入迁移已验证完成；三校真实 API 无明显回退报告与最终代码固定 replay 均为 `PASS`。T3 Plan 06 现在可恢复，但本轮没有执行其 span/policy/prompt/AI-primary 改造。

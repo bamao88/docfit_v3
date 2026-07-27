@@ -30,6 +30,8 @@ def _write_stage_report(out_dir: Path, result: StageResult) -> dict[str, Any]:
         out_dir,
         stage=result.stage,
         status=result.status,
+        run_status=result.run_status,
+        quality_status=result.quality_status,
         findings=result.finding_dicts(),
         artifacts=_artifact_refs(out_dir, result),
         coverage=result.coverage,
@@ -188,9 +190,13 @@ def run_template_generation_full_eval(
         derive_template_gap=True,
     )
 
-    status = merge_statuses(
-        [generate_result.status, gap_result.status, judge_result.status]
+    run_status = merge_statuses(
+        [generate_result.run_status or generate_result.status]
     )
+    quality_status = merge_statuses(
+        [gap_result.quality_status or gap_result.status, judge_result.quality_status or judge_result.status]
+    )
+    status = merge_statuses([run_status, quality_status])
     full_summary = _build_template_generation_full_summary(
         school_id=school_id,
         template_version=template_version,
@@ -202,6 +208,8 @@ def run_template_generation_full_eval(
         gap_result=gap_result,
         judge_result=judge_result,
         status=status,
+        run_status=run_status,
+        quality_status=quality_status,
     )
     full_summary_json = out_dir / "full_summary.json"
     full_summary_md = out_dir / "full_summary.md"
@@ -211,8 +219,15 @@ def run_template_generation_full_eval(
     result = StageResult(
         "template_generation_full",
         status,
+        run_status=run_status,
+        quality_status=quality_status,
         findings=[
-            *generate_result.findings,
+            *[
+                finding
+                for finding in generate_result.findings
+                if finding.type
+                != "template_generation_school_quality_not_evaluated"
+            ],
             *gap_result.findings,
             *judge_result.findings,
         ],
@@ -291,6 +306,8 @@ def _build_template_generation_full_summary(
     gap_result: StageResult,
     judge_result: StageResult,
     status: Status,
+    run_status: Status,
+    quality_status: Status,
 ) -> dict[str, Any]:
     gap_report = gap_result.artifacts.get("template_gap_report") or _read_json_if_exists(
         template_gap_dir / "artifacts" / "template_gap_report.json"
@@ -310,7 +327,7 @@ def _build_template_generation_full_summary(
         (judge_report or {}).get("first_bad_stage")
         or _first_non_pass_stage(
             {
-                "template_generate": generate_result.status,
+                "template_generate": generate_result.run_status or generate_result.status,
                 "template_gap": gap_result.status,
                 "template_generation_judge": judge_result.status,
             }
@@ -334,6 +351,8 @@ def _build_template_generation_full_summary(
         "school_id": school_id,
         "template_version": template_version,
         "status": status.value,
+        "run_status": run_status.value,
+        "quality_status": quality_status.value,
         "run_root": str(out_dir),
         "eval_runs": {
             "template_generate": str(template_generate_dir),
@@ -344,6 +363,16 @@ def _build_template_generation_full_summary(
             "template_generate": generate_result.status.value,
             "template_gap": gap_result.status.value,
             "template_generation_judge": judge_result.status.value,
+        },
+        "stage_run_statuses": {
+            "template_generate": (generate_result.run_status or generate_result.status).value,
+            "template_gap": (gap_result.run_status or gap_result.status).value,
+            "template_generation_judge": (judge_result.run_status or judge_result.status).value,
+        },
+        "stage_quality_statuses": {
+            "template_generate": (generate_result.quality_status or generate_result.status).value,
+            "template_gap": (gap_result.quality_status or gap_result.status).value,
+            "template_generation_judge": (judge_result.quality_status or judge_result.status).value,
         },
         "final_gap": (gap_report or {}).get("summary", {}),
         "first_bad_stage": first_bad_stage,
@@ -440,9 +469,9 @@ def _build_template_generation_quality_report(
         for stage_id, stage_key, artifact_paths in [
             ("T1", "t1_document_facts", ["01_document_facts.json"]),
             ("L1", "l1_input_contract", ["01.5_l1_input_contract.json"]),
-            ("T2", "t2_unit_pagination", ["02.3_t2_merged_unit_map.yaml", "02_unit_map.yaml"]),
+            ("T2", "t2_unit_pagination", ["02_unit_map.yaml"]),
             ("T3", "t3_element_policy", ["03_element_spec.yaml"]),
-            ("T4", "t4_global_layout", ["04.2_t4_merged_global_spec.yaml", "04_global_spec.yaml"]),
+            ("T4", "t4_global_layout", ["04_global_spec.yaml"]),
             ("T5", "t5_template_spec", ["05_template_spec.yaml"]),
             ("T6", "t6_fillable_template", ["06.1_fillable_template.docx", "06.2_build_manifest.json"]),
             ("T7", "t7_verification_report", ["07_verification_report.json"]),
@@ -514,7 +543,7 @@ def _template_generation_stage_card(
             or _post_t6_gap_status(gap_report)
         ),
         "audit_status": (stage_check or {}).get("audit_status"),
-        "route_status": "FAIL" if stage_mismatches else "PASS",
+        "route_status": _route_evaluation_status(route_metrics, stage_mismatches),
         "artifact_paths": artifact_paths,
         "standard_path": (stage_check or {}).get("standard_path"),
         "quality_checks": _quality_checks_for_stage(
@@ -550,10 +579,8 @@ def _stage_card_status(
         statuses.append(str(verification_stage["status"]))
     if stage_id == "POST_T6":
         statuses.append(_post_t6_gap_status(gap_report))
-    if route_metrics and not statuses:
-        statuses.append("PASS")
-    if route_mismatches:
-        statuses.append("FAIL")
+    if route_metrics:
+        statuses.append(_route_evaluation_status(route_metrics, route_mismatches))
     return _merge_status_values(statuses)
 
 
@@ -587,7 +614,7 @@ def _quality_checks_for_stage(
         checks.append(
             {
                 "kind": "route_evaluation",
-                "status": "FAIL" if route_mismatches else "PASS",
+                "status": _route_evaluation_status(route_metrics, route_mismatches),
                 "route_availability": route_metrics.get("route_availability", {}),
                 "route_reasons": route_metrics.get("route_reasons", {}),
                 "ai_availability": route_metrics.get("ai_availability"),
@@ -629,6 +656,26 @@ def _quality_checks_for_stage(
             }
         )
     return checks
+
+
+def _route_evaluation_status(
+    route_metrics: dict[str, Any],
+    route_mismatches: list[dict[str, Any]],
+) -> str:
+    if route_mismatches:
+        return Status.FAIL.value
+    availability = route_metrics.get("route_availability")
+    if not isinstance(availability, dict) or not availability:
+        return Status.UNKNOWN.value
+    normalized = [str(value or "") for value in availability.values()]
+    allowed = {"AVAILABLE", "OUT_OF_SCOPE"}
+    if (
+        not normalized
+        or "AVAILABLE" not in normalized
+        or any(value not in allowed for value in normalized)
+    ):
+        return Status.UNKNOWN.value
+    return Status.PASS.value
 
 
 def _template_generation_quality_evidence_refs(

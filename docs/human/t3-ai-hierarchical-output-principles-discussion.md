@@ -10,6 +10,8 @@
 
 > 2026-07-23 路线决定：用户确认 T3 后续只保留 AI 判断路线。Code 只承担事实投影、身份/完整性校验、继承展开、安全 Keep 和执行物化，不再输出独立判断结果；T3 不再设置 Merge 路线。本文后续出现的 code/AI/merged 比较描述只作为讨论历史，不再代表目标架构。
 
+> 2026-07-23 Gold 契约更新：最终动作 gold 的 canonical 形状已在 [`template-generation-testing.md`](../current/template-generation-testing.md) 定稿为 `adaptive_run_or_span`。统一动作的 raw run 使用一个 exact run item；同一 raw run 内存在混合动作时使用完整、连续、无重叠/缺口的 exact span items。对象级“正确停止或下钻”是否另设人工 gold 仍属于本文讨论范围。
+
 ## 1. 这份文档回答什么
 
 本文用于讨论 T3 AI 应该输出哪些判断，以及这些判断在系统结构中的含义。
@@ -472,7 +474,7 @@ AI sparse decisions ───┘
 - AI 调用数、最大深度和 token/cost；
 - Delete false positive 与宽泛删除继续作为硬安全指标。
 
-Gold 可以继续以 atomic run/span 动作为最终对账底座，但还需要对象树、允许停止层级或等价层级判断证据，才能评价“是否在正确层级停止或下钻”。具体 gold 形状仍需讨论。
+最终动作 gold 已由 canonical 测试契约确定为 adaptive atomic run/span：统一动作使用 run item，混合动作使用完整 exact span items。若还要评价“是否在正确层级停止或下钻”，仍需要对象树、允许停止层级或等价层级判断证据；这部分附加 gold 是否建立、如何避免强迫唯一合法树形，仍需讨论。
 
 ## 11. 当前待讨论问题
 

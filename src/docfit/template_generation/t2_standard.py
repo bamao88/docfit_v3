@@ -6,7 +6,11 @@ from typing import Any
 
 import yaml
 
-from .page_policy import PAGE_POLICY_FIELDS, normalize_page_policy, page_policy_shape_errors
+from .page_policy import (
+    UNIT_PAGE_POLICY_FIELDS,
+    normalize_unit_page_policy,
+    unit_page_policy_shape_errors,
+)
 from .text_utils import _normalize_for_match
 
 
@@ -92,6 +96,7 @@ def audit_unit_map_against_t2_standard(
         standard,
         expected_unit_ids=expected_unit_ids,
         expected_ids_from_units=expected_ids_from_units,
+        expected_units=expected_units,
     )
     anchor_owner_results = (
         _audit_anchor_ownership(unit_map, standard, source_tree)
@@ -199,7 +204,7 @@ def audit_unit_map_against_t2_standard(
                 {
                     "type": "t2_page_policy_mismatch",
                     "status": "FAIL",
-                    "expected": "unit_map.units[].page matches signed T2 page policy",
+                    "expected": "unit_map.units[].page_policy matches signed T2 page policy",
                     "actual": page_policy_failures,
                     "affected_ids": sorted(
                         {
@@ -286,6 +291,13 @@ def _audit_source_ranges(
                     "actual": actual_seq_range,
                 }
             )
+        if expected_seq_range:
+            ownership_mismatch = _source_seq_ownership_mismatch(
+                actual_unit,
+                expected_seq_range,
+            )
+            if ownership_mismatch:
+                mismatches.append(ownership_mismatch)
         if expected_ref_range and actual_ref_range != expected_ref_range:
             mismatches.append(
                 {
@@ -369,6 +381,54 @@ def _actual_source_ref_range(unit: dict[str, Any]) -> dict[str, Any]:
     return {}
 
 
+def _source_seq_ownership_mismatch(
+    actual_unit: dict[str, Any],
+    expected_seq_range: dict[str, Any],
+) -> dict[str, Any]:
+    expected_refs = _expected_source_seq_refs(expected_seq_range)
+    if not expected_refs:
+        return {}
+    actual_refs = [
+        parsed
+        for parsed in (_int_or_none(ref) for ref in actual_unit.get("source_seq_refs", []) or [])
+        if parsed is not None
+    ]
+    if not actual_refs:
+        return {}
+    expected_set = set(expected_refs)
+    actual_set = set(actual_refs)
+    missing = sorted(expected_set - actual_set)
+    unexpected = sorted(actual_set - expected_set)
+    if not missing and not unexpected and len(actual_refs) == len(actual_set):
+        return {}
+    return {
+        "field": "source_seq_refs",
+        "expected": expected_refs,
+        "actual": actual_refs,
+        "missing_source_seq_refs": missing,
+        "unexpected_source_seq_refs": unexpected,
+        "duplicate_source_seq_refs": _duplicate_ints(actual_refs),
+    }
+
+
+def _expected_source_seq_refs(expected_seq_range: dict[str, Any]) -> list[int]:
+    start = _int_or_none(expected_seq_range.get("start"))
+    end = _int_or_none(expected_seq_range.get("end"))
+    if start is None or end is None or end < start:
+        return []
+    return list(range(start, end + 1))
+
+
+def _duplicate_ints(values: list[int]) -> list[int]:
+    seen: set[int] = set()
+    duplicates: list[int] = []
+    for value in values:
+        if value in seen and value not in duplicates:
+            duplicates.append(value)
+        seen.add(value)
+    return duplicates
+
+
 def _audit_page_policies(
     unit_map: dict[str, Any],
     expected_units: list[dict[str, Any]],
@@ -381,74 +441,75 @@ def _audit_page_policies(
     results: list[dict[str, Any]] = []
     for expected_unit in expected_units:
         unit_id = str(expected_unit.get("unit_id") or "")
-        expected_page = expected_unit.get("page")
-        if not unit_id or not isinstance(expected_page, dict):
+        expected_page_policy = expected_unit.get("page_policy")
+        if not unit_id:
             continue
-        actual_unit = actual_by_id.get(unit_id)
-        affected_id = f"{unit_id}.page"
-        if actual_unit is None:
+        if isinstance(expected_page_policy, dict):
             results.append(
-                {
-                    "unit_id": unit_id,
-                    "affected_id": affected_id,
-                    "status": "FAIL",
-                    "reason": "unit missing",
-                    "expected": {
-                        field: expected_page.get(field)
-                        for field in PAGE_POLICY_FIELDS
-                    },
-                    "actual": None,
-                }
-            )
-            continue
-        actual_raw = actual_unit.get("page")
-        shape_errors = page_policy_shape_errors(actual_raw)
-        if shape_errors:
-            results.append(
-                {
-                    "unit_id": unit_id,
-                    "affected_id": affected_id,
-                    "status": "FAIL",
-                    "reason": "actual page policy shape invalid",
-                    "expected": {
-                        field: expected_page.get(field)
-                        for field in PAGE_POLICY_FIELDS
-                    },
-                    "actual": actual_raw,
-                    "shape_errors": shape_errors,
-                }
-            )
-            continue
-        actual_page = normalize_page_policy(actual_raw)
-        mismatches = []
-        for field in PAGE_POLICY_FIELDS:
-            expected_value = normalize_page_policy({field: expected_page.get(field)}).get(field)
-            actual_value = actual_page.get(field)
-            if actual_value != expected_value:
-                mismatches.append(
-                    {
-                        "field": field,
-                        "expected": expected_value,
-                        "actual": actual_value,
-                    }
+                _audit_unit_page_policy(
+                    actual_by_id.get(unit_id),
+                    unit_id=unit_id,
+                    expected_page_policy=expected_page_policy,
                 )
-        results.append(
-            {
-                "unit_id": unit_id,
-                "affected_id": affected_id,
-                "status": "PASS" if not mismatches else "FAIL",
-                "expected": {
-                    field: normalize_page_policy({field: expected_page.get(field)}).get(field)
-                    for field in PAGE_POLICY_FIELDS
-                },
-                "actual": {
-                    field: actual_page.get(field)
-                    for field in PAGE_POLICY_FIELDS
-                },
-                "mismatches": mismatches,
-            }
-        )
+            )
+            continue
     return results
+
+
+def _audit_unit_page_policy(
+    actual_unit: dict[str, Any] | None,
+    *,
+    unit_id: str,
+    expected_page_policy: dict[str, Any],
+) -> dict[str, Any]:
+    affected_id = f"{unit_id}.page_policy"
+    expected_summary = {
+        field: expected_page_policy.get(field)
+        for field in UNIT_PAGE_POLICY_FIELDS
+    }
+    if actual_unit is None:
+        return {
+            "unit_id": unit_id,
+            "affected_id": affected_id,
+            "status": "FAIL",
+            "reason": "unit missing",
+            "expected": expected_summary,
+            "actual": None,
+        }
+    actual_raw = actual_unit.get("page_policy")
+    shape_errors = unit_page_policy_shape_errors(actual_raw)
+    if shape_errors:
+        return {
+            "unit_id": unit_id,
+            "affected_id": affected_id,
+            "status": "FAIL",
+            "reason": "actual page_policy shape invalid",
+            "expected": expected_summary,
+            "actual": actual_raw,
+            "shape_errors": shape_errors,
+        }
+    actual_policy = normalize_unit_page_policy(actual_raw)
+    expected_policy = normalize_unit_page_policy(expected_page_policy)
+    mismatches = []
+    for field in UNIT_PAGE_POLICY_FIELDS:
+        expected_value = expected_policy.get(field)
+        actual_value = actual_policy.get(field)
+        if actual_value != expected_value:
+            mismatches.append(
+                {
+                    "field": field,
+                    "expected": expected_value,
+                    "actual": actual_value,
+                }
+            )
+    return {
+        "unit_id": unit_id,
+        "affected_id": affected_id,
+        "status": "PASS" if not mismatches else "FAIL",
+        "expected": expected_policy,
+        "actual": actual_policy,
+        "mismatches": mismatches,
+    }
 
 
 def _actual_unit_ids(unit_map: dict[str, Any]) -> list[str]:
@@ -707,6 +768,7 @@ def _schema_errors(
     *,
     expected_unit_ids: list[str],
     expected_ids_from_units: list[str],
+    expected_units: list[dict[str, Any]],
 ) -> list[str]:
     errors: list[str] = []
     if standard.get("artifact_under_test") != "unit_map":
@@ -718,6 +780,14 @@ def _schema_errors(
     if expected_unit_ids and expected_ids_from_units:
         if expected_unit_ids != expected_ids_from_units:
             errors.append("expected.unit_order does not match expected.units[].unit_id")
+    for unit in expected_units:
+        page_policy = unit.get("page_policy")
+        if page_policy is None:
+            continue
+        shape_errors = unit_page_policy_shape_errors(page_policy)
+        if shape_errors:
+            unit_id = str(unit.get("unit_id") or "<missing>")
+            errors.append(f"expected.units[{unit_id}].page_policy invalid: {shape_errors}")
     return errors
 
 

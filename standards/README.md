@@ -53,7 +53,7 @@ standards/
 | `targets/<target>/v1/target.standard.yaml` | 目标模板标准入口，登记来源、contract、基线和覆盖要求 | 不证明生成模板已经通过 |
 | `targets/<target>/v1/template_generation/t1_document_facts.standard.yaml` | T1 源 DOCX 事实解析标准 | 不承载单元、元素策略、全局版式或 `template_spec` 合并标准 |
 | `targets/<target>/v1/template_generation/t2_unit_pagination.standard.yaml` | T2 单元识别、单元顺序、边界范围和分页归属标准 | 不兼容旧结构发现标准入口 |
-| `targets/<target>/v1/template_generation/t3_element_policy.standard.yaml` | T3 元素策略、fill/manual/generated 语义和 source trace 标准 | 不负责全局页面规则或 Word 构建执行 |
+| `targets/<target>/v1/template_generation/t3_element_policy.standard.yaml` | T3 `keep/fill/delete` 一级动作 gold 和 source/run trace；细粒度 policy 只作输出兼容与诊断 | 不签收 fill/manual/generated 子类型准确率，不负责全局页面规则或 Word 构建执行 |
 | `targets/<target>/v1/template_generation/t4_global_layout.standard.yaml` | T4 页面、分节、页眉页脚、页码和编号规则标准 | 不负责元素策略或 Word 构建执行 |
 | `targets/<target>/v1/template_generation/t5_template_spec.standard.yaml` | T5 `template_spec` 合并、unit-element 绑定和 unit-section 绑定标准 | 不执行 Word 修改，不替代 T6 构建或最终 gap |
 | `targets/<target>/v1/template_quality/final_template.expected.yaml` | 最终生成模板的质量期望 | 不等于 `generated_template.docx` 的真实内容证明 |

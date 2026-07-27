@@ -75,7 +75,7 @@ uv run docfit template stage t2 \
   --out /private/tmp/docfit_observe_t2
 ```
 
-具体的 T3 上游复用和 T4 视觉 API 要求见 `docs/current/template-generation.md`。
+具体的 T3 上游复用和 T4 视觉 API 契约见 `docs/current/template-generation-architecture.md`。
 
 运行模板差距检查：
 
@@ -92,10 +92,11 @@ uv run docfit eval template-gap \
 | 你要了解什么 | 入口 |
 | --- | --- |
 | 当前主线和流程图 | `docs/current/README.md` |
-| 当前状态、下一步和阻塞项 | `STATUS.md` |
+| 当前变化、缺陷、影响和闭环状态 | `docs/status/INDEX.md` |
 | 当前启用范围、门禁和 AI 边界 | `docs/current/contracts-and-gates.md` |
-| 模板生成支撑流程 | `docs/current/template-generation.md` |
-| 模板生成各阶段的职责、依赖和输入输出契约 | `docs/current/template-generation-stage-contracts.md` |
+| 全系统和各业务阶段的文档入口 | `docs/current/README.md` |
+| 模板生成架构、阶段职责和输入输出契约 | `docs/current/template-generation-architecture.md` |
+| 模板生成整体与分阶段测试契约 | `docs/current/template-generation-testing.md` |
 | 新增文件放哪里 | `DIRECTORY_STRUCTURE.md` |
 
 目录规则只是新增文件时的参考，不是项目主线。

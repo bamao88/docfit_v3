@@ -1,16 +1,25 @@
 from __future__ import annotations
 
+from pathlib import Path
+import tempfile
 from typing import Any
 
 import pytest
 
-from docfit.core.io import read_json, sha256_json, write_json, write_yaml
+from docfit.core.io import read_json, sha256_file, sha256_json, write_json, write_yaml
 from docfit.template_generation.agent.api_config import LiveProviderUsageLimitState
 from docfit.template_generation.agent.config import AgentConfig, AgentConfigError
-from docfit.template_generation.agent import observation_orchestrate, observation_vision
+from docfit.template_generation.agent import (
+    observation_loop,
+    observation_providers,
+    observation_runtime,
+    observation_stage,
+    observation_vision,
+)
 from docfit.template_generation.agent.observation_config import ObservationConfig
 from docfit.template_generation.agent.observation_loop import (
     run_observation_pipeline,
+    run_t2_observation,
     run_t4_observation,
 )
 from docfit.template_generation.agent.observation_schema import (
@@ -20,17 +29,36 @@ from docfit.template_generation.agent.packet import (
     build_template_agent_render_packet,
     packet_source_seq_set,
 )
+from docfit.template_generation.final_results import publish_final_stage_result
 from docfit.template_generation.input_contract import build_l1_input_contract
+from docfit.template_generation.stage_inputs import l1_artifact_hash
+from docfit.template_generation.t2_ai import T2AIContractError
 
 from .helpers import document_facts
 
 
 def clean_packet() -> dict[str, Any]:
-    # 防火墙：structure_candidates={} → round0 结论不进渲染包。
-    return build_template_agent_render_packet(
+    packet = build_template_agent_render_packet(
         document_facts=document_facts(),
-        structure_candidates={},
     )
+    image_path = Path(tempfile.mkdtemp()) / "page-1.png"
+    image_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+    packet["render_status"] = "real_render"
+    packet["source_render_hash"] = "sha256:render"
+    packet["render_artifacts"] = {
+        "page_count": 1,
+        "clean_page_images": [
+            {
+                "page_no": 1,
+                "path": str(image_path),
+                "sha256": sha256_file(image_path),
+            }
+        ],
+    }
+    for row in packet.get("page_text_index", []):
+        row["page_no"] = 1
+        row["render_binding_status"] = "exact"
+    return packet
 
 
 def write_l1_stage_input(run_dir, packet: dict[str, Any]) -> None:
@@ -44,31 +72,17 @@ def write_l1_stage_input(run_dir, packet: dict[str, Any]) -> None:
 
 
 def transcript_three_samples() -> dict[str, Any]:
-    # helpers 文档 source_seq: 1=封面 2=承诺书 3=学生姓名:____ 4=正文
-    # 三样本对 seq1/seq4 一致；seq2 多数 integrity_statement；seq3 分歧→unknown。
-    sample_a = {
-        "items": [
-            {"unit_id": "cover", "source_seq_refs": [1]},
-            {"unit_id": "integrity_statement", "source_seq_refs": [2]},
-            {"unit_id": "body_main", "source_seq_refs": [3, 4]},
-        ]
-    }
-    sample_b = {
-        "items": [
-            {"unit_id": "cover", "source_seq_refs": [1]},
-            {"unit_id": "integrity_statement", "source_seq_refs": [2]},
-            {"unit_id": "body_main", "source_seq_refs": [4]},
-        ]
-    }
-    sample_c = {
-        "items": [
-            {"unit_id": "cover", "source_seq_refs": [1]},
-            {"unit_id": "cover", "source_seq_refs": [2]},
-            {"unit_id": "body_main", "source_seq_refs": [4]},
+    sample = {
+        "units": [
+            {
+                "unit_id": "cover_and_template_content",
+                "unit_name": "封面及模板内容",
+                "boundary": {"start_page": 1, "end_page": 1},
+            }
         ]
     }
     return {
-        "t2": [sample_a, sample_b, sample_c],
+        "t2": [sample],
         "t3": {
             "cover": {
                 "items": [
@@ -101,30 +115,49 @@ def test_pipeline_produces_three_observations() -> None:
     bundle = run_observation_pipeline(
         packet=packet,
         transcript=transcript_three_samples(),
-        config=ObservationConfig(enabled=True, self_consistency_samples=3),
+        config=ObservationConfig(),
     )
     assert bundle["ai_unit_observation"]["artifact_type"] == "ai_unit_observation"
     assert bundle["ai_element_observation"]["artifact_type"] == "ai_element_observation"
     assert bundle["ai_layout_observation"]["artifact_type"] == "ai_layout_observation"
 
 
-def test_pipeline_self_consistency_resolves_votes() -> None:
+def test_pipeline_t2_uses_one_page_native_ai_output() -> None:
     packet = clean_packet()
     bundle = run_observation_pipeline(
         packet=packet,
         transcript=transcript_three_samples(),
-        config=ObservationConfig(enabled=True, self_consistency_samples=3),
+        config=ObservationConfig(),
     )
-    units = {
-        seq: item["unit_id"]
-        for item in bundle["ai_unit_observation"]["items"]
-        for seq in item["source_seq_refs"]
+    assert bundle["ai_unit_observation"]["units"] == (
+        transcript_three_samples()["t2"][0]["units"]
+    )
+    assert bundle["quality_report"]["self_consistency"] == {
+        "samples": 1,
+        "mode": "single_ai_output",
     }
-    assert units.get(1) == "cover"  # 3/3 一致
-    assert units.get(2) == "integrity_statement"  # 2/3 多数
-    # seq3 分歧（仅 sample_a 给 body_main, 1/3 < 0.5）→ unknown，不进 items。
-    assert 3 not in units
-    assert 3 in bundle["ai_unit_observation"]["coverage"]["unknown_source_seq"]
+
+
+def test_t2_rejects_unresolved_page_binding_before_responder_call() -> None:
+    packet = clean_packet()
+    packet["page_text_index"][0]["render_binding_status"] = "ambiguous"
+    calls = 0
+
+    class CountingResponder:
+        def fetch_units(self, *, evidence, n_samples):
+            nonlocal calls
+            del evidence, n_samples
+            calls += 1
+            return []
+
+    with pytest.raises(T2AIContractError, match="page binding is unresolved"):
+        run_t2_observation(
+            packet=packet,
+            responder=CountingResponder(),
+            config=ObservationConfig(),
+        )
+
+    assert calls == 0
 
 
 def test_pipeline_coverage_invariants_hold_for_all_stages() -> None:
@@ -133,9 +166,12 @@ def test_pipeline_coverage_invariants_hold_for_all_stages() -> None:
     bundle = run_observation_pipeline(
         packet=packet,
         transcript=transcript_three_samples(),
-        config=ObservationConfig(enabled=True, self_consistency_samples=3),
+        config=ObservationConfig(),
     )
-    for key in ("ai_unit_observation", "ai_element_observation", "ai_layout_observation"):
+    assert bundle["ai_unit_observation"]["validation"][
+        "complete_page_coverage"
+    ]
+    for key in ("ai_element_observation", "ai_layout_observation"):
         coverage = bundle[key]["coverage"]
         assert coverage_invariant_errors(coverage, all_source_seq=all_seq) == [], key
 
@@ -145,16 +181,64 @@ def test_pipeline_t3_stage_input_binds_the_single_final_t2_result() -> None:
     bundle = run_observation_pipeline(
         packet=packet,
         transcript=transcript_three_samples(),
-        config=ObservationConfig(enabled=True, self_consistency_samples=3),
+        config=ObservationConfig(),
     )
     stage_input = bundle["t3_hierarchical_stage_input"]
-    assert stage_input["contract"]["t2_route_hash"] == sha256_json(
-        bundle["ai_unit_observation"]["items"]
+    assert stage_input["contract"]["t2_final_hash"] == sha256_json(
+        bundle["t2_final_result"]
     )
+    assert bundle["t2_final_result"]["result_role"] == "final"
     assert "unit_windows" not in bundle
-    # T3 元素挂在 AI 自己认出的 cover / body_main 单元上。
+    # T3 元素挂在 AI 最终页面组上。
     element_units = {item["unit_id"] for item in bundle["ai_element_observation"]["items"]}
-    assert element_units <= {"cover", "body_main", "integrity_statement"}
+    assert element_units <= {"cover_and_template_content"}
+
+
+def test_pipeline_t3_uses_published_t2_final_when_ai_candidate_differs(
+    monkeypatch,
+) -> None:
+    packet = clean_packet()
+
+    def publish_different_final(
+        _observation: dict[str, Any],
+        *,
+        packet: dict[str, Any],
+    ):
+        del packet
+        return publish_final_stage_result(
+            {
+                "artifact_type": "unit_map",
+                "units": [
+                    {
+                        "unit_id": "body_main",
+                        "source_seq_refs": [4],
+                    }
+                ],
+            },
+            stage_id="T2",
+            artifact_type="unit_map",
+            artifact_name="02_unit_map.yaml",
+            producer_mode="fixture_finalizer",
+        )
+
+    monkeypatch.setattr(
+        observation_loop,
+        "publish_t2_ai_final",
+        publish_different_final,
+    )
+    bundle = run_observation_pipeline(
+        packet=packet,
+        transcript=transcript_three_samples(),
+        config=ObservationConfig(),
+    )
+
+    assert {
+        item["unit_id"] for item in bundle["ai_unit_observation"]["units"]
+    } != {"body_main"}
+    assert [
+        root["unit_id"]
+        for root in bundle["t3_hierarchical_stage_input"]["unit_roots"]
+    ] == ["body_main"]
 
 
 def test_live_capable_t3_responder_routes_from_unit_to_direct_children() -> None:
@@ -164,7 +248,17 @@ def test_live_capable_t3_responder_routes_from_unit_to_direct_children() -> None
     class UnitRoutedResponder:
         def fetch_units(self, *, evidence, n_samples):
             del evidence, n_samples
-            return [{"items": [{"unit_id": "cover", "source_seq_refs": [1, 2, 3, 4]}]}]
+            return [
+                {
+                    "units": [
+                        {
+                            "unit_id": "cover",
+                            "unit_name": "封面",
+                            "boundary": {"start_page": 1, "end_page": 1},
+                        }
+                    ]
+                }
+            ]
 
         def fetch_t3_decision(self, *, evidence, node, unit_id):
             calls.append((node["source_kind"], evidence["scope"], unit_id))
@@ -191,7 +285,7 @@ def test_live_capable_t3_responder_routes_from_unit_to_direct_children() -> None
     bundle = run_observation_pipeline(
         packet=packet,
         responder=UnitRoutedResponder(),
-        config=ObservationConfig(enabled=True, self_consistency_samples=1),
+        config=ObservationConfig(),
     )
 
     assert calls[0] == ("unit", "t3_hierarchical_node", "cover")
@@ -209,7 +303,17 @@ def test_hierarchical_t3_records_failed_node_as_fallback_without_descending() ->
     class RetryResponder:
         def fetch_units(self, *, evidence, n_samples):
             del evidence, n_samples
-            return [{"items": [{"unit_id": "cover", "source_seq_refs": [1, 2, 3, 4]}]}]
+            return [
+                {
+                    "units": [
+                        {
+                            "unit_id": "cover",
+                            "unit_name": "封面",
+                            "boundary": {"start_page": 1, "end_page": 1},
+                        }
+                    ]
+                }
+            ]
 
         def fetch_t3_decision(self, *, evidence, node, unit_id):
             del evidence, unit_id
@@ -234,7 +338,7 @@ def test_hierarchical_t3_records_failed_node_as_fallback_without_descending() ->
     bundle = run_observation_pipeline(
         packet=packet,
         responder=RetryResponder(),
-        config=ObservationConfig(enabled=True, self_consistency_samples=1),
+        config=ObservationConfig(),
     )
 
     assert attempted == [
@@ -257,7 +361,17 @@ def test_unit_routed_t3_short_circuits_local_calls_and_preserves_complete_unit()
     class UnitRoutedResponder:
         def fetch_units(self, *, evidence, n_samples):
             del evidence, n_samples
-            return [{"items": [{"unit_id": "cover", "source_seq_refs": [1, 2, 3, 4]}]}]
+            return [
+                {
+                    "units": [
+                        {
+                            "unit_id": "cover",
+                            "unit_name": "封面",
+                            "boundary": {"start_page": 1, "end_page": 1},
+                        }
+                    ]
+                }
+            ]
 
         def fetch_t3_decision(self, *, evidence, node, unit_id):
             calls.append((node["source_kind"], evidence["scope"], unit_id))
@@ -268,10 +382,14 @@ def test_unit_routed_t3_short_circuits_local_calls_and_preserves_complete_unit()
                 "reason": "整个测试单元作为完整内容保留",
             }
 
+        def fetch_layout(self, *, evidence):
+            del evidence
+            return {"section_profiles": []}
+
     bundle = run_observation_pipeline(
         packet=packet,
         responder=UnitRoutedResponder(),
-        config=ObservationConfig(enabled=True, self_consistency_samples=1),
+        config=ObservationConfig(),
     )
 
     t3 = bundle["ai_element_observation"]
@@ -287,12 +405,12 @@ def test_unit_routed_t3_short_circuits_local_calls_and_preserves_complete_unit()
     assert all(item["policy"] == "fixed" for item in t3["items"])
 
 
-def test_pipeline_t4_abstains_without_real_render() -> None:
+def test_pipeline_t4_abstains_when_ai_returns_no_layout_decision() -> None:
     packet = clean_packet()
     bundle = run_observation_pipeline(
         packet=packet,
         transcript=transcript_three_samples(),
-        config=ObservationConfig(enabled=True, self_consistency_samples=3),
+        config=ObservationConfig(),
     )
     assert bundle["ai_layout_observation"]["abstain"] is True
 
@@ -320,7 +438,7 @@ def test_t4_stage_calls_vision_responder_when_real_render_is_available() -> None
 
     observation, evidence = run_t4_observation(
         packet=packet,
-        config=ObservationConfig(enabled=True, model="minimax-test"),
+        config=ObservationConfig(model="minimax-test"),
         vision_responder=FakeVisionResponder(),
     )
 
@@ -347,13 +465,13 @@ def test_full_live_observation_wires_text_and_vision_apis(monkeypatch) -> None:
         return vision_responder, "minimax-test"
 
     monkeypatch.setattr(
-        observation_orchestrate,
-        "_build_live_text_responder",
+        observation_runtime,
+        "build_live_text_responder",
         fake_build_text,
     )
     monkeypatch.setattr(
-        observation_orchestrate,
-        "_build_live_vision_responder",
+        observation_runtime,
+        "build_live_vision_responder",
         fake_build_vision,
     )
 
@@ -362,12 +480,12 @@ def test_full_live_observation_wires_text_and_vision_apis(monkeypatch) -> None:
         return {"artifact_type": "ai_observation_bundle"}
 
     monkeypatch.setattr(
-        observation_orchestrate,
+        observation_runtime,
         "run_observation_pipeline",
         fake_run_observation_pipeline,
     )
 
-    result = observation_orchestrate.run_module1_observation_for_template_generate(
+    result = observation_runtime.run_module1_observation_for_template_generate(
         packet=packet,
         agent_config=AgentConfig(enabled=True, observation_mode="live"),
     )
@@ -408,7 +526,7 @@ def test_minimax_usage_limit_falls_back_to_kimi_for_t3() -> None:
                 "reason": "fallback",
             }
 
-    responder = observation_orchestrate._UsageLimitFallbackTextResponder(
+    responder = observation_providers.UsageLimitFallbackTextResponder(
         Primary(),
         Fallback(),
     )
@@ -446,7 +564,7 @@ def test_non_quota_minimax_error_does_not_switch_provider() -> None:
             calls.append("kimi")
             return {"result": "keep"}
 
-    responder = observation_orchestrate._UsageLimitFallbackTextResponder(
+    responder = observation_providers.UsageLimitFallbackTextResponder(
         Primary(),
         Fallback(),
     )
@@ -594,7 +712,7 @@ def test_t4_uses_cache_before_shared_minimax_circuit(monkeypatch, tmp_path) -> N
 
 
 def test_api_trace_reports_usage_limit_fallback() -> None:
-    summary = observation_orchestrate._api_trace_summary(
+    summary = observation_providers.api_trace_summary(
         mode="live",
         text_record=[
             {
@@ -620,7 +738,7 @@ def test_api_trace_reports_usage_limit_fallback() -> None:
 
 
 def test_api_trace_does_not_count_cache_or_circuit_skip_as_network_call() -> None:
-    summary = observation_orchestrate._api_trace_summary(
+    summary = observation_providers.api_trace_summary(
         mode="live",
         text_record=[
             {"stage": "t3", "provider": "minimax", "from_cache": True},
@@ -654,9 +772,12 @@ def test_standalone_t3_auto_runs_live_t2_before_t3(monkeypatch, tmp_path) -> Non
             self._record.append({"stage": "t2", "payload": {}, "error": None})
             return [
                 {
-                    "items": [
-                        {"unit_id": "cover", "source_seq_refs": [1]},
-                        {"unit_id": "body_main", "source_seq_refs": [2, 3, 4]},
+                    "units": [
+                        {
+                            "unit_id": "cover_and_template_content",
+                            "unit_name": "封面及模板内容",
+                            "boundary": {"start_page": 1, "end_page": 1},
+                        }
                     ]
                 }
             ]
@@ -672,30 +793,30 @@ def test_standalone_t3_auto_runs_live_t2_before_t3(monkeypatch, tmp_path) -> Non
             }
 
     monkeypatch.setattr(
-        observation_orchestrate,
+        observation_stage,
         "inspect_document_facts_docx",
         lambda _path: {},
     )
     monkeypatch.setattr(
-        observation_orchestrate,
+        observation_stage,
         "build_template_agent_render_packet",
         lambda **_kwargs: packet,
     )
     monkeypatch.setattr(
-        observation_orchestrate,
+        observation_stage,
         "build_agent_stage_packet",
         lambda _l1: packet,
     )
     monkeypatch.setattr(
-        observation_orchestrate,
-        "_build_live_text_responder",
+        observation_stage,
+        "build_live_text_responder",
         lambda **kwargs: (FakeTextResponder(kwargs["record"]), "kimi-test"),
     )
 
     source = tmp_path / "template.docx"
     source.touch()
     out_dir = tmp_path / "observe-t3"
-    summary = observation_orchestrate.run_live_template_observation_stage(
+    summary = observation_stage.run_live_template_observation_stage(
         source_template_docx=source,
         out_dir=out_dir,
         stage="t3",
@@ -704,7 +825,7 @@ def test_standalone_t3_auto_runs_live_t2_before_t3(monkeypatch, tmp_path) -> Non
     assert summary["llm_mode"] == "live_api"
     assert summary["auto_ran_t2"] is True
     assert calls[0][0] == "t2"
-    assert [call[0] for call in calls[1:]] == ["t3", "t3"]
+    assert [call[0] for call in calls[1:]] == ["t3"]
     assert (out_dir / "02.2_t2_ai_unit_observation.yaml").exists()
     assert (out_dir / "03.0_t3_hierarchical_stage_input.json").exists()
     assert (out_dir / "03.1_t3_ai_element_observation.yaml").exists()
@@ -716,26 +837,30 @@ def test_standalone_t4_fails_before_api_when_real_render_is_missing(
     tmp_path,
 ) -> None:
     packet = clean_packet()
+    packet["render_status"] = "projection_fallback"
+    packet["render_artifacts"]["clean_page_images"] = []
     monkeypatch.setattr(
-        observation_orchestrate,
+        observation_stage,
         "inspect_document_facts_docx",
         lambda _path: {},
     )
     monkeypatch.setattr(
-        observation_orchestrate,
+        observation_stage,
         "build_template_agent_render_packet",
         lambda **_kwargs: packet,
     )
     monkeypatch.setattr(
-        observation_orchestrate,
-        "_build_live_vision_responder",
-        lambda: pytest.fail("T4 must not claim an API call without real page images"),
+        observation_stage,
+        "build_live_vision_responder",
+        lambda **_kwargs: pytest.fail(
+            "T4 must not claim an API call without real page images"
+        ),
     )
 
     source = tmp_path / "template.docx"
     source.touch()
     with pytest.raises(AgentConfigError, match="requires real rendered page images"):
-        observation_orchestrate.run_live_template_observation_stage(
+        observation_stage.run_live_template_observation_stage(
             source_template_docx=source,
             out_dir=tmp_path / "observe-t4",
             stage="t4",
@@ -751,8 +876,8 @@ def test_run_backed_t3_requires_pinned_upstream_without_explicit_bootstrap(
     replay_path = tmp_path / "replay.json"
     write_json(replay_path, transcript_three_samples())
 
-    with pytest.raises(AgentConfigError, match="requires a pinned T2 artifact"):
-        observation_orchestrate.run_template_observation_stage(
+    with pytest.raises(AgentConfigError, match="requires a pinned T2 final"):
+        observation_stage.run_template_observation_stage(
             source_run_dir=run_dir,
             out_dir=tmp_path / "t3-debug",
             stage="t3",
@@ -771,15 +896,35 @@ def test_run_backed_t3_reuses_pinned_t2_and_writes_provenance(tmp_path) -> None:
         {"metadata": {"source_template_hash": "sha256:source-template"}},
     )
     write_yaml(
+        run_dir / "02_unit_map.yaml",
+        publish_final_stage_result(
+            {
+                "artifact_type": "unit_map",
+                "units": [
+                    {"unit_id": "cover", "source_seq_refs": [1]},
+                    {"unit_id": "body_main", "source_seq_refs": [2, 3, 4]},
+                ],
+            },
+            stage_id="T2",
+            artifact_type="unit_map",
+            artifact_name="02_unit_map.yaml",
+            producer_mode="fixture",
+            input_refs={
+                "l1": {
+                    "sha256": l1_artifact_hash(
+                        read_json(run_dir / "01.5_l1_input_contract.json")
+                    )
+                }
+            },
+        ).payload,
+    )
+    write_yaml(
         run_dir / "02.2_t2_ai_unit_observation.yaml",
         {
             "artifact_type": "ai_unit_observation",
             "source_render_hash": packet["source_render_hash"],
             "route": {"route_id": "ai_raw", "availability": "AVAILABLE"},
-            "items": [
-                {"unit_id": "cover", "source_seq_refs": [1]},
-                {"unit_id": "body_main", "source_seq_refs": [2, 3, 4]},
-            ],
+            "items": [{"unit_id": "wrong_candidate", "source_seq_refs": [4]}],
         },
     )
     replay_path = tmp_path / "replay.json"
@@ -791,7 +936,7 @@ def test_run_backed_t3_reuses_pinned_t2_and_writes_provenance(tmp_path) -> None:
     }
     out_dir = tmp_path / "t3-debug"
 
-    summary = observation_orchestrate.run_template_observation_stage(
+    summary = observation_stage.run_template_observation_stage(
         source_run_dir=run_dir,
         out_dir=out_dir,
         stage="t3",
@@ -808,7 +953,7 @@ def test_run_backed_t3_reuses_pinned_t2_and_writes_provenance(tmp_path) -> None:
     assert manifest["source_render_hash"] == packet["source_render_hash"]
     assert manifest["source_template_hash"] == "sha256:source-template"
     assert manifest["upstream_artifacts"]["t2"]["path"].endswith(
-        "02.2_t2_ai_unit_observation.yaml"
+        "02_unit_map.yaml"
     )
     after = {
         path.name: path.read_bytes()
@@ -827,7 +972,7 @@ def test_t3_with_upstream_makes_bootstrap_explicit_in_manifest(tmp_path) -> None
     write_json(replay_path, transcript_three_samples())
     out_dir = tmp_path / "t3-debug"
 
-    summary = observation_orchestrate.run_template_observation_stage(
+    summary = observation_stage.run_template_observation_stage(
         source_run_dir=run_dir,
         out_dir=out_dir,
         stage="t3",
@@ -885,13 +1030,13 @@ def test_t3_gold_mode_blocks_before_model_when_atomic_input_is_incomplete(
         },
     )
     monkeypatch.setattr(
-        observation_orchestrate,
+        observation_stage,
         "_stage_text_runtime",
         lambda **_kwargs: pytest.fail("gold input gate must run before the model"),
     )
 
     with pytest.raises(AgentConfigError, match="complete atomic run facts"):
-        observation_orchestrate.run_template_observation_stage(
+        observation_stage.run_template_observation_stage(
             source_run_dir=run_dir,
             out_dir=tmp_path / "t3-gold",
             stage="t3",

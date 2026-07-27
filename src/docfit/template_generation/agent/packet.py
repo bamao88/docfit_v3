@@ -11,7 +11,6 @@ import xml.etree.ElementTree as ET
 from typing import Any
 
 from docfit.core.io import now_iso, read_json, sha256_file, sha256_json
-from docfit.template_generation.constants import UNIT_DEFINITIONS
 
 
 def load_render_packet(path: Path) -> dict[str, Any]:
@@ -24,7 +23,6 @@ def load_render_packet(path: Path) -> dict[str, Any]:
 def build_template_agent_render_packet(
     *,
     document_facts: dict[str, Any],
-    structure_candidates: dict[str, Any],
     source_template_docx: Path | None = None,
     render_artifacts_dir: Path | None = None,
 ) -> dict[str, Any]:
@@ -61,7 +59,7 @@ def build_template_agent_render_packet(
         "status_authority": "verify_template_parse_build",
         "advisory_only": True,
         "allowed_ai_tasks": [
-            "submit_t2_structure_proposals",
+            "return_t2_page_groups",
             "submit_t3_hierarchical_decisions",
             "submit_t4_layout_hints",
             "abstain",
@@ -87,19 +85,8 @@ def build_template_agent_render_packet(
             },
             "focused_pass": [],
         },
-        "optional_reference": {
-            "canonical_unit_ids": [
-                {"unit_id": unit_id, "name": name}
-                for unit_id, name, _aliases in UNIT_DEFINITIONS
-            ],
-            "non_binding": True,
-        },
         "global_layout_facts": _global_layout_facts(document_facts),
-        "round0_snapshot_id": sha256_json(
-            {
-                "template_structure_candidates": sha256_json(structure_candidates),
-            }
-        ),
+        "facts_snapshot_id": sha256_json(document_facts),
     }
 
 
@@ -223,6 +210,8 @@ def _page_text_index(
     items: list[dict[str, Any]] = []
     bindings = render.get("source_bindings", {})
     for index, entry in enumerate(document_facts.get("body_flow", []), start=1):
+        if not _is_page_body_entry(entry):
+            continue
         source_seq = _int_or_none(entry.get("source_seq"))
         if source_seq is None:
             continue
@@ -548,65 +537,486 @@ def _bind_source_entries_to_pdf_layout(
     pdf_layout: dict[str, Any],
 ) -> dict[int, dict[str, Any]]:
     bindings: dict[int, dict[str, Any]] = {}
-    cursor = 0
-    for entry in document_facts.get("body_flow", []):
+    minimum_page = 1
+    entries = [
+        entry
+        for entry in document_facts.get("body_flow", [])
+        if isinstance(entry, dict) and _is_page_body_entry(entry)
+    ]
+    for entry in entries:
         source_seq = _int_or_none(entry.get("source_seq"))
         if source_seq is None:
             continue
-        text = _normalize_render_text(str(entry.get("text") or ""))
-        if not text:
+        text = str(entry.get("text") or "")
+        if not _normalize_render_text(text):
             bindings[source_seq] = {"binding_status": "empty_text"}
             continue
-        match = _find_entry_match(pdf_layout, text, cursor)
-        if match is None:
-            bindings[source_seq] = {"binding_status": "ambiguous"}
+        match = _find_entry_page_match(
+            pdf_layout,
+            text,
+            minimum_page=minimum_page,
+            abstain_on_multiple_matches=_entry_keep_next(entry),
+        )
+        if match is None or _int_or_none(match.get("page_no")) is None:
+            bindings[source_seq] = {
+                "binding_status": (
+                    str(match.get("binding_status"))
+                    if isinstance(match, dict) and match.get("binding_status")
+                    else "ambiguous"
+                )
+            }
             continue
-        cursor = max(cursor, int(match["end"]))
+        minimum_page = max(minimum_page, int(match["page_no"]))
         bindings[source_seq] = {
             "binding_status": match["binding_status"],
             "page_no": match["page_no"],
             "bbox": match["bbox"],
         }
-    return bindings
+    bindings = _infer_stable_anchor_bindings(entries, bindings, pdf_layout)
+    boundary_paragraph_indexes = {
+        paragraph_index
+        for item in document_facts.get("data", {}).get("breaks", []) or []
+        if isinstance(item, dict)
+        and item.get("kind") in {"break", "section"}
+        and (paragraph_index := _int_or_none(item.get("paragraph_index"))) is not None
+    }
+    return _infer_ambiguous_source_bindings(
+        entries,
+        bindings,
+        boundary_paragraph_indexes=boundary_paragraph_indexes,
+    )
 
 
-def _find_entry_match(
+def _infer_stable_anchor_bindings(
+    entries: list[dict[str, Any]],
+    bindings: dict[int, dict[str, Any]],
+    pdf_layout: dict[str, Any],
+) -> dict[int, dict[str, Any]]:
+    """Use rendered lexical anchors only inside surrounding exact page bounds."""
+
+    result = {source_seq: dict(binding) for source_seq, binding in bindings.items()}
+    bound = sorted(
+        (source_seq, page_no)
+        for source_seq, binding in bindings.items()
+        if (page_no := _int_or_none(binding.get("page_no"))) is not None
+    )
+    for entry in entries:
+        source_seq = _int_or_none(entry.get("source_seq"))
+        if source_seq is None:
+            continue
+        if result.get(source_seq, {}).get("binding_status") != "ambiguous":
+            continue
+        previous_page = next(
+            (page_no for seq, page_no in reversed(bound) if seq < source_seq),
+            1,
+        )
+        next_page = next(
+            (page_no for seq, page_no in bound if seq > source_seq),
+            None,
+        )
+        match = _find_entry_page_match(
+            pdf_layout,
+            str(entry.get("text") or ""),
+            minimum_page=previous_page,
+            maximum_page=next_page,
+            allow_stable_anchors=True,
+            abstain_on_multiple_matches=_entry_keep_next(entry),
+        )
+        if match is not None:
+            result[source_seq] = match
+    return result
+
+
+def _infer_ambiguous_source_bindings(
+    entries: list[dict[str, Any]],
+    bindings: dict[int, dict[str, Any]],
+    *,
+    boundary_paragraph_indexes: set[int] | None = None,
+) -> dict[int, dict[str, Any]]:
+    """Resolve text-match gaps only from deterministic structural neighbors.
+
+    PDF text extraction commonly omits duplicated merged-cell text.  Falling
+    back to page 1 corrupts page ownership, so table row/table sequence facts
+    are used when they identify one page.  General sequence inference is
+    accepted only when both surrounding bound nodes are on the same page.
+    """
+
+    result = {source_seq: dict(binding) for source_seq, binding in bindings.items()}
+    entries_by_seq = {
+        source_seq: entry
+        for entry in entries
+        if (source_seq := _int_or_none(entry.get("source_seq"))) is not None
+    }
+    _infer_keep_next_bindings(
+        entries_by_seq,
+        result,
+        boundary_paragraph_indexes or set(),
+    )
+    _infer_bindings_within_document_segments(
+        entries_by_seq,
+        result,
+        boundary_paragraph_indexes or set(),
+    )
+    row_pages: dict[tuple[str, str], set[int]] = defaultdict(set)
+    for source_seq, entry in entries_by_seq.items():
+        page_no = _int_or_none(result.get(source_seq, {}).get("page_no"))
+        row_key = _table_row_key(entry)
+        if page_no is not None and row_key is not None:
+            row_pages[row_key].add(page_no)
+
+    for source_seq, entry in entries_by_seq.items():
+        binding = result.get(source_seq, {})
+        if binding.get("binding_status") != "ambiguous":
+            continue
+        row_key = _table_row_key(entry)
+        pages = row_pages.get(row_key, set()) if row_key is not None else set()
+        if len(pages) == 1:
+            result[source_seq] = {
+                "binding_status": "inferred_table_row",
+                "page_no": next(iter(pages)),
+            }
+
+    table_bound: dict[str, list[tuple[int, int]]] = defaultdict(list)
+    for source_seq, entry in entries_by_seq.items():
+        table_id = str(entry.get("table_id") or "")
+        page_no = _int_or_none(result.get(source_seq, {}).get("page_no"))
+        if table_id and page_no is not None:
+            table_bound[table_id].append((source_seq, page_no))
+    for values in table_bound.values():
+        values.sort()
+
+    for source_seq, entry in entries_by_seq.items():
+        binding = result.get(source_seq, {})
+        if binding.get("binding_status") != "ambiguous":
+            continue
+        table_id = str(entry.get("table_id") or "")
+        if not table_id:
+            continue
+        page_no = _unambiguous_neighbor_page(
+            source_seq,
+            table_bound.get(table_id, []),
+            allow_one_sided=True,
+        )
+        if page_no is not None:
+            result[source_seq] = {
+                "binding_status": "inferred_table_neighbor",
+                "page_no": page_no,
+            }
+
+    ordered_bound = sorted(
+        (source_seq, page_no)
+        for source_seq, binding in result.items()
+        if (page_no := _int_or_none(binding.get("page_no"))) is not None
+    )
+    for source_seq, binding in list(result.items()):
+        if binding.get("binding_status") != "ambiguous":
+            continue
+        page_no = _unambiguous_neighbor_page(
+            source_seq,
+            ordered_bound,
+            allow_one_sided=False,
+        )
+        if page_no is not None:
+            result[source_seq] = {
+                "binding_status": "inferred_sequence_neighbors",
+                "page_no": page_no,
+            }
+    _infer_bindings_at_document_boundaries(
+        entries_by_seq,
+        result,
+        boundary_paragraph_indexes or set(),
+    )
+    return result
+
+
+def _infer_keep_next_bindings(
+    entries_by_seq: dict[int, dict[str, Any]],
+    bindings: dict[int, dict[str, Any]],
+    boundary_paragraph_indexes: set[int],
+) -> None:
+    """Bind a repeated heading to the following rendered paragraph page."""
+
+    bound = sorted(
+        (source_seq, page_no)
+        for source_seq, binding in bindings.items()
+        if (page_no := _int_or_none(binding.get("page_no"))) is not None
+    )
+    for source_seq, entry in entries_by_seq.items():
+        if bindings.get(source_seq, {}).get("binding_status") != "ambiguous":
+            continue
+        if not _entry_keep_next(entry):
+            continue
+        after = next(
+            ((seq, page_no) for seq, page_no in bound if seq > source_seq),
+            None,
+        )
+        if after is None:
+            continue
+        entry_paragraph = _entry_paragraph_index(entry)
+        after_paragraph = _entry_paragraph_index(entries_by_seq.get(after[0], {}))
+        if entry_paragraph is None or after_paragraph is None:
+            continue
+        if any(
+            entry_paragraph <= boundary < after_paragraph
+            for boundary in boundary_paragraph_indexes
+        ):
+            continue
+        bindings[source_seq] = {
+            "binding_status": "inferred_keep_next",
+            "page_no": after[1],
+        }
+
+
+def _infer_bindings_within_document_segments(
+    entries_by_seq: dict[int, dict[str, Any]],
+    bindings: dict[int, dict[str, Any]],
+    boundary_paragraph_indexes: set[int],
+) -> None:
+    """Bind an ambiguous row when its structural segment has one known page."""
+
+    if not boundary_paragraph_indexes:
+        return
+    boundaries = sorted(boundary_paragraph_indexes)
+    segment_pages: dict[int, set[int]] = defaultdict(set)
+    segment_by_seq: dict[int, int] = {}
+    for source_seq, entry in entries_by_seq.items():
+        paragraph_index = _entry_paragraph_index(entry)
+        if paragraph_index is None:
+            continue
+        segment = sum(1 for boundary in boundaries if boundary < paragraph_index)
+        segment_by_seq[source_seq] = segment
+        page_no = _int_or_none(bindings.get(source_seq, {}).get("page_no"))
+        if page_no is not None:
+            segment_pages[segment].add(page_no)
+    for source_seq, segment in segment_by_seq.items():
+        if bindings.get(source_seq, {}).get("binding_status") != "ambiguous":
+            continue
+        pages = segment_pages.get(segment, set())
+        if len(pages) == 1:
+            bindings[source_seq] = {
+                "binding_status": "inferred_document_segment",
+                "page_no": next(iter(pages)),
+            }
+
+
+def _infer_bindings_at_document_boundaries(
+    entries_by_seq: dict[int, dict[str, Any]],
+    bindings: dict[int, dict[str, Any]],
+    boundary_paragraph_indexes: set[int],
+) -> None:
+    if not boundary_paragraph_indexes:
+        return
+    bound = sorted(
+        (source_seq, page_no)
+        for source_seq, binding in bindings.items()
+        if (page_no := _int_or_none(binding.get("page_no"))) is not None
+    )
+    for source_seq, binding in list(bindings.items()):
+        if binding.get("binding_status") != "ambiguous":
+            continue
+        entry_paragraph = _entry_paragraph_index(entries_by_seq.get(source_seq, {}))
+        if entry_paragraph is None:
+            continue
+        before = next(
+            (
+                (seq, page_no)
+                for seq, page_no in reversed(bound)
+                if seq < source_seq
+            ),
+            None,
+        )
+        after = next(
+            ((seq, page_no) for seq, page_no in bound if seq > source_seq),
+            None,
+        )
+        if before is None or after is None or before[1] >= after[1]:
+            continue
+        before_paragraph = _entry_paragraph_index(entries_by_seq.get(before[0], {}))
+        after_paragraph = _entry_paragraph_index(entries_by_seq.get(after[0], {}))
+        if before_paragraph is None or after_paragraph is None:
+            continue
+        boundaries = sorted(
+            boundary
+            for boundary in boundary_paragraph_indexes
+            if before_paragraph <= boundary < after_paragraph
+        )
+        if len(boundaries) != 1:
+            continue
+        page_no = before[1] if entry_paragraph <= boundaries[0] else after[1]
+        bindings[source_seq] = {
+            "binding_status": "inferred_document_boundary",
+            "page_no": page_no,
+        }
+
+
+def _entry_paragraph_index(entry: dict[str, Any]) -> int | None:
+    source_ref = str(entry.get("source_ref") or "")
+    match = re.search(r"(?:^|[:/])p\[(\d+)\]", source_ref)
+    return _int_or_none(match.group(1)) if match is not None else None
+
+
+def _table_row_key(entry: dict[str, Any]) -> tuple[str, str] | None:
+    table_id = str(entry.get("table_id") or "")
+    cell_id = str(entry.get("cell_id") or "")
+    if not table_id or not cell_id:
+        return None
+    match = re.search(r"(?:^|[./])r_(\d+)(?:[./]|$)", cell_id)
+    if match is None:
+        match = re.search(r"(?:^|[./])row:(\d+)(?:[./]|$)", cell_id)
+    if match is None:
+        return None
+    return table_id, match.group(1)
+
+
+def _unambiguous_neighbor_page(
+    source_seq: int,
+    bound: list[tuple[int, int]],
+    *,
+    allow_one_sided: bool,
+) -> int | None:
+    before = next(
+        (page_no for seq, page_no in reversed(bound) if seq < source_seq),
+        None,
+    )
+    after = next(
+        (page_no for seq, page_no in bound if seq > source_seq),
+        None,
+    )
+    if before is not None and after is not None:
+        return before if before == after else None
+    if allow_one_sided:
+        return before if before is not None else after
+    return None
+
+
+def _find_entry_page_match(
     pdf_layout: dict[str, Any],
     text: str,
-    cursor: int,
+    *,
+    minimum_page: int,
+    maximum_page: int | None = None,
+    allow_stable_anchors: bool = False,
+    abstain_on_multiple_matches: bool = False,
 ) -> dict[str, Any] | None:
-    full_text = str(pdf_layout.get("text") or "")
-    needles = [(text, "exact")]
-    if len(text) > 40:
-        needles.append((text[:40], "prefix"))
-    if len(text) > 24:
-        needles.append((text[:24], "prefix"))
+    normalized_text = _normalize_render_text(text)
+    needles = [(normalized_text, "exact")]
+    if len(normalized_text) > 40:
+        needles.append((normalized_text[:40], "prefix"))
+    if len(normalized_text) > 24:
+        needles.append((normalized_text[:24], "prefix"))
+    eligible_pages = [
+        page
+        for page in pdf_layout.get("pages", []) or []
+        if (
+            (page_no := _int_or_none(page.get("page_no"))) is not None
+            and page_no >= minimum_page
+            and (maximum_page is None or page_no <= maximum_page)
+        )
+    ]
     for needle, status in needles:
-        if len(needle) < 2:
+        matches = []
+        for page in eligible_pages:
+            if len(needle) < 2:
+                continue
+            page_text = str(page.get("text") or "")
+            index = page_text.find(needle)
+            if index < 0:
+                continue
+            end = index + len(needle)
+            bbox_words = [
+                word
+                for word in page.get("words", []) or []
+                if int(word.get("page_start", 0)) < end
+                and int(word.get("page_end", 0)) > index
+            ]
+            if not bbox_words:
+                continue
+            matches.append(
+                {
+                    "binding_status": status,
+                    "page_no": _int_or_none(page.get("page_no")),
+                    "bbox": _union_bbox([word["bbox"] for word in bbox_words]),
+                }
+            )
+        matched_pages = {
+            match["page_no"] for match in matches if match["page_no"] is not None
+        }
+        if len(matched_pages) == 1:
+            return matches[0]
+        if len(matched_pages) > 1:
+            return (
+                {"binding_status": "ambiguous"}
+                if abstain_on_multiple_matches
+                else matches[0]
+            )
+    if not allow_stable_anchors:
+        return None
+    anchors = _stable_render_anchors(text)
+    for page in pdf_layout.get("pages", []) or []:
+        page_no = _int_or_none(page.get("page_no"))
+        if (
+            page_no is None
+            or page_no < minimum_page
+            or (maximum_page is not None and page_no > maximum_page)
+        ):
             continue
-        index = full_text.find(needle, cursor)
-        if index < 0 and status == "exact":
-            index = full_text.find(needle)
-        if index < 0:
-            continue
-        end = index + len(needle)
-        bbox_words = [
-            word
-            for word in pdf_layout.get("words", [])
-            if int(word.get("start", 0)) < end and int(word.get("end", 0)) > index
+        page_text = str(page.get("text") or "")
+        matches = [
+            (anchor, page_text.find(anchor))
+            for anchor in anchors
+            if page_text.find(anchor) >= 0
         ]
+        if not matches:
+            continue
+        longest = max(len(anchor) for anchor, _index in matches)
+        if longest < 5 and not (
+            len(matches) >= 2
+            and sum(1 for anchor, _index in matches if len(anchor) >= 4) >= 2
+        ):
+            continue
+        bbox_words = []
+        for anchor, index in matches:
+            end = index + len(anchor)
+            bbox_words.extend(
+                word
+                for word in page.get("words", []) or []
+                if int(word.get("page_start", 0)) < end
+                and int(word.get("page_end", 0)) > index
+            )
         if not bbox_words:
             continue
-        page_no = int(bbox_words[0]["page_no"])
-        page_words = [word for word in bbox_words if int(word["page_no"]) == page_no]
         return {
-            "binding_status": status,
+            "binding_status": "inferred_stable_anchors",
             "page_no": page_no,
-            "bbox": _union_bbox([word["bbox"] for word in page_words]),
-            "start": index,
-            "end": end,
+            "bbox": _union_bbox([word["bbox"] for word in bbox_words]),
         }
     return None
+
+
+def _stable_render_anchors(text: str) -> list[str]:
+    """Return stable text fragments when rendered fields change visible text.
+
+    Word may expand caption/REF fields or insert checkbox glyphs, so the raw
+    paragraph and PDF text need not be contiguous.  Only substantial lexical
+    fragments are used; page-order monotonicity still constrains the match.
+    """
+
+    anchors: list[str] = []
+    for value in re.findall(r"[A-Za-z\u3400-\u9fff]{4,}", text):
+        if value not in anchors:
+            anchors.append(value)
+    return anchors
+
+
+def _is_page_body_entry(entry: dict[str, Any]) -> bool:
+    """T2 owns body-page content; repeating header/footer parts stay global."""
+
+    return str(entry.get("structure_layer") or "") != "header_footer"
+
+
+def _entry_keep_next(entry: dict[str, Any]) -> bool:
+    paragraph = (entry.get("style_details", {}) or {}).get("paragraph", {}) or {}
+    return bool(paragraph.get("keep_next"))
 
 
 def _write_annotated_page_svgs(

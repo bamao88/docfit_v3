@@ -124,6 +124,8 @@ def _derive_template_gap_if_missing(
         out_dir,
         stage=result.stage,
         status=result.status,
+        run_status=result.run_status,
+        quality_status=result.quality_status,
         findings=result.finding_dicts(),
         artifacts={key: str(path) for key, path in result.artifact_paths.items()},
         coverage=result.coverage,

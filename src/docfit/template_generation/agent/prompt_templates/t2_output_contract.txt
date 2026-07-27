@@ -1,17 +1,24 @@
-只输出一个 JSON 对象，不要输出解释文字。格式必须是：{"items":[{"unit_id":"<允许输出的 unit_id 之一或 unknown_unit>","source_seq_refs":[<int>],"confidence":"low|medium|high","name":"<可选：你给这个结构块的自然语言名称>","page_policy":{"start":"document_start|new_page|same_page_allowed|unknown","scope":"single_page_exclusive|page_range_exclusive|shareable_flow|unknown"},"evidence_refs":["<source_seq/page/break/visual 证据>"],"ai_rationale":"<可选：一句话说明边界和分页依据>"}]}。
+只返回一个 JSON 对象，不要输出 Markdown、解释或额外字段：
 
-字段语义：
-- unit_id：这个连续结构块的模板单元类型；无法可靠判断时用 unknown_unit。
-- source_seq_refs：该单元覆盖的 L1 文本节点，是下游单元边界依据。必须来自 rows，按升序列出。
-- confidence：high 表示标题/版面/边界证据一致；medium 表示语义清楚但边界或分页有疑问；low 表示只能暂时判断。
-- page_policy.start：先判断这个字段。它表示生成新模板时该单元开始位置的分页策略。document_start 只用于第一个单元；new_page 表示应另起页；same_page_allowed 表示可与上一顶层单元接续同页；证据不足写 unknown。
-- page_policy.scope：再判断这个字段。它表示该单元是否独占自己的页面范围。single_page_exclusive 表示短固定原子页；page_range_exclusive 表示可跨多页但应独占连续页段；shareable_flow 表示普通论文内容流，可自然跨页或接续；证据不足写 unknown。
-- evidence_refs：引用你实际使用的证据，例如 source_seq:50、page:4、break:3、visual:page:4。
+{
+  "units": [
+    {
+      "unit_id": "cover",
+      "unit_name": "封面",
+      "boundary": {
+        "start_page": 1,
+        "end_page": 1
+      }
+    }
+  ]
+}
 
-约束：
-- 不需要输出 order、序号或位置编号；系统会按每个 item 的最小 source_seq 排序并生成顺序。
-- 目录条目中的标题文字只属于目录内容；真实单元开头来自离开目录块后的标题或内容区。
-- 只有格式说明或空行的 source_seq 应并入它服务的结构块；无法判断归属时留 unknown_unit。
-- 分页策略只填写 page_policy.start 和 page_policy.scope；不要输出旧分页字段。
-- new_page 不等于 page_range_exclusive；跨多页也不等于 shareable_flow。
-- 分页字段无证据时写 "unknown"。
+严格要求：
+
+- 顶层只能有 units。
+- 每个单元只能有 unit_id、unit_name、boundary。
+- boundary 只能有 start_page、end_page，页码为从 1 开始且包含首尾的整数。
+- units 按页面顺序排列，第一页必须从 1 开始，最后一个单元必须覆盖最后一页。
+- 相邻单元必须首尾连续，不能有页面遗漏或重叠。
+- unit_id 使用小写英文 snake_case，并在同一文档内唯一。
+- 不得输出 source_seq、source_ref、page_policy、confidence、reason、evidence 或其他字段。

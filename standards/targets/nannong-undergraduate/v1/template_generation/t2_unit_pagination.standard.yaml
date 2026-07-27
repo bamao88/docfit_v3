@@ -33,7 +33,7 @@ gold_coverage:
   unit_detection: expected.unit_order and expected.units[].unit_id
   unit_order: expected.unit_order
   unit_boundary: expected.units[].boundary.source_seq_range or source_ref_range
-  unit_page_policy: expected.units[].page
+  unit_page_policy: expected.units[].page_policy
 gold_review_notes:
   - Boundary gold was manually assigned from accepted source template body_flow/source_ref facts, not copied from any generated unit_map.
   - Source-seq ranges include unit-local format/instruction prefaces when they belong to the school template unit.
@@ -66,16 +66,14 @@ expected:
         source_seq_range:
           start: 1
           end: 1
-      page:
-        page_break: document_start
-        page_isolation: true
-        allow_multi_page: false
-        keep_together: true
+      page_policy:
+        start: document_start
+        scope: single_page_exclusive
       notes: 封面是 1x1 表格固定模块，当前阶段不填字段。
     - unit_id: originality_statement
       name: 原创性声明
-      status: manual_only
-      policy: manual_only
+      status: fixed
+      policy: fixed
       anchors:
         title_aliases: [原创性声明, 南京农业大学本科生毕业论文（设计）原创性声明]
         start_title: 南京农业大学本科生毕业论文（设计）原创性声明
@@ -86,16 +84,14 @@ expected:
         source_seq_range:
           start: 2
           end: 4
-      page:
-        page_break: true
-        page_isolation: false
-        allow_multi_page: false
-        keep_together: true
+      page_policy:
+        start: new_page
+        scope: shareable_flow
       notes: 固定声明页，不自动填写姓名、日期或签名。
     - unit_id: authorization_statement
       name: 使用授权声明
-      status: manual_only
-      policy: manual_only
+      status: fixed
+      policy: fixed
       anchors:
         title_aliases: [使用授权声明, 南京农业大学本科生毕业论文（设计）使用授权声明]
         start_title: 南京农业大学本科生毕业论文（设计）使用授权声明
@@ -106,11 +102,9 @@ expected:
         source_seq_range:
           start: 5
           end: 8
-      page:
-        page_break: false
-        page_isolation: true
-        allow_multi_page: false
-        keep_together: true
+      page_policy:
+        start: same_page_allowed
+        scope: single_page_exclusive
       notes: 允许与原创性声明同页连续出现，但作为独立 T2 单元识别。
     - unit_id: toc
       name: 目录
@@ -126,11 +120,9 @@ expected:
         source_seq_range:
           start: 9
           end: 34
-      page:
-        page_break: true
-        page_isolation: true
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: page_range_exclusive
       notes: 南农目录位于中英文摘要之前，目录条目不得触发正文或后置单元。
     - unit_id: abstract_cn
       name: 中文摘要
@@ -147,11 +139,9 @@ expected:
           start: 35
           end: 43
         anchor_source_seq: 37
-      page:
-        page_break: true
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: shareable_flow
       notes: 中文题名、摘 要、摘要正文和关键词标签属于中文摘要单元。
     - unit_id: abstract_en
       name: 英文摘要
@@ -167,11 +157,9 @@ expected:
         source_seq_range:
           start: 44
           end: 49
-      page:
-        page_break: true
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: shareable_flow
       notes: 英文题名和 ABSTRACT/KEY WORDS 属于英文摘要单元，不应拆成 custom 单元。
     - unit_id: body_main
       name: 正文主体
@@ -187,11 +175,9 @@ expected:
         source_seq_range:
           start: 50
           end: 88
-      page:
-        page_break: true
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: shareable_flow
       notes: “第X章 结论与展望”是正文固定结尾章类型，仍归入 body_main。
     - unit_id: references
       name: 参考文献
@@ -207,11 +193,9 @@ expected:
         source_seq_range:
           start: 89
           end: 108
-      page:
-        page_break: true
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: shareable_flow
       notes: 参考文献必须在附录、成果目录和致谢之前结束。
     - unit_id: appendix
       name: 附录
@@ -227,11 +211,9 @@ expected:
         source_seq_range:
           start: 109
           end: 110
-      page:
-        page_break: true
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: shareable_flow
       notes: 源模板标注此项非必需项，审阅输出默认保留。
     - unit_id: academic_achievements
       name: 相关的学术成果目录
@@ -247,11 +229,9 @@ expected:
         source_seq_range:
           start: 111
           end: 112
-      page:
-        page_break: true
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: shareable_flow
       notes: 该页不得被 references 或 appendix 吞并。
     - unit_id: acknowledgement
       name: 致谢
@@ -267,11 +247,9 @@ expected:
         source_seq_range:
           start: 113
           end: 116
-      page:
-        page_break: true
-        page_isolation: false
-        allow_multi_page: true
-        keep_together: local_groups_only
+      page_policy:
+        start: new_page
+        scope: shareable_flow
       notes: 默认保留学校模板中的致谢模块；无学生内容时保留占位和评论。
 dimensions:
   - dimension_id: template_generation.t2.artifact_under_test

@@ -31,12 +31,20 @@ class Finding:
 class StageResult:
     stage: str
     status: Status
+    run_status: Status | None = None
+    quality_status: Status | None = None
     findings: list[Finding] = field(default_factory=list)
     artifacts: dict[str, Any] = field(default_factory=dict)
     artifact_paths: dict[str, Path] = field(default_factory=dict)
     coverage: dict[str, Any] = field(default_factory=dict)
     blocked_at: str | None = None
     user_message: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.run_status is None:
+            self.run_status = self.status
+        if self.quality_status is None:
+            self.quality_status = self.status
 
     def finding_dicts(self) -> list[dict[str, Any]]:
         return [finding.to_dict() for finding in self.findings]

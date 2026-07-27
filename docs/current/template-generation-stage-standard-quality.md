@@ -2,6 +2,8 @@
 
 Last updated: 2026-06-28
 
+> 迁移状态：本文正在淘汰。长期测试契约迁入 `docs/current/template-generation-testing.md`；当前缺口进入 `docs/status/`；具体补全方案进入 `docs/plans/`。后续不要在本文新增事实。
+
 一句话结论：阶段标准质量衡量不是让 AI 自己看标准，也不是 `template-generate` 运行时自动产生的 verify 报告。当前已有两类确定性输出：`template-generation-standard-quality` 输出标准集聚合质量报告；`template-generation-judge` 针对某次 run bundle 输出和阶段产物编号对齐的 `*_standard_quality_report.{json,md}`。real-core 三校 T1-T5 阶段 verifier 已配置并开启 gate；如果 audit 发现 signed standard mismatch，报告必须写出 `standard_acceptance_status=FAIL`、`signoff_status=NOT_SIGNABLE`、`owner_summary` 和 `top_blockers`，不能被 AI 改写成通过。
 
 ## 文档范围
@@ -92,7 +94,7 @@ AI 不可以做这些事：
 
 换句话说，AI 是读报告的人，不是产生裁判结果的裁判。
 
-T3 的 `fixed_units` 语义需要特别小心：它表示单元整体版面或固定结构属于学校模板块，不等于内部每个元素都必须是 `fixed`。例如三校封面都仍属于 `fixed_units`，但标准显式声明 `fixed_units_allow_fill_elements: [cover]`，所以题名、学生信息等明确填空位可以生成 `fill` 元素；诚信声明、授权声明、后置人工表单仍由 `manual_only_units` 约束，不能因为封面例外而放宽。
+T3 的 `fixed_units` 语义需要特别小心：它表示单元整体版面或固定结构属于学校模板块，不等于内部每个元素都必须是 `fixed`。例如三校封面都仍属于 `fixed_units`，但标准显式声明 `fixed_units_allow_fill_elements: [cover]`，所以题名、学生信息等明确填空位可以生成 `fill` 元素；诚信声明、授权声明、后置人工表单仍由 `fixed_units` 约束，不能因为封面例外而放宽。
 
 ## 补全后的逻辑
 

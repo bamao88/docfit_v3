@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from docx import Document
+from docx.oxml.ns import qn
 from docx.text.paragraph import Paragraph
 
 from .constants import BODY_SLOT_MARKER
@@ -22,8 +23,16 @@ from .word_ops import (
     _insert_styled_paragraph_before,
     _remove_paragraph,
     _replace_run_text_ranges,
+    _replace_run_text_ranges_with_inline_sdt,
     _set_keep_together_for_refs,
 )
+
+
+_LAYOUT_ACTION_TYPES = {
+    "insert_page_break_before_unit",
+    "insert_section_break_before_unit",
+    "set_keep_together_unit",
+}
 
 
 def execute_template_generation_plan(
@@ -63,8 +72,13 @@ def execute_template_generation_plan(
     generated_fields: list[dict[str, Any]] = []
     paragraphs_to_remove: list[Paragraph] = []
     action_preconditions: list[dict[str, Any]] = []
+    deferred_layout_actions: list[dict[str, Any]] = []
 
     for action in plan.get("actions", []):
+        action_type = action.get("action_type")
+        if action_type in _LAYOUT_ACTION_TYPES:
+            deferred_layout_actions.append(action)
+            continue
         action_precondition = resolver.validate_action(action)
         action_preconditions.append(action_precondition)
         if action_precondition["status"] != "PASS":
@@ -75,42 +89,8 @@ def execute_template_generation_plan(
                 )
             )
             continue
-        action_type = action.get("action_type")
         if action_type == "copy_source_docx":
             executed.append(_executed(action, output_ref=str(generated_template_docx)))
-        elif action_type == "insert_page_break_before_unit":
-            output_ref = _insert_page_break_before(
-                doc,
-                paragraph_map,
-                action.get("source_ref"),
-            )
-            if output_ref is None:
-                review.append(_needs_review(action, "source node not found"))
-                continue
-            executed.append(_executed(action, output_ref=output_ref))
-        elif action_type == "insert_section_break_before_unit":
-            output_ref = _insert_section_break_before(
-                doc,
-                paragraph_map,
-                action.get("source_ref"),
-            )
-            if output_ref is None:
-                review.append(_needs_review(action, "source node not found"))
-                continue
-            executed.append(_executed(action, output_ref=output_ref))
-        elif action_type == "set_keep_together_unit":
-            source_refs = [
-                str(ref)
-                for ref in action.get("affected_source_refs", []) or []
-                if ref
-            ]
-            if not source_refs and action.get("source_ref"):
-                source_refs = [str(action.get("source_ref"))]
-            output_refs = _set_keep_together_for_refs(doc, paragraph_map, source_refs)
-            if not output_refs:
-                review.append(_needs_review(action, "no paragraph refs found for keep_together"))
-                continue
-            executed.append(_executed(action, output_ref=";".join(output_refs)))
         elif action_type == "remove_instruction_text":
             target = _paragraph_for_ref(paragraph_map, action.get("source_ref"))
             target_cell = _cell_for_ref(doc, action.get("source_ref"))
@@ -176,11 +156,14 @@ def execute_template_generation_plan(
             if target is None:
                 review.append(_needs_review(action, "source node not found"))
                 continue
+            tag = _span_sdt_tag(action)
             if char_ranges:
-                output_ref = _replace_run_text_ranges(
+                output_ref = _replace_run_text_ranges_with_inline_sdt(
                     target,
                     action.get("source_ref"),
                     char_ranges,
+                    tag,
+                    alias=_sdt_alias(action),
                 )
             else:
                 output_ref = _clear_runs_by_raw_run_ids(
@@ -195,14 +178,15 @@ def execute_template_generation_plan(
             if output_ref is None:
                 review.append(_needs_review(action, "source span not found for replacement"))
                 continue
-            tag = _span_sdt_tag(action)
-            slot_ref = _insert_sdt(
-                doc,
-                paragraph_map,
-                action.get("source_ref"),
-                tag,
-                alias=_sdt_alias(action),
-            )
+            slot_ref = output_ref
+            if not char_ranges:
+                slot_ref = _insert_sdt(
+                    doc,
+                    paragraph_map,
+                    action.get("source_ref"),
+                    tag,
+                    alias=_sdt_alias(action),
+                )
             slots.append(_slot_from_action(action, sdt_tag=tag, output_ref=slot_ref))
             executed.append(_executed(action, output_ref=output_ref))
         elif action_type == "create_generated_field_placeholder":
@@ -222,28 +206,6 @@ def execute_template_generation_plan(
                     "sdt_tag": tag,
                     "output_ref": output_ref,
                     "source_seq_refs": action.get("affected_source_seq_refs", []),
-                }
-            )
-            executed.append(_executed(action, output_ref=output_ref))
-        elif action_type == "create_manual_placeholder":
-            tag = _sdt_tag(action)
-            output_ref = _insert_sdt(
-                doc,
-                paragraph_map,
-                action.get("source_ref"),
-                tag,
-                alias=_sdt_alias(action),
-            )
-            slots.append(
-                {
-                    "slot_id": tag,
-                    "unit_id": action.get("unit_id"),
-                    "element_id": action.get("element_id"),
-                    "kind": "manual_only",
-                    "sdt_tag": tag,
-                    "output_ref": output_ref,
-                    "source_seq_refs": action.get("affected_source_seq_refs", []),
-                    "required": False,
                 }
             )
             executed.append(_executed(action, output_ref=output_ref))
@@ -268,8 +230,6 @@ def execute_template_generation_plan(
                 review.append(_needs_review(action, "source node not found"))
                 continue
             executed.append(_executed(action, output_ref=output_ref))
-        elif action_type == "preserve_whole_unit_copy":
-            executed.append(_executed(action, output_ref=action.get("source_ref")))
         elif action_type == "ensure_body_slot":
             tag = "slot_body_start"
             existing_ref = _find_sdt_tag_ref(doc, tag)
@@ -281,7 +241,7 @@ def execute_template_generation_plan(
             slots.append(
                 {
                     "slot_id": "slot_body_start",
-                    "unit_id": "body_main",
+                    "owner_scope": "document_body",
                     "element_id": "slot_body_start",
                     "kind": "body_content",
                     "sdt_tag": tag,
@@ -296,6 +256,15 @@ def execute_template_generation_plan(
     for paragraph in dict.fromkeys(paragraphs_to_remove):
         _remove_paragraph(paragraph)
     _strip_internal_markers(doc)
+    _execute_deferred_layout_actions(
+        doc=doc,
+        paragraph_map=paragraph_map,
+        layout_actions=deferred_layout_actions,
+        resolver=resolver,
+        action_preconditions=action_preconditions,
+        executed=executed,
+        review=review,
+    )
     doc.save(generated_template_docx)
     return {
         "actions_executed": executed,
@@ -347,7 +316,7 @@ def _sdt_tag(action: dict[str, Any]) -> str:
 
 
 def _span_sdt_tag(action: dict[str, Any]) -> str:
-    return f"{action.get('unit_id')}.{action.get('element_id')}.{action.get('span_id')}"
+    return f"{action.get('unit_id')}.{action.get('element_id')}"
 
 
 def _single_source_seq_action(action: dict[str, Any]) -> bool:
@@ -369,11 +338,7 @@ def _slot_from_action(
     output_ref: str,
 ) -> dict[str, Any]:
     return {
-        "slot_id": (
-            f"{action.get('unit_id')}.{action.get('element_id')}.{action.get('span_id')}"
-            if action.get("span_id")
-            else f"{action.get('unit_id')}.{action.get('element_id')}"
-        ),
+        "slot_id": f"{action.get('unit_id')}.{action.get('element_id')}",
         "unit_id": action.get("unit_id"),
         "element_id": action.get("element_id"),
         "span_id": action.get("span_id"),
@@ -401,10 +366,145 @@ def _needs_review(action: dict[str, Any], reason: str) -> dict[str, Any]:
     }
 
 
+def _execute_deferred_layout_actions(
+    *,
+    doc: Document,
+    paragraph_map: dict[int, Paragraph],
+    layout_actions: list[dict[str, Any]],
+    resolver: L1IdentityResolver,
+    action_preconditions: list[dict[str, Any]],
+    executed: list[dict[str, Any]],
+    review: list[dict[str, Any]],
+) -> None:
+    boundary_actions = [
+        action
+        for action in layout_actions
+        if action.get("action_type")
+        in {"insert_page_break_before_unit", "insert_section_break_before_unit"}
+    ]
+    keep_actions = [
+        action
+        for action in layout_actions
+        if action.get("action_type") == "set_keep_together_unit"
+    ]
+    boundary_executed: list[dict[str, Any]] = []
+    for action in boundary_actions:
+        action_precondition = resolver.validate_action(action)
+        action_preconditions.append(action_precondition)
+        if action_precondition["status"] != "PASS":
+            review.append(
+                _needs_review(
+                    action,
+                    "; ".join(action_precondition["errors"]),
+                )
+            )
+            continue
+        action_type = action.get("action_type")
+        if action_type == "insert_page_break_before_unit":
+            output_ref = _insert_page_break_before(
+                doc,
+                paragraph_map,
+                action.get("source_ref"),
+            )
+        else:
+            output_ref = _insert_section_break_before(
+                doc,
+                paragraph_map,
+                action.get("source_ref"),
+            )
+        if output_ref is None:
+            review.append(_needs_review(action, "source node not found"))
+            continue
+        executed_action = action
+        if (
+            action_type == "insert_page_break_before_unit"
+            and not str(output_ref).endswith("/pageBreakBefore")
+        ):
+            executed_action = {
+                **action,
+                "action_type": "preserve_existing_page_boundary",
+                "requested_action_type": action_type,
+            }
+        boundary_executed.append(
+            _executed(executed_action, output_ref=output_ref)
+        )
+
+    executed.extend(
+        _with_final_layout_output_ref(doc, paragraph_map, action)
+        for action in boundary_executed
+    )
+    output_ref_by_paragraph = _paragraph_ref_by_element_id(doc)
+    for action in keep_actions:
+        action_precondition = resolver.validate_action(action)
+        action_preconditions.append(action_precondition)
+        if action_precondition["status"] != "PASS":
+            review.append(
+                _needs_review(
+                    action,
+                    "; ".join(action_precondition["errors"]),
+                )
+            )
+            continue
+        source_refs = [
+            str(ref)
+            for ref in action.get("affected_source_refs", []) or []
+            if ref
+        ]
+        if not source_refs and action.get("source_ref"):
+            source_refs = [str(action.get("source_ref"))]
+        output_refs = _set_keep_together_for_refs(
+            doc,
+            paragraph_map,
+            source_refs,
+            output_ref_by_paragraph=output_ref_by_paragraph,
+        )
+        if not output_refs:
+            review.append(_needs_review(action, "no paragraph refs found for keep_together"))
+            continue
+        executed.append(_executed(action, output_ref=";".join(output_refs)))
+
+
+def _with_final_layout_output_ref(
+    doc: Document,
+    paragraph_map: dict[int, Paragraph],
+    action: dict[str, Any],
+) -> dict[str, Any]:
+    action_type = action.get("action_type")
+    suffix = {
+        "insert_page_break_before_unit": "pageBreakBefore",
+        "insert_section_break_before_unit": "before:sectPr",
+    }.get(str(action_type))
+    if suffix is None:
+        return action
+    target = _paragraph_for_ref(paragraph_map, action.get("source_ref"))
+    if target is None:
+        return action
+    output_ref_by_paragraph = _paragraph_ref_by_element_id(doc)
+    final_ref = output_ref_by_paragraph.get(id(target._p))
+    if not final_ref:
+        return action
+    return {**action, "output_ref": f"{final_ref}/{suffix}"}
+
+
+def _paragraph_ref_by_element_id(doc: Document) -> dict[int, str]:
+    return {
+        id(paragraph_element): f"word/document.xml:p[{index}]"
+        for index, paragraph_element in enumerate(
+            doc.element.body.iter(qn("w:p")),
+            start=1,
+        )
+    }
+
+
 def _page_action_summary(action: dict[str, Any]) -> dict[str, Any]:
     return {
         "unit_id": action.get("unit_id"),
         "page_policy_unit_id": action.get("page_policy_unit_id"),
+        "satisfies_page_policy_unit_ids": action.get(
+            "satisfies_page_policy_unit_ids",
+            [],
+        ),
+        "supersedes_action_ids": action.get("supersedes_action_ids", []),
         "source_ref": action.get("source_ref"),
         "output_ref": action.get("output_ref"),
         "action_id": action.get("action_id"),

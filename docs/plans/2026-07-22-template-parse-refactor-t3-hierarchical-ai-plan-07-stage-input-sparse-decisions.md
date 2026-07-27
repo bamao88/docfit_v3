@@ -15,28 +15,29 @@ discussion_sources:
   input: docs/human/t3-stage-input-hierarchical-structure-discussion.md
   output: docs/human/t3-ai-hierarchical-output-principles-discussion.md
 created: 2026-07-22
-last_updated: 2026-07-23
+last_updated: 2026-07-25
 ---
 
 # T3 Plan 07：分层 Stage Input 与稀疏递归 AI 决策
 
 ## Summary
 
-本计划把两份讨论稿转成一轮可验证实现：先从 sealed L1 和对应 T2 route 建立完整、可追踪、带真实视觉证据的 T3 节点树；再让 AI 从 unit 开始，在 unit/table/row/cell/paragraph/run/span 中选择最粗安全终局动作或 Split；最后确定性展开 atomic coverage，将 AI 判断物化为唯一 canonical element decisions，并用固定输入验证准确率和 Word 效果。
+本计划把两份讨论稿转成一轮可验证实现：先从 sealed L1 和本次运行唯一 T2 final 建立完整、可追踪、带真实视觉证据的 T3 节点树；再让 AI 从 unit 开始，在 unit/table/row/cell/paragraph/run/span 中选择最粗安全终局动作或 Split；最后确定性展开 atomic coverage，将 AI 判断物化为唯一 canonical element decisions，并让 T3/T5/T6 通过统一 Final Publisher 结果链传递。
 
-讨论稿仍不是 canonical 契约。只有本计划的真实准确率和安全门禁通过、且用户确认结论后，才更新 `docs/current/template-generation-architecture.md` 与 `docs/current/template-generation-testing.md`。
+讨论稿仍不是 canonical 契约。用户已经确认当前 T3 输入、动作、指标和唯一 final 输出属于正式阶段契约，因此 `docs/current/template-generation-architecture.md` 与 `docs/current/template-generation-testing.md` 必须如实描述已经实施的接口；真实准确率和安全门禁决定本计划能否进入 verified，不再用“暂不更新架构”掩盖实现现状。
 
 ## Execution Contract
 
 ### Target Capability
 
 ```text
-sealed L1 + corresponding T2 route
+sealed L1 + T2 final
   → complete hierarchical T3 Stage Input with real visual evidence
   → sparse Keep/Fill/Delete/Split decisions
   → stop-or-descend orchestration
   → deterministic inheritance and atomic coverage ledger
   → validated AI-only canonical element decisions
+  → T3/T5/T6 canonical final publication and hash/availability chain
   → fixed-input three-school accuracy A/B
 ```
 
@@ -51,7 +52,8 @@ sealed L1 + corresponding T2 route
 7. AI 不自造身份、父子关系、content 或 span；越界输出被拒绝。
 8. direct/inherited/fallback/contested 在 artifact、物化和报告中保持可区分。
 9. 当前正式 T3 prompt 替换为分层节点 prompt，不再要求所有内容默认进入 run 标注。
-10. 三校固定输入 A/B 达到显著提升阈值且误删不恶化后，才允许迁入 canonical 长期文档。
+10. 已实施的输入、动作和输出合同进入 canonical 长期文档；三校固定输入 A/B 达到显著提升阈值且误删不恶化后，才允许把质量状态晋升为 `verified`。
+11. 阶段内部候选不得直接成为下游输入；T3 只接收 T2 final，T5 只接收 T2/T3/T4 final，T6 动作只从 T5 final 构造。
 
 ### Non-Goals
 
@@ -80,7 +82,7 @@ sealed L1 + corresponding T2 route
 如果未达到以上阈值：
 
 - 状态只能是 `implemented_in_part` 或 `blocked_by`；
-- 保留实验实现或按证据回退，但不得晋升为 canonical 正式契约；
+- 保留实验实现或按证据回退；已实施接口仍在 canonical 文档中如实记录，但不得把质量状态晋升为 `verified`；
 - 报告具体是输入完整性、层级停止、Fill/Delete 判断、模型能力还是 gold 粒度导致未提升。
 
 ### Completion Signals
@@ -94,7 +96,8 @@ sealed L1 + corresponding T2 route
 7. AI observation 与 canonical element_spec 使用共同 atomic identity，跨层决策不会按原始条目数误判。
 8. T3 canonical element_spec 和下游 element/span trace 实际消费新判断，不只是 side artifact。
 9. 单测、契约测试、live/replay、三校 A/B、残留扫描和最终报告全部完成。
-10. Accuracy Promotion Gate 通过且用户确认后，才更新 canonical 架构和测试文档。
+10. canonical 架构和测试文档与当前 T3 输入、动作、过程证据、指标和 final 输出保持一致；Accuracy Promotion Gate 通过后才能宣称质量 verified。
+11. 候选与 final 故意不同时，T3/T5/T6 仍只消费 final；hash 和 availability 可沿 T2→T3、T2/T3/T4→T5、T5→T6 重算。
 
 ### Anti-Degradation Rules
 
@@ -107,7 +110,7 @@ sealed L1 + corresponding T2 route
 7. 不允许 AI 自由创建 row/cell/run/span 或跨层 inspect refs。
 8. 不允许以调用减少换取动作 accuracy 或 coverage 下降。
 9. 不允许 baseline/candidate 使用不同 gold、不同 T2 上游、不同模型参数或未记录的缓存状态。
-10. 不达到三校质量门禁时，不更新 `docs/current/` 为正式能力。
+10. 不达到三校质量门禁时，不把 T3 质量状态写成 verified；`docs/current/` 仍如实记录已实施的接口和安全边界。
 
 ### Verification Matrix
 
@@ -130,7 +133,7 @@ sealed L1 + corresponding T2 route
 - 视觉不完整：记录 `visual_incomplete`，不得宣称 multimodal 整体判断。
 - span 不可执行：混合 run Keep/manual review，不自由拆分。
 - 某校不满足门禁：保留完整 mismatch、owner 和下一轮 issue，不用三校平均掩盖。
-- 下游尚未消费：状态保持 `implemented_in_part`，不得迁移 canonical 文档。
+- 下游尚未消费：状态保持 `implemented_in_part`，并在 status 中记录影响；canonical 文档仍必须准确描述当前已实施契约，不能提前宣称质量 verified。
 
 ## Implementation Checklist
 
@@ -139,6 +142,8 @@ sealed L1 + corresponding T2 route
 ### 已落地
 
 - 2026-07-23 用户确认 T3 收敛为 AI-only。已删除 `t3_authority_mode`、Code/Merge element_spec 产物、三路 atomic comparison 和 T3 route-eval/replay 分支；`03_element_spec.yaml` 是 AI 判断经程序校验、继承展开与 safe Keep 后的唯一 canonical 输出。
+- 2026-07-24 用户把单一结果要求扩展为所有阶段共同边界。已新增 `FinalStageResult`/Final Publisher：T3 拒绝 AI observation 并只读 T2 final；T5 强制接收 T2/T3/T4 final 并保守合并 availability；T6 plan/manifest 只接收 T5 final，不再从 `generation_model.unit_strategies` 或 T2/T3/T4 原始字典生成动作；T6/T7 记录直接上游 final hash。
+- 2026-07-25 已将实现事实完整同步到 canonical 文档：T3 Stage Input 的 T2 final/L1/tree hash、节点树与 firewall；Keep/Fill/Delete/Split 动作矩阵和 stop-or-descend/fallback；sparse/coverage/materialization 过程指标；adaptive run/span 准确率与 deletion safety；以及 `03_element_spec.yaml` 的 Final Publisher metadata、input refs、element/trace/availability 形状。
 
 - 正式 T3 路径已切到 versioned hierarchical Stage Input、节点事实防火墙、tree validator 和 sparse traversal；旧 flat local router、unit-window prompt/responder/materializer 及其兼容测试已删除。
 - 决策支持最粗终局 Keep/Fill/Delete、Split、直接叶子批量决策、深度/调用预算和失败回退；程序确定性展开唯一 atomic coverage。
@@ -159,6 +164,8 @@ sealed L1 + corresponding T2 route
 - 2026-07-23 按用户最新口径跳过 accuracy baseline，完成湖南农大独立 Word 视觉 A/B：两条路线共同消费 signed T2 standard 物化的准确模拟输入，T2 unit semantic hash 相同且标准审计均 PASS；T3 分别由 `code_raw` 与 `ai_raw` 单独主权执行，`merge_enabled=false`。产物位于 `test_outputs/debug/template_generation/20260723_t3_gold_t2_code_vs_ai_ab/hunannongye/`。
 - 本次 AI live 为 MiniMax-M3，96 次调用覆盖 812 个 atomic member；direct 122、inherited 281、fallback 409、contested 0，coverage validator 通过。409 个无效/不完整判断在 AI-primary 路线中直接物化为 safe Keep，不回退到 Code policy；4 个仅含空白字符的 raw run 未进入 generation structural shell，因而没有执行目标，也未扩大动作。
 - 两份 DOCX 均通过包校验并由 LibreOffice 渲染为 19 页 A4。视觉抽查发现 Code 封面清理过度；AI-primary 保留更多封面内容，但有封面顶部页码、目录后移和空白页。该运行未传 T3 gold、未生成 accuracy artifact，只作为产品视觉预览，不改变 Accuracy Promotion Gate。
+- 三校 T3 gold 已按 canonical 测试契约迁移到 `t3-adaptive-run-span-gold-1.0`，并于 2026-07-23 完成代理 Word 审查：163 个候选中 145 个确认为整 run 统一动作，18 个 mixed run 物化为 77 条 exact span；北大 3 个原 `unknown` 已拆为明确 Keep/Fill。冻结 L1 packet 严格校验和 source hash 绑定均通过。代理审查不代替人工签核，因此三校 `gold_status` 仍保持 `PARTIAL`。
+- 2026-07-23 用户确认湖南农大当前 `source_template.docx` 是手工纠错后的 canonical source。已将 active hash 从 `6d66a292…` 重绑定为 `776649b4…`，重建 T1/L1 并证明 320 个 source-seq 和 493 个逻辑 run 文本不变；T2 边界原样保留。raw run 因 Word 重存由 708 变为 674，T3 gold 已按有序逻辑 run 与字符位置精确投影为 714 条 ledger item（12 个 mixed run、52 条 span），并通过新 packet 的完整覆盖校验。旧 Word 审查路径保留为历史证据，`gold_status` 仍为 `PARTIAL`。
 
 ### 真实结构证据
 
@@ -188,8 +195,9 @@ sealed L1 + corresponding T2 route
 2. visual evidence 目前发送带 target bbox/hash 的真实整页附件，尚未生成 unit/object/row/cell/paragraph 实体 crop。
 3. 统一 prompt 资源尚未按 node kind 拆成独立可审阅模板；provider 有网络重试，但 invalid semantic decision 没有独立重试策略。
 4. TOC field→paragraph ownership 未建模；本次湖南农大虽降到 96 次 live 调用，但仍有 409 个 atomic member 因完整性/动作契约进入 safe Keep，三校成本与动作质量门禁均未闭环。
-5. 缺合规三校 baseline/candidate A/B，Accuracy Promotion Gate 未验证；canonical 晋升禁止。
-6. 已签学校 gold 仍为“一条 raw run 对应一个动作”，不能表达同一 raw run 内多个 span 的混合动作；当前兼容评测会把这种结果显式记为 run conflict。要验证 span 级动作准确率，仍需独立的人审 span gold，不能把旧 run gold 自动细分成伪 gold。
+5. 缺合规三校 baseline/candidate A/B，Accuracy Promotion Gate 未验证；当前接口契约已经 canonical，但质量状态禁止晋升为 verified。
+6. 三校 gold 的 163 个候选已经过代理 Word 审查，18 个 mixed run 已形成完整 span gold，待审队列和 `unknown` 均已清零。湖南农大纠错源的 identity 迁移已经闭环，但要关闭 gold 质量门禁，仍需人工复核完整 scored universe、确认或修正代理动作并补齐审核人和时间；代理审查不能自动把 gold 晋升为 `VERIFIED`。
+7. 业务 final 链已落地并通过反例与 template-generate 契约测试；T7 专门的连续性 finding、route/judge 展示和历史 run legacy 标记仍需闭环。
 
 ### Phase 0：冻结 baseline 与批准首版选择
 
@@ -214,7 +222,8 @@ sealed L1 + corresponding T2 route
 - [x] 定义 terminal Keep/Fill/Delete 与 Split schema、节点动作矩阵和条件字段。
 - [x] 定义 accepted/fallback/manual_review/failed/contested 状态，不与动作枚举混用。
 - [x] 编排从 unit 根开始，只沿合法 inspect_child_refs 递归。
-- [ ] 实现终局停止、最大深度/预算、重试、部分结果和失败回退。
+- [x] 实现终局停止、最大深度/预算、部分结果和失败回退。
+- [ ] 为 invalid semantic decision 增加独立重试策略；当前只做校验后 safe Keep。
 - [x] cache/replay key 绑定 input tree、visual、prompt、model 和 contract version。
 
 ### Phase 3：正式 Prompt 与 Provider 接线
@@ -242,6 +251,8 @@ sealed L1 + corresponding T2 route
 - [ ] 整体 Keep、正确 Split、错误提前 Keep、过度下钻和结构保留反例。
 - [ ] 跨页、大表、合并/嵌套表格、图片缺失、截断、非法 ref 和失败注入。
 - [x] 运行聚焦单测、agent contract、template-generate/replay 和 route evaluator。
+- [x] 迁移三校 T3 gold 的 adaptive run/span identity；补 exact text/T2 hash/review 状态，接通 evaluator/verifier/standard-quality，并生成 163 条无动作建议的 span review queue。
+- [x] 代理在 Word 中结合冻结 DOCX、页面和 sealed L1 facts 审查 163 个候选；145 个保留 run gold，18 个 mixed run 物化为 77 条 exact span，清零 `unknown`，并保留 `PARTIAL` 等待人工签核。
 - [x] 运行湖南农大 Code vs AI-primary 独立 Word 视觉 A/B；校验共同 T2、DOCX 可打开和 19 页 A4 渲染。该项不替代 accuracy A/B。
 - [ ] 用三校固定输入跑 baseline/candidate；报告 exact accuracy、macro-F1、各动作 precision/recall、false delete、coverage、调用数和层级指标。
 - [x] 对结果做 mismatch/root cause/owner/fix plan，不用总 PASS 掩盖单校或动作退化。
@@ -249,8 +260,20 @@ sealed L1 + corresponding T2 route
 ### Phase 6：晋升或残留
 
 - [x] 用户确认 T3 AI-only、程序自检、单一最终结果和 availability 下传的讨论结论。
-- [x] 更新 canonical T3 架构和测试契约，并同步 status/plan/index；下游实现适配另列状态项。
-- [x] 未通过则保持讨论稿和 `implemented_in_part`，记录下一轮改进，不更新长期文档。
+- [x] 更新 canonical T3 架构和测试契约，并同步 status/plan/index。
+- [x] 质量未通过时保持 `implemented_in_part`，记录下一轮改进；长期文档只陈述已实施契约，不宣称准确率已闭环。
+
+### Phase 7：跨阶段 Final Publisher
+
+- [x] 定义统一 `FinalStageResult`、`result_role=final`、availability、input refs 和 lineage。
+- [x] T3 只接收 T2 final；AI observation 与 final 不同时仍使用 final。
+- [x] T5 只接收 T2/T3/T4 final，并保守传播 required-upstream availability。
+- [x] T6 plan/manifest 只接收 T5 final；移除 `generation_model` 和 T2/T3/T4 旁路动作源。
+- [x] T3 Stage Input、T3/T5/T6/T7 final 补直接上游 hash。
+- [x] 补候选拒绝、final 差异、availability 和完整 template-generate 契约测试。
+- [x] T7 verifier 对 final contract、直接上游 hash 和 availability upgrade 生成结构化 finding，并影响 stage status/first bad stage。
+- [x] 湖南农大 AI-off 真实全链证明 T1-T7 final hash 可重算，T3 `NOT_AVAILABLE` 不会在 T5/T6/T7 被升级。
+- [ ] route replay、judge/stage card 和 legacy run reader 完成诊断口径收敛。
 
 ## Commit Strategy
 
